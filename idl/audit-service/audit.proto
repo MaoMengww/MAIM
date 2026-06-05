@@ -1,0 +1,222 @@
+syntax = "proto3";
+
+package audit;
+
+import "common/common.proto";
+
+option go_package = "github.com/maomeng/aim/app/audit-service/pb/audit";
+
+service AuditService {
+  // record an audit event (internal RPC, called by other services)
+  rpc RecordAudit(RecordAuditReq) returns (common.BaseResponse);
+  // batch record audit events
+  rpc BatchRecordAudit(BatchRecordAuditReq) returns (common.BaseResponse);
+  // query audit logs
+  rpc ListAudits(ListAuditsReq) returns (ListAuditsResp);
+  // get single audit event
+  rpc GetAudit(GetAuditReq) returns (GetAuditResp);
+  // export audit logs
+  rpc ExportAudits(ExportAuditsReq) returns (ExportAuditsResp);
+  // archive / cleanup old audit logs
+  rpc ArchiveAudits(ArchiveAuditsReq) returns (common.BaseResponse);
+}
+
+// ========== Enums ==========
+
+enum AuditAction {
+  AUDIT_ACTION_UNSPECIFIED = 0;
+  // auth
+  AUDIT_ACTION_LOGIN = 1;
+  AUDIT_ACTION_LOGOUT = 2;
+  AUDIT_ACTION_REGISTER = 3;
+  AUDIT_ACTION_REFRESH_TOKEN = 4;
+  AUDIT_ACTION_OAUTH_LOGIN = 5;
+  AUDIT_ACTION_SESSION_REVOKED = 6;
+
+  // user
+  AUDIT_ACTION_UPDATE_PROFILE = 20;
+  AUDIT_ACTION_BIND_PHONE = 21;
+  AUDIT_ACTION_BIND_EMAIL = 22;
+  AUDIT_ACTION_CHANGE_PASSWORD = 23;
+  AUDIT_ACTION_DELETE_ACCOUNT = 24;
+
+  // friend
+  AUDIT_ACTION_FRIEND_REQUEST = 40;
+  AUDIT_ACTION_FRIEND_ACCEPT = 41;
+  AUDIT_ACTION_FRIEND_REJECT = 42;
+  AUDIT_ACTION_FRIEND_DELETE = 43;
+  AUDIT_ACTION_BLOCK_USER = 44;
+  AUDIT_ACTION_UNBLOCK_USER = 45;
+
+  // conversation
+  AUDIT_ACTION_CREATE_CONVERSATION = 60;
+  AUDIT_ACTION_DELETE_CONVERSATION = 61;
+  AUDIT_ACTION_ADD_MEMBER = 62;
+  AUDIT_ACTION_REMOVE_MEMBER = 63;
+
+  // message
+  AUDIT_ACTION_SEND_MESSAGE = 80;
+  AUDIT_ACTION_RECALL_MESSAGE = 81;
+  AUDIT_ACTION_EDIT_MESSAGE = 82;
+  AUDIT_ACTION_DELETE_MESSAGE = 83;
+
+  // bot
+  AUDIT_ACTION_CREATE_BOT = 100;
+  AUDIT_ACTION_UPDATE_BOT = 101;
+  AUDIT_ACTION_DELETE_BOT = 102;
+  AUDIT_ACTION_BOT_REPLY = 103;
+
+  // knowledge
+  AUDIT_ACTION_CREATE_KNOWLEDGE = 120;
+  AUDIT_ACTION_DELETE_KNOWLEDGE = 121;
+  AUDIT_ACTION_UPLOAD_DOCUMENT = 122;
+  AUDIT_ACTION_DELETE_DOCUMENT = 123;
+
+  // file
+  AUDIT_ACTION_UPLOAD_FILE = 140;
+  AUDIT_ACTION_DELETE_FILE = 141;
+
+  // admin
+  AUDIT_ACTION_ADMIN_OPERATION = 200;
+}
+
+enum AuditResult {
+  AUDIT_RESULT_UNSPECIFIED = 0;
+  AUDIT_RESULT_SUCCESS = 1;
+  AUDIT_RESULT_FAILURE = 2;
+}
+
+enum AuditRisk {
+  AUDIT_RISK_UNSPECIFIED = 0;
+  AUDIT_RISK_LOW = 1;
+  AUDIT_RISK_MEDIUM = 2;
+  AUDIT_RISK_HIGH = 3;
+  AUDIT_RISK_CRITICAL = 4;
+}
+
+// ========== Audit Event ==========
+
+message AuditEvent {
+  string event_id = 1;            // unique event ID (snowflake)
+  AuditAction action = 2;
+  AuditResult result = 3;
+  AuditRisk risk = 4;
+
+  // subject
+  int64 user_id = 10;
+  string device_id = 11;
+  string ip_address = 12;
+  string user_agent = 13;
+
+  // object
+  string resource_type = 20;      // e.g., "conversation", "message", "bot"
+  string resource_id = 21;
+
+  // detail
+  string detail = 30;             // JSON: before/after, changes, reason
+  string error_message = 31;      // populated on failure
+
+  // trace
+  string trace_id = 40;
+  string span_id = 41;
+
+  // service
+  string service_name = 50;       // originating service
+  string service_version = 51;
+
+  int64 created_at = 60;
+}
+
+// ========== Record Audit ==========
+
+message RecordAuditReq {
+  AuditAction action = 1;
+  AuditResult result = 2;
+  AuditRisk risk = 3;
+  int64 user_id = 10;
+  optional string device_id = 11;
+  optional string ip_address = 12;
+  optional string user_agent = 13;
+  optional string resource_type = 20;
+  optional string resource_id = 21;
+  optional string detail = 30;
+  optional string error_message = 31;
+  optional string trace_id = 40;
+  optional string span_id = 41;
+  string service_name = 50;
+  optional string service_version = 51;
+}
+
+// ========== Batch Record ==========
+
+message BatchRecordAuditReq {
+  repeated RecordAuditReq events = 1;
+}
+
+// ========== List Audits ==========
+
+message ListAuditsReq {
+  // filters (all optional)
+  optional int64 user_id = 1;
+  optional AuditAction action = 2;
+  optional AuditResult result = 3;
+  optional AuditRisk risk = 4;
+  optional string resource_type = 5;
+  optional string resource_id = 6;
+  optional int64 start_time = 7;      // unix timestamp
+  optional int64 end_time = 8;        // unix timestamp
+  optional string ip_address = 9;
+  optional string service_name = 10;
+
+  common.Pagination pagination = 20;
+}
+
+message ListAuditsResp {
+  repeated AuditEvent events = 1;
+  common.PaginationResp pagination = 2;
+}
+
+// ========== Get Audit ==========
+
+message GetAuditReq {
+  string event_id = 1;
+}
+
+message GetAuditResp {
+  AuditEvent event = 1;
+}
+
+// ========== Export Audits ==========
+
+enum ExportFormat {
+  EXPORT_FORMAT_UNSPECIFIED = 0;
+  EXPORT_FORMAT_JSON = 1;
+  EXPORT_FORMAT_CSV = 2;
+  EXPORT_FORMAT_JSONL = 3;
+}
+
+message ExportAuditsReq {
+  // same filters as ListAuditsReq
+  optional int64 user_id = 1;
+  optional AuditAction action = 2;
+  optional AuditResult result = 3;
+  optional int64 start_time = 7;
+  optional int64 end_time = 8;
+  optional string service_name = 10;
+
+  ExportFormat format = 20;
+  int32 max_events = 21;              // max events to export (default 10000)
+}
+
+message ExportAuditsResp {
+  string file_url = 1;                // presigned URL to export file
+  int32 event_count = 2;
+  int64 expires_at = 3;
+}
+
+// ========== Archive Audits ==========
+
+message ArchiveAuditsReq {
+  int64 before_time = 1;              // archive events created before this time
+  bool delete_after_archive = 2;      // delete from primary DB after archiving
+}

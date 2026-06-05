@@ -1,0 +1,93 @@
+Name: message-service
+ListenOn: 0.0.0.0:50053
+
+Etcd:
+  Hosts:
+  - 127.0.0.1:2379
+  Key: message.rpc
+
+Database:
+  driver: postgres
+  dsn: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=msg
+  maxOpenConn: 200
+  maxIdleConn: 200
+  maxLifetime: 3600
+
+Redis:
+  Host: localhost:6379
+  Type: node
+  Pass: ""
+  Key: message.rpc
+
+Kafka:
+  brokers:
+  - localhost:9092
+  consumerGroup: message-inbox-writer
+  maxRetry: 3
+
+Elasticsearch:
+  addresses:
+  - http://localhost:9200
+
+Message:
+  recallWindowSeconds: 120
+  editWindowSeconds: 120
+  maxPageSize: 100
+
+Snowflake:
+  workerId: 1
+
+ConvService:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: conversation.rpc
+  Middlewares:
+    Breaker: true
+UserService:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: user.rpc
+  Middlewares:
+    Breaker: true
+
+BotPlatform:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: bot-platform.rpc
+  Middlewares:
+    Breaker: true
+
+FriendService:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: friend.rpc
+  Middlewares:
+    Breaker: true
+
+Log:
+  Level: info
+  Stat: false
+
+CpuThreshold: 900
+Middlewares:
+  Breaker: true
+  Trace: true
+
+RateLimit:
+  Enabled: true
+  RequestsPerSecond: 100
+  Concurrency: 10
+
+Telemetry:
+  Name: message.rpc
+  Endpoint: localhost:4317
+  Sampler: 0
+  Batcher: otlpgrpc
+
+Prometheus:
+  Host: 0.0.0.0
+  Port: 9102

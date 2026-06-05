@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package common;
+
+option go_package = "github.com/maomeng/aim/pkg/pb/common";
+
+enum Provider {
+  PROVIDER_UNSPECIFIED = 0;
+  PROVIDER_OPENAI = 1;
+  PROVIDER_ANTHROPIC = 2;
+  PROVIDER_GOOGLE = 3;
+  PROVIDER_DEEPSEEK = 4;
+  PROVIDER_QWEN = 5;
+  PROVIDER_OLLAMA = 6;
+  PROVIDER_CUSTOM = 7;
+}
+
+message Empty {}
+
+message BaseResponse {
+  int32 code = 1;
+  string message = 2;
+}
+
+message Pagination {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+message PaginationResp {
+  int32 page = 1;
+  int32 page_size = 2;
+  int64 total = 3;
+  int32 total_pages = 4;
+}
+
+message CursorPagination {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message CursorPaginationResp {
+  string next_cursor = 1;
+  bool has_more = 2;
+  int64 total = 3;
+}

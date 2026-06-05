@@ -1,0 +1,609 @@
+syntax = "proto3";
+
+package knowledgebase;
+
+option go_package = "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase";
+
+import "google/protobuf/empty.proto";
+
+service KnowledgeBase {
+    // ========== KB CRUD ==========
+    rpc CreateKB(CreateKBReq) returns (KBRsp);
+    rpc UpdateKB(UpdateKBReq) returns (KBRsp);
+    rpc DeleteKB(DeleteKBReq) returns (google.protobuf.Empty);
+    rpc GetKB(GetKBReq) returns (KBRsp);
+    rpc ListKBs(ListKBsReq) returns (ListKBsRsp);
+
+    // ========== Document ==========
+    rpc UploadDocument(stream UploadDocumentReq) returns (DocumentRsp);
+    rpc GetDocument(GetDocumentReq) returns (DocumentRsp);
+    rpc ListDocuments(ListDocumentsReq) returns (ListDocumentsRsp);
+    rpc DeleteDocument(DeleteDocumentReq) returns (google.protobuf.Empty);
+    rpc RetryDocument(RetryDocumentReq) returns (DocumentRsp);
+
+    // ========== Retrieve ==========
+    rpc Retrieve(RetrieveReq) returns (RetrieveRsp);
+
+    // ========== Binding ==========
+    rpc Bind(BindReq) returns (google.protobuf.Empty);
+    rpc Unbind(UnbindReq) returns (google.protobuf.Empty);
+    rpc ListBindings(ListBindingsReq) returns (ListBindingsRsp);
+    rpc ListBoundTargets(ListBoundTargetsReq) returns (ListBoundTargetsRsp);
+
+    // ========== Wiki ==========
+    rpc WikiReadIndex(WikiReadIndexReq) returns (WikiPageRsp);
+    rpc WikiReadPage(WikiReadPageReq) returns (WikiPageRsp);
+    rpc WikiListPages(WikiListPagesReq) returns (WikiListPagesRsp);
+    rpc WikiSearch(WikiSearchReq) returns (WikiSearchRsp);
+    rpc WikiUpdatePage(WikiUpdatePageReq) returns (WikiPageRsp);
+    rpc WikiDeletePage(WikiDeletePageReq) returns (google.protobuf.Empty);
+    rpc WikiListIssues(WikiListIssuesReq) returns (WikiListIssuesRsp);
+    rpc WikiRefresh(WikiRefreshReq) returns (WikiRefreshRsp);
+    rpc WikiRunMaintenance(WikiMaintenanceReq) returns (WikiMaintenanceRsp);
+    rpc WikiQuery(WikiQueryReq) returns (WikiQueryRsp);
+	rpc WikiGraph(WikiGraphReq) returns (WikiGraphRsp);
+    rpc WikiBatchUploadDocuments(stream WikiBatchUploadDocumentReq) returns (WikiBatchUploadDocumentRsp);
+    rpc WikiReadSourceDoc(WikiReadSourceDocReq) returns (WikiReadSourceDocRsp);
+    rpc WikiReplaceText(WikiReplaceTextReq) returns (WikiPageRsp);
+    rpc WikiRenamePage(WikiRenamePageReq) returns (WikiPageRsp);
+    rpc WikiReadIssue(WikiReadIssueReq) returns (WikiReadIssueRsp);
+    rpc WikiUpdateIssue(WikiUpdateIssueReq) returns (google.protobuf.Empty);
+    rpc WikiFlagIssue(WikiFlagIssueReq) returns (WikiFlagIssueRsp);
+
+    // ========== Document Content & Chunks ==========
+    rpc GetDocumentContent(GetDocumentContentReq) returns (GetDocumentContentResp);
+    rpc ListChunks(ListChunksReq) returns (ListChunksResp);
+}
+
+// ============================================================
+// KB
+// ============================================================
+
+message CreateKBReq {
+    string name = 1;
+    string description = 2;
+    string embedding_model = 3;     // display only, resolved from embedding_model_id
+    PipelineConfig pipeline_config = 4;
+    string mode = 5;                // "rag" | "wiki"
+    int64 embedding_model_id = 6;   // model registry ID
+}
+
+message UpdateKBReq {
+    int64 kb_id = 1;
+    string name = 2;
+    string description = 3;
+    string embedding_model = 4;
+    PipelineConfig pipeline_config = 5;
+    string status = 6;          // "active" | "disabled"
+    int64 embedding_model_id = 7;
+}
+
+message DeleteKBReq { int64 kb_id = 1; }
+message GetKBReq { int64 kb_id = 1; }
+
+message ListKBsReq {
+    int32 offset = 1;
+    int32 limit = 2;
+}
+
+message KBRsp {
+    int64 id = 1;
+    int64 owner_id = 2;
+    string name = 3;
+    string description = 4;
+    string embedding_model = 5;
+    PipelineConfig pipeline_config = 6;
+    int32 doc_count = 7;
+    int32 total_chunks = 8;
+    string status = 9;
+    int64 created_at = 10;
+    int64 updated_at = 11;
+    string mode = 12;               // "rag" | "wiki"
+    int64 embedding_model_id = 13;
+}
+
+message ListKBsRsp {
+    repeated KBRsp items = 1;
+    int64 total = 2;
+}
+
+// ============================================================
+// Pipeline Config
+// ============================================================
+
+message PipelineConfig {
+    string preset = 1;               // "general" | "tech_doc" | "legal" | "customer_service" | "academic" | "custom"
+    ParsingConfig parsing = 2;
+    ChunkingConfig chunking = 3;
+    RetrievalConfig retrieval = 4;
+    WikiConfig wiki = 5;
+}
+
+message ParsingConfig {
+    // 解析引擎优先级列表，按顺序尝试第一个支持该文件类型的引擎
+    // 可选值: "builtin", "mineru_precision", "mineru_agent"
+    // builtin 支持: txt, md, html, json, xml, csv, yaml
+    // mineru_precision 支持: pdf, doc/docx, ppt/pptx, xls/xlsx, 图片(≤200MB/200页)
+    // mineru_agent 支持: pdf, doc/docx, 图片(≤10MB/20页)
+    repeated string engines = 1;
+
+    // MinerU 精准解析 API 配置（需申请 Token）
+    MinerUConfig mineru_precision = 2;
+    // MinerU Agent 轻量解析 API 配置（免登录，IP 限频）
+    MinerUConfig mineru_agent = 3;
+
+    // VLM 图片解析配置，将文档中的图片解析为文字
+    VLMConfig vlm = 4;
+}
+
+message MinerUConfig {
+    string api_url = 1;               // API 地址，为空则不启用该模式（自托管 MinerU）
+    string api_token = 2;             // API Token（自托管 MinerU）
+    string api_key = 3;               // mineru.net 云服务 API Key
+}
+
+message VLMConfig {
+    bool enabled = 1;                 // 是否启用 VLM 图片解析
+    string provider = 2;              // VLM 服务商，如 "openai"
+    string model = 3;                 // VLM 模型名，如 "gpt-4o-mini"
+    string api_key = 4;               // VLM API Key
+    string base_url = 5;              // VLM 服务地址
+    int64 model_id = 6;               // 模型注册表 ID，CreateKB 时用于查询 Provider/Model/APIKey/BaseURL
+}
+
+message ChunkingConfig {
+    int32 chunk_size = 1;             // 100-4000, default: 512
+    int32 overlap = 2;                // 0-500, default: 100
+    repeated string separators = 3;   // 可选: "\n\n" "\n" "。" "！" "？" ";" "；"
+    ParentChildConfig parent_child = 4;
+}
+
+message ParentChildConfig {
+    bool enabled = 1;
+    int32 parent_size = 2;            // 256-4096, default: 4096
+    int32 child_size = 3;             // 64-1024, default: 384
+}
+
+message RetrievalConfig {
+    string mode = 1;                  // "vector" | "hybrid" | "fulltext"
+    int32 top_k = 2;                  // default: 5
+    int32 candidate_top_k = 3;        // default: 20
+    float score_threshold = 4;        // default: 0.7
+    float dense_weight = 5;           // dense weight for hybrid, default: 0.7
+    float sparse_weight = 6;          // BM25 weight for hybrid, default: 0.3
+    RerankConfig rerank = 7;
+}
+
+message RerankConfig {
+    bool enabled = 1;
+    int64 model_id = 2;
+    int32 top_n = 3;                  // candidates to rerank, default: 20
+}
+
+// ============================================================
+// Document
+// ============================================================
+
+message UploadDocumentReq {
+    message MetaChunk {
+        string title = 1;
+        string file_type = 2;         // "pdf" | "md" | "txt" | "docx" | "html"
+        int64 file_size = 3;
+        string original_filename = 4;
+        string content_hash = 5;      // SHA256
+        string metadata = 6;          // JSON, user-defined tags
+        PipelineConfig pipeline_override = 7;
+    }
+    oneof data {
+        MetaChunk meta = 1;           // first frame: metadata
+        bytes content = 2;            // subsequent frames: file content
+    }
+}
+
+message GetDocumentReq { int64 doc_id = 1; }
+
+message ListDocumentsReq {
+    int64 kb_id = 1;
+    int32 offset = 2;
+    int32 limit = 3;
+    string status = 4;                // optional filter by status
+}
+
+message DeleteDocumentReq { int64 doc_id = 1; }
+message RetryDocumentReq { int64 doc_id = 1; }
+
+message DocumentRsp {
+    int64 id = 1;
+    int64 kb_id = 2;
+    string title = 3;
+    string file_type = 4;
+    int64 file_size = 5;
+    string original_filename = 6;
+    string status = 7;                // "pending"|"parsing"|"chunking"|"embedding"|"ready"|"failed"
+    int32 chunk_count = 8;
+    string error_message = 9;
+    string metadata = 10;             // JSON
+    repeated StageInfo stages = 11;
+    int64 created_at = 12;
+    int64 updated_at = 13;
+}
+
+message StageInfo {
+    string name = 1;                  // "parsing" | "chunking" | "embedding"
+    string status = 2;
+    int32 retries = 3;
+    string error = 4;
+    int64 started_at = 5;
+    int64 ended_at = 6;
+}
+
+message ListDocumentsRsp {
+    repeated DocumentRsp items = 1;
+    int64 total = 2;
+}
+
+// ============================================================
+// Retrieve
+// ============================================================
+
+message RetrieveReq {
+    string query = 1;
+    int64 bot_id = 2;
+    int64 conv_id = 3;
+    repeated int64 kb_ids = 4;
+    // knowledge-base resolves bindings internally, caller does not pass kb_ids
+}
+
+message RetrieveRsp {
+    repeated RetrieveItem items = 1;
+}
+
+message RetrieveItem {
+    int64 chunk_id = 1;
+    string content = 2;               // parent block full text for parent-child mode
+    float score = 3;
+    int64 doc_id = 4;
+    string doc_title = 5;
+    int64 kb_id = 6;
+    string kb_name = 7;
+    string matched_content = 8;       // matched child block text (parent-child mode)
+    ChunkMeta metadata = 9;
+}
+
+message ChunkMeta {
+    int32 page_num = 1;
+    string section_title = 2;
+    int32 section_level = 3;
+    int32 start_line = 4;
+    int32 end_line = 5;
+    string doc_title = 6;
+}
+
+// ============================================================
+// Binding
+// ============================================================
+
+message BindReq {
+    int64 kb_id = 1;
+    string target_type = 2;           // "bot" | "conv"
+    int64 target_id = 3;
+}
+
+message UnbindReq {
+    int64 kb_id = 1;
+    string target_type = 2;
+    int64 target_id = 3;
+}
+
+message ListBindingsReq {
+    string target_type = 1;           // "bot" | "conv"
+    int64 target_id = 2;
+}
+
+message ListBindingsRsp {
+    repeated BindingItem items = 1;
+}
+
+message BindingItem {
+    int64 id = 1;
+    int64 kb_id = 2;
+    string kb_name = 3;
+    string target_type = 4;
+    int64 target_id = 5;
+    int64 created_at = 6;
+    string mode = 7;
+}
+
+message ListBoundTargetsReq { int64 kb_id = 1; }
+
+message ListBoundTargetsRsp {
+    repeated BoundTargetItem items = 1;
+}
+
+message BoundTargetItem {
+    string target_type = 1;
+    int64 target_id = 2;
+    int64 created_at = 3;
+}
+
+// ============================================================
+// Document Content & Chunks
+// ============================================================
+
+message GetDocumentContentReq { int64 doc_id = 1; }
+
+message GetDocumentContentResp {
+    string content = 1;
+    string download_url = 2;
+    string mime_type = 3;
+    int64 file_size = 4;
+}
+
+message ListChunksReq {
+    int64 doc_id = 1;
+    int32 offset = 2;
+    int32 limit = 3;
+}
+
+message ChunkInfo {
+    int64 id = 1;
+    int64 doc_id = 2;
+    int32 chunk_index = 3;
+    string content = 4;
+    int32 token_count = 5;
+    string metadata = 6;
+    int64 created_at = 7;
+}
+
+message ListChunksResp {
+    repeated ChunkInfo chunks = 1;
+    int64 total = 2;
+}
+
+// ============================================================
+// Wiki
+// ============================================================
+
+message WikiConfig {
+    bool enabled = 1;
+    int64 model_id = 2;             // model registry ID, 0 = use default
+    string model_name = 5;          // display only
+    bool auto_lint = 3;
+    int32 stale_threshold_hours = 4;
+    bool maintenance_enabled = 6;   // 是否启用自动维护
+    string maintenance_cron = 7;    // cron 表达式，如 "0 3 * * *"
+}
+
+message WikiReadIndexReq { int64 kb_id = 1; }
+message WikiReadPageReq { int64 kb_id = 1; string slug = 2; }
+
+message WikiSourceRef {
+    int64 doc_id = 1;
+    string title = 2;
+}
+
+message WikiPageRsp {
+    int64 id = 1;
+    string slug = 2;
+    string title = 3;
+    string page_type = 4;
+    string content = 5;
+    string summary = 6;
+    repeated string aliases = 7;
+    repeated string out_links = 8;
+    repeated string in_links = 9;
+    int32 version = 10;
+    int64 created_at = 11;
+    int64 updated_at = 12;
+    repeated WikiSourceRef source_refs = 13;
+}
+
+message WikiListPagesReq {
+    int64 kb_id = 1;
+    string page_type = 2;
+    int32 limit = 3;
+    int32 offset = 4;
+}
+
+message WikiListPagesRsp {
+    repeated WikiPageItem items = 1;
+    int32 total = 2;
+}
+
+message WikiPageItem {
+    int64 id = 1;
+    string slug = 2;
+    string title = 3;
+    string page_type = 4;
+    string summary = 5;
+    int32 version = 6;
+    int64 updated_at = 7;
+}
+
+message WikiSearchReq {
+    int64 kb_id = 1;
+    string query = 2;
+    int32 limit = 3;
+}
+
+message WikiSearchRsp {
+    repeated WikiSearchItem items = 1;
+}
+
+message WikiSearchItem {
+    string slug = 1;
+    string title = 2;
+    string page_type = 3;
+    string snippet = 4;
+}
+
+message WikiUpdatePageReq {
+    int64 kb_id = 1;
+    string slug = 2;
+    string title = 3;
+    string content = 4;
+    string summary = 5;
+    repeated string aliases = 6;
+}
+
+message WikiDeletePageReq {
+    int64 kb_id = 1;
+    string slug = 2;
+}
+
+message WikiListIssuesReq {
+    int64 kb_id = 1;
+    string status = 2;
+}
+
+message WikiListIssuesRsp {
+    repeated WikiIssueItem items = 1;
+}
+
+message WikiIssueItem {
+    int64 id = 1;
+    string page_slug = 2;
+    string issue_type = 3;
+    string level = 4;
+    string title = 5;
+    string status = 6;
+    int64 created_at = 7;
+    string description = 8;
+}
+
+message WikiRefreshReq {
+    int64 kb_id = 1;
+}
+
+message WikiRefreshRsp {
+    int32 pages_updated = 1;
+}
+
+message WikiMaintenanceReq {
+    int64 kb_id = 1;
+}
+
+message WikiMaintenanceRsp {
+    int32 pages_created = 1;
+    int32 issues_found = 2;
+    int64 duration_ms = 3;
+}
+
+message WikiQueryReq {
+    string query = 1;
+    repeated int64 wiki_kb_ids = 2;
+    int64 model_id = 3;
+    string model_name = 4;
+    string history = 5;             // conversation history for context
+}
+
+message WikiQueryRsp {
+    string answer = 1;
+    repeated WikiQueryRef refs = 2;
+}
+
+message WikiQueryRef {
+    string slug = 1;
+    string title = 2;
+    string snippet = 3;
+}
+
+message WikiGraphReq {
+    int64 kb_id = 1;
+}
+
+message WikiGraphNode {
+    string id = 1;
+    string title = 2;
+    string page_type = 3;
+    string group = 4;
+    string summary = 5;
+    int32 citation_count = 6;
+}
+
+message WikiGraphEdge {
+    string source = 1;
+    string target = 2;
+    int32 weight = 3;
+}
+
+message WikiGraphRsp {
+    repeated WikiGraphNode nodes = 1;
+    repeated WikiGraphEdge edges = 2;
+}
+
+// --- Batch Upload ---
+message WikiBatchUploadDocumentReq {
+    oneof data {
+        WikiBatchMetaChunk meta = 1;
+        bytes content = 2;
+    }
+}
+message WikiBatchMetaChunk {
+    repeated FileMeta files = 1;
+}
+message FileMeta {
+    string title = 1;
+    string file_type = 2;
+    int64 file_size = 3;
+    string original_filename = 4;
+    PipelineConfig pipeline_override = 5;
+    string metadata = 6;
+}
+message WikiBatchUploadDocumentRsp {
+    repeated DocumentRsp documents = 1;
+}
+
+// --- Wiki Source Doc ---
+message WikiReadSourceDocReq {
+    int64 kb_id = 1;
+    int64 doc_id = 2;
+    string query = 3;
+    int32 start_chunk_index = 4;
+    int32 end_chunk_index = 5;
+}
+message WikiReadSourceDocRsp {
+    int64 doc_id = 1;
+    string title = 2;
+    string content = 3;
+}
+
+// --- Wiki Replace Text ---
+message WikiReplaceTextReq {
+    int64 kb_id = 1;
+    string slug = 2;
+    string old_text = 3;
+    string new_text = 4;
+}
+
+// --- Wiki Rename Page ---
+message WikiRenamePageReq {
+    int64 kb_id = 1;
+    string slug = 2;
+    string new_slug = 3;
+}
+
+// --- Wiki Issues ---
+message WikiReadIssueReq {
+    int64 kb_id = 1;
+    string slug = 2;
+    int64 issue_id = 3;
+}
+message WikiReadIssueRsp {
+    WikiIssueItem issue = 1;
+}
+
+message WikiUpdateIssueReq {
+    int64 issue_id = 1;
+    string status = 2;
+}
+
+message WikiFlagIssueReq {
+    int64 kb_id = 1;
+    string slug = 2;
+    string issue_type = 3;
+    string description = 4;
+}
+message WikiFlagIssueRsp {
+    int64 issue_id = 1;
+}

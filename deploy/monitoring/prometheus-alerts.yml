@@ -1,0 +1,56 @@
+groups:
+  - name: aim-alerts
+    rules:
+      - alert: HighKafkaLag
+        expr: kafka_consumer_lag > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag is high for topic {{ $labels.topic }}"
+
+      - alert: HighGRPCErrorRate
+        expr: |
+          sum(rate(rpc_server_requests_code_total{code!="OK"}[5m])) by (method)
+          /
+          sum(rate(rpc_server_requests_code_total[5m])) by (method) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "gRPC error rate > 5% for method {{ $labels.method }}"
+
+      - alert: ServiceDown
+        expr: up{job=~"rpc-services|gateway|ws-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+
+      - alert: HighBotErrorRate
+        expr: |
+          sum(rate(bot_requests_total{status="error"}[5m])) by (bot_id)
+          /
+          sum(rate(bot_requests_total[5m])) by (bot_id) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bot {{ $labels.bot_id }} error rate > 10%"
+
+      - alert: NoRechargeRecent
+        expr: increase(recharge_count_total[1h]) == 0
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No recharge transactions in the last 2 hours"
+
+      - alert: HighDBConnections
+        expr: db_open_connections > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of open DB connections ({{ $value }})"

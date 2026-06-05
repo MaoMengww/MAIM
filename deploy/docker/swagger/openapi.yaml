@@ -1,0 +1,7199 @@
+openapi: "3.0.3"
+info:
+  title: AIM API
+  description: AIM Backend API - 即时通讯与AI助手平台
+  version: "1.0.0"
+
+servers:
+  - url: https://api.example.com/api/v1
+    description: Production
+  - url: http://localhost:8080/api/v1
+    description: Local development
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 登录后获取的 access_token
+
+  schemas:
+    # ========== Common ==========
+    Response:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: 业务状态码，0 表示成功
+          example: 0
+        message:
+          type: string
+          description: 状态消息
+          example: ok
+        data:
+          description: 响应数据
+      required:
+        - code
+        - message
+
+    BaseResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+      required:
+        - code
+        - message
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        page_size:
+          type: integer
+          example: 20
+
+    PaginationResp:
+      type: object
+      properties:
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+          format: int64
+        total_pages:
+          type: integer
+
+    CursorPagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+        cursor:
+          type: string
+          description: 不透明游标
+
+    CursorPaginationResp:
+      type: object
+      properties:
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+        total:
+          type: integer
+          format: int64
+
+    # ========== Auth ==========
+    TokenPair:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        access_expire:
+          type: integer
+          format: int64
+          description: access_token 过期时间戳
+        refresh_expire:
+          type: integer
+          format: int64
+          description: refresh_token 过期时间戳
+
+    RegisterReq:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          minLength: 1
+          example: alice
+        password:
+          type: string
+          minLength: 6
+          example: P@ssw0rd
+        phone:
+          type: string
+          example: "13800138000"
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+        device_id:
+          type: string
+          description: 设备 ID
+        platform:
+          type: string
+          enum: [ios, android, web]
+          description: 注册设备平台
+
+    RegisterResp:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        tokens:
+          $ref: '#/components/schemas/TokenPair'
+        user:
+          $ref: '#/components/schemas/UserInfo'
+
+    LoginReq:
+      type: object
+      required:
+        - account
+        - password
+      properties:
+        account:
+          type: string
+          description: 用户名/手机号/邮箱
+          example: alice
+        password:
+          type: string
+          example: P@ssw0rd
+        device_id:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android, web]
+
+    LoginResp:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        tokens:
+          $ref: '#/components/schemas/TokenPair'
+        user:
+          $ref: '#/components/schemas/UserInfo'
+
+    RefreshTokenReq:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+
+    RefreshTokenResp:
+      type: object
+      properties:
+        tokens:
+          $ref: '#/components/schemas/TokenPair'
+
+    OAuthLoginReq:
+      type: object
+      description: OAuth 登录请求 (⚠️ 功能未完成: 缺少第三方 OAuth 提供商 token 交换与用户信息获取)
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          description: OAuth 授权码
+        device_id:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android, web]
+
+    LogoutReq:
+      type: object
+      properties:
+        token_id:
+          type: string
+          description: 要登出的 token ID
+
+    SessionInfo:
+      type: object
+      properties:
+        session_id:
+          type: string
+        device_id:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android, web]
+        ip:
+          type: string
+        location:
+          type: string
+        last_active_at:
+          type: integer
+          format: int64
+          description: 最后活跃时间戳
+        created_at:
+          type: integer
+          format: int64
+        is_current:
+          type: boolean
+          description: 是否为当前会话
+
+    GetSessionsResp:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionInfo'
+
+    RevokeSessionReq:
+      type: object
+      properties:
+        session_id:
+          type: string
+
+    # ========== User ==========
+    UserInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        avatar:
+          type: string
+          description: 头像 URL
+        gender:
+          type: integer
+          enum: [0, 1, 2]
+          description: "0: unknown, 1: male, 2: female"
+        bio:
+          type: string
+          description: 个人简介
+        birthday:
+          type: integer
+          format: int64
+          description: 生日 Unix 时间戳
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    UpdateProfileReq:
+      type: object
+      properties:
+        avatar:
+          type: string
+        gender:
+          type: integer
+          enum: [0, 1, 2]
+        bio:
+          type: string
+        birthday:
+          type: integer
+          format: int64
+
+    UpdatePasswordReq:
+      type: object
+      required:
+        - old_password
+        - new_password
+      properties:
+        old_password:
+          type: string
+        new_password:
+          type: string
+          minLength: 6
+
+    BindPhoneReq:
+      type: object
+      required:
+        - phone
+        - phone_code
+      properties:
+        phone:
+          type: string
+        phone_code:
+          type: string
+          description: 短信验证码
+
+    BindEmailReq:
+      type: object
+      required:
+        - email
+        - email_code
+      properties:
+        email:
+          type: string
+          format: email
+        email_code:
+          type: string
+          description: 邮箱验证码
+
+    BatchGetUserInfoReq:
+      type: object
+      required:
+        - user_ids
+      properties:
+        user_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    BatchGetUserInfoResp:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserInfo'
+
+    SearchUsersReq:
+      type: object
+      required:
+        - keyword
+      properties:
+        keyword:
+          type: string
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    SearchUsersResp:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserInfo'
+        pagination:
+          $ref: '#/components/schemas/PaginationResp'
+
+    BatchGetStatusReq:
+      type: object
+      required:
+        - user_ids
+      properties:
+        user_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    UserStatus:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        is_online:
+          type: boolean
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceInfo'
+
+    DeviceInfo:
+      type: object
+      properties:
+        device_id:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android, web]
+        last_active_at:
+          type: integer
+          format: int64
+
+    BatchGetStatusResp:
+      type: object
+      properties:
+        statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserStatus'
+
+    GetSettingsResp:
+      type: object
+      properties:
+        language:
+          type: string
+          example: zh-CN
+        notification_enabled:
+          type: boolean
+        sound_enabled:
+          type: boolean
+        vibration_enabled:
+          type: boolean
+        theme:
+          type: string
+          enum: [light, dark, auto]
+        settings_json:
+          type: string
+          description: 扩展设置 JSON
+
+    UpdateSettingsReq:
+      type: object
+      properties:
+        language:
+          type: string
+        notification_enabled:
+          type: boolean
+        sound_enabled:
+          type: boolean
+        vibration_enabled:
+          type: boolean
+        theme:
+          type: string
+          enum: [light, dark, auto]
+        settings_json:
+          type: string
+
+    # ========== Friend ==========
+    SendRequestReq:
+      type: object
+      required:
+        - to_user_id
+      properties:
+        to_user_id:
+          type: integer
+          format: int64
+          description: 目标用户 ID
+        message:
+          type: string
+          description: 好友申请留言
+
+    SendRequestResp:
+      type: object
+      properties:
+        request_id:
+          type: integer
+          format: int64
+
+    FriendRequest:
+      type: object
+      properties:
+        request_id:
+          type: integer
+          format: int64
+        from_user_id:
+          type: integer
+          format: int64
+        to_user_id:
+          type: integer
+          format: int64
+        message:
+          type: string
+        status:
+          type: integer
+          enum: [0, 1, 2, 3, 4]
+          description: "0: unspecified, 1: pending, 2: accepted, 3: rejected, 4: cancelled"
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    ListRequestsResp:
+      type: object
+      properties:
+        requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/FriendRequest'
+        pagination:
+          $ref: '#/components/schemas/PaginationResp'
+
+    ListFriendsReq:
+      type: object
+      properties:
+        group_id:
+          type: integer
+          format: int64
+          description: 按分组过滤
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    FriendInfo:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        avatar:
+          type: string
+        remark:
+          type: string
+          description: 好友备注
+        group_id:
+          type: integer
+          format: int64
+        group_name:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+          description: 成为好友的时间
+
+    ListFriendsResp:
+      type: object
+      properties:
+        friends:
+          type: array
+          items:
+            $ref: '#/components/schemas/FriendInfo'
+        pagination:
+          $ref: '#/components/schemas/PaginationResp'
+
+    SetRemarkReq:
+      type: object
+      required:
+        - remark
+      properties:
+        remark:
+          type: string
+          description: 好友备注名
+
+    SetGroupReq:
+      type: object
+      required:
+        - group_id
+      properties:
+        group_id:
+          type: integer
+          format: int64
+
+    CreateGroupReq:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: 分组名称
+
+    CreateGroupResp:
+      type: object
+      properties:
+        group_id:
+          type: integer
+          format: int64
+
+    RenameGroupReq:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+
+    FriendGroup:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        sort_order:
+          type: integer
+        friend_count:
+          type: integer
+        created_at:
+          type: integer
+          format: int64
+
+    ListGroupsResp:
+      type: object
+      properties:
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/FriendGroup'
+
+    BlockUserReq:
+      type: object
+      properties:
+        blocked_user_id:
+          type: integer
+          format: int64
+
+    BlacklistUser:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        avatar:
+          type: string
+        blocked_at:
+          type: integer
+          format: int64
+
+    ListBlacklistResp:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlacklistUser'
+        pagination:
+          $ref: '#/components/schemas/PaginationResp'
+
+    # ========== Conversation ==========
+    ConversationType:
+      type: integer
+      enum: [0, 1, 2]
+      description: "0: unspecified, 1: private, 2: group"
+
+    MemberRole:
+      type: integer
+      enum: [0, 1, 2, 3]
+      description: "0: unspecified, 1: owner, 2: admin, 3: member"
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        type:
+          $ref: '#/components/schemas/ConversationType'
+        name:
+          type: string
+        avatar:
+          type: string
+        owner_id:
+          type: integer
+          format: int64
+        member_count:
+          type: integer
+        max_seq:
+          type: integer
+          format: int64
+        last_message_id:
+          type: integer
+          format: int64
+        last_message_preview:
+          type: string
+        last_read_seq:
+          type: integer
+          format: int64
+        unread_count:
+          type: integer
+        is_muted:
+          type: boolean
+        is_pinned:
+          type: boolean
+        is_muted_all:
+          type: boolean
+        announcement:
+          type: string
+        background:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    ConversationMember:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        avatar:
+          type: string
+        role:
+          $ref: '#/components/schemas/MemberRole'
+        alias:
+          type: string
+          description: 群内昵称
+        joined_at:
+          type: integer
+          format: int64
+        last_read_seq:
+          type: integer
+          format: int64
+        is_muted:
+          type: boolean
+        mute_until:
+          type: integer
+          format: int64
+          description: 禁言截止时间戳，0 表示永久禁言
+
+    CreateConversationReq:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          $ref: '#/components/schemas/ConversationType'
+        peer_user_id:
+          type: integer
+          format: int64
+          description: "私聊时: 对方用户 ID"
+        name:
+          type: string
+          description: "群聊时: 群名称"
+        avatar:
+          type: string
+          description: 群头像
+        member_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: "群聊时: 初始成员列表"
+
+    CreateConversationResp:
+      type: object
+      properties:
+        conversation_id:
+          type: integer
+          format: int64
+        conversation:
+          $ref: '#/components/schemas/Conversation'
+
+    GetConversationResp:
+      type: object
+      properties:
+        conversation:
+          $ref: '#/components/schemas/Conversation'
+
+    UpdateConversationReq:
+      type: object
+      properties:
+        name:
+          type: string
+        avatar:
+          type: string
+        background:
+          type: string
+
+    ListConversationsResp:
+      type: object
+      properties:
+        conversations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
+        pagination:
+          $ref: '#/components/schemas/CursorPaginationResp'
+
+    AddMembersReq:
+      type: object
+      required:
+        - user_ids
+      properties:
+        user_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    AddMembersResp:
+      type: object
+      properties:
+        added_user_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        failed_user_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    RemoveMembersReq:
+      type: object
+      required:
+        - user_ids
+      properties:
+        user_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    GetMembersResp:
+      type: object
+      properties:
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConversationMember'
+        pagination:
+          $ref: '#/components/schemas/PaginationResp'
+
+    UpdateMemberReq:
+      type: object
+      properties:
+        role:
+          $ref: '#/components/schemas/MemberRole'
+        alias:
+          type: string
+
+    MuteMemberReq:
+      type: object
+      required:
+        - duration_seconds
+      properties:
+        duration_seconds:
+          type: integer
+          format: int64
+          description: "禁言时长秒数，0 表示永久禁言"
+
+    SetAnnouncementReq:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          description: 公告内容
+
+    TransferOwnerReq:
+      type: object
+      required:
+        - new_owner_id
+      properties:
+        new_owner_id:
+          type: integer
+          format: int64
+
+    UpdateConversationSettingsReq:
+      type: object
+      properties:
+        is_muted:
+          type: boolean
+        is_pinned:
+          type: boolean
+
+    GetConversationSettingsResp:
+      type: object
+      properties:
+        is_muted:
+          type: boolean
+        is_pinned:
+          type: boolean
+
+    MarkAsReadReq:
+      type: object
+      properties:
+        seq:
+          type: integer
+          format: int64
+          description: 已读到的消息 seq
+
+    ReadUser:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        read_at:
+          type: integer
+          format: int64
+
+    GetReadStatusResp:
+      type: object
+      properties:
+        read_count:
+          type: integer
+        total_count:
+          type: integer
+        read_users:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReadUser'
+
+    # ========== Message ==========
+    MessageType:
+      type: integer
+      enum: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      description: "0: unspecified, 1: text, 2: image, 3: file, 4: video, 5: audio, 6: location, 7: system, 8: custom, 9: bot"
+
+    MessageStatus:
+      type: integer
+      enum: [0, 1, 2, 3, 4]
+      description: "0: unspecified, 1: normal, 2: recalled, 3: edited, 4: streaming"
+
+    TextContent:
+      type: object
+      properties:
+        text:
+          type: string
+        mention_user_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        mention_all:
+          type: boolean
+
+    ImageContent:
+      type: object
+      properties:
+        file_id:
+          type: integer
+          format: int64
+        url:
+          type: string
+        thumbnail_url:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+        size:
+          type: integer
+          format: int64
+        format:
+          type: string
+
+    FileContent:
+      type: object
+      properties:
+        file_id:
+          type: integer
+          format: int64
+        url:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        ext:
+          type: string
+        mime_type:
+          type: string
+
+    VideoContent:
+      type: object
+      properties:
+        file_id:
+          type: integer
+          format: int64
+        url:
+          type: string
+        thumbnail_url:
+          type: string
+        duration:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+        size:
+          type: integer
+          format: int64
+
+    AudioContent:
+      type: object
+      properties:
+        file_id:
+          type: integer
+          format: int64
+        url:
+          type: string
+        duration:
+          type: integer
+        size:
+          type: integer
+          format: int64
+
+    LocationContent:
+      type: object
+      properties:
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        address:
+          type: string
+        name:
+          type: string
+
+    SystemContent:
+      type: object
+      properties:
+        action:
+          type: string
+        detail:
+          type: string
+        related_user_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    BotContent:
+      type: object
+      properties:
+        bot_id:
+          type: integer
+          format: int64
+        bot_name:
+          type: string
+        bot_avatar:
+          type: string
+        text:
+          type: string
+        is_streaming:
+          type: boolean
+        thinking_time_ms:
+          type: integer
+        raw_payload:
+          type: string
+
+    CustomContent:
+      type: object
+      properties:
+        type:
+          type: string
+        data:
+          type: string
+
+    Message:
+      type: object
+      properties:
+        message_id:
+          type: integer
+          format: int64
+        conversation_id:
+          type: integer
+          format: int64
+        seq:
+          type: integer
+          format: int64
+        from_user_id:
+          type: integer
+          format: int64
+        type:
+          $ref: '#/components/schemas/MessageType'
+        status:
+          $ref: '#/components/schemas/MessageStatus'
+        text:
+          $ref: '#/components/schemas/TextContent'
+        image:
+          $ref: '#/components/schemas/ImageContent'
+        file:
+          $ref: '#/components/schemas/FileContent'
+        video:
+          $ref: '#/components/schemas/VideoContent'
+        audio:
+          $ref: '#/components/schemas/AudioContent'
+        location:
+          $ref: '#/components/schemas/LocationContent'
+        system:
+          $ref: '#/components/schemas/SystemContent'
+        bot:
+          $ref: '#/components/schemas/BotContent'
+        custom:
+          $ref: '#/components/schemas/CustomContent'
+        reply_to_id:
+          type: integer
+          format: int64
+        edited_at:
+          type: integer
+          format: int64
+        edit_count:
+          type: integer
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    SendMessageReq:
+      type: object
+      required:
+        - conversation_id
+        - type
+      properties:
+        conversation_id:
+          type: integer
+          format: int64
+        type:
+          $ref: '#/components/schemas/MessageType'
+        text:
+          $ref: '#/components/schemas/TextContent'
+        image:
+          $ref: '#/components/schemas/ImageContent'
+        file:
+          $ref: '#/components/schemas/FileContent'
+        video:
+          $ref: '#/components/schemas/VideoContent'
+        audio:
+          $ref: '#/components/schemas/AudioContent'
+        location:
+          $ref: '#/components/schemas/LocationContent'
+        custom:
+          $ref: '#/components/schemas/CustomContent'
+        reply_to_id:
+          type: integer
+          format: int64
+        client_msg_id:
+          type: string
+          description: 客户端消息 ID，用于去重
+
+    SendMessageResp:
+      type: object
+      properties:
+        message_id:
+          type: integer
+          format: int64
+        seq:
+          type: integer
+          format: int64
+        created_at:
+          type: integer
+          format: int64
+
+    RecallMessageReq:
+      type: object
+      properties:
+        conversation_id:
+          type: integer
+          format: int64
+
+    EditMessageReq:
+      type: object
+      required:
+        - text
+      properties:
+        conversation_id:
+          type: integer
+          format: int64
+        text:
+          $ref: '#/components/schemas/TextContent'
+
+    DeleteMessageReq:
+      type: object
+      properties:
+        conversation_id:
+          type: integer
+          format: int64
+        delete_for_all:
+          type: boolean
+          default: false
+
+    SyncMessagesResp:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        has_more:
+          type: boolean
+        max_seq:
+          type: integer
+          format: int64
+
+    GetMessageByIDResp:
+      type: object
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+
+    ForwardMessageReq:
+      type: object
+      required:
+        - message_ids
+        - target_conversation_id
+      properties:
+        message_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        target_conversation_id:
+          type: integer
+          format: int64
+
+    ForwardMessageResp:
+      type: object
+      properties:
+        message_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    SearchMessagesReq:
+      type: object
+      required:
+        - keyword
+      properties:
+        keyword:
+          type: string
+        conversation_id:
+          type: integer
+          format: int64
+        start_time:
+          type: integer
+          format: int64
+        end_time:
+          type: integer
+          format: int64
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    SearchMessagesResp:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        pagination:
+          $ref: '#/components/schemas/PaginationResp'
+
+    GetMessagesResp:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        pagination:
+          $ref: '#/components/schemas/CursorPaginationResp'
+
+    # ========== File ==========
+    FilePurpose:
+      type: integer
+      enum: [0, 1, 2, 3, 4]
+      description: "0: unspecified, 1: message, 2: avatar, 3: document, 4: media"
+
+    FileAccess:
+      type: integer
+      enum: [0, 1, 2, 3]
+      description: "0: unspecified, 1: private, 2: conversation, 3: public"
+
+    FileInfo:
+      type: object
+      properties:
+        file_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        key:
+          type: string
+        size:
+          type: integer
+          format: int64
+        mime_type:
+          type: string
+        ext:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+        duration:
+          type: integer
+        md5:
+          type: string
+        purpose:
+          $ref: '#/components/schemas/FilePurpose'
+        access:
+          $ref: '#/components/schemas/FileAccess'
+        uploader_id:
+          type: integer
+          format: int64
+        bucket:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+
+    GetUploadURLReq:
+      type: object
+      required:
+        - name
+        - mime_type
+        - size
+        - purpose
+      properties:
+        name:
+          type: string
+          description: 文件原始名称
+        mime_type:
+          type: string
+          example: image/jpeg
+        size:
+          type: integer
+          format: int64
+          description: 文件大小(字节)
+        purpose:
+          $ref: '#/components/schemas/FilePurpose'
+        access:
+          $ref: '#/components/schemas/FileAccess'
+        expires_in:
+          type: integer
+          description: 上传 URL 过期时间(秒)
+
+    GetUploadURLResp:
+      type: object
+      properties:
+        file_id:
+          type: integer
+          format: int64
+        upload_url:
+          type: string
+        key:
+          type: string
+        expires_at:
+          type: integer
+          format: int64
+
+    ConfirmUploadReq:
+      type: object
+      required:
+        - file_id
+      properties:
+        file_id:
+          type: integer
+          format: int64
+        md5:
+          type: string
+          description: 可选的文件 MD5
+
+    ConfirmUploadResp:
+      type: object
+      properties:
+        file:
+          $ref: '#/components/schemas/FileInfo'
+
+    GetDownloadURLResp:
+      type: object
+      properties:
+        download_url:
+          type: string
+        expires_at:
+          type: integer
+          format: int64
+        file:
+          $ref: '#/components/schemas/FileInfo'
+
+    GetFileInfoResp:
+      type: object
+      properties:
+        file:
+          $ref: '#/components/schemas/FileInfo'
+
+    # ========== Broadcast ==========
+    SendBroadcastReq:
+      type: object
+      required:
+        - content
+        - scope
+      properties:
+        content:
+          type: string
+          description: JSON 格式的广播内容
+        scope:
+          type: string
+          enum: [all, group]
+          description: 广播范围
+        scope_target_id:
+          type: integer
+          format: int64
+          description: 范围目标 ID
+
+    SendBroadcastResp:
+      type: object
+      properties:
+        broadcast_id:
+          type: integer
+          format: int64
+        created_at:
+          type: integer
+          format: int64
+
+    # ========== Notification ==========
+    NotificationType:
+      type: integer
+      enum: [0, 1, 2, 3]
+      description: "0: unspecified, 1: system, 2: audit, 3: bot"
+
+    Notification:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        type:
+          $ref: '#/components/schemas/NotificationType'
+        title:
+          type: string
+        content:
+          type: string
+          description: JSON 字符串
+        is_read:
+          type: boolean
+        reference_id:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+
+    ListNotificationsResp:
+      type: object
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+        pagination:
+          $ref: '#/components/schemas/PaginationResp'
+
+    # ========== Knowledge Base ==========
+    PipelineConfig:
+      type: object
+      properties:
+        preset:
+          type: string
+          enum: [general, tech_doc, legal, customer_service, academic, custom]
+        parsing:
+          type: object
+          properties:
+            strategy:
+              type: string
+              enum: [builtin, mineru, self_developed, self_first, mineru_first]
+            mineru_url:
+              type: string
+            preserve_structure:
+              type: boolean
+              default: true
+            extract_headers_footers:
+              type: boolean
+              default: false
+            table_mode:
+              type: string
+              enum: [text, markdown, ignore]
+            image_mode:
+              type: string
+              enum: [ignore, ocr]
+            max_file_size:
+              type: integer
+              format: int64
+              description: 字节数，默认 10MB
+            encoding_detection:
+              type: boolean
+              default: true
+        chunking:
+          type: object
+          properties:
+            strategy:
+              type: string
+              enum: [recursive, fixed_size, sentence, markdown]
+            chunk_size:
+              type: integer
+              description: tokens，默认 512
+            overlap:
+              type: integer
+              description: tokens，默认 128
+            separators:
+              type: array
+              items:
+                type: string
+            header_level:
+              type: integer
+              minimum: 1
+              maximum: 6
+            min_chunk_size:
+              type: integer
+              default: 50
+            parent_child:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                parent_size:
+                  type: integer
+                  description: tokens，默认 1024
+                child_size:
+                  type: integer
+                  description: tokens，默认 256
+                child_overlap:
+                  type: integer
+                  description: tokens，默认 64
+        retrieval:
+          type: object
+          properties:
+            mode:
+              type: string
+              enum: [vector, hybrid, fulltext]
+            top_k:
+              type: integer
+              default: 5
+            candidate_top_k:
+              type: integer
+              default: 20
+            score_threshold:
+              type: number
+              format: float
+              default: 0.7
+            dense_weight:
+              type: number
+              format: float
+              default: 0.7
+            sparse_weight:
+              type: number
+              format: float
+              default: 0.3
+            rerank:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                model:
+                  type: string
+                  example: bge-reranker-v2-m3
+                top_n:
+                  type: integer
+                  default: 20
+
+    KB:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        owner_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        embedding_model:
+          type: string
+          example: text-embedding-3-small
+        pipeline_config:
+          $ref: '#/components/schemas/PipelineConfig'
+        doc_count:
+          type: integer
+        total_chunks:
+          type: integer
+        status:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    CreateKBReq:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        embedding_model:
+          type: string
+          default: text-embedding-3-small
+        pipeline_config:
+          $ref: '#/components/schemas/PipelineConfig'
+
+    UpdateKBReq:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        embedding_model:
+          type: string
+        pipeline_config:
+          $ref: '#/components/schemas/PipelineConfig'
+        status:
+          type: string
+          enum: [active, disabled]
+
+    ListKBsResp:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/KB'
+        total:
+          type: integer
+          format: int64
+
+    Document:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        kb_id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        file_type:
+          type: string
+          enum: [pdf, md, txt, docx, html]
+        file_size:
+          type: integer
+          format: int64
+        original_filename:
+          type: string
+        status:
+          type: string
+          enum: [pending, parsing, chunking, embedding, ready, failed]
+        chunk_count:
+          type: integer
+        error_message:
+          type: string
+        metadata:
+          type: string
+          description: JSON 字符串
+        stages:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                enum: [parsing, chunking, embedding]
+              status:
+                type: string
+              retries:
+                type: integer
+              error:
+                type: string
+              started_at:
+                type: integer
+                format: int64
+              ended_at:
+                type: integer
+                format: int64
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    ListDocumentsResp:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Document'
+        total:
+          type: integer
+          format: int64
+
+    DocumentResp:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        kb_id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        file_type:
+          type: string
+        file_size:
+          type: integer
+          format: int64
+        original_filename:
+          type: string
+        status:
+          type: string
+        chunk_count:
+          type: integer
+        error_message:
+          type: string
+        metadata:
+          type: string
+        stages:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+              retries:
+                type: integer
+              error:
+                type: string
+              started_at:
+                type: integer
+                format: int64
+              ended_at:
+                type: integer
+                format: int64
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    RetrieveReq:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+        bot_id:
+          type: integer
+          format: int64
+        conv_id:
+          type: integer
+          format: int64
+
+    RetrieveItem:
+      type: object
+      properties:
+        chunk_id:
+          type: integer
+          format: int64
+        content:
+          type: string
+        score:
+          type: number
+          format: float
+        doc_id:
+          type: integer
+          format: int64
+        doc_title:
+          type: string
+        kb_id:
+          type: integer
+          format: int64
+        kb_name:
+          type: string
+        matched_content:
+          type: string
+        metadata:
+          type: object
+          properties:
+            page_num:
+              type: integer
+            section_title:
+              type: string
+            section_level:
+              type: integer
+            start_line:
+              type: integer
+            end_line:
+              type: integer
+            doc_title:
+              type: string
+
+    RetrieveResp:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RetrieveItem'
+
+    BindReq:
+      type: object
+      required:
+        - kb_id
+      properties:
+        kb_id:
+          type: integer
+          format: int64
+
+    BindingItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        kb_id:
+          type: integer
+          format: int64
+        kb_name:
+          type: string
+        target_type:
+          type: string
+          enum: [bot, conv]
+        target_id:
+          type: integer
+          format: int64
+        created_at:
+          type: integer
+          format: int64
+
+    ListBindingsResp:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BindingItem'
+
+    BoundTargetItem:
+      type: object
+      properties:
+        target_type:
+          type: string
+          enum: [bot, conv]
+        target_id:
+          type: integer
+          format: int64
+        created_at:
+          type: integer
+          format: int64
+
+    ListBoundTargetsResp:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoundTargetItem'
+
+    # ========== Bot ==========
+    Bot:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        owner_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        avatar:
+          type: string
+        description:
+          type: string
+        system_prompt:
+          type: string
+        model:
+          type: string
+        temperature:
+          type: number
+          format: float
+        max_tokens:
+          type: integer
+        greeting:
+          type: string
+        webhook_url:
+          type: string
+        secret:
+          type: string
+        token:
+          type: string
+        is_public:
+          type: boolean
+        knowledge_base_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    CreateBotReq:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        avatar:
+          type: string
+        description:
+          type: string
+        system_prompt:
+          type: string
+        model:
+          type: string
+        temperature:
+          type: number
+          format: float
+        max_tokens:
+          type: integer
+        greeting:
+          type: string
+        webhook_url:
+          type: string
+        is_public:
+          type: boolean
+
+    UpdateBotReq:
+      type: object
+      properties:
+        name:
+          type: string
+        avatar:
+          type: string
+        description:
+          type: string
+        system_prompt:
+          type: string
+        model:
+          type: string
+        temperature:
+          type: number
+          format: float
+        max_tokens:
+          type: integer
+        greeting:
+          type: string
+        webhook_url:
+          type: string
+        is_public:
+          type: boolean
+
+    CreateBotResp:
+      type: object
+      properties:
+        bot:
+          $ref: '#/components/schemas/Bot'
+
+    ListBotsResp:
+      type: object
+      properties:
+        bots:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bot'
+        total:
+          type: integer
+          format: int64
+
+    GetBotResp:
+      type: object
+      properties:
+        bot:
+          $ref: '#/components/schemas/Bot'
+
+    RotateSecretResp:
+      type: object
+      properties:
+        secret:
+          type: string
+
+    IssueTokenReq:
+      type: object
+      properties:
+        bot_id:
+          type: integer
+          format: int64
+
+    IssueTokenResp:
+      type: object
+      properties:
+        token:
+          type: string
+
+    ValidateTokenReq:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+
+    ValidateTokenResp:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        bot:
+          $ref: '#/components/schemas/Bot'
+
+    # ========== Bot Memory ==========
+    BotMemory:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        bot_id:
+          type: integer
+          format: int64
+        content:
+          type: string
+        importance:
+          type: number
+          format: float
+        created_at:
+          type: integer
+          format: int64
+
+    ListMemoriesResp:
+      type: object
+      properties:
+        memories:
+          type: array
+          items:
+            $ref: '#/components/schemas/BotMemory'
+        total:
+          type: integer
+          format: int64
+
+    # ========== MCP Server ==========
+    McpServer:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        transport:
+          type: string
+          enum: [stdio, sse, streamable_http]
+        url:
+          type: string
+        command:
+          type: string
+        args:
+          type: string
+        env_vars:
+          type: string
+        headers:
+          type: string
+        timeout_sec:
+          type: integer
+        is_global:
+          type: boolean
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    CreateMcpServerReq:
+      type: object
+      required:
+        - name
+        - transport
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        transport:
+          type: string
+          enum: [stdio, sse, streamable_http]
+        url:
+          type: string
+        command:
+          type: string
+        args:
+          type: string
+        env_vars:
+          type: string
+        headers:
+          type: string
+        timeout_sec:
+          type: integer
+        is_global:
+          type: boolean
+
+    UpdateMcpServerReq:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        transport:
+          type: string
+        url:
+          type: string
+        command:
+          type: string
+        args:
+          type: string
+        env_vars:
+          type: string
+        headers:
+          type: string
+        timeout_sec:
+          type: integer
+        is_global:
+          type: boolean
+
+    ListMcpServersResp:
+      type: object
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: '#/components/schemas/McpServer'
+        total:
+          type: integer
+          format: int64
+
+    GetMcpServerResp:
+      type: object
+      properties:
+        server:
+          $ref: '#/components/schemas/McpServer'
+
+    McpTool:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        input_schema:
+          type: object
+
+    DiscoverMcpToolsResp:
+      type: object
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/McpTool'
+
+    ListMcpToolsResp:
+      type: object
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/McpTool'
+
+    # ========== Bot MCP Assignment ==========
+    AssignMcpReq:
+      type: object
+      required:
+        - mcp_server_id
+      properties:
+        mcp_server_id:
+          type: integer
+          format: int64
+        enabled_tools:
+          type: array
+          items:
+            type: string
+        config:
+          type: string
+          description: JSON 配置
+
+    BotMcpBinding:
+      type: object
+      properties:
+        mcp_server_id:
+          type: integer
+          format: int64
+        server_name:
+          type: string
+        enabled_tools:
+          type: array
+          items:
+            type: string
+        config:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+
+    ListBotMcpServersResp:
+      type: object
+      properties:
+        bindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/BotMcpBinding'
+
+    UpdateBotMcpReq:
+      type: object
+      properties:
+        enabled_tools:
+          type: array
+          items:
+            type: string
+        config:
+          type: string
+
+    # ========== Conversation Bot ==========
+    AddBotToConvReq:
+      type: object
+      required:
+        - bot_id
+      properties:
+        bot_id:
+          type: integer
+          format: int64
+
+    UpdateBotInConvReq:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        bot_profile:
+          type: string
+          description: JSON 覆盖 bot 配置
+
+    ConvBot:
+      type: object
+      properties:
+        bot_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        avatar:
+          type: string
+        enabled:
+          type: boolean
+        bot_profile:
+          type: string
+        added_at:
+          type: integer
+          format: int64
+
+    ListConvBotsResp:
+      type: object
+      properties:
+        bots:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConvBot'
+
+    # ========== Model Management ==========
+    ModelRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        provider:
+          type: string
+        display_name:
+          type: string
+        api_base:
+          type: string
+        api_key:
+          type: string
+        max_input_tokens:
+          type: integer
+        max_output_tokens:
+          type: integer
+        cost_per_input_token:
+          type: number
+          format: double
+        cost_per_output_token:
+          type: number
+          format: double
+        is_active:
+          type: boolean
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    CreateModelReq:
+      type: object
+      required:
+        - name
+        - provider
+      properties:
+        name:
+          type: string
+        provider:
+          type: string
+        display_name:
+          type: string
+        api_base:
+          type: string
+        api_key:
+          type: string
+        max_input_tokens:
+          type: integer
+        max_output_tokens:
+          type: integer
+        cost_per_input_token:
+          type: number
+          format: double
+        cost_per_output_token:
+          type: number
+          format: double
+        is_active:
+          type: boolean
+
+    UpdateModelReq:
+      type: object
+      properties:
+        display_name:
+          type: string
+        api_base:
+          type: string
+        api_key:
+          type: string
+        max_input_tokens:
+          type: integer
+        max_output_tokens:
+          type: integer
+        cost_per_input_token:
+          type: number
+          format: double
+        cost_per_output_token:
+          type: number
+          format: double
+        is_active:
+          type: boolean
+
+    ListModelsResp:
+      type: object
+      properties:
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelRecord'
+        total:
+          type: integer
+          format: int64
+
+    GetModelResp:
+      type: object
+      properties:
+        model:
+          $ref: '#/components/schemas/ModelRecord'
+
+    BillingStats:
+      type: object
+      properties:
+        total_tokens:
+          type: integer
+          format: int64
+        total_cost:
+          type: number
+          format: double
+        model_breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              model_name:
+                type: string
+              tokens:
+                type: integer
+                format: int64
+              cost:
+                type: number
+                format: double
+
+    BillingRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        model_name:
+          type: string
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        cost:
+          type: number
+          format: double
+        created_at:
+          type: integer
+          format: int64
+
+    GetBillingStatsResp:
+      type: object
+      properties:
+        stats:
+          $ref: '#/components/schemas/BillingStats'
+
+    ListBillingRecordsResp:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillingRecord'
+        total:
+          type: integer
+          format: int64
+
+    # ========== Conversation Tools ==========
+    CreateSummaryReq:
+      type: object
+      properties:
+        start_seq:
+          type: integer
+          format: int64
+        end_seq:
+          type: integer
+          format: int64
+        style:
+          type: string
+          enum: [concise, detailed, bullet]
+          default: concise
+
+    Summary:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        conversation_id:
+          type: integer
+          format: int64
+        start_seq:
+          type: integer
+          format: int64
+        end_seq:
+          type: integer
+          format: int64
+        content:
+          type: string
+        style:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+
+    GetSummariesResp:
+      type: object
+      properties:
+        summaries:
+          type: array
+          items:
+            $ref: '#/components/schemas/Summary'
+
+    CreateTodoReq:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        assigned_to:
+          type: integer
+          format: int64
+        due_at:
+          type: integer
+          format: int64
+
+    Todo:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        conversation_id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        description:
+          type: string
+        assigned_to:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [pending, in_progress, done]
+        due_at:
+          type: integer
+          format: int64
+        created_at:
+          type: integer
+          format: int64
+
+    UpdateTodoReq:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        assigned_to:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [pending, in_progress, done]
+        due_at:
+          type: integer
+          format: int64
+
+    ReplyCandidate:
+      type: object
+      properties:
+        index:
+          type: integer
+        text:
+          type: string
+        tone:
+          type: string
+
+    ReplyCandidatesResp:
+      type: object
+      properties:
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReplyCandidate'
+
+    TranslateReq:
+      type: object
+      required:
+        - target_lang
+      properties:
+        target_lang:
+          type: string
+          example: zh-CN
+
+    TranslateResp:
+      type: object
+      properties:
+        original_text:
+          type: string
+        translated_text:
+          type: string
+        source_lang:
+          type: string
+        target_lang:
+          type: string
+
+    # ========== Wiki ==========
+    WikiPage:
+      type: object
+      properties:
+        slug:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        parent_slug:
+          type: string
+        order:
+          type: integer
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+
+    WikiIndex:
+      type: object
+      properties:
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/WikiPage'
+        issues_count:
+          type: integer
+
+    WikiIssue:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        slug:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, error]
+        title:
+          type: string
+        description:
+          type: string
+        resolved:
+          type: boolean
+        created_at:
+          type: integer
+          format: int64
+
+    WikiGraphResp:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              slug:
+                type: string
+              title:
+                type: string
+        edges:
+          type: array
+          items:
+            type: object
+            properties:
+              from:
+                type: string
+              to:
+                type: string
+
+    WikiUpdatePageReq:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        parent_slug:
+          type: string
+        order:
+          type: integer
+
+    WikiReplaceTextReq:
+      type: object
+      properties:
+        old_text:
+          type: string
+        new_text:
+          type: string
+
+    WikiRenamePageReq:
+      type: object
+      required:
+        - new_slug
+      properties:
+        new_slug:
+          type: string
+
+    WikiFlagIssueReq:
+      type: object
+      properties:
+        slug:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, error]
+        title:
+          type: string
+        description:
+          type: string
+
+    WikiUpdateIssueReq:
+      type: object
+      properties:
+        resolved:
+          type: boolean
+        description:
+          type: string
+
+    # ========== User Extras ==========
+    RechargeReq:
+      type: object
+      properties:
+        amount:
+          type: integer
+          description: 充值金额（分）
+
+    RechargeResp:
+      type: object
+      properties:
+        balance:
+          type: integer
+          format: int64
+          description: 充值后余额（分）
+
+paths:
+  # ==================== Health ====================
+  /health:
+    get:
+      tags:
+        - System
+      summary: 健康检查
+      operationId: health
+      responses:
+        "200":
+          description: 服务正常
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  # ==================== Auth ====================
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      summary: 用户注册
+      operationId: authRegister
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterReq'
+      responses:
+        "201":
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/RegisterResp'
+        "400":
+          description: 参数错误
+
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: 用户登录
+      operationId: authLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginReq'
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResp'
+        "401":
+          description: 认证失败
+
+  /auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: 刷新 Token
+      operationId: authRefresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenReq'
+      responses:
+        "200":
+          description: 刷新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/RefreshTokenResp'
+
+  /auth/oauth/{provider}:
+    post:
+      tags:
+        - Auth
+      summary: OAuth 第三方登录
+      description: |
+        ⚠️ **未完成**: 当前为占位实现，仅以 `{provider}_{code}` 拼接作为用户名创建/查找用户，
+        未真正调用第三方 OAuth 提供商接口交换 token 或获取用户信息。
+      operationId: authOAuthLogin
+      x-unfinished: true
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            example: github
+          description: OAuth 提供商 (github/google/...)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthLoginReq'
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResp'
+
+  /auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: 退出登录
+      operationId: authLogout
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutReq'
+      responses:
+        "200":
+          description: 退出成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/BaseResponse'
+
+  /auth/sessions:
+    get:
+      tags:
+        - Auth
+      summary: 获取当前用户的会话列表
+      operationId: authGetSessions
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 会话列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetSessionsResp'
+
+  /auth/sessions/{id}:
+    delete:
+      tags:
+        - Auth
+      summary: 吊销指定会话
+      operationId: authRevokeSession
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 会话 ID
+      responses:
+        "200":
+          description: 吊销成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== User ====================
+  /users/me:
+    get:
+      tags:
+        - User
+      summary: 获取当前用户个人信息
+      operationId: userGetProfile
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 用户信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/UserInfo'
+    put:
+      tags:
+        - User
+      summary: 更新当前用户个人信息
+      operationId: userUpdateProfile
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileReq'
+      responses:
+        "200":
+          description: 更新后的用户信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/UserInfo'
+
+  /users/me/password:
+    put:
+      tags:
+        - User
+      summary: 修改密码
+      operationId: userUpdatePassword
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePasswordReq'
+      responses:
+        "200":
+          description: 修改成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /users/me/phone:
+    put:
+      tags:
+        - User
+      summary: 绑定手机号
+      operationId: userBindPhone
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BindPhoneReq'
+      responses:
+        "200":
+          description: 绑定成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /users/me/email:
+    put:
+      tags:
+        - User
+      summary: 绑定邮箱
+      operationId: userBindEmail
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BindEmailReq'
+      responses:
+        "200":
+          description: 绑定成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /users/{id}:
+    get:
+      tags:
+        - User
+      summary: 获取指定用户信息
+      operationId: userGetUserInfo
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 用户 ID
+      responses:
+        "200":
+          description: 用户信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/UserInfo'
+        "404":
+          description: 用户不存在
+
+  /users/batch:
+    post:
+      tags:
+        - User
+      summary: 批量获取用户信息
+      operationId: userBatchGetUserInfo
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchGetUserInfoReq'
+      responses:
+        "200":
+          description: 用户列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/BatchGetUserInfoResp'
+
+  /users/search:
+    post:
+      tags:
+        - User
+      summary: 搜索用户
+      operationId: userSearchUsers
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchUsersReq'
+      responses:
+        "200":
+          description: 搜索结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/SearchUsersResp'
+
+  /users/batch_status:
+    post:
+      tags:
+        - User
+      summary: 批量查询用户在线状态
+      operationId: userBatchGetStatus
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchGetStatusReq'
+      responses:
+        "200":
+          description: 在线状态列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/BatchGetStatusResp'
+
+  /users/me/settings:
+    get:
+      tags:
+        - User
+      summary: 获取用户设置
+      operationId: userGetSettings
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 用户设置
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetSettingsResp'
+    put:
+      tags:
+        - User
+      summary: 更新用户设置
+      operationId: userUpdateSettings
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSettingsReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== Friend ====================
+  /friends/requests:
+    post:
+      tags:
+        - Friend
+      summary: 发送好友申请
+      operationId: friendSendRequest
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendRequestReq'
+      responses:
+        "200":
+          description: 发送成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/SendRequestResp'
+
+  /friends/requests/pending:
+    get:
+      tags:
+        - Friend
+      summary: 获取待处理的好友申请列表
+      operationId: friendListPendingRequests
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 申请列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListRequestsResp'
+
+  /friends/requests/sent:
+    get:
+      tags:
+        - Friend
+      summary: 获取已发送的好友申请列表
+      operationId: friendListSentRequests
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 申请列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListRequestsResp'
+
+  /friends/requests/{id}/accept:
+    post:
+      tags:
+        - Friend
+      summary: 接受好友申请
+      operationId: friendAcceptRequest
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 好友申请 ID
+      responses:
+        "200":
+          description: 接受成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /friends/requests/{id}/reject:
+    post:
+      tags:
+        - Friend
+      summary: 拒绝好友申请
+      operationId: friendRejectRequest
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 好友申请 ID
+      responses:
+        "200":
+          description: 拒绝成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /friends/requests/{id}:
+    delete:
+      tags:
+        - Friend
+      summary: 取消好友申请
+      operationId: friendCancelRequest
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 好友申请 ID
+      responses:
+        "200":
+          description: 取消成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /friends:
+    get:
+      tags:
+        - Friend
+      summary: 获取好友列表
+      operationId: friendListFriends
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 好友列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListFriendsResp'
+
+  /friends/{user_id}:
+    delete:
+      tags:
+        - Friend
+      summary: 删除好友
+      operationId: friendDeleteFriend
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 好友用户 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /friends/{user_id}/remark:
+    put:
+      tags:
+        - Friend
+      summary: 设置好友备注
+      operationId: friendSetRemark
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 好友用户 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetRemarkReq'
+      responses:
+        "200":
+          description: 设置成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /friends/{user_id}/group:
+    put:
+      tags:
+        - Friend
+      summary: 将好友移动到指定分组
+      operationId: friendSetGroup
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 好友用户 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetGroupReq'
+      responses:
+        "200":
+          description: 移动成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /friends/{user_id}/block:
+    post:
+      tags:
+        - Friend
+      summary: 拉黑用户
+      operationId: friendBlockUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 要拉黑的用户 ID
+      responses:
+        "200":
+          description: 拉黑成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Friend
+      summary: 取消拉黑用户
+      operationId: friendUnblockUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 要取消拉黑的用户 ID
+      responses:
+        "200":
+          description: 取消拉黑成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /friends/groups:
+    post:
+      tags:
+        - Friend
+      summary: 创建好友分组
+      operationId: friendCreateGroup
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGroupReq'
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/CreateGroupResp'
+    get:
+      tags:
+        - Friend
+      summary: 获取好友分组列表
+      operationId: friendListGroups
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 分组列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListGroupsResp'
+
+  /friends/groups/{id}:
+    put:
+      tags:
+        - Friend
+      summary: 重命名好友分组
+      operationId: friendRenameGroup
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 分组 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameGroupReq'
+      responses:
+        "200":
+          description: 重命名成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Friend
+      summary: 删除好友分组
+      operationId: friendDeleteGroup
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 分组 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /friends/blacklist:
+    get:
+      tags:
+        - Friend
+      summary: 获取黑名单列表
+      operationId: friendListBlacklist
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 黑名单列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListBlacklistResp'
+
+  # ==================== Conversation ====================
+  /convs:
+    post:
+      tags:
+        - Conversation
+      summary: 创建会话（私聊/群聊）
+      operationId: convCreateConversation
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationReq'
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/CreateConversationResp'
+    get:
+      tags:
+        - Conversation
+      summary: 获取当前用户的会话列表
+      operationId: convListConversations
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/ConversationType'
+          description: 按类型筛选
+        - name: pinned_first
+          in: query
+          schema:
+            type: boolean
+          description: 置顶优先
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          description: 每页数量
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: 分页游标
+      responses:
+        "200":
+          description: 会话列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListConversationsResp'
+
+  /convs/{id}:
+    get:
+      tags:
+        - Conversation
+      summary: 获取会话详情
+      operationId: convGetConversation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 会话详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetConversationResp'
+        "404":
+          description: 会话不存在
+    put:
+      tags:
+        - Conversation
+      summary: 更新会话信息
+      operationId: convUpdateConversation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConversationReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Conversation
+      summary: 删除会话
+      operationId: convDeleteConversation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /convs/{id}/members:
+    get:
+      tags:
+        - Conversation
+      summary: 获取会话成员列表
+      operationId: convGetMembers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 成员列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetMembersResp'
+
+  /convs/{id}/members/invite:
+    post:
+      tags:
+        - Conversation
+      summary: 邀请成员加入会话
+      operationId: convAddMembers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddMembersReq'
+      responses:
+        "200":
+          description: 邀请结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/AddMembersResp'
+
+  /convs/{id}/members/kick:
+    post:
+      tags:
+        - Conversation
+      summary: 移除会话成员
+      operationId: convRemoveMembers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveMembersReq'
+      responses:
+        "200":
+          description: 移除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /convs/{id}/members/{uid}/role:
+    put:
+      tags:
+        - Conversation
+      summary: 修改成员角色
+      operationId: convUpdateMember
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 用户 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemberReq'
+      responses:
+        "200":
+          description: 修改成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /convs/{id}/members/{uid}/mute:
+    put:
+      tags:
+        - Conversation
+      summary: 禁言成员
+      operationId: convMuteMember
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 用户 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MuteMemberReq'
+      responses:
+        "200":
+          description: 禁言成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Conversation
+      summary: 取消禁言成员
+      operationId: convUnmuteMember
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 用户 ID
+      responses:
+        "200":
+          description: 取消禁言成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /convs/{id}/mute_all:
+    post:
+      tags:
+        - Conversation
+      summary: 全员禁言
+      operationId: convMuteAll
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 全员禁言成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Conversation
+      summary: 取消全员禁言
+      operationId: convUnmuteAll
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 取消全员禁言成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /convs/{id}/announcement:
+    put:
+      tags:
+        - Conversation
+      summary: 设置群公告
+      operationId: convSetAnnouncement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetAnnouncementReq'
+      responses:
+        "200":
+          description: 设置成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Conversation
+      summary: 删除群公告
+      operationId: convDeleteAnnouncement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /convs/{id}/transfer:
+    post:
+      tags:
+        - Conversation
+      summary: 转让群主
+      operationId: convTransferOwner
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferOwnerReq'
+      responses:
+        "200":
+          description: 转让成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /convs/{id}/settings:
+    get:
+      tags:
+        - Conversation
+      summary: 获取会话设置
+      operationId: convGetSettings
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 会话设置（免打扰/置顶）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetConversationSettingsResp'
+    put:
+      tags:
+        - Conversation
+      summary: 更新会话设置
+      operationId: convUpdateSettings
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConversationSettingsReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /convs/{id}/read:
+    put:
+      tags:
+        - Conversation
+      summary: 标记会话已读
+      operationId: convMarkAsRead
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkAsReadReq'
+      responses:
+        "200":
+          description: 标记成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== Message ====================
+  /messages/send:
+    post:
+      tags:
+        - Message
+      summary: 发送消息
+      operationId: msgSendMessage
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageReq'
+      responses:
+        "201":
+          description: 发送成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/SendMessageResp'
+
+  /messages/{conversation_id}/sync:
+    get:
+      tags:
+        - Message
+      summary: 同步消息（增量拉取）
+      operationId: msgSyncMessages
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+        - name: from_seq
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: 起始 seq（返回 > from_seq 的消息）
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          description: 每页数量
+      responses:
+        "200":
+          description: 消息列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/SyncMessagesResp'
+
+  /messages/{conversation_id}/around/{seq}:
+    get:
+      tags:
+        - Message
+      summary: 获取某条 seq 附近的消息
+      operationId: msgGetAroundSeq
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+        - name: seq
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 消息 seq
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          description: 每页数量
+      responses:
+        "200":
+          description: 附近消息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetMessagesResp'
+
+  /messages/{message_id}:
+    get:
+      tags:
+        - Message
+      summary: 获取单条消息
+      operationId: msgGetMessageByID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 消息 ID
+      responses:
+        "200":
+          description: 消息详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetMessageByIDResp'
+        "404":
+          description: 消息不存在
+    put:
+      tags:
+        - Message
+      summary: 编辑消息
+      operationId: msgEditMessage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 消息 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditMessageReq'
+      responses:
+        "200":
+          description: 编辑成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Message
+      summary: 删除消息
+      operationId: msgDeleteMessage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 消息 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteMessageReq'
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /messages/{message_id}/recall:
+    post:
+      tags:
+        - Message
+      summary: 撤回消息
+      operationId: msgRecallMessage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 消息 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecallMessageReq'
+      responses:
+        "200":
+          description: 撤回成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /messages/{message_id}/reply:
+    post:
+      tags:
+        - Message
+      summary: 回复消息
+      operationId: msgReplyMessage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 被回复的消息 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageReq'
+      responses:
+        "201":
+          description: 回复成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/SendMessageResp'
+
+  /messages/{message_id}/read_status:
+    get:
+      tags:
+        - Message
+      summary: 获取消息已读状态
+      operationId: msgGetReadStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 消息 ID
+      responses:
+        "200":
+          description: 已读状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetReadStatusResp'
+
+  /messages/search:
+    get:
+      tags:
+        - Message
+      summary: 搜索消息
+      operationId: msgSearchMessages
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: keyword
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 搜索关键词
+        - name: conversation_id
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: 按会话筛选
+        - name: start_time
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: 起始时间戳
+        - name: end_time
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: 结束时间戳
+        - name: page
+          in: query
+          schema:
+            type: integer
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+          description: 每页数量
+      responses:
+        "200":
+          description: 搜索结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/SearchMessagesResp'
+
+  /messages/forward:
+    post:
+      tags:
+        - Message
+      summary: 转发消息
+      operationId: msgForwardMessage
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForwardMessageReq'
+      responses:
+        "200":
+          description: 转发成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ForwardMessageResp'
+
+  # ==================== File ====================
+  /files/upload_url:
+    post:
+      tags:
+        - File
+      summary: 获取文件上传 URL
+      operationId: fileGetUploadURL
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetUploadURLReq'
+      responses:
+        "200":
+          description: 上传 URL
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetUploadURLResp'
+
+  /files/confirm:
+    post:
+      tags:
+        - File
+      summary: 确认文件上传完成
+      operationId: fileConfirmUpload
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmUploadReq'
+      responses:
+        "200":
+          description: 确认成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ConfirmUploadResp'
+
+  /files/{id}:
+    get:
+      tags:
+        - File
+      summary: 获取文件信息
+      operationId: fileGetFileInfo
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 文件 ID
+      responses:
+        "200":
+          description: 文件信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetFileInfoResp'
+        "404":
+          description: 文件不存在
+    delete:
+      tags:
+        - File
+      summary: 删除文件
+      operationId: fileDeleteFile
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 文件 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /files/{id}/download:
+    get:
+      tags:
+        - File
+      summary: 获取文件下载 URL
+      operationId: fileGetDownloadURL
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 文件 ID
+      responses:
+        "200":
+          description: 下载 URL
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetDownloadURLResp'
+
+  # ==================== Broadcast ====================
+  /broadcasts:
+    post:
+      tags:
+        - Broadcast
+      summary: 创建广播消息
+      operationId: broadcastCreate
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendBroadcastReq'
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/SendBroadcastResp'
+    get:
+      tags:
+        - Broadcast
+      summary: 获取广播列表
+      operationId: broadcastList
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 广播列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /broadcasts/my:
+    get:
+      tags:
+        - Broadcast
+      summary: 获取我发送的广播
+      operationId: broadcastGetMy
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 我的广播列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /broadcasts/{id}:
+    get:
+      tags:
+        - Broadcast
+      summary: 获取广播详情
+      operationId: broadcastGet
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 广播 ID
+      responses:
+        "200":
+          description: 广播详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== Notification ====================
+  /notifications:
+    get:
+      tags:
+        - Notification
+      summary: 获取通知列表
+      operationId: notifList
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 通知列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListNotificationsResp'
+
+  /notifications/{id}:
+    delete:
+      tags:
+        - Notification
+      summary: 删除通知
+      operationId: notifDelete
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 通知 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /notifications/{id}/read:
+    post:
+      tags:
+        - Notification
+      summary: 标记通知为已读
+      operationId: notifMarkRead
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 通知 ID
+      responses:
+        "200":
+          description: 标记成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /notifications/read_all:
+    post:
+      tags:
+        - Notification
+      summary: 标记所有通知为已读
+      operationId: notifMarkAllRead
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 标记成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== Knowledge Base ====================
+  /knowledge/bases:
+    post:
+      tags:
+        - Knowledge Base
+      summary: 创建知识库
+      operationId: kbCreate
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateKBReq'
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/KB'
+    get:
+      tags:
+        - Knowledge Base
+      summary: 获取知识库列表
+      operationId: kbList
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: integer
+          description: 偏移量
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          description: 每页数量
+      responses:
+        "200":
+          description: 知识库列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListKBsResp'
+
+  /knowledge/bases/{id}:
+    get:
+      tags:
+        - Knowledge Base
+      summary: 获取知识库详情
+      operationId: kbGet
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: 知识库详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/KB'
+        "404":
+          description: 知识库不存在
+    put:
+      tags:
+        - Knowledge Base
+      summary: 更新知识库
+      operationId: kbUpdate
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateKBReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/KB'
+    delete:
+      tags:
+        - Knowledge Base
+      summary: 删除知识库
+      operationId: kbDelete
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/documents:
+    post:
+      tags:
+        - Knowledge Base
+      summary: 上传文档到知识库
+      operationId: kbUploadDocument
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 文件内容
+                title:
+                  type: string
+                  description: 文档标题
+                metadata:
+                  type: string
+                  description: 用户自定义元数据 JSON
+      responses:
+        "200":
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/DocumentResp'
+    get:
+      tags:
+        - Knowledge Base
+      summary: 获取知识库文档列表
+      operationId: kbListDocuments
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+        - name: offset
+          in: query
+          schema:
+            type: integer
+          description: 偏移量
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          description: 每页数量
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, parsing, chunking, embedding, ready, failed]
+          description: 按状态筛选
+      responses:
+        "200":
+          description: 文档列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListDocumentsResp'
+
+  /knowledge/documents/{id}:
+    get:
+      tags:
+        - Knowledge Base
+      summary: 获取文档详情
+      operationId: kbGetDocument
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 文档 ID
+      responses:
+        "200":
+          description: 文档详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/DocumentResp'
+        "404":
+          description: 文档不存在
+    delete:
+      tags:
+        - Knowledge Base
+      summary: 删除文档
+      operationId: kbDeleteDocument
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 文档 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/documents/{id}/retry:
+    post:
+      tags:
+        - Knowledge Base
+      summary: 重试处理文档
+      operationId: kbRetryDocument
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 文档 ID
+      responses:
+        "200":
+          description: 重试结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/DocumentResp'
+
+  /knowledge/bases/{id}/search:
+    post:
+      tags:
+        - Knowledge Base
+      summary: 搜索知识库
+      operationId: kbSearch
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetrieveReq'
+      responses:
+        "200":
+          description: 检索结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/RetrieveResp'
+
+  /knowledge/bases/{id}/bindings:
+    get:
+      tags:
+        - Knowledge Base
+      summary: 获取知识库的绑定列表
+      operationId: kbListBindings
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: 绑定目标列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListBoundTargetsResp'
+
+  # ==================== Bot Knowledge Bindings ====================
+  /bots/{bid}/knowledge:
+    post:
+      tags:
+        - Knowledge Base
+      summary: 知识库绑定到 Bot
+      operationId: kbBindToBot
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: bid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BindReq'
+      responses:
+        "200":
+          description: 绑定成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    get:
+      tags:
+        - Knowledge Base
+      summary: 获取 Bot 绑定的知识库列表
+      operationId: kbListBotBindings
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: bid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      responses:
+        "200":
+          description: 绑定列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListBindingsResp'
+
+  /bots/{bid}/knowledge/{kid}:
+    delete:
+      tags:
+        - Knowledge Base
+      summary: 解除 Bot 的知识库绑定
+      operationId: kbUnbindFromBot
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: bid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+        - name: kid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: 解除绑定成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== Conv Knowledge Bindings ====================
+  /convs/{cid}/knowledge:
+    post:
+      tags:
+        - Knowledge Base
+      summary: 知识库绑定到会话
+      operationId: kbBindToConv
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: cid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BindReq'
+      responses:
+        "200":
+          description: 绑定成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    get:
+      tags:
+        - Knowledge Base
+      summary: 获取会话绑定的知识库列表
+      operationId: kbListConvBindings
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: cid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 绑定列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListBindingsResp'
+
+  /convs/{cid}/knowledge/{kid}:
+    delete:
+      tags:
+        - Knowledge Base
+      summary: 解除会话的知识库绑定
+      operationId: kbUnbindFromConv
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: cid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+        - name: kid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: 解除绑定成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== Bot Management ====================
+  /bots:
+    post:
+      tags:
+        - Bot
+      summary: 创建 Bot
+      operationId: botCreate
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBotReq'
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/CreateBotResp'
+    get:
+      tags:
+        - Bot
+      summary: 获取当前用户的 Bot 列表
+      operationId: botList
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Bot 列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListBotsResp'
+
+  /bots/token/validate:
+    post:
+      tags:
+        - Bot
+      summary: 验证 Bot Token 有效性
+      operationId: botValidateToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidateTokenReq'
+      responses:
+        "200":
+          description: 验证结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ValidateTokenResp'
+
+  /bots/{id}:
+    get:
+      tags:
+        - Bot
+      summary: 获取 Bot 详情
+      operationId: botGet
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      responses:
+        "200":
+          description: Bot 详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetBotResp'
+        "404":
+          description: Bot 不存在
+    put:
+      tags:
+        - Bot
+      summary: 更新 Bot 配置
+      operationId: botUpdate
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBotReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Bot
+      summary: 删除 Bot
+      operationId: botDelete
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /bots/{id}/avatar:
+    post:
+      tags:
+        - Bot
+      summary: 上传 Bot 头像
+      operationId: botUploadAvatar
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /bots/{id}/secret/rotate:
+    post:
+      tags:
+        - Bot
+      summary: 轮换 Bot Secret
+      operationId: botRotateSecret
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      responses:
+        "200":
+          description: 轮换成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/RotateSecretResp'
+
+  /bots/{id}/token:
+    post:
+      tags:
+        - Bot
+      summary: 签发 Bot Token
+      operationId: botIssueToken
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      responses:
+        "200":
+          description: 签发成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/IssueTokenResp'
+
+  # ==================== Bot Chat & Memory ====================
+  /bots/{id}/chat/stream:
+    get:
+      tags:
+        - Bot
+      summary: Bot 对话流式响应 (SSE)
+      description: 与指定 Bot 进行流式对话，返回 Server-Sent Events
+      operationId: botStreamChat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+        - name: message
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 用户消息
+        - name: conversation_id
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID（可选，用于上下文）
+      responses:
+        "200":
+          description: SSE 流式响应
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /bots/{id}/memory:
+    get:
+      tags:
+        - Bot
+      summary: 获取用户与 Bot 的记忆列表
+      operationId: botGetUserMemories
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: 记忆列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListMemoriesResp'
+    delete:
+      tags:
+        - Bot
+      summary: 清除用户与 Bot 的所有记忆
+      operationId: botClearUserMemories
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      responses:
+        "200":
+          description: 清除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /bots/{id}/memory/{memory_id}:
+    delete:
+      tags:
+        - Bot
+      summary: 删除指定记忆
+      operationId: botForgetMemory
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+        - name: memory_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 记忆 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== Global MCP Server Management ====================
+  /mcp-servers:
+    post:
+      tags:
+        - MCP Server
+      summary: 添加 MCP 服务器
+      operationId: mcpCreateServer
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMcpServerReq'
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetMcpServerResp'
+    get:
+      tags:
+        - MCP Server
+      summary: 获取 MCP 服务器列表
+      operationId: mcpListServers
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 服务器列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListMcpServersResp'
+
+  /mcp-servers/{id}:
+    get:
+      tags:
+        - MCP Server
+      summary: 获取 MCP 服务器详情
+      operationId: mcpGetServer
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: MCP Server ID
+      responses:
+        "200":
+          description: 服务器详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetMcpServerResp'
+        "404":
+          description: 服务器不存在
+    put:
+      tags:
+        - MCP Server
+      summary: 更新 MCP 服务器
+      operationId: mcpUpdateServer
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: MCP Server ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMcpServerReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - MCP Server
+      summary: 删除 MCP 服务器
+      operationId: mcpDeleteServer
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: MCP Server ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /mcp-servers/{id}/discover:
+    post:
+      tags:
+        - MCP Server
+      summary: 发现 MCP 服务器的工具列表
+      operationId: mcpDiscoverTools
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: MCP Server ID
+      responses:
+        "200":
+          description: 工具列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/DiscoverMcpToolsResp'
+
+  /mcp-servers/{id}/tools:
+    get:
+      tags:
+        - MCP Server
+      summary: 获取 MCP 服务器工具列表（已缓存）
+      operationId: mcpListTools
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: MCP Server ID
+      responses:
+        "200":
+          description: 工具列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListMcpToolsResp'
+
+  # ==================== Bot MCP Assignment ====================
+  /bots/{id}/mcp-servers:
+    post:
+      tags:
+        - Bot
+      summary: 为 Bot 分配 MCP 服务器
+      operationId: botAssignMcp
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignMcpReq'
+      responses:
+        "200":
+          description: 分配成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    get:
+      tags:
+        - Bot
+      summary: 获取 Bot 已分配的 MCP 服务器列表
+      operationId: botListMcpServers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      responses:
+        "200":
+          description: MCP 绑定列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListBotMcpServersResp'
+
+  /bots/{id}/mcp-servers/{mcp_id}:
+    delete:
+      tags:
+        - Bot
+      summary: 取消 Bot 的 MCP 服务器分配
+      operationId: botUnassignMcp
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+        - name: mcp_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: MCP Server ID
+      responses:
+        "200":
+          description: 取消成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    put:
+      tags:
+        - Bot
+      summary: 更新 Bot 的 MCP 服务器配置
+      operationId: botUpdateMcpServer
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+        - name: mcp_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: MCP Server ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBotMcpReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== Bot in Conversation ====================
+  /convs/{id}/bots:
+    post:
+      tags:
+        - Conversation
+      summary: 向会话添加 Bot
+      operationId: convAddBot
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddBotToConvReq'
+      responses:
+        "200":
+          description: 添加成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    get:
+      tags:
+        - Conversation
+      summary: 获取会话中的 Bot 列表
+      operationId: convListBots
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: Bot 列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListConvBotsResp'
+
+  /convs/{id}/bots/{bot_id}:
+    put:
+      tags:
+        - Conversation
+      summary: 更新会话中的 Bot 配置
+      operationId: convUpdateBot
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+        - name: bot_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBotInConvReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Conversation
+      summary: 从会话移除 Bot
+      operationId: convRemoveBot
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+        - name: bot_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Bot ID
+      responses:
+        "200":
+          description: 移除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== Conversation Tools ====================
+  /convs/{id}/summarize:
+    post:
+      tags:
+        - Conversation Tools
+      summary: 生成会话消息摘要
+      operationId: convSummarize
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSummaryReq'
+      responses:
+        "200":
+          description: 摘要
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Summary'
+
+  /convs/{id}/summaries:
+    get:
+      tags:
+        - Conversation Tools
+      summary: 获取会话摘要列表
+      operationId: convGetSummaries
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 摘要列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetSummariesResp'
+
+  /convs/{id}/todos:
+    post:
+      tags:
+        - Conversation Tools
+      summary: 创建会话待办事项
+      operationId: convCreateTodo
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTodoReq'
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Todo'
+
+  /convs/{id}/todos/{todoId}:
+    put:
+      tags:
+        - Conversation Tools
+      summary: 更新会话待办事项
+      operationId: convUpdateTodo
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+        - name: todoId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 待办 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTodoReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Conversation Tools
+      summary: 删除会话待办事项
+      operationId: convDeleteTodo
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+        - name: todoId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 待办 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /convs/{id}/reply-candidates:
+    post:
+      tags:
+        - Conversation Tools
+      summary: 生成回复候选
+      operationId: convReplyCandidates
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 候选回复列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ReplyCandidatesResp'
+
+  /messages/{id}/translate:
+    post:
+      tags:
+        - Conversation Tools
+      summary: 翻译消息
+      operationId: msgTranslate
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 消息 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranslateReq'
+      responses:
+        "200":
+          description: 翻译结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/TranslateResp'
+
+  # ==================== Model Management ====================
+  /models:
+    get:
+      tags:
+        - Model
+      summary: 获取模型列表
+      operationId: modelList
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 模型列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListModelsResp'
+    post:
+      tags:
+        - Model
+      summary: 创建模型
+      operationId: modelCreate
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateModelReq'
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetModelResp'
+
+  /models/{id}:
+    put:
+      tags:
+        - Model
+      summary: 更新模型
+      operationId: modelUpdate
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 模型 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateModelReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Model
+      summary: 删除模型
+      operationId: modelDelete
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 模型 ID
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /models/billing/stats:
+    get:
+      tags:
+        - Model
+      summary: 获取账单统计
+      operationId: modelGetBillingStats
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 账单统计
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GetBillingStatsResp'
+
+  /models/billing/records:
+    get:
+      tags:
+        - Model
+      summary: 获取账单记录列表
+      operationId: modelListBillingRecords
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: 账单记录列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ListBillingRecordsResp'
+
+  # ==================== Wiki ====================
+  /knowledge/bases/{id}/wiki/index:
+    get:
+      tags:
+        - Wiki
+      summary: 获取知识库 Wiki 索引
+      operationId: wikiReadIndex
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: Wiki 索引
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/WikiIndex'
+
+  /knowledge/bases/{id}/wiki/pages:
+    get:
+      tags:
+        - Wiki
+      summary: 获取 Wiki 所有页面列表
+      operationId: wikiListPages
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: 页面列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/wiki/pages/{slug}:
+    get:
+      tags:
+        - Wiki
+      summary: 读取 Wiki 页面内容
+      operationId: wikiReadPage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 页面 slug
+      responses:
+        "200":
+          description: 页面内容
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/WikiPage'
+        "404":
+          description: 页面不存在
+    put:
+      tags:
+        - Wiki
+      summary: 更新 Wiki 页面
+      operationId: wikiUpdatePage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 页面 slug
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WikiUpdatePageReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    delete:
+      tags:
+        - Wiki
+      summary: 删除 Wiki 页面
+      operationId: wikiDeletePage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 页面 slug
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/wiki/search:
+    get:
+      tags:
+        - Wiki
+      summary: 搜索 Wiki 内容
+      operationId: wikiSearch
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 搜索关键词
+      responses:
+        "200":
+          description: 搜索结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/wiki/issues:
+    get:
+      tags:
+        - Wiki
+      summary: 获取 Wiki 问题列表
+      operationId: wikiListIssues
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: 问题列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    post:
+      tags:
+        - Wiki
+      summary: 标记 Wiki 问题
+      operationId: wikiFlagIssue
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WikiFlagIssueReq'
+      responses:
+        "200":
+          description: 标记成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/wiki/issues/{issueId}:
+    put:
+      tags:
+        - Wiki
+      summary: 更新 Wiki 问题状态
+      operationId: wikiUpdateIssue
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+        - name: issueId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 问题 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WikiUpdateIssueReq'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/wiki/refresh:
+    post:
+      tags:
+        - Wiki
+      summary: 刷新知识库 Wiki
+      operationId: wikiRefresh
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: 刷新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/wiki/maintenance:
+    post:
+      tags:
+        - Wiki
+      summary: 运行 Wiki 维护任务
+      operationId: wikiRunMaintenance
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: 维护完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/wiki/graph:
+    get:
+      tags:
+        - Wiki
+      summary: 获取 Wiki 知识图谱
+      operationId: wikiGraph
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      responses:
+        "200":
+          description: 知识图谱
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/WikiGraphResp'
+
+  /knowledge/bases/{id}/wiki/source/{docId}:
+    get:
+      tags:
+        - Wiki
+      summary: 读取 Wiki 源文档
+      operationId: wikiReadSourceDoc
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 文档 ID
+      responses:
+        "200":
+          description: 源文档内容
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/wiki/replace-text/{slug}:
+    put:
+      tags:
+        - Wiki
+      summary: 替换 Wiki 页面文本
+      operationId: wikiReplaceText
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 页面 slug
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WikiReplaceTextReq'
+      responses:
+        "200":
+          description: 替换成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/wiki/rename-page/{slug}:
+    put:
+      tags:
+        - Wiki
+      summary: 重命名 Wiki 页面
+      operationId: wikiRenamePage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 当前 slug
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WikiRenamePageReq'
+      responses:
+        "200":
+          description: 重命名成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/bases/{id}/wiki/batch-upload:
+    post:
+      tags:
+        - Wiki
+      summary: 批量上传文档到知识库
+      operationId: wikiBatchUploadDocuments
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 知识库 ID
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        "200":
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== Knowledge (Additional) ====================
+  /knowledge/documents/{id}/content:
+    get:
+      tags:
+        - Knowledge Base
+      summary: 获取文档原始内容
+      operationId: kbGetDocumentContent
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 文档 ID
+      responses:
+        "200":
+          description: 文档内容
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /knowledge/documents/{id}/chunks:
+    get:
+      tags:
+        - Knowledge Base
+      summary: 获取文档分块列表
+      operationId: kbListChunks
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 文档 ID
+        - name: offset
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: 分块列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  # ==================== User Extras ====================
+  /users/me/avatar:
+    post:
+      tags:
+        - User
+      summary: 上传用户头像
+      operationId: userUploadAvatar
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+
+  /users/me/recharge:
+    post:
+      tags:
+        - User
+      summary: 用户充值
+      operationId: userRecharge
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RechargeReq'
+      responses:
+        "200":
+          description: 充值成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/RechargeResp'
+
+  # ==================== Webhook ====================
+  /webhook:
+    post:
+      tags:
+        - Bot
+      summary: Bot Webhook 回调
+      description: 第三方平台向 Bot 推送消息的 Webhook 入口。无 JWT 认证，通过请求签名校验身份。
+      operationId: botWebhook
+      parameters:
+        - name: X-Bot-Token
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bot Token
+        - name: X-Signature
+          in: header
+          schema:
+            type: string
+          description: HMAC 签名
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: string
+                  description: 事件类型
+                data:
+                  type: object
+                  description: 事件数据
+      responses:
+        "200":
+          description: 回调处理成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'

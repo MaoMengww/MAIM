@@ -1,0 +1,51 @@
+Name: llm-gateway.rpc
+ListenOn: 0.0.0.0:50056
+Timeout: 600000
+
+Etcd:
+  Hosts:
+    - 127.0.0.1:2379
+  Key: llm-gateway.rpc
+
+Log:
+  Level: info
+  Stat: false
+
+Database:
+  Driver: postgres
+  DSN: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=llm
+  MaxOpenConn: 50
+  MaxIdleConn: 10
+  MaxLifetime: 3600
+
+Redis:
+  Host: localhost:6379
+  Type: node
+  Pass: ""
+  Key: ""
+
+ModelConf:
+  RefreshInterval: 300s
+
+RateLimit:
+  DefaultRPM: 100
+  DefaultConcurrency: 10
+
+EncKey: Ay+h5wU31Vfy5gITlP1P2cmNtOPkTsnqIupXHqpgutw=
+CpuThreshold: 900
+
+Telemetry:
+  Name: llm-gateway.rpc
+  Endpoint: localhost:4317
+  Sampler: 1.0
+  Batcher: otlpgrpc
+
+Prometheus:
+  Host: 0.0.0.0
+  Port: 9107
+
+UserService:
+  Etcd:
+    Hosts:
+      - 127.0.0.1:2379
+    Key: user.rpc

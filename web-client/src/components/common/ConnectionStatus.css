@@ -1,0 +1,60 @@
+.connection-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  animation: banner-slide-in 0.3s ease-out;
+}
+
+.connection-banner--connecting {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+}
+
+.connection-banner--disconnected {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #fff;
+}
+
+.connection-banner--success {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  animation: banner-slide-in 0.3s ease-out, banner-fade-out 0.5s ease-out 2.5s forwards;
+}
+
+.connection-banner__text {
+  flex: 1;
+}
+
+.connection-banner__retry {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.4);
+  color: #fff;
+  padding: 2px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.connection-banner__retry:hover {
+  background: rgba(255,255,255,0.35);
+}
+
+@keyframes banner-slide-in {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes banner-fade-out {
+  to { opacity: 0; transform: translateY(-100%); }
+}

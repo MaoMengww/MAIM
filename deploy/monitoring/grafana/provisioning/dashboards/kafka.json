@@ -1,0 +1,39 @@
+{
+  "title": "AIM - Kafka",
+  "uid": "aim-kafka",
+  "tags": ["aim", "kafka"],
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "title": "Consumer Lag",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "aim_service_kafka_consumer_lag",
+        "legendFormat": "{{ topic }} p{{ partition }}"
+      }],
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "title": "Messages Processed",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(aim_service_kafka_messages_total[5m])) by (topic)",
+        "legendFormat": "{{ topic }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "title": "Processing Latency P99",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "histogram_quantile(0.99, sum(rate(aim_service_kafka_processing_seconds_bucket[5m])) by (le, topic))",
+        "legendFormat": "{{ topic }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    }
+  ]
+}

@@ -1,0 +1,376 @@
+.conv-page {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+/* ─── Left Panel: Conversation List ─── */
+.conv-sidebar-panel {
+  width: 340px;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--aim-border);
+  background: var(--aim-surface);
+}
+
+.conv-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 12px;
+}
+
+.conv-panel-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--aim-text);
+  margin: 0;
+}
+
+.conv-new-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--aim-border);
+  background: var(--aim-surface-elevated);
+  color: var(--aim-text);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--aim-transition-fast);
+}
+
+.conv-new-btn:hover {
+  border-color: var(--aim-primary);
+  color: var(--aim-primary);
+}
+
+.conv-search-box {
+  position: relative;
+  padding: 0 16px 12px;
+}
+
+.conv-search-icon {
+  position: absolute;
+  left: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--aim-text-tertiary);
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.conv-search-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 30px 0 32px;
+  border-radius: 8px;
+  border: 1px solid var(--aim-border);
+  background: var(--aim-chat-input-bg);
+  color: var(--aim-text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--aim-transition-fast);
+}
+
+.conv-search-input:focus {
+  border-color: var(--aim-primary);
+}
+
+.conv-search-input::placeholder {
+  color: var(--aim-text-tertiary);
+}
+
+.conv-search-clear {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(calc(-50% - 6px));
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: var(--aim-surface-elevated);
+  color: var(--aim-text-tertiary);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  padding: 0;
+  line-height: 1;
+}
+
+.conv-search-clear:hover {
+  color: var(--aim-text);
+  background: var(--aim-border);
+}
+
+/* ─── Search Results ─── */
+.conv-search-header {
+  font-size: 12px;
+  color: var(--aim-text-tertiary);
+  padding: 4px 12px 8px;
+}
+
+.conv-search-result-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background var(--aim-transition-fast);
+}
+
+.conv-search-result-item:hover {
+  background: var(--aim-surface-hover);
+}
+
+.conv-search-result-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.conv-search-result-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--aim-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-search-result-time {
+  font-size: 11px;
+  color: var(--aim-text-tertiary);
+  white-space: nowrap;
+}
+
+.conv-search-result-preview {
+  font-size: 13px;
+  color: var(--aim-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+
+.conv-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--aim-text-tertiary);
+  font-size: 14px;
+}
+
+.conv-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background var(--aim-transition-fast);
+}
+
+.conv-item:hover {
+  background: var(--aim-surface-hover);
+}
+
+.conv-item.active {
+  background: var(--aim-sidebar-active);
+}
+
+.conv-item.active .conv-item-name {
+  color: var(--aim-primary);
+}
+
+.conv-item-online {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--aim-surface);
+  background: var(--aim-success);
+}
+
+.conv-item-online.muted {
+  background: var(--aim-text-tertiary);
+}
+
+.conv-item-online.offline {
+  background: var(--aim-text-tertiary);
+  opacity: 0.3;
+}
+
+.conv-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.conv-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.conv-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--aim-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-item-time {
+  font-size: 11px;
+  color: var(--aim-text-tertiary);
+  white-space: nowrap;
+}
+
+.conv-item-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.conv-item-preview {
+  font-size: 13px;
+  color: var(--aim-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  display: block;
+}
+
+.conv-item-avatar {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.conv-item-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #ff4d4f;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: 0 0 0 2px var(--aim-surface);
+  z-index: 1;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+/* ─── Conversation Item Row (wrapper for item + more button) ─── */
+.conv-item-row {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+  border-radius: 10px;
+  transition: background var(--aim-transition-fast);
+}
+
+.conv-item-row:hover {
+  background: var(--aim-surface-hover);
+}
+
+.conv-item-row .conv-item {
+  flex: 1;
+}
+
+.conv-item-more-btn {
+  width: 28px;
+  height: 28px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--aim-text-tertiary);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-right: 4px;
+  padding: 0;
+  line-height: 1;
+}
+
+.conv-item-row:hover .conv-item-more-btn {
+  display: flex;
+}
+
+.conv-item-more-btn:hover {
+  background: var(--aim-surface-elevated);
+  color: var(--aim-text);
+}
+
+/* ─── Right Panel: Chat ─── */
+.conv-main-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--aim-chat-bg);
+  min-width: 0;
+}
+
+/* ─── Type filter chips ─── */
+.conv-type-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 12px 8px;
+}
+
+.conv-type-chip {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--aim-border);
+  background: var(--aim-bg);
+  color: var(--aim-text-secondary);
+  cursor: pointer;
+  transition: all var(--aim-transition-fast);
+  white-space: nowrap;
+  line-height: 22px;
+}
+
+.conv-type-chip:hover {
+  border-color: var(--aim-primary);
+  color: var(--aim-primary);
+}
+
+.conv-type-chip.active {
+  background: var(--aim-primary);
+  color: #fff;
+  border-color: var(--aim-primary);
+}

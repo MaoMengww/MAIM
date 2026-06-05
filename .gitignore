@@ -1,0 +1,66 @@
+# ==== Go ====
+# Binaries
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Root-level compiled binaries
+/configctl
+/gateway
+
+# Backup binaries
+*.bak
+
+# Test binaries
+*.test
+
+# Coverage
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Go workspace
+go.work
+go.work.sum
+
+# ==== Frontend ====
+node_modules/
+web-client/dist/
+
+# ==== Logs ====
+/logs/
+
+# ==== Environment ====
+.env
+
+# ==== AI assistants ====
+.claude/
+.codegraph/
+
+# ==== IDE & OS ====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ==== Load test ====
+deploy/loadtest/
+test/loadtest/
+
+# ==== Dev tools ====
+tools/
+
+# ==== Generated tool artifacts ====
+.superpowers/
+.trae/
+.kiro/
+/task/
+ws-gateway
+CLAUDE.md

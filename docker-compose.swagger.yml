@@ -1,0 +1,10 @@
+services:
+  swagger:
+    build:
+      context: .
+      dockerfile: deploy/docker/swagger/Dockerfile
+    image: aim-swagger:latest
+    container_name: aim-swagger
+    ports:
+      - "8888:80"
+    restart: unless-stopped

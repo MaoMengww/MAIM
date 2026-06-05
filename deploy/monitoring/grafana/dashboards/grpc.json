@@ -1,0 +1,49 @@
+{
+  "title": "AIM - gRPC Services",
+  "uid": "aim-grpc",
+  "tags": ["aim", "grpc"],
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "title": "QPS by Method",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(rpc_server_requests_code_total[5m])) by (method)",
+        "legendFormat": "{{ method }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "title": "Error Rate by Method",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(rpc_server_requests_code_total{code!=\"OK\"}[5m])) by (method) / sum(rate(rpc_server_requests_code_total[5m])) by (method)",
+        "legendFormat": "{{ method }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "title": "Latency P99 by Method",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "histogram_quantile(0.99, sum(rate(rpc_server_requests_duration_ms_bucket[5m])) by (le, method))",
+        "legendFormat": "{{ method }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "title": "Latency P95 by Method",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(rpc_server_requests_duration_ms_bucket[5m])) by (le, method))",
+        "legendFormat": "{{ method }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    }
+  ]
+}

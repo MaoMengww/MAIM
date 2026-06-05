@@ -1,0 +1,416 @@
+syntax = "proto3";
+
+package conversation;
+
+import "common/common.proto";
+
+option go_package = "github.com/maomeng/aim/app/conversation-service/pb/conversation";
+
+service ConversationService {
+  // ========== CRUD ==========
+  rpc CreateConversation(CreateConversationReq) returns (CreateConversationResp);
+  rpc GetConversation(GetConversationReq) returns (GetConversationResp);
+  rpc ListConversations(ListConversationsReq) returns (ListConversationsResp);
+  rpc UpdateConversation(UpdateConversationReq) returns (common.BaseResponse);
+  rpc DeleteConversation(DeleteConversationReq) returns (common.BaseResponse);
+
+  // ========== Members ==========
+  rpc AddMembers(AddMembersReq) returns (AddMembersResp);
+  rpc RemoveMembers(RemoveMembersReq) returns (common.BaseResponse);
+  rpc GetMembers(GetMembersReq) returns (GetMembersResp);
+  rpc UpdateMember(UpdateMemberReq) returns (common.BaseResponse);
+
+  // ========== Permissions (called by message-service) ==========
+  rpc IsMember(IsMemberReq) returns (IsMemberResp);
+  rpc GetMuteStatus(GetMuteStatusReq) returns (GetMuteStatusResp);
+  rpc GetMemberRole(GetMemberRoleReq) returns (GetMemberRoleResp);
+  rpc PreCheckSend(PreCheckSendReq) returns (PreCheckSendResp);
+
+  // ========== Group Management ==========
+  rpc MuteAll(MuteAllReq) returns (common.BaseResponse);
+  rpc UnmuteAll(UnmuteAllReq) returns (common.BaseResponse);
+  rpc MuteMember(MuteMemberReq) returns (common.BaseResponse);
+  rpc UnmuteMember(UnmuteMemberReq) returns (common.BaseResponse);
+  rpc SetAnnouncement(SetAnnouncementReq) returns (common.BaseResponse);
+  rpc DeleteAnnouncement(DeleteAnnouncementReq) returns (common.BaseResponse);
+  rpc TransferOwner(TransferOwnerReq) returns (common.BaseResponse);
+
+  // ========== Settings ==========
+  rpc GetSettings(GetSettingsReq) returns (GetSettingsResp);
+  rpc UpdateSettings(UpdateSettingsReq) returns (common.BaseResponse);
+
+  // ========== Last Message (called by message-service) ==========
+  rpc UpdateConversationLastMessage(UpdateConversationLastMessageReq) returns (common.BaseResponse);
+
+  // ========== Read Status ==========
+  rpc MarkAsRead(MarkAsReadReq) returns (common.BaseResponse);
+  rpc GetReadStatus(GetReadStatusReq) returns (GetReadStatusResp);
+
+  // ========== Bot Management ==========
+  rpc AddBot(AddBotReq) returns (common.BaseResponse);
+  rpc RemoveBot(RemoveBotReq) returns (common.BaseResponse);
+  rpc UpdateBot(UpdateBotReq) returns (common.BaseResponse);
+  rpc ListBots(ListBotsReq) returns (ListBotsResp);
+}
+
+// ========== Enums ==========
+
+enum ConversationType {
+  CONVERSATION_TYPE_UNSPECIFIED = 0;
+  CONVERSATION_TYPE_PRIVATE = 1;
+  CONVERSATION_TYPE_GROUP = 2;
+}
+
+enum MemberRole {
+  MEMBER_ROLE_UNSPECIFIED = 0;
+  MEMBER_ROLE_OWNER = 1;
+  MEMBER_ROLE_ADMIN = 2;
+  MEMBER_ROLE_MEMBER = 3;
+}
+
+enum MemberType {
+  MEMBER_TYPE_UNSPECIFIED = 0;
+  MEMBER_TYPE_USER = 1;
+  MEMBER_TYPE_BOT = 2;
+}
+
+// ========== Conversation Entity ==========
+
+message Conversation {
+  int64 id = 1;
+  ConversationType type = 2;
+  string name = 3;
+  string avatar = 4;
+  int64 owner_id = 5;
+  int32 member_count = 6;
+  int64 max_seq = 7;
+  int64 last_message_id = 8;
+  string last_message_preview = 9;
+  int64 last_read_seq = 10;
+  int32 unread_count = 11;
+  bool is_muted = 12;
+  bool is_pinned = 13;
+  bool is_muted_all = 14;
+  string announcement = 15;
+  string background = 16;
+  int64 created_at = 20;
+  int64 updated_at = 21;
+}
+
+// ========== Conversation Member ==========
+
+message ConversationMember {
+  int64 user_id = 1;
+  string username = 2;
+  string avatar = 3;
+  MemberRole role = 4;
+  string alias = 5;
+  int64 joined_at = 6;
+  int64 last_read_seq = 7;
+  bool is_muted = 8;
+  int64 mute_until = 9;
+  MemberType member_type = 10;
+  int64 bot_id = 11;
+  string bot_name = 12;
+  string bot_avatar = 13;
+}
+
+// ========== Create ==========
+
+message CreateConversationReq {
+  ConversationType type = 1;
+  int64 creator_id = 2;
+  optional int64 peer_user_id = 10;
+  optional string name = 20;
+  optional string avatar = 21;
+  repeated int64 member_ids = 22;
+}
+
+message CreateConversationResp {
+  int64 conversation_id = 1;
+  Conversation conversation = 2;
+}
+
+// ========== Get ==========
+
+message GetConversationReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+}
+
+message GetConversationResp {
+  Conversation conversation = 1;
+}
+
+// ========== List ==========
+
+message ListConversationsReq {
+  int64 user_id = 1;
+  common.CursorPagination pagination = 2;
+  optional ConversationType type = 3;
+  bool pinned_first = 4;
+}
+
+message ListConversationsResp {
+  repeated Conversation conversations = 1;
+  common.CursorPaginationResp pagination = 2;
+}
+
+// ========== Update ==========
+
+message UpdateConversationReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+  optional string name = 10;
+  optional string avatar = 11;
+  optional string background = 14;
+}
+
+// ========== Update Last Message (internal, called by message-service) ==========
+
+message UpdateConversationLastMessageReq {
+  int64 conversation_id = 1;
+  int64 last_message_id = 2;
+  int64 max_seq = 3;
+  string last_message_preview = 4;
+}
+
+// ========== Delete ==========
+
+message DeleteConversationReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+}
+
+// ========== Add Members ==========
+
+message AddMembersReq {
+  int64 conversation_id = 1;
+  int64 operator_id = 2;
+  repeated int64 user_ids = 3;
+}
+
+message AddMembersResp {
+  repeated int64 added_user_ids = 1;
+  repeated int64 failed_user_ids = 2;
+}
+
+// ========== Remove Members ==========
+
+message RemoveMembersReq {
+  int64 conversation_id = 1;
+  int64 operator_id = 2;
+  repeated int64 user_ids = 3;
+}
+
+// ========== Get Members ==========
+
+message GetMembersReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+  common.Pagination pagination = 3;
+}
+
+message GetMembersResp {
+  repeated ConversationMember members = 1;
+  common.PaginationResp pagination = 2;
+}
+
+// ========== Update Member ==========
+
+message UpdateMemberReq {
+  int64 conversation_id = 1;
+  int64 operator_id = 2;
+  int64 user_id = 3;
+  optional MemberRole role = 4;
+  optional string alias = 5;
+}
+
+// ========== IsMember ==========
+
+message IsMemberReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+}
+
+message IsMemberResp {
+  bool is_member = 1;
+}
+
+// ========== GetMuteStatus ==========
+
+message GetMuteStatusReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+}
+
+message GetMuteStatusResp {
+  bool is_muted = 1;
+  bool is_muted_all = 2;
+  int64 mute_until = 3;
+}
+
+// ========== PreCheckSend (merged permission check for message-service) ==========
+
+message PreCheckSendReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+}
+
+message PreCheckSendResp {
+  bool is_member = 1;
+  bool is_muted = 2;
+  bool is_muted_all = 3;
+  int64 mute_until = 4;
+  ConversationType conv_type = 5;
+  repeated int64 member_ids = 6;
+}
+
+// ========== GetMemberRole ==========
+
+message GetMemberRoleReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+}
+
+message GetMemberRoleResp {
+  MemberRole role = 1;
+}
+
+// ========== Mute All ==========
+
+message MuteAllReq {
+  int64 conversation_id = 1;
+  int64 operator_id = 2;
+}
+
+message UnmuteAllReq {
+  int64 conversation_id = 1;
+  int64 operator_id = 2;
+}
+
+// ========== Mute/Unmute Member ==========
+
+message MuteMemberReq {
+  int64 conversation_id = 1;
+  int64 operator_id = 2;
+  int64 user_id = 3;
+  int64 duration_seconds = 4;  // 0 = permanent until unmuted
+}
+
+message UnmuteMemberReq {
+  int64 conversation_id = 1;
+  int64 operator_id = 2;
+  int64 user_id = 3;
+}
+
+// ========== Announcement ==========
+
+message SetAnnouncementReq {
+  int64 conversation_id = 1;
+  int64 operator_id = 2;
+  string content = 3;
+}
+
+message DeleteAnnouncementReq {
+  int64 conversation_id = 1;
+  int64 operator_id = 2;
+}
+
+// ========== Transfer Owner ==========
+
+message TransferOwnerReq {
+  int64 conversation_id = 1;
+  int64 operator_id = 2;
+  int64 new_owner_id = 3;
+}
+
+// ========== Settings ==========
+
+message GetSettingsReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+}
+
+message GetSettingsResp {
+  bool is_muted = 1;
+  bool is_pinned = 2;
+}
+
+message UpdateSettingsReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+  optional bool is_muted = 3;
+  optional bool is_pinned = 4;
+}
+
+// ========== Mark As Read ==========
+
+message MarkAsReadReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+  int64 seq = 3;
+}
+
+// ========== Get Read Status ==========
+
+message GetReadStatusReq {
+  int64 message_id = 1;
+  int64 conversation_id = 2;
+}
+
+message ReadUser {
+  int64 user_id = 1;
+  int64 read_at = 2;
+  int64 last_read_seq = 3;
+}
+
+message GetReadStatusResp {
+  int32 read_count = 1;
+  int32 total_count = 2;
+  repeated ReadUser read_users = 3;
+}
+
+// ========== Bot Messages ==========
+
+message BotInConv {
+  int64 bot_id = 1;
+  string name = 2;
+  string avatar = 3;
+  string type = 4;
+  repeated string response_triggers = 5;
+  string bot_settings = 6;
+  int64 added_by = 7;
+  int64 added_at = 8;
+}
+
+message AddBotReq {
+  int64 conversation_id = 1;
+  int64 bot_id = 2;
+  int64 operator_id = 3;
+  repeated string response_triggers = 4;
+  string bot_settings = 5;
+}
+
+message RemoveBotReq {
+  int64 conversation_id = 1;
+  int64 bot_id = 2;
+  int64 operator_id = 3;
+}
+
+message UpdateBotReq {
+  int64 conversation_id = 1;
+  int64 bot_id = 2;
+  int64 operator_id = 3;
+  repeated string response_triggers = 4;
+  string bot_settings = 5;
+}
+
+message ListBotsReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+}
+
+message ListBotsResp {
+  repeated BotInConv bots = 1;
+}

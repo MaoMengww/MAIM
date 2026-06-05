@@ -1,0 +1,101 @@
+Name: ai-bot-service
+ListenOn: 0.0.0.0:50062
+
+Etcd:
+  Hosts:
+  - 127.0.0.1:2379
+  Key: aibot.rpc
+
+Database:
+  driver: postgres
+  dsn: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=bot
+  maxOpenConn: 50
+  maxIdleConn: 10
+  maxLifetime: 3600
+
+Redis:
+  Host: localhost:6379
+  Type: node
+  Pass: ""
+  Key: aibot.rpc
+
+Kafka:
+  brokers:
+  - localhost:9092
+  consumerGroup: ai-bot-service
+  maxRetry: 3
+
+Bot:
+  maxContextMessages: 10
+  maxToolRounds: 3
+  workerPoolSize: 0
+  requestTimeout: 120s
+
+Milvus:
+  host: localhost
+  port: 19530
+  database: aim
+
+LlmGateway:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: llm-gateway.rpc
+  Timeout: 600000
+
+MessageService:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: message.rpc
+  Timeout: 30000
+
+KnowledgeBase:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: knowledge-base.rpc
+  Timeout: 600000
+
+WsGateway:
+  Etcd:
+    Hosts:
+      - 127.0.0.1:2379
+    Key: ws-gateway.rpc
+  Timeout: 10000
+
+BotPlatform:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: bot-platform.rpc
+  Timeout: 10000
+
+UserService:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: user.rpc
+  Timeout: 10000
+
+Log:
+  Encoding: json
+  Level: info
+  Stat: false
+
+CpuThreshold: 900
+
+RateLimit:
+  Enabled: true
+  RequestsPerSecond: 100
+  Concurrency: 10
+
+Telemetry:
+  Name: aibot.rpc
+  Endpoint: localhost:4317
+  Sampler: 1.0
+  Batcher: otlpgrpc
+
+Prometheus:
+  Host: 0.0.0.0
+  Port: 9106

@@ -1,0 +1,731 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aim-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/postgres:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aim -d aim"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: postgres -c max_connections=500
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: aim-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.21
+    container_name: aim-etcd
+    command: etcd --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://etcd:2379
+    ports:
+      - "2379:2379"
+    volumes:
+      - etcd_data:/etcd-data
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  etcdkeeper:
+    image: evildecay/etcdkeeper:latest
+    container_name: aim-etcd-keeper
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      ETCD_HOSTS: http://etcd:2379
+    ports:
+      - "8090:8080"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  minio:
+    image: minio/minio:latest
+    container_name: aim-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: aim-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_HEAP_OPTS: "-Xmx1g -Xms512m"
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  milvus:
+    image: milvusdb/milvus:v2.6.11
+    container_name: aim-milvus
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 90s
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  elasticsearch:
+    build:
+      context: ./deploy/docker/elasticsearch
+      dockerfile: Dockerfile
+    image: aim-elasticsearch-ik:8.17.0
+    container_name: aim-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms256m -Xmx256m
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q 'green\\|yellow'"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: aim-otel
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./deploy/monitoring/otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      jaeger:
+        condition: service_started
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: aim-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317"
+      - "4318"
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: aim-prometheus
+    volumes:
+      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  logstash:
+    image: logstash:8.17.0
+    container_name: aim-logstash
+    environment:
+      LS_JAVA_OPTS: "-Xms256m -Xmx256m"
+    volumes:
+      - ./deploy/logging/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    ports:
+      - "12201:12201/udp"
+      - "9600:9600"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9600/_node/stats | grep -q '\"status\":\"green\"'"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  kibana:
+    image: kibana:8.17.0
+    container_name: aim-kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      NODE_OPTIONS: "--max-old-space-size=512"
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: aim-grafana
+    ports:
+      - "3030:3000"
+    volumes:
+      - ./deploy/monitoring/grafana/provisioning:/etc/grafana/provisioning
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: aim-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      NEO4J_dbms_memory_pagecache_size: 512m
+      NEO4J_dbms_memory_heap_initial__size: 512m
+      NEO4J_dbms_memory_heap_max__size: 1g
+    ports:
+      - "7687:7687"
+      - "7474:7474"
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD} 'RETURN 1'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+    depends_on:
+      logstash:
+        condition: service_healthy
+
+  # ────────────────────────────────────────────────────────
+  # Application services
+  # ────────────────────────────────────────────────────────
+
+  # Seed etcd config center with remote overrides.
+  # Run once before starting app services:
+  #   docker compose --profile init up -d init-etcd-config
+  init-etcd-config:
+    image: quay.io/coreos/etcd:v3.5.21
+    container_name: aim-init-etcd-config
+    entrypoint: ["/bin/sh", "/init-etcd-config.sh"]
+    volumes:
+      - ./deploy/docker/init-etcd-config.sh:/init-etcd-config.sh
+    depends_on:
+      etcd:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    profiles:
+      - init
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  user-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: user-service
+    image: aim-user-service:latest
+    container_name: aim-user-service
+    ports:
+      - "50051:50051"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  friend-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: friend-service
+    image: aim-friend-service:latest
+    container_name: aim-friend-service
+    ports:
+      - "50052:50052"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  message-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: message-service
+    image: aim-message-service:latest
+    container_name: aim-message-service
+    ports:
+      - "50053:50053"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  conversation-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: conversation-service
+    image: aim-conversation-service:latest
+    container_name: aim-conversation-service
+    ports:
+      - "50055:50055"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  file-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: file-service
+    image: aim-file-service:latest
+    container_name: aim-file-service
+    ports:
+      - "50054:50054"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  llm-gateway:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: llm-gateway
+    image: aim-llm-gateway:latest
+    container_name: aim-llm-gateway
+    environment:
+      encKey: ${AIM_ENC_KEY}
+    ports:
+      - "50056:50056"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  knowledge-base:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: knowledge-base
+    image: aim-knowledge-base:latest
+    container_name: aim-knowledge-base
+    ports:
+      - "50057:50057"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  bot-platform:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: bot-platform
+    image: aim-bot-platform:latest
+    container_name: aim-bot-platform
+    ports:
+      - "8085:8085"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: audit-service
+    image: aim-audit-service:latest
+    container_name: aim-audit-service
+    ports:
+      - "50059:50059"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  ai-bot-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: ai-bot-service
+    image: aim-ai-bot-service:latest
+    container_name: aim-ai-bot-service
+    ports:
+      - "50062:50062"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  signaling-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: signaling-service
+    image: aim-signaling-service:latest
+    container_name: aim-signaling-service
+    ports:
+      - "50061:50061"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  ws-gateway:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: ws-gateway
+    image: aim-ws-gateway:latest
+    container_name: aim-ws-gateway
+    ports:
+      - "50060:50060"
+      - "8081:8081"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+  gateway:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: gateway
+    image: aim-gateway:latest
+    container_name: aim-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://127.0.0.1:12201"
+        tag: "{{.Name}}"
+
+volumes:
+  postgres_data:
+  redis_data:
+  etcd_data:
+  minio_data:
+  es_data:
+  kafka_data:
+  milvus_data:
+  mineru_models:
+  neo4j_data:

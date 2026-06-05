@@ -1,0 +1,54 @@
+Name: gateway
+Host: 0.0.0.0
+Port: 8080
+
+JWT:
+  secret: aim-dev-secret-key
+  expireSec: 3600
+  refreshSec: 2592000
+
+Etcd:
+  hosts:
+    - localhost:2379
+  dialTimeout: 5
+  ttl: 10
+
+Services:
+  UserServiceKey:        user.rpc
+  FriendServiceKey:      friend.rpc
+  ConversationServiceKey: conversation.rpc
+  MessageServiceKey:     message.rpc
+  FileServiceKey:        file.rpc
+  BotPlatformServiceKey:  bot-platform.rpc
+  KnowledgeServiceKey:   knowledge-base.rpc
+  NotificationServiceKey: signaling-service
+  AuditServiceKey:       audit.rpc
+  AIBotServiceKey:       aibot.rpc
+  LLMGatewayServiceKey:  llm-gateway.rpc
+
+RateLimit:
+  Enabled: false
+  RequestsPerSecond: 100
+  MessagePerSecond: 10
+
+Timeout:
+  DefaultMs: 15000
+  BotMs: 60000
+
+Redis:
+  addr: localhost:6379
+  password: ""
+  db: 0
+  poolSize: 100
+
+Metrics:
+  Port: 9091
+
+Log:
+  level: info
+  format: console
+
+Telemetry:
+  Name: gateway
+  Endpoint: localhost:4317
+  Sampler: 1.0

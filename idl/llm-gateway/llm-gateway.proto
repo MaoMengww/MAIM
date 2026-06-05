@@ -1,0 +1,231 @@
+syntax = "proto3";
+
+package llmgateway;
+
+option go_package = "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway";
+
+service LLMGateway {
+  rpc Chat(ChatReq) returns (ChatResp);
+  rpc ChatStream(ChatReq) returns (stream ChatStreamChunk);
+  rpc Embed(EmbedReq) returns (EmbedResp);
+  rpc Rerank(RerankReq) returns (RerankResp);
+  rpc ListModels(ListModelsReq) returns (ListModelsResp);
+  rpc CreateModel(CreateModelReq) returns (ModelResp);
+  rpc UpdateModel(UpdateModelReq) returns (ModelResp);
+  rpc DeleteModel(DeleteModelReq) returns (DeleteModelResp);
+  rpc GetBillingStats(BillingStatsReq) returns (BillingStatsResp);
+  rpc VlmChat(VlmChatReq) returns (ChatResp);
+  rpc ListBillingRecords(ListBillingRecordsReq) returns (ListBillingRecordsResp);
+}
+
+message VlmChatReq {
+  int64 model_id = 1;
+  string system_prompt = 2;
+  string user_prompt = 3;
+  string image_data = 4; // base64 data URL e.g. "data:image/png;base64,..."
+  double temperature = 5;
+  int32 max_tokens = 6;
+  int64 owner_id = 7;
+}
+
+message ToolDef {
+  string name = 1;
+  string description = 2;
+  bytes parameters = 3; // JSON Schema as raw JSON bytes
+}
+
+message ChatReq {
+  int64 model_id = 1;              // model registry ID
+  repeated Message messages = 3;
+  double temperature = 4;
+  int32 max_tokens = 5;
+  double top_p = 6;
+  repeated string stop = 7;
+  int64 bot_id = 8;
+  int64 owner_id = 9;
+  repeated ToolDef tools = 10;     // tool definitions for function calling
+}
+
+message Message {
+  string role = 1;
+  string content = 2;
+  string name = 3;
+  repeated ToolCall tool_calls = 4;
+  string tool_call_id = 5;
+}
+
+message ToolCall {
+  string id = 1;
+  string type = 2;
+  message Function {
+    string name = 1;
+    string arguments = 2;
+  }
+  Function function = 3;
+}
+
+message ChatResp {
+  string id = 1;
+  string model = 2;
+  message Choice {
+    int32 index = 1;
+    Message message = 2;
+    string finish_reason = 3;
+  }
+  repeated Choice choices = 3;
+  UsageInfo usage = 4;
+}
+
+message ChatStreamChunk {
+  string id = 1;
+  string model = 2;
+  message Choice {
+    int32 index = 1;
+    Message delta = 2;
+    string finish_reason = 3;
+  }
+  repeated Choice choices = 3;
+  UsageInfo usage = 4;
+}
+
+message UsageInfo {
+  int32 prompt_tokens = 1;
+  int32 completion_tokens = 2;
+  int32 total_tokens = 3;
+}
+
+message EmbedReq {
+  int64 model_id = 1;              // model registry ID
+  repeated string input = 3;
+  int64 bot_id = 4;
+  int64 owner_id = 5;
+}
+
+message EmbedResp {
+  string model = 1;
+  message Embedding {
+    int32 index = 1;
+    repeated float embedding = 2;
+  }
+  repeated Embedding data = 3;
+  UsageInfo usage = 4;
+}
+
+message RerankReq {
+  int64 model_id = 1;              // model registry ID
+  string query = 2;
+  repeated string documents = 3;
+  int32 top_n = 4;
+  bool return_documents = 5;
+  int64 bot_id = 6;
+  int64 owner_id = 7;
+}
+
+message RerankResp {
+  message Result {
+    int32 index = 1;
+    float relevance_score = 2;
+    string document = 3;
+  }
+  repeated Result results = 1;
+  string model = 2;
+  UsageInfo usage = 3;
+}
+
+message ListModelsReq {
+  string capability = 1;
+  int64 owner_id = 2;
+}
+
+message ListModelsResp {
+  repeated ModelResp items = 1;
+  int32 total = 2;
+}
+
+message CreateModelReq {
+  string model_name = 1;
+  string provider = 2;
+  string capability = 3;
+  string base_url = 4;
+  string api_key = 5;
+  double input_price_per_mtok = 6;
+  double output_price_per_mtok = 7;
+  int64 owner_id = 8;
+}
+
+message UpdateModelReq {
+  int64 model_id = 1;
+  string model_name = 2;
+  string provider = 3;
+  string capability = 4;
+  string base_url = 5;
+  string api_key = 6;
+  double input_price_per_mtok = 7;
+  double output_price_per_mtok = 8;
+}
+
+message DeleteModelReq {
+  int64 model_id = 1;
+}
+
+message DeleteModelResp {
+  bool success = 1;
+}
+
+message ModelResp {
+  int64 id = 1;
+  string model_name = 2;
+  string provider = 3;
+  string capability = 4;
+  string base_url = 5;
+  int64 owner_id = 6;
+  string status = 7;
+  double input_price_per_mtok = 8;
+  double output_price_per_mtok = 9;
+  string api_key = 10;
+}
+
+message BillingStatsReq {
+  int64 owner_id = 1;
+  int64 bot_id = 2;
+}
+
+message BillingStatsResp {
+  int64 total_input_tokens = 1;
+  int64 total_output_tokens = 2;
+  double total_cost = 3;
+  repeated BillingModelStat by_model = 4;
+}
+
+message BillingModelStat {
+  string model_name = 1;
+  string capability = 2;
+  int64 input_tokens = 3;
+  int64 output_tokens = 4;
+  double total_cost = 5;
+}
+
+message ListBillingRecordsReq {
+  int64 owner_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message BillingRecordItem {
+  int64 id = 1;
+  int64 bot_id = 2;
+  string model_name = 3;
+  string capability = 4;
+  int32 input_tokens = 5;
+  int32 output_tokens = 6;
+  double input_cost = 7;
+  double output_cost = 8;
+  double total_cost = 9;
+  string provider = 10;
+  string created_at = 11;
+}
+
+message ListBillingRecordsResp {
+  repeated BillingRecordItem items = 1;
+  int32 total = 2;
+}

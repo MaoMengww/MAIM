@@ -1,0 +1,160 @@
+.kb-page {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.kb-panel {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.kb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.kb-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--aim-text);
+  margin: 0;
+}
+
+.kb-create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, #FF7D4A, #FF5E62);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.kb-create-btn:hover {
+  opacity: 0.9;
+}
+
+.kb-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+}
+
+.kb-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  width: 100%;
+  color: var(--aim-text-tertiary);
+  font-size: 14px;
+}
+
+.kb-card {
+  background: var(--aim-surface);
+  border: 1px solid var(--aim-border);
+  border-radius: var(--aim-radius-md);
+  padding: 16px;
+  cursor: pointer;
+  transition: all var(--aim-transition-fast);
+}
+
+.kb-card:hover {
+  border-color: var(--aim-primary);
+  box-shadow: var(--aim-shadow-primary);
+}
+
+.kb-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.kb-card-icon {
+  font-size: 28px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kb-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.kb-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--aim-text);
+}
+
+.kb-card-desc {
+  font-size: 12px;
+  color: var(--aim-text-secondary);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-card-stats {
+  font-size: 12px;
+  color: var(--aim-text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.kb-card-meta {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--aim-text-tertiary);
+}
+
+/* Wiki content */
+.wiki-content h1, .wiki-content h2, .wiki-content h3, .wiki-content h4 {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+.wiki-content p {
+  margin-bottom: 1em;
+}
+.wiki-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+.wiki-content th, .wiki-content td {
+  border: 1px solid var(--aim-border);
+  padding: 8px 12px;
+  text-align: left;
+}
+.wiki-content th {
+  background: var(--aim-surface);
+  font-weight: 600;
+}
+.wiki-content ul, .wiki-content ol {
+  padding-left: 20px;
+  margin-bottom: 1em;
+}
+.wiki-content blockquote {
+  border-left: 3px solid var(--aim-pink);
+  padding-left: 12px;
+  margin: 1em 0;
+  color: var(--aim-text-secondary);
+  background: var(--aim-surface);
+  padding: 8px 12px;
+  border-radius: 0 6px 6px 0;
+}

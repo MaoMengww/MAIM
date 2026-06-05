@@ -1,0 +1,56 @@
+{
+  "title": "AIM - 服务质量",
+  "uid": "aim-service-quality",
+  "tags": ["aim", "quality"],
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "title": "HTTP 错误率",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "rate(aim_service_http_requests_total{status=~\"5..\"}[1m]) / rate(aim_service_http_requests_total[1m])",
+        "legendFormat": "error rate"
+      }]
+    },
+    {
+      "title": "HTTP P99 延迟",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "targets": [{
+        "expr": "histogram_quantile(0.99, rate(aim_service_http_request_duration_seconds_bucket[5m]))",
+        "legendFormat": "p99"
+      }]
+    },
+    {
+      "title": "gRPC 错误率",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "targets": [{
+        "expr": "rate(rpc_server_requests_code_total{code=~\"Unknown|Internal|Unavailable|Unimplemented\"}[1m]) / rate(rpc_server_requests_code_total[1m])",
+        "legendFormat": "error rate"
+      }]
+    },
+    {
+      "title": "4xx/5xx HTTP 分布",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{
+        "expr": "topk(10, aim_service_http_requests_total{status=~\"[45]..\"})",
+        "legendFormat": "{{method}} {{endpoint}}"
+      }]
+    },
+    {
+      "title": "gRPC 各方法 QPS",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [{
+        "expr": "rate(rpc_server_requests_code_total[1m])",
+        "legendFormat": "{{method}}"
+      }]
+    }
+  ]
+}

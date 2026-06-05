@@ -1,0 +1,84 @@
+Name: knowledge-base.rpc
+ListenOn: 0.0.0.0:50057
+Timeout: 600000
+Etcd:
+  Hosts:
+  - 127.0.0.1:2379
+  Key: knowledge-base.rpc
+
+Log:
+  Level: info
+  Stat: false
+
+CpuThreshold: 900
+
+RateLimit:
+  Enabled: true
+  RequestsPerSecond: 100
+  Concurrency: 10
+
+Telemetry:
+  Name: knowledge-base.rpc
+  Endpoint: localhost:4317
+  Sampler: 1.0
+  Batcher: otlpgrpc
+
+Prometheus:
+  Host: 0.0.0.0
+  Port: 9108
+
+Database:
+  Driver: postgres
+  DSN: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=knowledge
+
+AppRedis:
+  Host: localhost:6379
+  Type: node
+  Pass: ""
+  Key: knowledge-base.rpc
+
+Milvus:
+  Address: localhost:19530
+  DBName: default
+
+Minio:
+  Endpoint: localhost:9000
+  AccessKey: minioadmin
+  SecretKey: minioadmin123
+  UseSSL: false
+  Bucket: aim
+
+Kafka:
+  Brokers:
+  - localhost:9092
+  ConsumerGroup: knowledge-base
+  Version: 2.8.0
+
+LLMGateway:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: llm-gateway.rpc
+  Timeout: 600000
+
+RealtimeEvent:
+  Etcd:
+    Hosts:
+      - 127.0.0.1:2379
+    Key: ws-gateway.rpc
+
+MinerU:
+  URL: http://localhost:30000
+  Timeout: 60
+
+Neo4j:
+  Enabled: true
+  URI: bolt://localhost:7687
+  Username: neo4j
+  Password: password123
+
+Snowflake:
+  WorkerId: 3
+
+MaxFileSize: 10485760
+RetryLimit: 3

@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package aibot;
+
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/maomeng/aim/app/ai-bot-service/pb/aibot";
+
+service ConversationToolService {
+  rpc SummarizeConversation(SummarizeReq) returns (SummarizeResp);
+  rpc GetConvSummaries(GetConvSummariesReq) returns (GetConvSummariesResp);
+  rpc CreateTodo(CreateTodoReq) returns (TodoItem);
+  rpc UpdateTodo(UpdateTodoReq) returns (google.protobuf.Empty);
+  rpc DeleteTodo(DeleteTodoReq) returns (google.protobuf.Empty);
+  rpc GenerateReplyCandidates(ReplyCandidatesReq) returns (ReplyCandidatesResp);
+  rpc TranslateMessage(TranslateMessageReq) returns (TranslateMessageResp);
+}
+
+message SummarizeReq {
+  int64 conv_id = 1;
+  int64 user_id = 2;
+  oneof range {
+    int32 last_message_count = 3;
+    TimeRange time_range = 4;
+    bool all = 5;
+  }
+}
+
+message TimeRange {
+  int64 start_time = 1;
+  int64 end_time = 2;
+}
+
+message SummarizeResp {
+  int64 summary_id = 1;
+  string summary = 2;
+  repeated TodoItem todos = 3;
+  int32 total_messages = 4;
+  int64 created_at = 5;
+}
+
+message GetConvSummariesReq {
+  int64 conv_id = 1;
+  int32 limit = 2;
+}
+
+message GetConvSummariesResp {
+  repeated SummarizeResp items = 1;
+}
+
+message CreateTodoReq {
+  int64 conv_id = 1;
+  int64 summary_id = 2;
+  string content = 3;
+}
+
+message TodoItem {
+  int64 id = 1;
+  int64 summary_id = 2;
+  int64 conv_id = 3;
+  string content = 4;
+  bool done = 5;
+  int64 created_at = 6;
+  int64 updated_at = 7;
+}
+
+message UpdateTodoReq {
+  int64 todo_id = 1;
+  string content = 2;
+  bool done = 3;
+}
+
+message DeleteTodoReq {
+  int64 todo_id = 1;
+}
+
+message ReplyCandidatesReq {
+  int64 conv_id = 1;
+  int64 user_id = 2;
+  int64 reply_to_msg_id = 3;
+}
+
+message ReplyCandidatesResp {
+  repeated string candidates = 1;
+}
+
+message TranslateMessageReq {
+  string text = 1;
+  string target_lang = 2;
+}
+
+message TranslateMessageResp {
+  string translated_text = 1;
+  string detected_lang = 2;
+}

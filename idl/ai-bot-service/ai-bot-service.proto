@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package aibot;
+
+import "common/common.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/maomeng/aim/app/ai-bot-service/pb/aibot";
+
+service AiBotService {
+  // 单聊流式对话
+  rpc StreamChat(StreamChatReq) returns (stream StreamChatResp);
+
+  // 记忆管理
+  rpc GetUserMemories(GetUserMemoriesReq) returns (GetUserMemoriesRsp);
+  rpc ForgetMemory(ForgetMemoryReq) returns (google.protobuf.Empty);
+  rpc ClearUserMemories(ClearUserMemoriesReq) returns (google.protobuf.Empty);
+}
+
+message StreamChatReq {
+  int64 bot_id = 1;
+  int64 conv_id = 2;
+  string message = 3;
+  int64 reply_to_msg_id = 4;   // 可选
+}
+
+message StreamChatResp {
+  string type = 1;              // "chunk" | "tool_call" | "tool_result" | "done" | "error"
+  string content = 2;           // 文本增量 / 工具结果
+  string tool_name = 3;         // tool_call / tool_result 时用
+  string message_id = 4;        // done 时返回
+  int64 conv_id = 5;
+}
+
+message GetUserMemoriesReq {
+  int64 bot_id = 1;
+  int64 user_id = 2;
+  int32 limit = 3;              // 默认 20
+}
+
+message GetUserMemoriesRsp {
+  repeated MemoryItem items = 1;
+}
+
+message MemoryItem {
+  int64 id = 1;
+  string content = 2;
+  string memory_type = 3;       // "fact" | "episode"
+  double importance = 4;
+  string created_at = 5;
+  string subject = 6;
+  string predicate = 7;
+  string object = 8;
+  string category = 9;
+  double confidence = 10;
+  int32 access_count = 11;
+  string last_accessed_at = 12;
+  double final_score = 13;
+}
+
+message ForgetMemoryReq {
+  int64 bot_id = 1;
+  int64 user_id = 2;
+  int64 memory_id = 3;
+}
+
+message ClearUserMemoriesReq {
+  int64 bot_id = 1;
+  int64 user_id = 2;
+}

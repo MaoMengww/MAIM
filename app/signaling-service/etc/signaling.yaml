@@ -1,0 +1,62 @@
+Name: signaling-service-v2
+Mode: dev
+ListenOn: 0.0.0.0:50061
+Etcd:
+  Hosts:
+    - 127.0.0.1:2379
+  Key: signaling-service
+Kafka:
+  Brokers:
+    - localhost:9092
+  ConsumerGroup: signaling-service-v2
+  Version: "2.8.0"
+  MaxRetry: 3
+Database:
+  DSN: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=notify
+  Driver: postgres
+  MaxOpenConn: 100
+  MaxIdleConn: 10
+  MaxLifetime: 3600
+Redis:
+  Host: localhost:6379
+  Type: node
+  Pass: ""
+  Key: signaling-service-v2
+  Addr: localhost:6379
+  DB: 0
+  PoolSize: 100
+  MinIdleConn: 10
+ConversationService:
+  Etcd:
+    Hosts:
+      - 127.0.0.1:2379
+    Key: conversation.rpc
+BotPlatform:
+  Etcd:
+    Hosts:
+      - 127.0.0.1:2379
+    Key: bot-platform.rpc
+WsGateway:
+  Etcd:
+    Hosts:
+      - 127.0.0.1:2379
+    Key: ws-gateway.rpc
+  NonBlock: true
+Log:
+  Level: info
+  Stat: false
+CpuThreshold: 900
+
+RateLimit:
+  Enabled: true
+  RequestsPerSecond: 100
+  Concurrency: 10
+
+Push:
+  fcmEnabled: false
+  fcmCredentials: "unused"
+  apnsEnabled: false
+  apnsKeyFile: "unused"
+  apnsKeyID: "unused"
+  apnsTeamID: "unused"
+  apnsTopic: "unused"

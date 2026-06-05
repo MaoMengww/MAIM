@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package file;
+
+import "common/common.proto";
+
+option go_package = "github.com/maomeng/aim/app/file-service/pb/file";
+
+// ========== File Service ==========
+
+service FileService {
+  // presigned URL for direct upload to object storage
+  rpc GetUploadURL(GetUploadURLReq) returns (GetUploadURLResp);
+  // confirm upload completed (client calls after direct upload)
+  rpc ConfirmUpload(ConfirmUploadReq) returns (ConfirmUploadResp);
+  // get presigned download URL
+  rpc GetDownloadURL(GetDownloadURLReq) returns (GetDownloadURLResp);
+  // get file metadata
+  rpc GetFileInfo(GetFileInfoReq) returns (GetFileInfoResp);
+  // batch get file info
+  rpc BatchGetFileInfo(BatchGetFileInfoReq) returns (BatchGetFileInfoResp);
+  // delete file
+  rpc DeleteFile(DeleteFileReq) returns (common.BaseResponse);
+  // batch delete files
+  rpc BatchDeleteFiles(BatchDeleteFilesReq) returns (common.BaseResponse);
+  // upload avatar (server-side processing: resize/crop)
+  rpc UploadAvatar(UploadAvatarReq) returns (UploadAvatarResp);
+}
+
+// ========== Enums ==========
+
+enum FilePurpose {
+  FILE_PURPOSE_UNSPECIFIED = 0;
+  FILE_PURPOSE_MESSAGE = 1;       // message attachment
+  FILE_PURPOSE_AVATAR = 2;        // user/group avatar
+  FILE_PURPOSE_DOCUMENT = 3;      // general document
+  FILE_PURPOSE_MEDIA = 4;         // media gallery
+}
+
+enum FileAccess {
+  FILE_ACCESS_UNSPECIFIED = 0;
+  FILE_ACCESS_PRIVATE = 1;        // only uploader can access
+  FILE_ACCESS_CONVERSATION = 2;   // conversation members can access
+  FILE_ACCESS_PUBLIC = 3;         // anyone with URL can access
+}
+
+// ========== File Info ==========
+
+message FileInfo {
+  string file_id = 1;             // unique file ID (snowflake)
+  string name = 2;                // original file name
+  string key = 3;                 // object storage key/path
+  int64 size = 4;                 // file size in bytes
+  string mime_type = 5;
+  string ext = 6;                 // file extension
+  int32 width = 7;                // image/video width (0 if N/A)
+  int32 height = 8;               // image/video height (0 if N/A)
+  int32 duration = 9;             // video/audio duration in seconds (0 if N/A)
+  string md5 = 10;                // file hash for integrity check
+  FilePurpose purpose = 11;
+  FileAccess access = 12;
+  int64 uploader_id = 13;         // user who uploaded
+  string bucket = 14;             // object storage bucket name
+  int64 created_at = 20;
+}
+
+// ========== Get Upload URL ==========
+
+message GetUploadURLReq {
+  string name = 1;                // original file name
+  string mime_type = 2;
+  int64 size = 3;                 // expected file size
+  int64 uploader_id = 4;
+  FilePurpose purpose = 5;
+  FileAccess access = 6;
+  int32 expires_in = 7;           // URL expiry in seconds (default 3600)
+}
+
+message GetUploadURLResp {
+  string file_id = 1;             // assigned file ID
+  string upload_url = 2;          // presigned PUT URL
+  string key = 3;                 // object storage key
+  int64 expires_at = 4;           // upload URL expiry timestamp
+}
+
+// ========== Confirm Upload ==========
+
+message ConfirmUploadReq {
+  string file_id = 1;
+  int64 uploader_id = 2;
+  optional string md5 = 3;        // client-computed MD5 for verification
+}
+
+message ConfirmUploadResp {
+  FileInfo file = 1;
+}
+
+// ========== Get Download URL ==========
+
+message GetDownloadURLReq {
+  string file_id = 1;
+  int64 user_id = 2;              // for access check
+  int32 expires_in = 3;           // URL expiry in seconds (default 3600)
+}
+
+message GetDownloadURLResp {
+  string download_url = 1;
+  int64 expires_at = 2;
+  FileInfo file = 3;
+}
+
+// ========== Get File Info ==========
+
+message GetFileInfoReq {
+  string file_id = 1;
+  int64 user_id = 2;
+}
+
+message GetFileInfoResp {
+  FileInfo file = 1;
+}
+
+// ========== Batch Get File Info ==========
+
+message BatchGetFileInfoReq {
+  repeated string file_ids = 1;
+  int64 user_id = 2;
+}
+
+message BatchGetFileInfoResp {
+  repeated FileInfo files = 1;
+  // file_ids not found are simply omitted from the response
+}
+
+// ========== Delete File ==========
+
+message DeleteFileReq {
+  string file_id = 1;
+  int64 user_id = 2;
+}
+
+// ========== Batch Delete Files ==========
+
+message BatchDeleteFilesReq {
+  repeated string file_ids = 1;
+  int64 user_id = 2;
+}
+
+// ========== Upload Avatar ==========
+
+message UploadAvatarReq {
+  bytes data = 1;                 // raw image bytes (server-side upload)
+  int64 user_id = 2;
+  string mime_type = 3;           // image/jpeg, image/png, image/webp
+  // optional crop params
+  optional int32 crop_x = 10;
+  optional int32 crop_y = 11;
+  optional int32 crop_width = 12;
+  optional int32 crop_height = 13;
+  optional int32 target_size = 14; // output size (default 256)
+}
+
+message UploadAvatarResp {
+  string file_id = 1;
+  string url = 2;                 // permanent avatar URL
+  string thumbnail_url = 3;       // small thumbnail URL
+  int32 width = 4;
+  int32 height = 5;
+}

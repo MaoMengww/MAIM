@@ -1,0 +1,351 @@
+syntax = "proto3";
+
+package message;
+
+import "common/common.proto";
+
+option go_package = "github.com/maomeng/aim/app/message-service/pb/message";
+
+service MessageService {
+  // ========== Core ==========
+  rpc SendMessage(SendMessageReq) returns (SendMessageResp);
+  rpc RecallMessage(RecallMessageReq) returns (common.BaseResponse);
+  rpc EditMessage(EditMessageReq) returns (common.BaseResponse);
+  rpc DeleteMessage(DeleteMessageReq) returns (common.BaseResponse);
+
+  // ========== Query ==========
+  rpc GetMessages(GetMessagesReq) returns (GetMessagesResp);
+  rpc SyncMessages(SyncMessagesReq) returns (SyncMessagesResp);
+  rpc GetMessageByID(GetMessageByIDReq) returns (GetMessageByIDResp);
+  rpc BatchGetMessages(BatchGetMessagesReq) returns (BatchGetMessagesResp);
+  rpc GetAroundSeq(GetAroundSeqReq) returns (GetMessagesResp);
+  rpc SearchMessages(SearchMessagesReq) returns (SearchMessagesResp);
+
+  // ========== Forward & Broadcast ==========
+  rpc ForwardMessage(ForwardMessageReq) returns (ForwardMessageResp);
+  rpc SendBroadcast(SendBroadcastReq) returns (SendBroadcastResp);
+
+  // ========== Bot Reply (called by bot-service) ==========
+  rpc SendBotReply(SendBotReplyReq) returns (SendBotReplyResp);
+  rpc SendSystemMessage(SendSystemMessageReq) returns (SendMessageResp);
+}
+
+// ========== Enums ==========
+
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;
+  MESSAGE_TYPE_TEXT = 1;
+  MESSAGE_TYPE_IMAGE = 2;
+  MESSAGE_TYPE_FILE = 3;
+  MESSAGE_TYPE_VIDEO = 4;
+  MESSAGE_TYPE_AUDIO = 5;
+  MESSAGE_TYPE_LOCATION = 6;
+  MESSAGE_TYPE_SYSTEM = 7;
+  MESSAGE_TYPE_CUSTOM = 8;
+  MESSAGE_TYPE_BOT = 9;
+}
+
+enum MessageStatus {
+  MESSAGE_STATUS_UNSPECIFIED = 0;
+  MESSAGE_STATUS_NORMAL = 1;
+  MESSAGE_STATUS_RECALLED = 2;
+  MESSAGE_STATUS_EDITED = 3;
+  MESSAGE_STATUS_STREAMING = 4;     // AI streaming in progress
+}
+
+message ReplyMessageSummary {
+  int64 message_id = 1;
+  int64 sender_id = 2;
+  string sender_type = 3;
+  string sender_name = 4;
+  MessageType type = 5;
+  string preview = 6;
+  bool deleted = 7;
+}
+
+// ========== Content Types ==========
+
+message TextContent {
+  string text = 1;
+  repeated int64 mention_user_ids = 2;
+  bool mention_all = 3;
+}
+
+message ImageContent {
+  int64 file_id = 1;
+  string url = 2;
+  string thumbnail_url = 3;
+  int32 width = 4;
+  int32 height = 5;
+  int64 size = 6;
+  string format = 7;
+}
+
+message FileContent {
+  int64 file_id = 1;
+  string url = 2;
+  string name = 3;
+  int64 size = 4;
+  string ext = 5;
+  string mime_type = 6;
+}
+
+message VideoContent {
+  int64 file_id = 1;
+  string url = 2;
+  string thumbnail_url = 3;
+  int32 duration = 4;
+  int32 width = 5;
+  int32 height = 6;
+  int64 size = 7;
+}
+
+message AudioContent {
+  int64 file_id = 1;
+  string url = 2;
+  int32 duration = 3;
+  int64 size = 4;
+}
+
+message LocationContent {
+  double latitude = 1;
+  double longitude = 2;
+  string address = 3;
+  string name = 4;
+}
+
+message SystemContent {
+  string action = 1;
+  string detail = 2;
+  repeated int64 related_user_ids = 3;
+  int64 actor_id = 4;
+  string actor_type = 5;
+  string payload = 6;
+}
+
+message BotContent {
+  int64 bot_id = 1;
+  string bot_name = 2;
+  string bot_avatar = 3;
+  string text = 4;
+  bool is_streaming = 5;
+  int32 thinking_time_ms = 6;
+  string raw_payload = 7;         // JSON: model, tokens, etc.
+}
+
+message CustomContent {
+  string type = 1;
+  string data = 2;
+}
+
+// ========== Message Entity ==========
+
+message Message {
+  int64 message_id = 1;
+  int64 conversation_id = 2;
+  int64 seq = 3;
+  int64 from_user_id = 4;
+  MessageType type = 5;
+  MessageStatus status = 6;
+
+  oneof content {
+    TextContent text = 10;
+    ImageContent image = 11;
+    FileContent file = 12;
+    VideoContent video = 13;
+    AudioContent audio = 14;
+    LocationContent location = 15;
+    SystemContent system = 16;
+    BotContent bot = 17;
+    CustomContent custom = 18;
+  }
+
+  int64 reply_to_id = 20;
+  ReplyMessageSummary reply_to = 21;
+
+  int64 edited_at = 25;
+  int32 edit_count = 26;
+
+  int64 created_at = 30;
+  int64 updated_at = 31;
+}
+
+// ========== Send ==========
+
+message SendMessageReq {
+  int64 conversation_id = 1;
+  int64 from_user_id = 2;
+  MessageType type = 3;
+
+  oneof content {
+    TextContent text = 10;
+    ImageContent image = 11;
+    FileContent file = 12;
+    VideoContent video = 13;
+    AudioContent audio = 14;
+    LocationContent location = 15;
+    CustomContent custom = 18;
+  }
+
+  optional int64 reply_to_id = 20;
+  string client_msg_id = 25;
+}
+
+message SendMessageResp {
+  int64 message_id = 1;
+  int64 seq = 2;
+  int64 created_at = 3;
+}
+
+// ========== Recall / Edit / Delete ==========
+
+message RecallMessageReq {
+  int64 message_id = 1;
+  int64 conversation_id = 2;
+  int64 user_id = 3;
+}
+
+message EditMessageReq {
+  int64 message_id = 1;
+  int64 conversation_id = 2;
+  int64 user_id = 3;
+  TextContent text = 10;
+}
+
+message DeleteMessageReq {
+  int64 message_id = 1;
+  int64 conversation_id = 2;
+  int64 user_id = 3;
+  bool delete_for_all = 4;
+}
+
+// ========== Get Messages ==========
+
+message GetMessagesReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+  common.CursorPagination pagination = 3;
+  optional int64 before_time = 11;
+  optional int64 after_time = 12;
+  repeated MessageType filter_types = 13;
+}
+
+message GetMessagesResp {
+  repeated Message messages = 1;
+  common.CursorPaginationResp pagination = 2;
+}
+
+// ========== Get Around Seq ==========
+
+message GetAroundSeqReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+  int64 seq = 3;
+  int32 limit = 4;
+}
+
+// ========== Sync ==========
+
+message SyncMessagesReq {
+  int64 conversation_id = 1;
+  int64 user_id = 2;
+  int64 from_seq = 3;
+  int32 limit = 4;
+}
+
+message SyncMessagesResp {
+  repeated Message messages = 1;
+  bool has_more = 2;
+  int64 max_seq = 3;
+}
+
+// ========== Get By ID ==========
+
+message GetMessageByIDReq {
+  int64 message_id = 1;
+}
+
+message GetMessageByIDResp {
+  Message message = 1;
+}
+
+// ========== Batch Get ==========
+
+message BatchGetMessagesReq {
+  repeated int64 message_ids = 1;
+}
+
+message BatchGetMessagesResp {
+  repeated Message messages = 1;
+}
+
+// ========== Forward ==========
+
+message ForwardMessageReq {
+  repeated int64 message_ids = 1;
+  int64 target_conversation_id = 2;
+  int64 from_user_id = 3;
+}
+
+message ForwardMessageResp {
+  repeated int64 message_ids = 1;
+}
+
+// ========== Search ==========
+
+message SearchMessagesReq {
+  int64 user_id = 1;
+  string keyword = 2;
+  optional int64 conversation_id = 3;
+  optional int64 start_time = 4;
+  optional int64 end_time = 5;
+  optional int64 sender_id = 6;
+  string sender_type = 7;
+  repeated MessageType message_types = 8;
+  common.Pagination pagination = 10;
+}
+
+message SearchMessagesResp {
+  repeated Message messages = 1;
+  common.PaginationResp pagination = 2;
+}
+
+// ========== Broadcast ==========
+
+message SendBroadcastReq {
+  int64 sender_id = 1;
+  string content = 2;            // JSON: flexible content structure
+  string scope = 3;              // "all" or "group"
+  optional int64 scope_target_id = 4;
+}
+
+message SendBroadcastResp {
+  int64 broadcast_id = 1;
+  int64 created_at = 2;
+}
+
+// ========== Bot Reply ==========
+
+message SendBotReplyReq {
+  int64 bot_id = 1;
+  int64 conversation_id = 2;
+  string text = 3;
+  optional int64 reply_to_id = 4;
+  string raw_payload = 5;        // JSON: model, tokens, etc.
+}
+
+message SendSystemMessageReq {
+  int64 conversation_id = 1;
+  int64 actor_id = 2;
+  string actor_type = 3;
+  string action = 4;
+  string detail = 5;
+  repeated int64 related_user_ids = 6;
+  string payload = 7;
+}
+
+message SendBotReplyResp {
+  int64 message_id = 1;
+  int64 seq = 2;
+  int64 created_at = 3;
+}

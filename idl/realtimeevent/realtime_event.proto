@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package realtimeevent;
+
+option go_package = "github.com/maomeng/aim/pkg/pb/realtimeevent";
+
+service RealtimeEventService {
+  rpc PushToUsers(PushRealtimeEventReq) returns (PushRealtimeEventResp);
+}
+
+message PushRealtimeEventReq {
+  repeated int64 user_ids = 1;
+  bytes event = 2;
+}
+
+message PushRealtimeEventResp {}

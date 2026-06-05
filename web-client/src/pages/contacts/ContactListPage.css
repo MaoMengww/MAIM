@@ -1,0 +1,227 @@
+.contact-page {
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.contact-panel {
+  width: 340px;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--aim-border);
+  background: var(--aim-surface);
+  height: 100%;
+}
+
+.contact-header {
+  padding: 16px 16px 12px;
+}
+
+.contact-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--aim-text);
+  margin: 0;
+}
+
+.contact-search {
+  padding: 0 16px 12px;
+}
+
+.contact-search-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--aim-border);
+  background: var(--aim-chat-input-bg);
+  color: var(--aim-text);
+  font-size: 13px;
+  outline: none;
+}
+
+.contact-search-input:focus {
+  border-color: var(--aim-primary);
+}
+
+.contact-search-input::placeholder {
+  color: var(--aim-text-tertiary);
+}
+
+.contact-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.contact-action-btn {
+  flex: 1;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--aim-border);
+  background: var(--aim-surface-elevated);
+  color: var(--aim-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--aim-transition-fast);
+}
+
+.contact-action-btn:hover {
+  border-color: var(--aim-primary);
+  color: var(--aim-primary);
+}
+
+.contact-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+
+.contact-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--aim-text-tertiary);
+  font-size: 14px;
+}
+
+.contact-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background var(--aim-transition-fast);
+}
+
+.contact-item:hover {
+  background: var(--aim-surface-hover);
+}
+
+.contact-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.contact-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--aim-text);
+}
+
+.contact-item-status {
+  font-size: 12px;
+  color: var(--aim-text-tertiary);
+  white-space: nowrap;
+}
+
+.contact-item-status.online {
+  color: var(--aim-success);
+}
+
+.contact-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background var(--aim-transition-fast);
+  user-select: none;
+}
+
+.contact-group-header:hover {
+  background: var(--aim-surface-hover);
+}
+
+.contact-group-arrow {
+  font-size: 10px;
+  color: var(--aim-text-tertiary);
+  transition: transform var(--aim-transition-fast);
+  display: inline-block;
+}
+
+.contact-group-arrow.collapsed {
+  transform: rotate(-90deg);
+}
+
+.contact-group-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--aim-text-secondary);
+}
+
+.contact-group-count {
+  font-size: 11px;
+  color: var(--aim-text-tertiary);
+  margin-left: auto;
+}
+
+.contact-main-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--aim-chat-bg);
+  min-width: 0;
+}
+
+/* ─── Group Management Drawer ─── */
+.contact-group-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.group-manage-section {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.group-manage-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--aim-surface-elevated);
+  border-radius: 8px;
+  margin-bottom: 2px;
+}
+
+.group-manage-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--aim-text);
+}
+
+.group-manage-count {
+  font-size: 12px;
+  color: var(--aim-text-tertiary);
+  margin-left: auto;
+}
+
+.group-manage-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 20px;
+  border-radius: 6px;
+  transition: background var(--aim-transition-fast);
+}
+
+.group-manage-item:hover {
+  background: var(--aim-surface-hover);
+}
+
+.group-manage-item-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--aim-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

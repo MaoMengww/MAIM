@@ -1,0 +1,41 @@
+Name: bot-platform.rpc
+ListenOn: 0.0.0.0:8085
+Mode: dev
+
+Database:
+  DSN: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=bot
+  MaxOpenConn: 50
+  MaxIdleConn: 10
+  MaxLifetime: 3600
+
+JWT:
+  Secret: aim-bot-jwt-secret
+  ExpireSec: 86400
+
+messageService:
+  Etcd:
+    Hosts:
+      - localhost:2379
+    Key: message.rpc
+  NonBlock: true
+
+Etcd:
+  Hosts:
+    - localhost:2379
+  Key: bot-platform.rpc
+
+Log:
+  Stat: false
+
+CpuThreshold: 900
+
+RateLimit:
+  Enabled: true
+  RequestsPerSecond: 100
+  Concurrency: 10
+
+Telemetry:
+  Name: bot-platform.rpc
+  Endpoint: localhost:4317
+  Sampler: 1.0
+  Batcher: otlpgrpc

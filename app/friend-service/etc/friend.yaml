@@ -1,0 +1,40 @@
+Name: friend.rpc
+ListenOn: 0.0.0.0:50052
+Etcd:
+  Hosts:
+  - 127.0.0.1:2379
+  Key: friend.rpc
+Database:
+  driver: postgres
+  dsn: postgres://aim:aim123@127.0.0.1:5432/aim?sslmode=disable&search_path=friend
+  maxOpenConn: 100
+  maxIdleConn: 100
+  maxLifetime: 3600
+UserRPC:
+  Etcd:
+    Hosts:
+    - 127.0.0.1:2379
+    Key: user.rpc
+
+Log:
+  Level: info
+  Stat: false
+
+CpuThreshold: 900
+Middlewares:
+  Breaker: true
+
+RateLimit:
+  Enabled: true
+  RequestsPerSecond: 100
+  Concurrency: 10
+
+Telemetry:
+  Name: friend.rpc
+  Endpoint: localhost:4317
+  Sampler: 0
+  Batcher: otlpgrpc
+
+Prometheus:
+  Host: 0.0.0.0
+  Port: 9104

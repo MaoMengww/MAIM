@@ -1,0 +1,39 @@
+Name: file.rpc
+ListenOn: 0.0.0.0:50054
+Etcd:
+  Hosts:
+  - 127.0.0.1:2379
+  Key: file.rpc
+Database:
+  driver: postgres
+  dsn: postgres://aim:aim123@127.0.0.1:5432/aim?sslmode=disable&search_path=file
+  maxOpenConn: 100
+  maxIdleConn: 10
+  maxLifetime: 3600
+MinIO:
+  endpoint: localhost:9000
+  accessKey: minioadmin
+  secretKey: minioadmin123
+  useSSL: false
+  bucket: aim
+
+Log:
+  Level: info
+  Stat: false
+
+CpuThreshold: 900
+
+RateLimit:
+  Enabled: true
+  RequestsPerSecond: 100
+  Concurrency: 10
+
+Telemetry:
+  Name: file.rpc
+  Endpoint: localhost:4317
+  Sampler: 1.0
+  Batcher: otlpgrpc
+
+Prometheus:
+  Host: 0.0.0.0
+  Port: 9105

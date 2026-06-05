@@ -1,0 +1,119 @@
+{
+  "title": "AIM - Business Metrics",
+  "uid": "aim-business",
+  "tags": ["aim", "business"],
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "title": "Online Sessions",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "ws_online_sessions"
+      }],
+      "gridPos": { "h": 6, "w": 4, "x": 0, "y": 0 }
+    },
+    {
+      "title": "WS Connections",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "ws_connections"
+      }],
+      "gridPos": { "h": 6, "w": 4, "x": 4, "y": 0 }
+    },
+    {
+      "title": "Active HTTP Requests",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "http_active_requests"
+      }],
+      "gridPos": { "h": 6, "w": 4, "x": 8, "y": 0 }
+    },
+    {
+      "title": "Messages Sent",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(messages_sent_total[5m])) by (msg_type)",
+        "legendFormat": "{{ msg_type }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 }
+    },
+    {
+      "title": "User Registrations",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(user_registrations_total[1h])) by (source)",
+        "legendFormat": "{{ source }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 }
+    },
+    {
+      "title": "Recharge Amount",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(recharge_amount_total[1h])) by (currency)",
+        "legendFormat": "{{ currency }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 }
+    },
+    {
+      "title": "Consumption Amount",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(consumption_amount_total[1h])) by (category)",
+        "legendFormat": "{{ category }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 }
+    },
+    {
+      "title": "LLM Token Consumption",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(llm_prompt_tokens_total[5m])) by (model)",
+        "legendFormat": "{{ model }} prompt"
+      },{
+        "expr": "sum(rate(llm_completion_tokens_total[5m])) by (model)",
+        "legendFormat": "{{ model }} completion"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 }
+    },
+    {
+      "title": "Bot Requests",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(bot_requests_total[5m])) by (status)",
+        "legendFormat": "{{ status }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 }
+    },
+    {
+      "title": "File Uploads",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(file_upload_total[1h])) by (category)",
+        "legendFormat": "{{ category }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 }
+    },
+    {
+      "title": "KB Searches",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(kb_search_total[5m])) by (mode)",
+        "legendFormat": "{{ mode }}"
+      }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 30 }
+    }
+  ]
+}

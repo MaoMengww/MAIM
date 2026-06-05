@@ -1,0 +1,206 @@
+syntax = "proto3";
+
+package friend;
+
+import "common/common.proto";
+
+option go_package = "github.com/maomeng/aim/app/user-service/pb/friend";
+
+service FriendService {
+  // ========== Friend Requests ==========
+  rpc SendRequest(SendRequestReq) returns (SendRequestResp);
+  rpc AcceptRequest(AcceptRequestReq) returns (common.BaseResponse);
+  rpc RejectRequest(RejectRequestReq) returns (common.BaseResponse);
+  rpc CancelRequest(CancelRequestReq) returns (common.BaseResponse);
+  rpc ListPendingRequests(ListPendingRequestsReq) returns (ListRequestsResp);
+  rpc ListSentRequests(ListSentRequestsReq) returns (ListRequestsResp);
+
+  // ========== Friend Management ==========
+  rpc ListFriends(ListFriendsReq) returns (ListFriendsResp);
+  rpc DeleteFriend(DeleteFriendReq) returns (common.BaseResponse);
+  rpc SetRemark(SetRemarkReq) returns (common.BaseResponse);
+  rpc SetGroup(SetGroupReq) returns (common.BaseResponse);
+
+  // ========== Friend Groups ==========
+  rpc CreateGroup(CreateGroupReq) returns (CreateGroupResp);
+  rpc RenameGroup(RenameGroupReq) returns (common.BaseResponse);
+  rpc DeleteGroup(DeleteGroupReq) returns (common.BaseResponse);
+  rpc ListGroups(ListGroupsReq) returns (ListGroupsResp);
+
+  // ========== Blacklist ==========
+  rpc BlockUser(BlockUserReq) returns (common.BaseResponse);
+  rpc UnblockUser(UnblockUserReq) returns (common.BaseResponse);
+  rpc ListBlacklist(ListBlacklistReq) returns (ListBlacklistResp);
+  rpc IsBlocked(IsBlockedReq) returns (IsBlockedResp);
+}
+
+// ========== Friend Request Messages ==========
+
+message SendRequestReq {
+  int64 from_user_id = 1;
+  int64 to_user_id = 2;
+  string message = 3; // 验证消息
+}
+
+message SendRequestResp {
+  int64 request_id = 1;
+}
+
+message AcceptRequestReq {
+  int64 request_id = 1;
+  int64 user_id = 2;
+}
+
+message RejectRequestReq {
+  int64 request_id = 1;
+  int64 user_id = 2;
+}
+
+message CancelRequestReq {
+  int64 request_id = 1;
+  int64 user_id = 2;
+}
+
+message ListPendingRequestsReq {
+  int64 user_id = 1;
+  common.Pagination pagination = 2;
+}
+
+message ListSentRequestsReq {
+  int64 user_id = 1;
+  common.Pagination pagination = 2;
+}
+
+message FriendRequest {
+  int64 request_id = 1;
+  int64 from_user_id = 2;
+  int64 to_user_id = 3;
+  string message = 4;
+  string status = 5;       // pending/accepted/rejected
+  int64 created_at = 6;
+  int64 updated_at = 7;
+  string from_username = 8;
+  string from_avatar = 9;
+}
+
+message ListRequestsResp {
+  repeated FriendRequest requests = 1;
+  common.PaginationResp pagination = 2;
+}
+
+// ========== Friend Management Messages ==========
+
+message ListFriendsReq {
+  int64 user_id = 1;
+  optional int64 group_id = 2; // filter by group, omit for all
+  common.Pagination pagination = 3;
+}
+
+message FriendInfo {
+  int64 user_id = 1;
+  string username = 2;
+  string avatar = 3;
+  string remark = 4;       // 备注名
+  int64 group_id = 5;      // 所属分组
+  string group_name = 6;   // 分组名
+  string status = 7;       // online/offline
+  int64 created_at = 8;    // 成为好友的时间
+}
+
+message ListFriendsResp {
+  repeated FriendInfo friends = 1;
+  common.PaginationResp pagination = 2;
+}
+
+message DeleteFriendReq {
+  int64 user_id = 1;
+  int64 friend_id = 2;
+}
+
+message SetRemarkReq {
+  int64 user_id = 1;
+  int64 friend_id = 2;
+  string remark = 3;
+}
+
+message SetGroupReq {
+  int64 user_id = 1;
+  int64 friend_id = 2;
+  int64 group_id = 3;
+}
+
+// ========== Friend Group Messages ==========
+
+message CreateGroupReq {
+  int64 user_id = 1;
+  string name = 2;
+}
+
+message CreateGroupResp {
+  int64 group_id = 1;
+}
+
+message RenameGroupReq {
+  int64 group_id = 1;
+  int64 user_id = 2;
+  string name = 3;
+}
+
+message DeleteGroupReq {
+  int64 group_id = 1;
+  int64 user_id = 2;
+}
+
+message ListGroupsReq {
+  int64 user_id = 1;
+}
+
+message FriendGroup {
+  int64 id = 1;
+  string name = 2;
+  int32 sort_order = 3;
+  int32 friend_count = 4;
+  int64 created_at = 5;
+}
+
+message ListGroupsResp {
+  repeated FriendGroup groups = 1;
+}
+
+// ========== Blacklist Messages ==========
+
+message BlockUserReq {
+  int64 user_id = 1;
+  int64 blocked_user_id = 2;
+}
+
+message UnblockUserReq {
+  int64 user_id = 1;
+  int64 blocked_user_id = 2;
+}
+
+message ListBlacklistReq {
+  int64 user_id = 1;
+  common.Pagination pagination = 2;
+}
+
+message BlacklistUser {
+  int64 user_id = 1;
+  string username = 2;
+  string avatar = 3;
+  int64 blocked_at = 4;
+}
+
+message ListBlacklistResp {
+  repeated BlacklistUser users = 1;
+  common.PaginationResp pagination = 2;
+}
+
+message IsBlockedReq {
+  int64 user_id = 1;
+  int64 target_user_id = 2;
+}
+
+message IsBlockedResp {
+  bool is_blocked = 1;
+}

@@ -1,0 +1,275 @@
+syntax = "proto3";
+
+package user;
+
+import "common/common.proto";
+
+option go_package = "github.com/maomeng/aim/app/user-service/pb/user";
+
+service UserService {
+  // ========== Auth ==========
+  rpc Register(RegisterReq) returns (RegisterResp);
+  rpc Login(LoginReq) returns (LoginResp);
+  rpc Logout(LogoutReq) returns (common.BaseResponse);
+  rpc RefreshToken(RefreshTokenReq) returns (RefreshTokenResp);
+  rpc OAuthLogin(OAuthLoginReq) returns (LoginResp);
+  rpc ValidateToken(ValidateTokenReq) returns (ValidateTokenResp);
+  rpc GetSessions(common.Empty) returns (GetSessionsResp);
+  rpc RevokeSession(RevokeSessionReq) returns (common.BaseResponse);
+
+  // ========== User Profile ==========
+  rpc GetProfile(common.Empty) returns (UserInfo);
+  rpc UpdateProfile(UpdateProfileReq) returns (UserInfo);
+  rpc UpdatePassword(UpdatePasswordReq) returns (common.BaseResponse);
+  rpc BindPhone(BindPhoneReq) returns (common.BaseResponse);
+  rpc BindEmail(BindEmailReq) returns (common.BaseResponse);
+  rpc GetUserInfo(GetUserInfoReq) returns (UserInfo);
+  rpc BatchGetUserInfo(BatchGetUserInfoReq) returns (BatchGetUserInfoResp);
+  rpc SearchUsers(SearchUsersReq) returns (SearchUsersResp);
+  rpc ListAllUserIDs(common.Empty) returns (ListAllUserIDsResp);
+  rpc BatchGetStatus(BatchGetStatusReq) returns (BatchGetStatusResp);
+  rpc GetSettings(common.Empty) returns (GetSettingsResp);
+  rpc UpdateSettings(UpdateSettingsReq) returns (common.BaseResponse);
+
+  // ========== Balance ==========
+  rpc Recharge(RechargeReq) returns (RechargeResp);
+  rpc DeductBalance(DeductBalanceReq) returns (DeductBalanceResp);
+  rpc GetBalance(GetBalanceReq) returns (GetBalanceResp);
+}
+
+// ========== Auth Messages ==========
+
+message RegisterReq {
+  string username = 1;
+  string password = 2;
+  string phone = 3;
+  string email = 4;
+  string device_id = 5;
+  string platform = 6; // ios/android/web
+}
+
+message RegisterResp {
+  int64 user_id = 1;
+  TokenPair tokens = 2;
+  UserInfo user = 3;
+}
+
+message LoginReq {
+  string account = 1;  // username/phone/email
+  string password = 2;
+  string device_id = 3;
+  string platform = 4;
+}
+
+message LoginResp {
+  int64 user_id = 1;
+  TokenPair tokens = 2;
+  UserInfo user = 3;
+}
+
+message LogoutReq {
+  string token_id = 1;
+}
+
+message RefreshTokenReq {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResp {
+  TokenPair tokens = 1;
+  UserInfo user = 2;
+}
+
+message OAuthLoginReq {
+  string provider = 1; // github/google/...
+  string code = 2;
+  string device_id = 3;
+  string platform = 4;
+}
+
+message ValidateTokenReq {
+  string access_token = 1;
+}
+
+message ValidateTokenResp {
+  bool valid = 1;
+  int64 user_id = 2;
+  string device_id = 3;
+  int64 expires_at = 4;
+}
+
+message SessionInfo {
+  string session_id = 1;
+  string device_id = 2;
+  string platform = 3;
+  string ip = 4;
+  string location = 5;
+  int64 last_active_at = 6;
+  int64 created_at = 7;
+  bool is_current = 8;
+  bool is_online = 9;
+}
+
+message GetSessionsResp {
+  repeated SessionInfo sessions = 1;
+}
+
+message RevokeSessionReq {
+  int64 user_id = 1;
+  string session_id = 2;
+}
+
+message TokenPair {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 access_expire = 3;
+  int64 refresh_expire = 4;
+}
+
+// ========== User Profile Messages ==========
+
+message UserInfo {
+  int64 id = 1;
+  string username = 2;
+  string phone = 3;
+  string email = 4;
+  string avatar = 5;
+  int32 gender = 6;         // 0: unknown, 1: male, 2: female
+  string bio = 7;
+  int64 birthday = 8;       // unix timestamp
+  int64 created_at = 9;
+  int64 updated_at = 10;
+  double balance = 11;
+}
+
+message UpdateProfileReq {
+  int64 user_id = 1;
+  optional string avatar = 2;
+  optional int32 gender = 3;
+  optional string bio = 4;
+  optional int64 birthday = 5;
+
+  // password change (handled separately via UpdatePassword)
+  string old_password = 6;
+  string new_password = 7;
+
+  // phone binding
+  string phone = 8;
+  string phone_code = 9;
+
+  // email binding
+  string email = 10;
+  string email_code = 11;
+}
+
+message UpdatePasswordReq {
+  string old_password = 1;
+  string new_password = 2;
+}
+
+message BindPhoneReq {
+  string phone = 1;
+  string phone_code = 2;
+}
+
+message BindEmailReq {
+  string email = 1;
+  string email_code = 2;
+}
+
+message GetUserInfoReq {
+  int64 user_id = 1;
+}
+
+message BatchGetUserInfoReq {
+  repeated int64 user_ids = 1;
+}
+
+message BatchGetUserInfoResp {
+  repeated UserInfo users = 1;
+}
+
+message SearchUsersReq {
+  string keyword = 1;
+  common.Pagination pagination = 2;
+}
+
+message SearchUsersResp {
+  repeated UserInfo users = 1;
+  common.PaginationResp pagination = 2;
+}
+
+message ListAllUserIDsResp {
+  repeated int64 user_ids = 1;
+}
+
+message BatchGetStatusReq {
+  repeated int64 user_ids = 1;
+}
+
+message DeviceInfo {
+  string device_id = 1;
+  string platform = 2; // ios/android/web
+  int64 last_active_at = 3;
+}
+
+message UserStatus {
+  int64 user_id = 1;
+  bool is_online = 2;
+  repeated DeviceInfo devices = 3;
+}
+
+message BatchGetStatusResp {
+  repeated UserStatus statuses = 1;
+}
+
+message GetSettingsResp {
+  string language = 1;
+  bool notification_enabled = 2;
+  bool sound_enabled = 3;
+  bool vibration_enabled = 4;
+  string theme = 5;        // light/dark/auto
+  string settings_json = 6; // extensible settings
+  int64 ai_model_id = 7;
+  string ai_model_name = 8;
+}
+
+message UpdateSettingsReq {
+  int64 user_id = 1;
+  optional string language = 2;
+  optional bool notification_enabled = 3;
+  optional bool sound_enabled = 4;
+  optional bool vibration_enabled = 5;
+  optional string theme = 6;
+  optional string settings_json = 7;
+  optional int64 ai_model_id = 8;
+  optional string ai_model_name = 9;
+}
+
+// ========== Balance Messages ==========
+
+message RechargeReq {
+  int64 user_id = 1;
+  double amount = 2;
+}
+
+message RechargeResp {
+  double new_balance = 1;
+}
+
+message DeductBalanceReq {
+  int64 user_id = 1;
+  double amount = 2;
+}
+
+message DeductBalanceResp {
+  double new_balance = 1;
+}
+
+message GetBalanceReq {
+  int64 user_id = 1;
+}
+
+message GetBalanceResp {
+  double balance = 1;
+}
