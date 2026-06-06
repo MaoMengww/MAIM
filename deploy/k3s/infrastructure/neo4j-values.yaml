@@ -1,0 +1,19 @@
+# Neo4j Community - neo4j/neo4j
+neo4j:
+  name: aim-neo4j
+  password: "${NEO4J_PASSWORD}"
+  resources:
+    cpu: "500m"
+    memory: "1Gi"
+volumes:
+  data:
+    mode: persistentVolumeClaim
+    persistentVolumeClaim:
+      storageClassName: local-path
+      accessModes:
+        - ReadWriteOnce
+      requests:
+        storage: 5Gi
+services:
+  neo4j:
+    port: 7687

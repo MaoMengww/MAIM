@@ -1,0 +1,39 @@
+# Monitoring stack: Jaeger + Prometheus + Grafana
+
+jaeger:
+  provisionDataStore:
+    cassandra: false
+  allInOne:
+    enabled: true
+  storage:
+    type: memory
+  agent:
+    enabled: false
+
+prometheus:
+  server:
+    persistentVolume:
+      size: 5Gi
+      storageClass: local-path
+    retention: 7d
+  alertmanager:
+    enabled: false
+  pushgateway:
+    enabled: false
+
+grafana:
+  adminPassword: admin
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: local-path
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://aim-prometheus-server.default.svc.cluster.local
+        - name: Jaeger
+          type: jaeger
+          url: http://aim-jaeger-query.default.svc.cluster.local:16686

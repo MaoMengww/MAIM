@@ -1,0 +1,7 @@
+replicaCount: 1
+service:
+  grpcPort: 50055
+  metricsPort: 9101
+config:
+  name: conversation-service
+  configFilename: conversation

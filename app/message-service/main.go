@@ -4,9 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
-
 	"time"
-	"github.com/IBM/sarama"
+
 	"github.com/maomeng/aim/app/message-service/internal/config"
 	"github.com/maomeng/aim/app/message-service/internal/consumer"
 	"github.com/maomeng/aim/app/message-service/internal/model"
@@ -35,70 +34,48 @@ func main() {
 	configcenter.InitConfigCenter(c.Name, c.Etcd.Hosts, &c)
 	ctx := svc.NewServiceContext(c)
 
-	kafkaCtx, kafkaCancel := context.WithCancel(context.Background())
-	defer kafkaCancel()
-
-	saramaCfg := sarama.NewConfig()
-	saramaCfg.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{sarama.NewBalanceStrategyRoundRobin()}
-	saramaCfg.Consumer.Offsets.Initial = sarama.OffsetNewest
-	saramaCfg.Consumer.IsolationLevel = sarama.ReadCommitted
-
-	inboxGroup, err := sarama.NewConsumerGroup(c.Kafka.Brokers, c.Kafka.ConsumerGroup+"-inbox", saramaCfg)
-	if err != nil {
-		panic(fmt.Sprintf("kafka inbox consumer group: %v", err))
-	}
-	defer inboxGroup.Close()
-
-	searchGroup, err := sarama.NewConsumerGroup(c.Kafka.Brokers, c.Kafka.ConsumerGroup+"-search", saramaCfg)
-	if err != nil {
-		panic(fmt.Sprintf("kafka search consumer group: %v", err))
-	}
-	defer searchGroup.Close()
-
 	dlqProducer, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageCreatedDLQ, ctx.Logger)
 	if err != nil {
 		ctx.Logger.Errorf("kafka dlq producer init failed: %v", err)
 	}
 
 	inboxWriter := consumer.NewInboxWriter(ctx.InboxRepo, ctx.ConvClient, ctx.Logger, c.Kafka.MaxRetry, dlqProducer)
-	go func() {
-		for {
-			select {
-			case <-kafkaCtx.Done():
-				return
-			default:
-				if err := inboxGroup.Consume(kafkaCtx, []string{consts.KafkaTopicMessageCreated}, inboxWriter); err != nil {
-					ctx.Logger.WithContext(kafkaCtx).Errorf("kafka inbox consume error: %v", err)
-				}
-				if kafkaCtx.Err() != nil {
-					return
-				}
-			}
-		}
-	}()
+	inboxConsumer, err := kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated}, c.Kafka.ConsumerGroup+"-inbox", ctx.Logger)
+	if err != nil {
+		panic(fmt.Sprintf("kafka inbox consumer: %v", err))
+	}
+	defer inboxConsumer.Close()
 
 	searchIndexer := consumer.NewSearchIndexer(ctx.ESClient, ctx.Logger, c.Kafka.MaxRetry)
+	searchConsumer, err := kafka.NewConsumer(c.Kafka, []string{
+		consts.KafkaTopicMessageCreated,
+		consts.KafkaTopicMessageEdited,
+		consts.KafkaTopicMessageRecalled,
+		consts.KafkaTopicMessageDeleted,
+	}, c.Kafka.ConsumerGroup+"-search", ctx.Logger)
+	if err != nil {
+		panic(fmt.Sprintf("kafka search consumer: %v", err))
+	}
+	defer searchConsumer.Close()
+
+	inboxCtx, inboxCancel := context.WithCancel(context.Background())
+	defer inboxCancel()
 	go func() {
-		for {
-			select {
-			case <-kafkaCtx.Done():
-				return
-			default:
-				if err := searchGroup.Consume(kafkaCtx, []string{
-					consts.KafkaTopicMessageCreated,
-					consts.KafkaTopicMessageEdited,
-					consts.KafkaTopicMessageRecalled,
-					consts.KafkaTopicMessageDeleted,
-				}, searchIndexer); err != nil {
-					ctx.Logger.WithContext(kafkaCtx).Errorf("kafka search consume error: %v", err)
-				}
-				if kafkaCtx.Err() != nil {
-					return
-				}
-			}
+		if err := inboxConsumer.Consume(inboxCtx, inboxWriter); err != nil {
+			ctx.Logger.WithContext(inboxCtx).Errorf("kafka inbox consume error: %v", err)
 		}
 	}()
 
+	searchCtx, searchCancel := context.WithCancel(context.Background())
+	defer searchCancel()
+	go func() {
+		if err := searchConsumer.Consume(searchCtx, searchIndexer); err != nil {
+			ctx.Logger.WithContext(searchCtx).Errorf("kafka search consume error: %v", err)
+		}
+	}()
+
+	kafkaCtx, kafkaCancel := context.WithCancel(context.Background())
+	defer kafkaCancel()
 	// 后台重试 failed_events 中的 Kafka 发送失败事件
 	go func() {
 		for {

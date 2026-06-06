@@ -17,79 +17,79 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Driver      string `json:",default=postgres"`
-	DSN         string
-	MaxOpenConn int    `json:",default=100"`
-	MaxIdleConn int    `json:",default=10"`
-	MaxLifetime int    `json:",default=3600"`
-	ReadDSN     string `json:",optional"`
+	Driver      string `json:",default=postgres" yaml:"Driver"`
+	DSN         string `json:"DSN"              yaml:"DSN"`
+	MaxOpenConn int    `json:",default=100"     yaml:"MaxOpenConn"`
+	MaxIdleConn int    `json:",default=10"      yaml:"MaxIdleConn"`
+	MaxLifetime int    `json:",default=3600"    yaml:"MaxLifetime"`
+	ReadDSN     string `json:",optional"        yaml:"ReadDSN"`
 }
 
 type RedisConfig struct {
-	Host         string `json:",default=localhost:6379"`
-	Password     string `json:",optional"`
-	DB           int    `json:",optional"`
-	PoolSize     int    `json:",default=100"`
-	MinIdleConn  int    `json:",default=10"`
-	DialTimeout  int    `json:",default=5"`
-	ReadTimeout  int    `json:",default=3"`
-	WriteTimeout int    `json:",default=3"`
-	ClusterMode  bool   `json:",optional"`
-	ClusterAddrs string `json:",optional"`
+	Host         string `json:",default=localhost:6379" yaml:"Host"`
+	Password     string `json:",optional"               yaml:"Password"`
+	DB           int    `json:",optional"               yaml:"DB"`
+	PoolSize     int    `json:",default=100"            yaml:"PoolSize"`
+	MinIdleConn  int    `json:",default=10"             yaml:"MinIdleConn"`
+	DialTimeout  int    `json:",default=5"              yaml:"DialTimeout"`
+	ReadTimeout  int    `json:",default=3"              yaml:"ReadTimeout"`
+	WriteTimeout int    `json:",default=3"              yaml:"WriteTimeout"`
+	ClusterMode  bool   `json:",optional"               yaml:"ClusterMode"`
+	ClusterAddrs string `json:",optional"               yaml:"ClusterAddrs"`
 }
 
 type KafkaConfig struct {
-	Brokers       []string
-	ConsumerGroup string `json:",optional"`
-	Version       string `json:",default=2.8.0"`
-	MaxRetry      int    `json:",default=3"`
-	SASLEnable    bool   `json:",optional"`
-	SASLUser      string `json:",optional"`
-	SASLPassword  string `json:",optional"`
+	Brokers       []string `json:"Brokers"              yaml:"Brokers"`
+	ConsumerGroup string   `json:",optional"        yaml:"ConsumerGroup"`
+	Version       string   `json:",default=2.8.0"   yaml:"Version"`
+	MaxRetry      int      `json:",default=3"       yaml:"MaxRetry"`
+	SASLEnable    bool     `json:",optional"        yaml:"SASLEnable"`
+	SASLUser      string   `json:",optional"        yaml:"SASLUser"`
+	SASLPassword  string   `json:",optional"        yaml:"SASLPassword"`
 }
 
 type EtcdConfig struct {
-	Hosts       []string
-	Key         string `json:",optional"`
-	User        string `json:",optional"`
-	Password    string `json:",optional"`
-	DialTimeout int    `json:",default=5"`
-	TTL         int    `json:",default=10"`
+	Hosts       []string `json:",optional"        yaml:"Hosts"`
+	Key         string   `json:",optional"        yaml:"Key"`
+	User        string   `json:",optional"        yaml:"User"`
+	Password    string   `json:",optional"        yaml:"Password"`
+	DialTimeout int      `json:",default=5"       yaml:"DialTimeout"`
+	TTL         int      `json:",default=10"      yaml:"TTL"`
 }
 
 type MinIOConfig struct {
-	Endpoint  string
-	AccessKey string
-	SecretKey string
-	UseSSL    bool   `json:",optional"`
-	Bucket    string `json:",default=aim"`
-	Region    string `json:",optional"`
+	Endpoint  string `json:"Endpoint"            yaml:"Endpoint"`
+	AccessKey string `json:"AccessKey"           yaml:"AccessKey"`
+	SecretKey string `json:"SecretKey"           yaml:"SecretKey"`
+	UseSSL    bool   `json:",optional"        yaml:"UseSSL"`
+	Bucket    string `json:",default=aim"     yaml:"Bucket"`
+	Region    string `json:",optional"        yaml:"Region"`
 }
 
 type JWTConfig struct {
-	Secret     string
-	ExpireSec  int `json:",default=7200"`
-	RefreshSec int `json:",default=604800"`
+	Secret     string `json:"Secret"              yaml:"Secret"`
+	ExpireSec  int    `json:",default=7200"    yaml:"ExpireSec"`
+	RefreshSec int    `json:",default=604800"  yaml:"RefreshSec"`
 }
 
 type LogConfig struct {
-	Level     string `json:",default=info"`
-	Format    string `json:",default=json"`
-	Output    string `json:",default=stdout"`
-	FilePath  string `json:",optional"`
-	MaxSize   int    `json:",default=100"`
-	MaxBackup int    `json:",default=10"`
-	MaxAge    int    `json:",default=30"`
-	Compress  bool   `json:",optional"`
-	Path      string `json:",optional"`
+	Level     string `json:",default=info"    yaml:"Level"`
+	Format    string `json:",default=json"    yaml:"Format"`
+	Output    string `json:",default=stdout"  yaml:"Output"`
+	FilePath  string `json:",optional"        yaml:"FilePath"`
+	MaxSize   int    `json:",default=100"     yaml:"MaxSize"`
+	MaxBackup int    `json:",default=10"      yaml:"MaxBackup"`
+	MaxAge    int    `json:",default=30"      yaml:"MaxAge"`
+	Compress  bool   `json:",optional"        yaml:"Compress"`
+	Path      string `json:",optional"        yaml:"Path"`
 }
 
 type ElasticsearchConfig struct {
-	Addresses []string
-	Username  string `json:",optional"`
-	Password  string `json:",optional"`
-	CloudID   string `json:",optional"`
-	APIKey    string `json:",optional"`
+	Addresses []string `json:"Addresses"           yaml:"Addresses"`
+	Username  string   `json:",optional"        yaml:"Username"`
+	Password  string   `json:",optional"        yaml:"Password"`
+	CloudID   string   `json:",optional"        yaml:"CloudID"`
+	APIKey    string   `json:",optional"        yaml:"APIKey"`
 }
 
 type RateLimitConfig struct {

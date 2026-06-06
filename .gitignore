@@ -30,6 +30,7 @@ go.work.sum
 # ==== Frontend ====
 node_modules/
 web-client/dist/
+.vite/
 
 # ==== Logs ====
 /logs/
@@ -40,6 +41,7 @@ web-client/dist/
 # ==== AI assistants ====
 .claude/
 .codegraph/
+REASONIX.md
 
 # ==== IDE & OS ====
 .vscode/

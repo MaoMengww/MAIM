@@ -46,9 +46,11 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	logger := logx.DefaultLogger()
 
 	db, err := database.NewDB(c.Database, logger)
-	_ = db.AutoMigrate(&model.Message{}, &model.FailedEvent{})
 	if err != nil {
 		panic(fmt.Sprintf("database init failed: %v", err))
+	}
+	if err := db.AutoMigrate(&model.Message{}, &model.FailedEvent{}); err != nil {
+		panic(fmt.Sprintf("auto migrate failed: %v", err))
 	}
 
 	rdb := goredis.NewClient(&goredis.Options{

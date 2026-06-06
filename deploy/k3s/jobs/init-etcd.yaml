@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-etcd-config
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: init-etcd
+          image: alpine:3.21
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              apk add --no-cache curl
+
+              ETCD_URL="http://aim-etcd.default.svc.cluster.local:2379"
+
+              # Wait for etcd to be ready
+              until curl -s "$ETCD_URL/health" | grep -q "health"; do
+                sleep 1
+              done
+
+              put() {
+                curl -s -X POST "$ETCD_URL/v3/kv/put" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"key\":\"$(echo -n "$1" | base64 -w0)\",\"value\":\"$(echo -n "$2" | base64 -w0)\"}" \
+                  | grep -q "succeeded" && echo "OK: $1" || echo "FAIL: $1"
+              }
+
+              put "aim-config-user.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=user"},"redis":{"addr":"aim-redis.default.svc.cluster.local:6379"},"snowflake":{"workerId":0}}'
+
+              put "aim-config-friend.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=friend"},"redis":{"addr":"aim-redis.default.svc.cluster.local:6379"},"snowflake":{"workerId":1}}'
+
+              put "aim-config-message.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=msg"},"redis":{"addr":"aim-redis.default.svc.cluster.local:6379"},"kafka":{"brokers":["aim-kafka.default.svc.cluster.local:9092"]},"elasticsearch":{"addresses":["http://aim-elasticsearch.default.svc.cluster.local:9200"]},"snowflake":{"workerId":2}}'
+
+              put "aim-config-file.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=file"},"minio":{"endpoint":"172.27.95.205:30900","accessKey":"minioadmin","secretKey":"minioadmin123","bucket":"aim"}}'
+
+              put "aim-config-conversation.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=conv"},"redis":{"addr":"aim-redis.default.svc.cluster.local:6379"},"kafka":{"brokers":["aim-kafka.default.svc.cluster.local:9092"]},"snowflake":{"workerId":3}}'
+
+              put "aim-config-llm-gateway.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=llm"},"redis":{"addr":"aim-redis.default.svc.cluster.local:6379"}}'
+
+              put "aim-config-knowledge-base.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=knowledge"},"redis":{"addr":"aim-redis.default.svc.cluster.local:6379"},"kafka":{"brokers":["aim-kafka.default.svc.cluster.local:9092"]},"minio":{"endpoint":"172.27.95.205:30900","accessKey":"minioadmin","secretKey":"minioadmin123","bucket":"aim"},"milvus":{"address":"aim-milvus.default.svc.cluster.local:19530"},"neo4j":{"uri":"bolt://aim-neo4j.default.svc.cluster.local:7687","enabled":true},"snowflake":{"workerId":4}}'
+
+              put "aim-config-audit.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=audit"},"kafka":{"brokers":["aim-kafka.default.svc.cluster.local:9092"]},"minio":{"endpoint":"aim-minio:9000","accessKey":"minioadmin","secretKey":"minioadmin123","bucket":"aim"},"snowflake":{"workerId":5}}'
+
+              put "aim-config-ai-bot.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=bot,conv"},"redis":{"addr":"aim-redis.default.svc.cluster.local:6379"},"kafka":{"brokers":["aim-kafka.default.svc.cluster.local:9092"]},"milvus":{"host":"aim-milvus.default.svc.cluster.local","port":19530}}'
+
+              put "aim-config-bot-platform.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=bot"},"snowflake":{"workerId":6}}'
+
+              put "aim-config-ws-gateway" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=notify"},"redis":{"addr":"aim-redis.default.svc.cluster.local:6379"}}'
+
+              put "aim-config-signaling-service.rpc" '{"database":{"dsn":"postgres://aim:aim123@aim-postgres.default.svc.cluster.local:5432/aim?sslmode=disable&search_path=notify,conv"},"redis":{"addr":"aim-redis.default.svc.cluster.local:6379"},"kafka":{"brokers":["aim-kafka.default.svc.cluster.local:9092"]}}'
+
+              put "aim-config-gateway" '{"redis":{"addr":"aim-redis.default.svc.cluster.local:6379"}}'
+
+              echo "All etcd config initialized."

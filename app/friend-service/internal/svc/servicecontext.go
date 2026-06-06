@@ -23,9 +23,11 @@ type ServiceContext struct {
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	db, err := database.NewDB(c.Database, nil)
-	_ = db.AutoMigrate(&model.Friend{}, &model.FriendGroup{}, &model.FriendRequest{}, &model.UserBlock{}, &model.UserBlock{})
 	if err != nil {
 		panic("failed to init database: " + err.Error())
+	}
+	if err := db.AutoMigrate(&model.Friend{}, &model.FriendGroup{}, &model.FriendRequest{}, &model.UserBlock{}); err != nil {
+		panic("auto migrate failed: " + err.Error())
 	}
 
 	sn, err := snowflake.NewNode(4)

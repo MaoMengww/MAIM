@@ -1,0 +1,15 @@
+# PostgreSQL - bitnami/postgresql
+auth:
+  username: aim
+  password: aim123
+  database: aim
+primary:
+  persistence:
+    size: 10Gi
+    storageClass: local-path
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+image:
+  tag: 16

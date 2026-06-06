@@ -17,7 +17,7 @@ type ServicesConfig struct {
 	KnowledgeServiceKey    string `json:"knowledgeServiceKey"    yaml:"KnowledgeServiceKey"    default:"knowledge.rpc"`
 	NotificationServiceKey string `json:"notificationServiceKey" yaml:"NotificationServiceKey" default:"ws-gateway"`
 	AuditServiceKey        string `json:"auditServiceKey"        yaml:"AuditServiceKey"        default:"audit.rpc"`
-	AIBotServiceKey        string `json:"aiBotServiceKey"        yaml:"AIBotServiceKey"        default:"aibot.rpc"`
+	AIBotServiceKey        string `json:"aiBotServiceKey"        yaml:"AIBotServiceKey"        default:"ai-bot.rpc"`
 	LLMGatewayServiceKey   string `json:"llmGatewayServiceKey"   yaml:"LLMGatewayServiceKey"   default:"llm-gateway.rpc"`
 }
 

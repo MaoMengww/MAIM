@@ -1,0 +1,42 @@
+replicaCount: 1
+
+image:
+  repository: docker.io/library
+  tag: latest
+  pullPolicy: Never
+
+service:
+  type: ClusterIP
+  grpcPort: 50051
+  metricsPort: 9101
+  httpPort: null
+  wsPort: null
+
+config:
+  name: ""
+  configFilename: ""
+  extraEnv: {}
+
+infra:
+  etcd: aim-etcd
+  postgres: aim-postgres
+  redis: aim-redis
+  kafka: aim-kafka
+  minio: aim-minio
+  milvus: aim-milvus
+  neo4j: aim-neo4j
+  elasticsearch: aim-elasticsearch
+  otel: aim-otel-collector
+
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "500m"
+
+ingress:
+  enabled: false
+  host: ""
+  port: 8080

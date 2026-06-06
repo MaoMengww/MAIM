@@ -1,0 +1,8 @@
+replicaCount: 1
+service:
+  type: ClusterIP
+  grpcPort: 8080
+  httpPort: null
+  metricsPort: 9091
+config:
+  name: gateway

@@ -1,0 +1,6 @@
+replicaCount: 1
+service:
+  grpcPort: 50062
+  metricsPort: 9101
+config:
+  name: ai-bot-service

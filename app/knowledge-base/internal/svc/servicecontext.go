@@ -54,10 +54,12 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	log.Infof("Initializing knowledge-base service...")
 
 	db, err := database.NewDB(c.Database, log)
-	_ = db.AutoMigrate(&domain.KnowledgeBase{}, &domain.Document{}, &domain.ChunkRecord{}, &domain.KnowledgeBinding{},
-		&domain.WikiPage{}, &domain.WikiPageIssue{})
 	if err != nil {
 		panic(fmt.Sprintf("init database failed: %v", err))
+	}
+	if err := db.AutoMigrate(&domain.KnowledgeBase{}, &domain.Document{}, &domain.ChunkRecord{}, &domain.KnowledgeBinding{},
+		&domain.WikiPage{}, &domain.WikiPageIssue{}); err != nil {
+		panic(fmt.Sprintf("auto migrate failed: %v", err))
 	}
 	log.Infof("Database connected")
 

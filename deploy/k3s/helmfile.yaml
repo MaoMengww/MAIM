@@ -1,0 +1,157 @@
+# AIM k3s deployment - helmfile master config
+repositories:
+  - name: bitnami
+    url: oci://registry-1.docker.io/bitnamicharts
+  - name: elastic
+    url: https://helm.elastic.co
+  - name: jaeger
+    url: https://jaegertracing.github.io/helm-charts
+  - name: prometheus
+    url: https://prometheus-community.github.io/helm-charts
+  - name: neo4j
+    url: https://helm.neo4j.com
+  - name: milvus
+    url: https://milvus-io.github.io/milvus-helm
+
+environments:
+  staging:
+    values:
+      - values/staging/*.yaml
+  production:
+    values:
+      - values/production/*.yaml
+
+releases:
+  # --- Infrastructure ---
+  - name: postgresql
+    chart: bitnami/postgresql
+    values:
+      - infrastructure/postgresql-values.yaml
+
+  - name: redis
+    chart: bitnami/redis
+    values:
+      - infrastructure/redis-values.yaml
+
+  - name: etcd
+    chart: bitnami/etcd
+    values:
+      - infrastructure/etcd-values.yaml
+
+  - name: kafka
+    chart: bitnami/kafka
+    values:
+      - infrastructure/kafka-values.yaml
+
+  - name: minio
+    chart: bitnami/minio
+    values:
+      - infrastructure/minio-values.yaml
+
+  - name: elasticsearch
+    chart: bitnami/elasticsearch
+    values:
+      - infrastructure/elasticsearch-values.yaml
+
+  - name: neo4j
+    chart: neo4j/neo4j
+    values:
+      - infrastructure/neo4j-values.yaml
+
+  - name: milvus
+    chart: milvus/milvus
+    values:
+      - infrastructure/milvus-values.yaml
+
+  # --- Monitoring ---
+  - name: jaeger
+    chart: jaeger/jaeger
+    values:
+      - infrastructure/monitoring.yaml
+
+  - name: prometheus
+    chart: prometheus/prometheus
+    values:
+      - infrastructure/monitoring.yaml
+
+  - name: grafana
+    chart: bitnami/grafana
+    values:
+      - infrastructure/monitoring.yaml
+
+  # --- Logging ---
+  - name: filebeat
+    chart: elastic/filebeat
+    values:
+      - infrastructure/logging.yaml
+
+  - name: kibana
+    chart: elastic/kibana
+    values:
+      - infrastructure/logging.yaml
+
+  # --- Application Services ---
+  - name: aim-user-service
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/user-service.yaml
+
+  - name: aim-friend-service
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/friend-service.yaml
+
+  - name: aim-message-service
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/message-service.yaml
+
+  - name: aim-conversation-service
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/conversation-service.yaml
+
+  - name: aim-file-service
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/file-service.yaml
+
+  - name: aim-llm-gateway
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/llm-gateway.yaml
+
+  - name: aim-knowledge-base
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/knowledge-base.yaml
+
+  - name: aim-bot-platform
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/bot-platform.yaml
+
+  - name: aim-audit-service
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/audit-service.yaml
+
+  - name: aim-ai-bot-service
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/ai-bot-service.yaml
+
+  - name: aim-signaling-service
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/signaling-service.yaml
+
+  - name: aim-ws-gateway
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/ws-gateway.yaml
+
+  - name: aim-gateway
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/gateway.yaml

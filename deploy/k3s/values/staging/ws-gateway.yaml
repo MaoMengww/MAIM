@@ -1,0 +1,8 @@
+replicaCount: 1
+service:
+  type: ClusterIP
+  grpcPort: 50060
+  wsPort: 8081
+  metricsPort: 9101
+config:
+  name: ws-gateway

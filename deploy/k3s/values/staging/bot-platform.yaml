@@ -1,0 +1,7 @@
+replicaCount: 1
+service:
+  grpcPort: 8085
+  httpPort: 8085
+  metricsPort: 9101
+config:
+  name: bot-platform

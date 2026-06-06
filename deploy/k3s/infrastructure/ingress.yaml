@@ -1,0 +1,32 @@
+# k3s Traefik Ingress — auto-exposes gateway API, WebSocket, and MinIO
+# Access:
+#   API:       http://172.27.95.205/api/v1/...
+#   WebSocket: ws://172.27.95.205/ws
+#   MinIO:     http://172.27.95.205/storage/  (presigned upload/download)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aim-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    # WebSocket is supported by Traefik natively — no extra config needed
+spec:
+  rules:
+    - http:
+        paths:
+          # Gateway REST API
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aim-gateway
+                port:
+                  number: 8080
+          # WebSocket direct connection
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: aim-ws-gateway
+                port:
+                  number: 8081

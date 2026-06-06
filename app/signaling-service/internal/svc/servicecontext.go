@@ -47,7 +47,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		sqlDB.SetMaxOpenConns(c.Database.MaxOpenConn)
 		sqlDB.SetMaxIdleConns(c.Database.MaxIdleConn)
 	}
-	gdb.AutoMigrate(&model.DeviceToken{})
+	if err := gdb.AutoMigrate(&model.DeviceToken{}); err != nil {
+		panic(fmt.Sprintf("auto migrate failed: %v", err))
+	}
 
 	convClient := convpb.NewConversationServiceClient(zrpc.MustNewClient(c.ConversationService).Conn())
 	botPlatformClient := botplatform.NewBotPlatformClient(zrpc.MustNewClient(c.BotPlatform).Conn())

@@ -1,0 +1,8 @@
+# MinIO - bitnami/minio
+auth:
+  rootUser: minioadmin
+  rootPassword: minioadmin123
+defaultBuckets: "aim"
+persistence:
+  size: 10Gi
+  storageClass: local-path

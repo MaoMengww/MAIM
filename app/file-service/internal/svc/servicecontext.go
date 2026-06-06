@@ -21,9 +21,11 @@ type ServiceContext struct {
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	db, err := database.NewDB(c.Database, nil)
-	_ = db.AutoMigrate(&model.File{})
 	if err != nil {
 		panic("failed to init database: " + err.Error())
+	}
+	if err := db.AutoMigrate(&model.File{}); err != nil {
+		panic("auto migrate failed: " + err.Error())
 	}
 
 	minioCli, err := minioclient.NewClient(c.MinIO)

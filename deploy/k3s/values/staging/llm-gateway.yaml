@@ -1,0 +1,8 @@
+replicaCount: 1
+service:
+  grpcPort: 50056
+  metricsPort: 9101
+config:
+  name: llm-gateway
+  extraEnv:
+    encKey: ""

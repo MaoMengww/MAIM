@@ -1,14 +1,14 @@
-Name: signaling-service-v2
+Name: signaling-service
 Mode: dev
 ListenOn: 0.0.0.0:50061
 Etcd:
   Hosts:
     - 127.0.0.1:2379
-  Key: signaling-service
+  Key: signaling-service.rpc
 Kafka:
   Brokers:
     - localhost:9092
-  ConsumerGroup: signaling-service-v2
+  ConsumerGroup: signaling-service
   Version: "2.8.0"
   MaxRetry: 3
 Database:
@@ -21,7 +21,7 @@ Redis:
   Host: localhost:6379
   Type: node
   Pass: ""
-  Key: signaling-service-v2
+  Key: signaling-service.rpc
   Addr: localhost:6379
   DB: 0
   PoolSize: 100

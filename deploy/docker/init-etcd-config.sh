@@ -88,7 +88,7 @@ put "aim-config-audit.rpc" '{
 }'
 
 # ---- ai-bot-service (50062) ----
-put "aim-config-aibot.rpc" '{
+put "aim-config-ai-bot.rpc" '{
   "database": {"dsn": "postgres://aim:aim123@postgres:5432/aim?sslmode=disable&search_path=bot,conv"},
   "redis": {"addr": "redis:6379"},
   "kafka": {"brokers": ["kafka:9092"]},
@@ -108,7 +108,7 @@ put "aim-config-ws-gateway" '{
 }'
 
 # ---- signaling-service (50061) ----
-put "aim-config-signaling-service" '{
+put "aim-config-signaling-service.rpc" '{
   "database": {"dsn": "postgres://aim:aim123@postgres:5432/aim?sslmode=disable&search_path=notify,conv"},
   "redis": {"addr": "redis:6379"},
   "kafka": {"brokers": ["kafka:9092"]}

@@ -30,9 +30,11 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 	logger := logx.DefaultLogger()
 
 	db, err := database.NewDB(cfg.Database, logger)
-	_ = db.AutoMigrate(&model.User{}, &model.UserDevice{})
 	if err != nil {
 		panic("database init failed: " + err.Error())
+	}
+	if err := db.AutoMigrate(&model.User{}, &model.UserDevice{}); err != nil {
+		panic("auto migrate failed: " + err.Error())
 	}
 
 	var rdb *redis.Redis

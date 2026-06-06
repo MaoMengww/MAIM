@@ -1,0 +1,7 @@
+replicaCount: 1
+service:
+  grpcPort: 50061
+  metricsPort: 9101
+config:
+  name: signaling-service
+  configFilename: signaling

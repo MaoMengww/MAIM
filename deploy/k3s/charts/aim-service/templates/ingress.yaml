@@ -1,0 +1,18 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "aim-service.fullname" . }}
+spec:
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aim-service.fullname" . }}
+                port:
+                  number: {{ .Values.ingress.port }}
+{{- end }}

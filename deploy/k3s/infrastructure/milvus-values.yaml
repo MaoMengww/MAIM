@@ -1,0 +1,25 @@
+# Milvus Standalone - milvus/milvus
+standalone:
+  persistence:
+    size: 20Gi
+    storageClass: local-path
+minio:
+  persistence:
+    size: 20Gi
+    storageClass: local-path
+etcd:
+  persistence:
+    size: 5Gi
+    storageClass: local-path
+externalEtcd:
+  enabled: true
+  endpoints:
+    - "aim-etcd.default.svc.cluster.local:2379"
+externalS3:
+  enabled: true
+  host: "aim-minio.default.svc.cluster.local"
+  port: 9000
+  accessKey: minioadmin
+  secretKey: minioadmin123
+  bucketName: aim-milvus
+  useSSL: false

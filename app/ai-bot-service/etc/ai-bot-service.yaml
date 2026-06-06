@@ -4,7 +4,7 @@ ListenOn: 0.0.0.0:50062
 Etcd:
   Hosts:
   - 127.0.0.1:2379
-  Key: aibot.rpc
+  Key: ai-bot.rpc
 
 Database:
   driver: postgres
@@ -17,7 +17,7 @@ Redis:
   Host: localhost:6379
   Type: node
   Pass: ""
-  Key: aibot.rpc
+  Key: ai-bot.rpc
 
 Kafka:
   brokers:
@@ -91,7 +91,7 @@ RateLimit:
   Concurrency: 10
 
 Telemetry:
-  Name: aibot.rpc
+  Name: ai-bot.rpc
   Endpoint: localhost:4317
   Sampler: 1.0
   Batcher: otlpgrpc

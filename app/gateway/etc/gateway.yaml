@@ -3,15 +3,15 @@ Host: 0.0.0.0
 Port: 8080
 
 JWT:
-  secret: aim-dev-secret-key
-  expireSec: 3600
-  refreshSec: 2592000
+  Secret: aim-dev-secret-key
+  ExpireSec: 3600
+  RefreshSec: 2592000
 
 Etcd:
-  hosts:
+  Hosts:
     - localhost:2379
-  dialTimeout: 5
-  ttl: 10
+  DialTimeout: 5
+  TTL: 10
 
 Services:
   UserServiceKey:        user.rpc
@@ -21,9 +21,9 @@ Services:
   FileServiceKey:        file.rpc
   BotPlatformServiceKey:  bot-platform.rpc
   KnowledgeServiceKey:   knowledge-base.rpc
-  NotificationServiceKey: signaling-service
+  NotificationServiceKey: signaling-service.rpc
   AuditServiceKey:       audit.rpc
-  AIBotServiceKey:       aibot.rpc
+  AIBotServiceKey:       ai-bot.rpc
   LLMGatewayServiceKey:  llm-gateway.rpc
 
 RateLimit:
@@ -36,17 +36,17 @@ Timeout:
   BotMs: 60000
 
 Redis:
-  addr: localhost:6379
-  password: ""
-  db: 0
-  poolSize: 100
+  Host: localhost:6379
+  Password: ""
+  DB: 0
+  PoolSize: 100
 
 Metrics:
   Port: 9091
 
 Log:
-  level: info
-  format: console
+  Level: info
+  Format: console
 
 Telemetry:
   Name: gateway

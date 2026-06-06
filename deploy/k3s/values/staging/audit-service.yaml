@@ -1,0 +1,7 @@
+replicaCount: 1
+service:
+  grpcPort: 50059
+  metricsPort: 9101
+config:
+  name: audit-service
+  configFilename: audit

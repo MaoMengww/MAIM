@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aim-service.fullname" . }}
+  labels:
+    {{- include "aim-service.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "aim-service.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "aim-service.fullname" . }}
+        app.kubernetes.io/part-of: aim
+    spec:
+      containers:
+        - name: {{ include "aim-service.fullname" . }}
+          image: "{{ .Values.image.repository }}/aim-{{ .Values.config.name }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              ETCD_HOST="${K8S_ETCD_HOST:-aim-etcd}"
+              PG_HOST="${K8S_PG_HOST:-aim-postgres}"
+              REDIS_HOST="${K8S_REDIS_HOST:-aim-redis}"
+              KAFKA_HOST="${K8S_KAFKA_HOST:-aim-kafka}"
+              MINIO_HOST="${K8S_MINIO_HOST:-aim-minio}"
+              MILVUS_HOST="${K8S_MILVUS_HOST:-aim-milvus}"
+              NEO4J_HOST="${K8S_NEO4J_HOST:-aim-neo4j}"
+              ES_HOST="${K8S_ES_HOST:-aim-elasticsearch}"
+              OTEL_HOST="${K8S_OTEL_HOST:-aim-otel-collector}"
+
+              # Replace localhost/127.0.0.1 addresses with K8s service names
+              for f in /app/etc/*.yaml; do
+                [ -f "$f" ] || continue
+                sed -i \
+                  -e "s|127\.0\.0\.1:2379|${ETCD_HOST}:2379|g" \
+                  -e "s|localhost:2379|${ETCD_HOST}:2379|g" \
+                  -e "s|127\.0\.0\.1:5432|${PG_HOST}:5432|g" \
+                  -e "s|localhost:5432|${PG_HOST}:5432|g" \
+                  -e "s|127\.0\.0\.1:6379|${REDIS_HOST}:6379|g" \
+                  -e "s|localhost:6379|${REDIS_HOST}:6379|g" \
+                  -e "s|127\.0\.0\.1:9092|${KAFKA_HOST}:9092|g" \
+                  -e "s|localhost:9092|${KAFKA_HOST}:9092|g" \
+                  -e "s|127\.0\.0\.1:9000|${MINIO_HOST}:9000|g" \
+                  -e "s|localhost:9000|${MINIO_HOST}:9000|g" \
+                  -e "s|localhost:19530|${MILVUS_HOST}:19530|g" \
+                  -e "s|localhost:7687|${NEO4J_HOST}:7687|g" \
+                  -e "s|localhost:9200|${ES_HOST}:9200|g" \
+                  -e "s|localhost:4317|${OTEL_HOST}:4317|g" \
+                  "$f"
+              done
+
+              exec /app/service
+          ports:
+            - containerPort: {{ .Values.service.grpcPort }}
+              name: grpc
+              protocol: TCP
+            {{- if .Values.service.httpPort }}
+            - containerPort: {{ .Values.service.httpPort }}
+              name: http
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.service.wsPort }}
+            - containerPort: {{ .Values.service.wsPort }}
+              name: ws
+              protocol: TCP
+            {{- end }}
+            - containerPort: {{ .Values.service.metricsPort }}
+              name: metrics
+              protocol: TCP
+          env:
+            - name: K8S_ETCD_HOST
+              value: {{ .Values.infra.etcd | default "aim-etcd" }}
+            - name: K8S_PG_HOST
+              value: {{ .Values.infra.postgres | default "aim-postgres" }}
+            - name: K8S_REDIS_HOST
+              value: {{ .Values.infra.redis | default "aim-redis" }}
+            - name: K8S_KAFKA_HOST
+              value: {{ .Values.infra.kafka | default "aim-kafka" }}
+            - name: K8S_MINIO_HOST
+              value: {{ .Values.infra.minio | default "aim-minio" }}
+            - name: K8S_MILVUS_HOST
+              value: {{ .Values.infra.milvus | default "aim-milvus" }}
+            - name: K8S_NEO4J_HOST
+              value: {{ .Values.infra.neo4j | default "aim-neo4j" }}
+            - name: K8S_ES_HOST
+              value: {{ .Values.infra.elasticsearch | default "aim-elasticsearch" }}
+            - name: K8S_OTEL_HOST
+              value: {{ .Values.infra.otel | default "aim-otel-collector" }}
+            {{- range $k, $v := .Values.config.extraEnv }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 10

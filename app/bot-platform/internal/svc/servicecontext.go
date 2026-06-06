@@ -29,9 +29,11 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	log := logx.DefaultLogger()
 
 	db, err := database.NewDB(c.Database, log)
-	_ = db.AutoMigrate(&model.Bot{}, &model.McpServer{}, &model.BotMcpServer{}, &model.McpTool{})
 	if err != nil {
 		panic(fmt.Sprintf("database init failed: %v", err))
+	}
+	if err := db.AutoMigrate(&model.Bot{}, &model.McpServer{}, &model.BotMcpServer{}, &model.McpTool{}); err != nil {
+		panic(fmt.Sprintf("auto migrate failed: %v", err))
 	}
 
 	sf, err := snowflake.NewNode(c.Snowflake.WorkerID)

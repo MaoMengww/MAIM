@@ -18,14 +18,8 @@ services:
       retries: 5
     command: postgres -c max_connections=500
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
-    depends_on:
-      logstash:
-        condition: service_healthy
+
+
 
   redis:
     image: redis:7-alpine
@@ -40,14 +34,8 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
-    depends_on:
-      logstash:
-        condition: service_healthy
+
+
 
   etcd:
     image: quay.io/coreos/etcd:v3.5.21
@@ -63,14 +51,8 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
-    depends_on:
-      logstash:
-        condition: service_healthy
+
+
 
   etcdkeeper:
     image: evildecay/etcdkeeper:latest
@@ -84,14 +66,9 @@ services:
     depends_on:
       etcd:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   minio:
     image: minio/minio:latest
@@ -111,14 +88,8 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
-    depends_on:
-      logstash:
-        condition: service_healthy
+
+
 
   kafka:
     image: apache/kafka:3.7.0
@@ -146,14 +117,8 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
-    depends_on:
-      logstash:
-        condition: service_healthy
+
+
 
   milvus:
     image: milvusdb/milvus:v2.6.11
@@ -176,19 +141,14 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
       interval: 30s
       timeout: 20s
       retries: 5
       start_period: 90s
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   elasticsearch:
     build:
@@ -223,14 +183,9 @@ services:
     depends_on:
       jaeger:
         condition: service_started
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   jaeger:
     image: jaegertracing/all-in-one:latest
@@ -242,14 +197,8 @@ services:
       - "4317"
       - "4318"
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
-    depends_on:
-      logstash:
-        condition: service_healthy
+
+
 
   prometheus:
     image: prom/prometheus:latest
@@ -259,34 +208,9 @@ services:
     ports:
       - "9090:9090"
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
-    depends_on:
-      logstash:
-        condition: service_healthy
 
-  logstash:
-    image: logstash:8.17.0
-    container_name: aim-logstash
-    environment:
-      LS_JAVA_OPTS: "-Xms256m -Xmx256m"
-    volumes:
-      - ./deploy/logging/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
-    ports:
-      - "12201:12201/udp"
-      - "9600:9600"
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9600/_node/stats | grep -q '\"status\":\"green\"'"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
+
+
 
   kibana:
     image: kibana:8.17.0
@@ -299,14 +223,9 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   grafana:
     image: grafana/grafana:latest
@@ -316,14 +235,8 @@ services:
     volumes:
       - ./deploy/monitoring/grafana/provisioning:/etc/grafana/provisioning
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
-    depends_on:
-      logstash:
-        condition: service_healthy
+
+
 
   neo4j:
     image: neo4j:5-community
@@ -345,14 +258,8 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
-    depends_on:
-      logstash:
-        condition: service_healthy
+
+
 
   # ────────────────────────────────────────────────────────
   # Application services
@@ -370,15 +277,10 @@ services:
     depends_on:
       etcd:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     profiles:
       - init
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   user-service:
     build:
@@ -395,14 +297,9 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   friend-service:
     build:
@@ -419,14 +316,9 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   message-service:
     build:
@@ -445,14 +337,9 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   conversation-service:
     build:
@@ -473,14 +360,9 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   file-service:
     build:
@@ -499,14 +381,9 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   llm-gateway:
     build:
@@ -525,14 +402,9 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   knowledge-base:
     build:
@@ -559,14 +431,9 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   bot-platform:
     build:
@@ -583,14 +450,9 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   audit-service:
     build:
@@ -609,14 +471,9 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   ai-bot-service:
     build:
@@ -633,14 +490,9 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   signaling-service:
     build:
@@ -661,14 +513,9 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   ws-gateway:
     build:
@@ -686,14 +533,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
   gateway:
     build:
@@ -710,14 +552,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
+
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://127.0.0.1:12201"
-        tag: "{{.Name}}"
+
 
 volumes:
   postgres_data:

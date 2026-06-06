@@ -1,0 +1,291 @@
+# PostgreSQL
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: postgres-pvc}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources: {requests: {storage: 10Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: aim-postgres}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: aim-postgres}}
+  template:
+    metadata: {labels: {app: aim-postgres}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports: [{containerPort: 5432}]
+          env:
+            - {name: POSTGRES_USER, value: aim}
+            - {name: POSTGRES_PASSWORD, value: aim123}
+            - {name: POSTGRES_DB, value: aim}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: postgres-pvc}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: aim-postgres}
+spec:
+  selector: {app: aim-postgres}
+  ports: [{port: 5432}]
+
+# Redis
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: redis-pvc}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources: {requests: {storage: 2Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: aim-redis}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: aim-redis}}
+  template:
+    metadata: {labels: {app: aim-redis}}
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{containerPort: 6379}]
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: redis-pvc}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: aim-redis}
+spec:
+  selector: {app: aim-redis}
+  ports: [{port: 6379}]
+
+# etcd
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: etcd-pvc}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources: {requests: {storage: 2Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: aim-etcd}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: aim-etcd}}
+  template:
+    metadata: {labels: {app: aim-etcd}}
+    spec:
+      containers:
+        - name: etcd
+          image: quay.io/coreos/etcd:v3.5.21
+          command: [etcd]
+          args:
+            - --data-dir=/data
+            - --listen-client-urls=http://0.0.0.0:2379
+            - --advertise-client-urls=http://aim-etcd:2379
+          ports: [{containerPort: 2379}]
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: etcd-pvc}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: aim-etcd}
+spec:
+  selector: {app: aim-etcd}
+  ports: [{port: 2379}]
+
+# Kafka (KRaft mode)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: aim-kafka}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: aim-kafka}}
+  template:
+    metadata: {labels: {app: aim-kafka}}
+    spec:
+      containers:
+        - name: kafka
+          image: apache/kafka:3.7.0
+          ports: [{containerPort: 9092}]
+          env:
+            - {name: KAFKA_NODE_ID, value: "1"}
+            - {name: KAFKA_PROCESS_ROLES, value: "broker,controller"}
+            - {name: KAFKA_LISTENERS, value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"}
+            - {name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://aim-kafka:9092"}
+            - {name: KAFKA_CONTROLLER_LISTENER_NAMES, value: "CONTROLLER"}
+            - {name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"}
+            - {name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@localhost:9093"}
+            - {name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1"}
+            - {name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS, value: "0"}
+            - {name: KAFKA_NUM_PARTITIONS, value: "3"}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: aim-kafka}
+spec:
+  selector: {app: aim-kafka}
+  ports: [{port: 9092}]
+
+# MinIO
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: minio-pvc}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources: {requests: {storage: 10Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: aim-minio}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: aim-minio}}
+  template:
+    metadata: {labels: {app: aim-minio}}
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          command: [minio, server, /data]
+          ports: [{containerPort: 9000}]
+          env:
+            - {name: MINIO_ROOT_USER, value: "minioadmin"}
+            - {name: MINIO_ROOT_PASSWORD, value: "minioadmin123"}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: minio-pvc}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: aim-minio}
+spec:
+  type: NodePort
+  selector: {app: aim-minio}
+  ports:
+    - port: 9000
+      nodePort: 30900
+
+# Neo4j
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: neo4j-pvc}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources: {requests: {storage: 5Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: aim-neo4j}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: aim-neo4j}}
+  template:
+    metadata: {labels: {app: aim-neo4j}}
+    spec:
+      containers:
+        - name: neo4j
+          image: neo4j:5-community
+          ports:
+            - {containerPort: 7474}
+            - {containerPort: 7687}
+          env:
+            - {name: NEO4J_AUTH, value: "neo4j/password123"}
+            - {name: NEO4J_ACCEPT_LICENSE_AGREEMENT, value: "yes"}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: neo4j-pvc}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: aim-neo4j}
+spec:
+  selector: {app: aim-neo4j}
+  ports:
+    - {name: http, port: 7474}
+    - {name: bolt, port: 7687}
+
+# Milvus (standalone)
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: milvus-pvc}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources: {requests: {storage: 10Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: aim-milvus}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: aim-milvus}}
+  template:
+    metadata: {labels: {app: aim-milvus}}
+    spec:
+      containers:
+        - name: milvus
+          image: milvusdb/milvus:v2.5.4
+          command: [milvus, run, standalone]
+          ports:
+            - {containerPort: 19530}
+            - {containerPort: 9091}
+          env:
+            - {name: ETCD_ENDPOINTS, value: "aim-etcd:2379"}
+            - {name: MINIO_ADDRESS, value: "aim-minio:9000"}
+            - {name: MINIO_ACCESS_KEY_ID, value: "minioadmin"}
+            - {name: MINIO_SECRET_ACCESS_KEY, value: "minioadmin123"}
+          volumeMounts: [{name: data, mountPath: /var/lib/milvus}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: milvus-pvc}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: aim-milvus}
+spec:
+  selector: {app: aim-milvus}
+  ports:
+    - {name: grpc, port: 19530}
+    - {name: metrics, port: 9091}
+
+# Elasticsearch
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: aim-elasticsearch}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: aim-elasticsearch}}
+  template:
+    metadata: {labels: {app: aim-elasticsearch}}
+    spec:
+      containers:
+        - name: es
+          image: elasticsearch:8.17.0
+          ports: [{containerPort: 9200}]
+          env:
+            - {name: discovery.type, value: "single-node"}
+            - {name: xpack.security.enabled, value: "false"}
+            - {name: ES_JAVA_OPTS, value: "-Xms256m -Xmx256m"}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: aim-elasticsearch}
+spec:
+  selector: {app: aim-elasticsearch}
+  ports: [{port: 9200}]

@@ -1,0 +1,10 @@
+# Redis - bitnami/redis
+architecture: standalone
+auth:
+  enabled: false
+master:
+  persistence:
+    size: 2Gi
+    storageClass: local-path
+image:
+  tag: 7.4-alpine

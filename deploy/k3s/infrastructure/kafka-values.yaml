@@ -1,0 +1,17 @@
+# Kafka KRaft mode - bitnami/kafka
+replicaCount: 1
+controller:
+  replicaCount: 1
+listeners:
+  client:
+    protocol: PLAINTEXT
+provisioning:
+  enabled: true
+  topics:
+    - name: aim-events
+      partitions: 3
+      replicationFactor: 1
+persistence:
+  size: 5Gi
+  storageClass: local-path
+heapOpts: "-Xmx1g -Xms512m"
