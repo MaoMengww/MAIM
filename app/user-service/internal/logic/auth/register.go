@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"context"
 	"strconv"
 	"time"
@@ -95,7 +96,10 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 		return nil, errors.Wrap(1006, "hash password failed", err)
 	}
 
-	id := l.snow.Generate()
+	id, err := l.snow.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate user id failed: %w", err)
+	}
 	now := time.Now()
 	user := &model.User{
 		ID:           id,

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+
 	"github.com/gin-gonic/gin"
 	"github.com/maomeng/aim/app/ai-bot-service/pb/aibot"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
@@ -138,18 +140,20 @@ func (h *ConversationToolHandler) ReplyCandidates(c *gin.Context) {
 	userID := c.GetInt64(middleware.CtxKeyUserID)
 
 	var body struct {
-		ReplyToMsgID int64 `json:"reply_to_msg_id"`
+		ReplyToMsgID json.Number `json:"reply_to_msg_id"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
+	replyToMsgID, _ := body.ReplyToMsgID.Int64()
+
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.aiBotClient.GenerateReplyCandidates(ctx, &aibot.ReplyCandidatesReq{
 		ConvId:       convID,
 		UserId:       userID,
-		ReplyToMsgId: body.ReplyToMsgID,
+		ReplyToMsgId: replyToMsgID,
 	})
 	if err != nil {
 		response.GRPCError(c, err)
@@ -159,6 +163,7 @@ func (h *ConversationToolHandler) ReplyCandidates(c *gin.Context) {
 }
 
 func (h *ConversationToolHandler) Translate(c *gin.Context) {
+	msgID := parseInt64(c.Param("id"))
 	var body struct {
 		Text       string `json:"text"`
 		TargetLang string `json:"target_lang"`
@@ -175,6 +180,7 @@ func (h *ConversationToolHandler) Translate(c *gin.Context) {
 	resp, err := h.aiBotClient.TranslateMessage(ctx, &aibot.TranslateMessageReq{
 		Text:       body.Text,
 		TargetLang: body.TargetLang,
+		MsgId:      msgID,
 	})
 	if err != nil {
 		response.GRPCError(c, err)

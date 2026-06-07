@@ -2,6 +2,7 @@ package conversationservice
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/maomeng/aim/app/conversation-service/internal/model"
@@ -37,8 +38,12 @@ func (l *AddMembersLogic) AddMembers(in *conversation.AddMembersReq) (*conversat
 			failed = append(failed, uid)
 			continue
 		}
+		memberID, err := l.svcCtx.Snowflake.Generate()
+		if err != nil {
+			return nil, fmt.Errorf("generate member id failed: %w", err)
+		}
 		m := model.ConversationMember{
-			ID:       l.svcCtx.Snowflake.Generate(),
+			ID:       memberID,
 			ConvID:   in.ConversationId,
 			UserID:   uid,
 			Role:     memberRole,

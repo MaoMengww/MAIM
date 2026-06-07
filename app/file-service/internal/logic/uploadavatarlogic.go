@@ -43,7 +43,10 @@ func (l *UploadAvatarLogic) UploadAvatar(in *filepb.UploadAvatarReq) (*filepb.Up
 		return nil, grpcError(ErrUnsupportedType)
 	}
 
-	fileID := l.svcCtx.Snowflake.Generate()
+	fileID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate file id failed: %w", err)
+	}
 	ext := mimeToExt(mimeType)
 	key := formatObjectKey(fileID, ext)
 

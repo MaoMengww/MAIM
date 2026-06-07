@@ -170,10 +170,7 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 	}
 
 	isConvSearch := in.ConversationId != nil && in.GetConversationId() > 0
-	if !isConvSearch && in.GetKeyword() == "" {
-		return nil, errors.New(errors.CodeInvalidParam, "keyword is required for global search")
-	}
-	if isConvSearch && !hasAnySearchCondition(in) {
+	if !hasAnySearchCondition(in) {
 		return nil, errors.New(errors.CodeInvalidParam, "at least one search condition is required")
 	}
 	if in.GetSenderType() != "" && in.GetSenderType() != "user" && in.GetSenderType() != "bot" {

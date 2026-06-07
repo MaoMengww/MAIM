@@ -30,7 +30,11 @@ func (l *MarkAsReadLogic) MarkAsRead(in *conversation.MarkAsReadReq) (*common.Ba
 		userID = uid
 	}
 
-	if err := l.svcCtx.Repo.UpsertReadSeq(l.ctx, in.ConversationId, userID, in.Seq, l.svcCtx.Snowflake.Generate()); err != nil {
+	readID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate read id failed: %w", err)
+	}
+	if err := l.svcCtx.Repo.UpsertReadSeq(l.ctx, in.ConversationId, userID, in.Seq, readID); err != nil {
 		l.Errorf("mark as read failed: %v", err)
 		return nil, err
 	}

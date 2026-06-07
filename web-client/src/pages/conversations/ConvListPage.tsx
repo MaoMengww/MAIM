@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Outlet, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Modal, Input, Select, message, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { MoreOutlined, PushpinOutlined, BellOutlined, SettingOutlined, TeamOutlined, DeleteOutlined, LogoutOutlined, SearchOutlined } from '@ant-design/icons';
+import { SearchFilterBar } from '@/components/common/SearchFilterBar';
 import { convApi } from '@/services/conversation';
 import { msgApi } from '@/services/message';
 import { friendApi } from '@/services/friend';
@@ -12,8 +13,7 @@ import { PresenceDot } from '@/components/common/PresenceDot';
 import { useAuthStore } from '@/stores/auth';
 import { wsOn, wsSend } from '@/services/ws';
 import { useWSStore } from '@/stores/ws';
-import type { Conversation, Message } from '@/types/model';
-import type { SearchMessagesReq } from '@/types/api';
+import type { Conversation } from '@/types/model';
 
 import './ConvListPage.css';
 
@@ -59,7 +59,11 @@ function truncate(s: string, max = 20): string {
 function extractTextPreview(content: any): string {
   if (!content) return '';
   if (typeof content === 'string') return content;
-  if (content.text) return typeof content.text === 'string' ? content.text : JSON.stringify(content.text);
+  if (content.text) {
+    if (typeof content.text === 'string') return content.text;
+    // Nested object: try to extract inner text (e.g. {text: {text: "...", mention_user_ids: [...]}})
+    if (typeof content.text === 'object' && typeof content.text.text === 'string') return content.text.text;
+  }
   if (content.image) return '[图片]';
   if (content.file) return `[文件] ${content.file.name || content.file.file_name || ''}`;
   if (content.audio) return '[语音]';
@@ -83,13 +87,20 @@ export function ConvListPage() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchActive, setSearchActive] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchTotal, setSearchTotal] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [searchHighlights, setSearchHighlights] = useState<Record<string, string>>({});
   const [typeCounts, setTypeCounts] = useState<{ msg_type: number; count: number }[]>([]);
   const [activeTypeFilters, setActiveTypeFilters] = useState<number[]>([]);
+  const [senderId, setSenderId] = useState<number | undefined>();
+  const [senderType, setSenderType] = useState<'' | 'user' | 'bot'>('');
+  const [startTime, setStartTime] = useState<number | undefined>();
+  const [endTime, setEndTime] = useState<number | undefined>();
+  const [searchPage, setSearchPage] = useState(1);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchAreaRef = useRef<HTMLDivElement>(null);
   const [onlineStatus, setOnlineStatus] = useState<Record<string, boolean>>({});
   const [previewMap, setPreviewMap] = useState<Record<number, string>>({});
 
@@ -182,6 +193,23 @@ export function ConvListPage() {
   });
 
   const friends = friendsData?.list ?? [];
+
+  const senderOptions = useMemo(() => {
+    return friends.map((f: any) => ({
+      id: f.user_id,
+      name: f.remark || f.username,
+      isBot: false,
+    }));
+  }, [friends]);
+
+  const friendNameMap = useMemo(() => {
+    const map = new Map<number, string>();
+    friends.forEach((f: any) => {
+      map.set(f.user_id, f.remark || f.username);
+    });
+    return map;
+  }, [friends]);
+
   // Build a map from conv_id to conversation for search results
   const convMap = new Map(conversations.map((c: Conversation) => [c.id, c]));
 
@@ -225,13 +253,24 @@ export function ConvListPage() {
     })();
   }, [conversations, friends, friendsData, previewMap]);
 
+  // Reset page when filter conditions change (except keyword which always resets)
+  useEffect(() => {
+    setSearchPage(1);
+  }, [searchQuery, activeTypeFilters, senderId, senderType, startTime, endTime]);
+
   // Search effect with debounce
   useEffect(() => {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
     const q = searchQuery.trim();
-    if (!q) {
+    const hasAnyCondition = q !== '' ||
+      senderId !== undefined ||
+      senderType !== '' ||
+      startTime !== undefined ||
+      endTime !== undefined ||
+      activeTypeFilters.length > 0;
+    if (!hasAnyCondition) {
       setSearchResults([]);
       setSearchTotal(0);
       setSearchHighlights({});
@@ -242,10 +281,15 @@ export function ConvListPage() {
     setIsSearching(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        const params: any = { keyword: q, page: 1, page_size: 20 };
+        const params: any = { page: searchPage, page_size: 20 };
+        if (q) params.keyword = q;
         if (activeTypeFilters.length > 0) {
           params.message_types = activeTypeFilters;
         }
+        if (senderId) params.sender_id = senderId;
+        if (senderType) params.sender_type = senderType;
+        if (startTime) params.start_time = startTime;
+        if (endTime) params.end_time = endTime;
         const res = await msgApi.search(params);
         setSearchResults(res.list);
         setSearchTotal(res.total);
@@ -263,7 +307,19 @@ export function ConvListPage() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [searchQuery, activeTypeFilters]);
+  }, [searchQuery, activeTypeFilters, senderId, senderType, startTime, endTime, searchPage]);
+
+  // Close search on click outside
+  useEffect(() => {
+    if (!searchActive) return;
+    const handler = (e: MouseEvent) => {
+      if (searchAreaRef.current && !searchAreaRef.current.contains(e.target as Node)) {
+        if (!searchQuery.trim()) setSearchActive(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [searchActive, searchQuery]);
 
   const createGroup = useMutation({
     mutationFn: () =>
@@ -428,7 +484,7 @@ export function ConvListPage() {
 
   return (
     <div className="conv-page">
-      <div className="conv-sidebar-panel">
+      <div className="conv-sidebar-panel" ref={searchAreaRef}>
         <div className="conv-panel-header">
           <h2>消息</h2>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -441,58 +497,62 @@ export function ConvListPage() {
           <SearchOutlined className="conv-search-icon" />
           <input
             className="conv-search-input"
-            placeholder="搜索消息或会话..."
+            placeholder="搜索消息（按关键词、发送者、类型、时间等组合筛选）..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setSearchActive(true)}
           />
           {searchQuery && (
-            <button className="conv-search-clear" onClick={() => setSearchQuery('')}>✕</button>
+            <button className="conv-search-clear" onClick={() => { setSearchQuery(''); setSearchActive(false); }}>✕</button>
           )}
         </div>
 
         <div className="conv-list">
-          {isSearching && <div className="conv-empty">搜索中...</div>}
-
-          {!isSearching && searchQuery.trim() && searchResults.length === 0 && (
-            <div className="conv-empty">
-              <p>未找到相关消息</p>
-            </div>
-          )}
-
-          {searchQuery.trim() && !isSearching && searchResults.length > 0 && (
+          {(searchActive || searchQuery.trim()) && (
             <>
-              <div className="conv-search-header">搜索到 {searchTotal} 条消息</div>
-              {typeCounts.length > 0 && (
-                <div className="conv-type-chips">
-                  <button
-                    className={`conv-type-chip ${activeTypeFilters.length === 0 ? 'active' : ''}`}
-                    onClick={() => setActiveTypeFilters([])}
-                  >全部({searchTotal})</button>
-                  {typeCounts.map((tc) => {
-                    const selected = activeTypeFilters.includes(tc.msg_type);
-                    return (
-                      <button
-                        key={tc.msg_type}
-                        className={`conv-type-chip ${selected ? 'active' : ''}`}
-                        onClick={() => {
-                          setActiveTypeFilters((prev) =>
-                            selected ? prev.filter((t) => t !== tc.msg_type) : [...prev, tc.msg_type]
-                          );
-                        }}
-                      >{MSG_TYPE_LABELS[tc.msg_type] || `类型${tc.msg_type}`}({tc.count})</button>
-                    );
-                  })}
+              {isSearching && <div className="conv-empty">搜索中...</div>}
+              {!isSearching && !searchQuery.trim() && !senderId && !senderType && !startTime && !endTime && activeTypeFilters.length === 0 && (
+                <div className="conv-empty">
+                  <p>输入关键词或设置过滤条件开始全局搜索</p>
                 </div>
               )}
+              {!isSearching && searchQuery.trim() && searchResults.length === 0 && (
+                <div className="conv-empty">
+                  <p>未找到相关消息</p>
+                </div>
+              )}
+              {searchResults.length > 0 && (
+                <div className="conv-search-header">搜索到 {searchTotal} 条消息</div>
+              )}
+              <SearchFilterBar
+                senderOptions={senderOptions}
+                senderId={senderId}
+                onSenderIdChange={setSenderId}
+                senderType={senderType}
+                onSenderTypeChange={setSenderType}
+                startTime={startTime}
+                endTime={endTime}
+                onTimeRangeChange={(s, e) => { setStartTime(s); setEndTime(e); }}
+                messageTypes={activeTypeFilters}
+                onMessageTypesChange={setActiveTypeFilters}
+                typeCounts={typeCounts}
+                typeLabels={MSG_TYPE_LABELS}
+                total={searchTotal}
+                page={searchPage}
+                pageSize={20}
+                onPageChange={setSearchPage}
+              />
               {searchResults.map((msg: any) => {
                 const conv = convMap.get(msg.conversation_id);
                 const highlight = searchHighlights[String(msg.message_id)];
+                const senderName = friendNameMap.get(msg.from_user_id);
                 return (
                   <div
                     key={msg.message_id}
                     className="conv-search-result-item"
                     onClick={() => {
                       setSearchQuery('');
+                      setSearchActive(false);
                       navigate(`/conversations/${msg.conversation_id}`);
                     }}
                   >
@@ -504,6 +564,9 @@ export function ConvListPage() {
                         {formatTime(msg.created_at)}
                       </span>
                     </div>
+                    {senderName && (
+                      <div className="conv-search-result-sender">{senderName}</div>
+                    )}
                     <div className="conv-search-result-preview">
                       {highlight ? (
                         <span dangerouslySetInnerHTML={{ __html: highlight }} />

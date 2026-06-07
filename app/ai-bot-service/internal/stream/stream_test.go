@@ -108,7 +108,7 @@ type mockWsClient struct {
 	lastMsg []byte
 }
 
-func (m *mockWsClient) StreamToConv(ctx context.Context, convID int64, msg []byte) error {
+func (m *mockWsClient) PushToConv(ctx context.Context, convID int64, msg []byte) error {
 	m.lastMsg = msg
 	return m.err
 }

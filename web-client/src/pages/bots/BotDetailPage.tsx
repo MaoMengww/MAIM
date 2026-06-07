@@ -47,6 +47,7 @@ export function BotDetailPage() {
       message.success('Bot 已更新');
       setEditOpen(false);
       queryClient.invalidateQueries({ queryKey: ['bot', id] });
+      queryClient.invalidateQueries({ queryKey: ['bots'] });
     },
     onError: (err: any) => message.error(err?.response?.data?.message || '更新失败'),
   });
@@ -55,6 +56,11 @@ export function BotDetailPage() {
     mutationFn: () => botApi.delete(id as any),
     onSuccess: () => {
       message.success('Bot 已删除');
+      queryClient.setQueryData(['bots'], (old: any) => {
+        if (!old?.list) return old;
+        return { ...old, list: old.list.filter((b: any) => b.id !== Number(id)) };
+      });
+      queryClient.invalidateQueries({ queryKey: ['bots'] });
       navigate('/bots');
     },
     onError: (err: any) => message.error(err?.response?.data?.message || '删除失败'),
@@ -75,8 +81,8 @@ export function BotDetailPage() {
     if (!bot) return;
     const caps = bot.capabilities ? JSON.parse(bot.capabilities) : {};
     const settings = bot.settings ? JSON.parse(bot.settings) : {};
-    // Parse response_triggers: separate keyword:xxx entries
-    const rawTriggers: string[] = settings.response_triggers || [];
+    // Parse response_triggers from bot-level field: separate keyword:xxx entries
+    const rawTriggers: string[] = bot.response_triggers || [];
     const triggers: string[] = [];
     const keywords: string[] = [];
     for (const t of rawTriggers) {
@@ -336,8 +342,7 @@ export function BotDetailPage() {
             caps.builtin_tools = caps.builtin_tools.filter((t: string) => t !== 'web_search');
           }
           delete vals.enable_web_search;
-          // Build settings with response_triggers (keyword → keyword:xxx format)
-          const settings: Record<string, any> = {};
+          // Build response_triggers as top-level field (keyword → keyword:xxx format)
           const triggers: string[] = [];
           if (vals.response_triggers) {
             for (const t of vals.response_triggers) {
@@ -350,16 +355,14 @@ export function BotDetailPage() {
             }
           }
           if (triggers.length > 0) {
-            settings.response_triggers = triggers;
+            vals.response_triggers = triggers;
           }
-          delete vals.response_triggers;
           delete vals.keywords;
           // Ensure numeric fields are numbers, not strings
           if (vals.temperature != null) vals.temperature = Number(vals.temperature);
           if (vals.max_context_messages != null) vals.max_context_messages = Number(vals.max_context_messages);
           if (vals.memory_limit != null) vals.memory_limit = Number(vals.memory_limit);
           vals.capabilities = JSON.stringify(caps);
-          vals.settings = JSON.stringify(settings);
           updateMutation.mutate(vals);
         })}
         onCancel={() => setEditOpen(false)}

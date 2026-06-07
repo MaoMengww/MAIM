@@ -23,7 +23,10 @@ func (l *Logic) OAuthLogin(ctx context.Context, req *userpb.OAuthLoginReq) (*use
 		return nil, errors.Wrap(1010, "query oauth user failed", err)
 	}
 	if u == nil {
-		id := l.snow.Generate()
+		id, err := l.snow.Generate()
+		if err != nil {
+			return nil, fmt.Errorf("generate user id failed: %w", err)
+		}
 		now := time.Now()
 		u = &model.User{
 			ID:        id,

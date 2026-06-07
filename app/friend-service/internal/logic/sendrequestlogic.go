@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"fmt"
 	"context"
 	"time"
 
@@ -45,7 +46,10 @@ func (l *SendRequestLogic) SendRequest(in *friend.SendRequestReq) (*friend.SendR
 		return nil, grpcError(ErrRequestAlreadySent)
 	}
 
-	reqID := l.svcCtx.Snowflake.Generate()
+	reqID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate request id failed: %w", err)
+	}
 	now := time.Now()
 	req := &model.FriendRequest{
 		ID:         reqID,

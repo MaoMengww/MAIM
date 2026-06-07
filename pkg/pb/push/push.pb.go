@@ -197,7 +197,7 @@ func (*PushToBotResp) Descriptor() ([]byte, []int) {
 	return file_ws_gateway_push_proto_rawDescGZIP(), []int{3}
 }
 
-type StreamToConvReq struct {
+type PushToConvReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ConvId        int64                  `protobuf:"varint,1,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
 	Message       []byte                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
@@ -205,20 +205,20 @@ type StreamToConvReq struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StreamToConvReq) Reset() {
-	*x = StreamToConvReq{}
+func (x *PushToConvReq) Reset() {
+	*x = PushToConvReq{}
 	mi := &file_ws_gateway_push_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StreamToConvReq) String() string {
+func (x *PushToConvReq) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StreamToConvReq) ProtoMessage() {}
+func (*PushToConvReq) ProtoMessage() {}
 
-func (x *StreamToConvReq) ProtoReflect() protoreflect.Message {
+func (x *PushToConvReq) ProtoReflect() protoreflect.Message {
 	mi := &file_ws_gateway_push_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -230,45 +230,45 @@ func (x *StreamToConvReq) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StreamToConvReq.ProtoReflect.Descriptor instead.
-func (*StreamToConvReq) Descriptor() ([]byte, []int) {
+// Deprecated: Use PushToConvReq.ProtoReflect.Descriptor instead.
+func (*PushToConvReq) Descriptor() ([]byte, []int) {
 	return file_ws_gateway_push_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *StreamToConvReq) GetConvId() int64 {
+func (x *PushToConvReq) GetConvId() int64 {
 	if x != nil {
 		return x.ConvId
 	}
 	return 0
 }
 
-func (x *StreamToConvReq) GetMessage() []byte {
+func (x *PushToConvReq) GetMessage() []byte {
 	if x != nil {
 		return x.Message
 	}
 	return nil
 }
 
-type StreamToConvResp struct {
+type PushToConvResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StreamToConvResp) Reset() {
-	*x = StreamToConvResp{}
+func (x *PushToConvResp) Reset() {
+	*x = PushToConvResp{}
 	mi := &file_ws_gateway_push_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StreamToConvResp) String() string {
+func (x *PushToConvResp) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StreamToConvResp) ProtoMessage() {}
+func (*PushToConvResp) ProtoMessage() {}
 
-func (x *StreamToConvResp) ProtoReflect() protoreflect.Message {
+func (x *PushToConvResp) ProtoReflect() protoreflect.Message {
 	mi := &file_ws_gateway_push_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -280,12 +280,12 @@ func (x *StreamToConvResp) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StreamToConvResp.ProtoReflect.Descriptor instead.
-func (*StreamToConvResp) Descriptor() ([]byte, []int) {
+// Deprecated: Use PushToConvResp.ProtoReflect.Descriptor instead.
+func (*PushToConvResp) Descriptor() ([]byte, []int) {
 	return file_ws_gateway_push_proto_rawDescGZIP(), []int{5}
 }
 
-type StreamToUserReq struct {
+type PushToUserReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Message       []byte                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
@@ -293,20 +293,20 @@ type StreamToUserReq struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StreamToUserReq) Reset() {
-	*x = StreamToUserReq{}
+func (x *PushToUserReq) Reset() {
+	*x = PushToUserReq{}
 	mi := &file_ws_gateway_push_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StreamToUserReq) String() string {
+func (x *PushToUserReq) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StreamToUserReq) ProtoMessage() {}
+func (*PushToUserReq) ProtoMessage() {}
 
-func (x *StreamToUserReq) ProtoReflect() protoreflect.Message {
+func (x *PushToUserReq) ProtoReflect() protoreflect.Message {
 	mi := &file_ws_gateway_push_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -318,45 +318,45 @@ func (x *StreamToUserReq) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StreamToUserReq.ProtoReflect.Descriptor instead.
-func (*StreamToUserReq) Descriptor() ([]byte, []int) {
+// Deprecated: Use PushToUserReq.ProtoReflect.Descriptor instead.
+func (*PushToUserReq) Descriptor() ([]byte, []int) {
 	return file_ws_gateway_push_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *StreamToUserReq) GetUserId() int64 {
+func (x *PushToUserReq) GetUserId() int64 {
 	if x != nil {
 		return x.UserId
 	}
 	return 0
 }
 
-func (x *StreamToUserReq) GetMessage() []byte {
+func (x *PushToUserReq) GetMessage() []byte {
 	if x != nil {
 		return x.Message
 	}
 	return nil
 }
 
-type StreamToUserResp struct {
+type PushToUserResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StreamToUserResp) Reset() {
-	*x = StreamToUserResp{}
+func (x *PushToUserResp) Reset() {
+	*x = PushToUserResp{}
 	mi := &file_ws_gateway_push_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StreamToUserResp) String() string {
+func (x *PushToUserResp) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StreamToUserResp) ProtoMessage() {}
+func (*PushToUserResp) ProtoMessage() {}
 
-func (x *StreamToUserResp) ProtoReflect() protoreflect.Message {
+func (x *PushToUserResp) ProtoReflect() protoreflect.Message {
 	mi := &file_ws_gateway_push_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -368,8 +368,8 @@ func (x *StreamToUserResp) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StreamToUserResp.ProtoReflect.Descriptor instead.
-func (*StreamToUserResp) Descriptor() ([]byte, []int) {
+// Deprecated: Use PushToUserResp.ProtoReflect.Descriptor instead.
+func (*PushToUserResp) Descriptor() ([]byte, []int) {
 	return file_ws_gateway_push_proto_rawDescGZIP(), []int{7}
 }
 
@@ -385,20 +385,22 @@ const file_ws_gateway_push_proto_rawDesc = "" +
 	"\fPushToBotReq\x12\x15\n" +
 	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\fR\amessage\"\x0f\n" +
-	"\rPushToBotResp\"D\n" +
-	"\x0fStreamToConvReq\x12\x17\n" +
+	"\rPushToBotResp\"B\n" +
+	"\rPushToConvReq\x12\x17\n" +
 	"\aconv_id\x18\x01 \x01(\x03R\x06convId\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\fR\amessage\"\x12\n" +
-	"\x10StreamToConvResp\"D\n" +
-	"\x0fStreamToUserReq\x12\x17\n" +
+	"\amessage\x18\x02 \x01(\fR\amessage\"\x10\n" +
+	"\x0ePushToConvResp\"B\n" +
+	"\rPushToUserReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\fR\amessage\"\x12\n" +
-	"\x10StreamToUserResp2\x85\x02\n" +
+	"\amessage\x18\x02 \x01(\fR\amessage\"\x10\n" +
+	"\x0ePushToUserResp2\xf9\x01\n" +
 	"\x13InternalPushService\x12:\n" +
 	"\vPushToUsers\x12\x14.push.PushToUsersReq\x1a\x15.push.PushToUsersResp\x124\n" +
-	"\tPushToBot\x12\x12.push.PushToBotReq\x1a\x13.push.PushToBotResp\x12=\n" +
-	"\fStreamToConv\x12\x15.push.StreamToConvReq\x1a\x16.push.StreamToConvResp\x12=\n" +
-	"\fStreamToUser\x12\x15.push.StreamToUserReq\x1a\x16.push.StreamToUserRespB$Z\"github.com/maomeng/aim/pkg/pb/pushb\x06proto3"
+	"\tPushToBot\x12\x12.push.PushToBotReq\x1a\x13.push.PushToBotResp\x127\n" +
+	"\n" +
+	"PushToConv\x12\x13.push.PushToConvReq\x1a\x14.push.PushToConvResp\x127\n" +
+	"\n" +
+	"PushToUser\x12\x13.push.PushToUserReq\x1a\x14.push.PushToUserRespB$Z\"github.com/maomeng/aim/pkg/pb/pushb\x06proto3"
 
 var (
 	file_ws_gateway_push_proto_rawDescOnce sync.Once
@@ -414,24 +416,24 @@ func file_ws_gateway_push_proto_rawDescGZIP() []byte {
 
 var file_ws_gateway_push_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_ws_gateway_push_proto_goTypes = []any{
-	(*PushToUsersReq)(nil),   // 0: push.PushToUsersReq
-	(*PushToUsersResp)(nil),  // 1: push.PushToUsersResp
-	(*PushToBotReq)(nil),     // 2: push.PushToBotReq
-	(*PushToBotResp)(nil),    // 3: push.PushToBotResp
-	(*StreamToConvReq)(nil),  // 4: push.StreamToConvReq
-	(*StreamToConvResp)(nil), // 5: push.StreamToConvResp
-	(*StreamToUserReq)(nil),  // 6: push.StreamToUserReq
-	(*StreamToUserResp)(nil), // 7: push.StreamToUserResp
+	(*PushToUsersReq)(nil),  // 0: push.PushToUsersReq
+	(*PushToUsersResp)(nil), // 1: push.PushToUsersResp
+	(*PushToBotReq)(nil),    // 2: push.PushToBotReq
+	(*PushToBotResp)(nil),   // 3: push.PushToBotResp
+	(*PushToConvReq)(nil),   // 4: push.PushToConvReq
+	(*PushToConvResp)(nil),  // 5: push.PushToConvResp
+	(*PushToUserReq)(nil),   // 6: push.PushToUserReq
+	(*PushToUserResp)(nil),  // 7: push.PushToUserResp
 }
 var file_ws_gateway_push_proto_depIdxs = []int32{
 	0, // 0: push.InternalPushService.PushToUsers:input_type -> push.PushToUsersReq
 	2, // 1: push.InternalPushService.PushToBot:input_type -> push.PushToBotReq
-	4, // 2: push.InternalPushService.StreamToConv:input_type -> push.StreamToConvReq
-	6, // 3: push.InternalPushService.StreamToUser:input_type -> push.StreamToUserReq
+	4, // 2: push.InternalPushService.PushToConv:input_type -> push.PushToConvReq
+	6, // 3: push.InternalPushService.PushToUser:input_type -> push.PushToUserReq
 	1, // 4: push.InternalPushService.PushToUsers:output_type -> push.PushToUsersResp
 	3, // 5: push.InternalPushService.PushToBot:output_type -> push.PushToBotResp
-	5, // 6: push.InternalPushService.StreamToConv:output_type -> push.StreamToConvResp
-	7, // 7: push.InternalPushService.StreamToUser:output_type -> push.StreamToUserResp
+	5, // 6: push.InternalPushService.PushToConv:output_type -> push.PushToConvResp
+	7, // 7: push.InternalPushService.PushToUser:output_type -> push.PushToUserResp
 	4, // [4:8] is the sub-list for method output_type
 	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name

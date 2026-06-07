@@ -20,6 +20,7 @@ import { wsOn, wsSend } from '@/services/ws';
 import { useWSStore } from '@/stores/ws';
 import { useAuthStore } from '@/stores/auth';
 import { convToolApi } from '@/services/conversation-tool';
+import { SearchFilterBar } from '@/components/common/SearchFilterBar';
 import { useMessages } from '@/hooks/useMessages';
 import { Avatar } from '@/components/common/Avatar';
 import { GroupInfoDrawer } from './GroupInfoDrawer';
@@ -43,6 +44,10 @@ function formatTime(ts: number): string {
 function extractTextPreview(content: any): string {
   if (!content) return '';
   if (typeof content === 'string') return content;
+  // System messages
+  if (content.system) {
+    return `[系统] ${content.system.detail || content.system.action || ''}`;
+  }
   // Bot content wrapper: { bot: { text: "..." } }
   if (content.bot?.text) return typeof content.bot.text === 'string' ? content.bot.text : JSON.stringify(content.bot.text);
   // Normalized text: { text: { text: "...", mentions: [...] } }
@@ -496,10 +501,17 @@ export function ChatPage() {
   const [convTypeCounts, setConvTypeCounts] = useState<{ msg_type: number; count: number }[]>([]);
   const [activeConvTypeFilters, setActiveConvTypeFilters] = useState<number[]>([]);
   const [convSearchIndex, setConvSearchIndex] = useState(0);
+  const [convSenderId, setConvSenderId] = useState<number | undefined>();
+  const [convSenderType, setConvSenderType] = useState<'' | 'user' | 'bot'>('');
+  const [convStartTime, setConvStartTime] = useState<number | undefined>();
+  const [convEndTime, setConvEndTime] = useState<number | undefined>();
+  const [convSearchPage, setConvSearchPage] = useState(1);
   const convSearchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Streaming bot messages (key: `${convId}:${botId}`, value: accumulated text + reply info + sources)
   const [streamingMap, setStreamingMap] = useState<Record<string, { text: string; replyToMsgId?: string; createdAt: number; sources?: KnowledgeSource[]; tools?: string[] }>>({});
+  const streamingRef = useRef(streamingMap);
+  streamingRef.current = streamingMap;
 
   // Message action menu state
   const [msgActions, setMsgActions] = useState<{ msg: any; x: number; y: number } | null>(null);
@@ -518,12 +530,32 @@ export function ChatPage() {
     };
   }, [id]);
 
+  // Reset page when filter conditions change
+  useEffect(() => {
+    setConvSearchPage(1);
+  }, [convSearchQuery, activeConvTypeFilters, convSenderId, convSenderType, convStartTime, convEndTime]);
+
   useEffect(() => {
     if (convSearchDebounceRef.current) {
       clearTimeout(convSearchDebounceRef.current);
     }
+    if (!id) {
+      setConvSearchResults([]);
+      setConvSearchTotal(0);
+      setConvSearchHighlights({});
+      setConvTypeCounts([]);
+      setConvSearchIndex(0);
+      setConvSearching(false);
+      return;
+    }
     const q = convSearchQuery.trim();
-    if (!q || !id) {
+    const hasAnyCondition = q !== '' ||
+      convSenderId !== undefined ||
+      convSenderType !== '' ||
+      convStartTime !== undefined ||
+      convEndTime !== undefined ||
+      activeConvTypeFilters.length > 0;
+    if (!hasAnyCondition) {
       setConvSearchResults([]);
       setConvSearchTotal(0);
       setConvSearchHighlights({});
@@ -535,10 +567,15 @@ export function ChatPage() {
     setConvSearching(true);
     convSearchDebounceRef.current = setTimeout(async () => {
       try {
-        const params: any = { keyword: q, conversation_id: id as any, page: 1, page_size: 50 };
+        const params: any = { conversation_id: id as any, page: convSearchPage, page_size: 20 };
+        if (q) params.keyword = q;
         if (activeConvTypeFilters.length > 0) {
           params.message_types = activeConvTypeFilters;
         }
+        if (convSenderId) params.sender_id = convSenderId;
+        if (convSenderType) params.sender_type = convSenderType;
+        if (convStartTime) params.start_time = convStartTime;
+        if (convEndTime) params.end_time = convEndTime;
         const res = await msgApi.search(params);
         setConvSearchResults(res.list);
         setConvSearchTotal(res.total);
@@ -558,7 +595,7 @@ export function ChatPage() {
     return () => {
       if (convSearchDebounceRef.current) clearTimeout(convSearchDebounceRef.current);
     };
-  }, [convSearchQuery, id, activeConvTypeFilters]);
+  }, [convSearchQuery, id, activeConvTypeFilters, convSenderId, convSenderType, convStartTime, convEndTime, convSearchPage]);
 
   const scrollToMessage = (msgId: number) => {
     setConvSearchOpen(false);
@@ -711,50 +748,78 @@ export function ChatPage() {
     const unsubStreamDone = wsOn('bot.streaming.done', (payload: any) => {
       if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
       const key = `${id}:${payload.bot_id}`;
+      // Read accumulated text from ref to avoid React batching race
+      const entry = streamingRef.current[key];
+      if (!payload.message_id || !entry?.text) {
+        setStreamingMap((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        return;
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      let replyToObj: { msg_id: string; preview: string } | undefined;
+      if (entry.replyToMsgId) {
+        const syncState = messageSync.getState(id!);
+        const replyMsg = syncState?.messages?.find((m: any) => String(m.message_id) === entry.replyToMsgId);
+        replyToObj = {
+          msg_id: entry.replyToMsgId,
+          preview: replyMsg ? extractTextPreview(replyMsg.content) : '[消息]',
+        };
+      }
+
+      const rawPayload = entry.sources?.length || entry.tools?.length
+        ? JSON.stringify({ kb_sources: entry.sources || [], tool_names: entry.tools || [] })
+        : '';
+
+      const newMsg = normalizeRealtimeMessageContent({
+        message_id: Number(payload.message_id),
+        conv_id: id,
+        from_user_id: String(payload.bot_id),
+        type: 9,
+        content: { bot: { bot_id: payload.bot_id, text: entry.text, raw_payload: rawPayload } },
+        status: 1,
+        created_at: now,
+        reply_to: replyToObj,
+      });
+
+      if (newMsg?.message_id) {
+        messageSync.addMessage(id!, newMsg);
+      }
+
       setStreamingMap((prev) => {
-        const entry = prev[key];
-        if (!entry) return prev;
         const next = { ...prev };
         delete next[key];
-        // Promote to cached message if we have a message_id
-        if (!payload.message_id) return next;
-
-        const now = Math.floor(Date.now() / 1000);
-        let replyToObj: { msg_id: string; preview: string } | undefined;
-        if (entry.replyToMsgId) {
-          const syncState = messageSync.getState(id!);
-          const replyMsg = syncState?.messages?.find((m: any) => String(m.message_id) === entry.replyToMsgId);
-          replyToObj = {
-            msg_id: entry.replyToMsgId,
-            preview: replyMsg ? extractTextPreview(replyMsg.content) : '[消息]',
-          };
-        }
-
-        // Build raw_payload with knowledge sources and tool names for the promoted message
-        const rawPayload = entry.sources?.length || entry.tools?.length
-          ? JSON.stringify({ kb_sources: entry.sources || [], tool_names: entry.tools || [] })
-          : '';
-
-        const newMsg = normalizeRealtimeMessageContent({
-          message_id: Number(payload.message_id),
-          conv_id: id,
-          from_user_id: String(payload.bot_id),
-          type: 9,
-          content: { bot: { bot_id: payload.bot_id, text: entry.text, raw_payload: rawPayload } },
-          status: 1,
-          created_at: now,
-          reply_to: replyToObj,
-        });
-
-        if (newMsg?.message_id) {
-          messageSync.addMessage(id!, newMsg);
-        }
-
         return next;
       });
     });
 
-    return () => { unsubNew(); unsubRecalled(); unsubEdited(); unsubRead(); unsubReadReceipt(); unsubStreamChunk(); unsubStreamTool(); unsubStreamSources(); unsubStreamDone(); };
+    // Async reply candidates result
+    const unsubReplyCandidatesDone = wsOn('conv.reply_candidates.done', (payload: any) => {
+      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
+      setReplyCandidates(payload.candidates || []);
+    });
+    const unsubReplyCandidatesFailed = wsOn('conv.reply_candidates.failed', (payload: any) => {
+      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
+      message.error(payload.error || '生成回复建议失败');
+    });
+
+    // Async translate result (payload includes msg_id from original request)
+    const unsubTranslateDone = wsOn('conv.translate.done', (payload: any) => {
+      if (payload.msg_id) {
+        setTranslateMap((prev: Record<string, string>) => ({ ...prev, [String(payload.msg_id)]: payload.translated_text }));
+      }
+    });
+    const unsubTranslateFailed = wsOn('conv.translate.failed', (payload: any) => {
+      if (payload.msg_id) {
+        setTranslateMap((prev: Record<string, string>) => ({ ...prev, [String(payload.msg_id)]: '' }));
+      }
+      message.error(payload.error || '翻译失败');
+    });
+
+    return () => { unsubNew(); unsubRecalled(); unsubEdited(); unsubRead(); unsubReadReceipt(); unsubStreamChunk(); unsubStreamTool(); unsubStreamSources(); unsubStreamDone(); unsubReplyCandidatesDone(); unsubReplyCandidatesFailed(); unsubTranslateDone(); unsubTranslateFailed(); };
   }, [id, queryClient]);
 
   // Reset scroll state when conversation changes
@@ -926,7 +991,7 @@ export function ChatPage() {
 
   const currentMember = members.find((m) => String(m.user_id) === strUserId);
   const isOwner = String(conv?.owner_id) === strUserId;
-  const isAdmin = isOwner || currentMember?.role === 'admin';
+  const isAdmin = isOwner || currentMember?.role === 'MEMBER_ROLE_ADMIN';
 
   const userMap = useMemo(() => {
     const map = new Map<string, { username: string; avatar: string }>();
@@ -967,8 +1032,32 @@ export function ChatPage() {
     return map;
   }, [members]);
 
-  const roleLabels: Record<string, string> = { owner: '群主', admin: '管理员', member: '成员' };
-  const roleColors: Record<string, string> = { owner: 'gold', admin: 'blue', member: 'default' };
+  const botIdSet = useMemo(() => {
+    const set = new Set<string>();
+    if (members?.length) {
+      members.forEach((m: ConvMember) => {
+        if (isBotMember(m)) {
+          set.add(String(m.user_id));
+          if (m.bot_id) {
+            set.add(String(m.bot_id));
+          }
+        }
+      });
+    }
+    return set;
+  }, [members]);
+
+  const convSenderOptions = useMemo(() => {
+    if (!members?.length) return [];
+    return members.map((m: ConvMember) => ({
+      id: m.user_id,
+      name: isBotMember(m) ? (m.bot_name || m.username) : m.username,
+      isBot: isBotMember(m),
+    }));
+  }, [members]);
+
+  const roleLabels: Record<string, string> = { MEMBER_ROLE_OWNER: '群主', MEMBER_ROLE_ADMIN: '管理员', MEMBER_ROLE_MEMBER: '成员' };
+  const roleColors: Record<string, string> = { MEMBER_ROLE_OWNER: 'gold', MEMBER_ROLE_ADMIN: 'blue', MEMBER_ROLE_MEMBER: 'default' };
   const { data: convListData } = useQuery({
     queryKey: ['conversations'],
     queryFn: () => convApi.list(),
@@ -1249,6 +1338,16 @@ export function ChatPage() {
     const text = input.trim();
     if (!text) return;
 
+    // 发送消息时立即停止 typing 指示器
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+    if (lastTypingSentRef.current > 0) {
+      wsSend({ type: 'typing.stop', conv_id: id, user_id: currentUserId });
+      lastTypingSentRef.current = 0;
+    }
+
     // Parse @username mentions from text
     const mentionSet = new Set<string>();
     const mentionRegex = /@(\S+)/g;
@@ -1396,72 +1495,75 @@ export function ChatPage() {
             <SearchOutlined className="chat-search-bar-icon" />
             <input
               className="chat-search-bar-input"
-              placeholder="搜索当前会话消息..."
+              placeholder="搜索当前会话消息（可按发送者、类型、时间等组合筛选）..."
               value={convSearchQuery}
               onChange={(e) => setConvSearchQuery(e.target.value)}
               autoFocus
             />
-            {convSearchResults.length > 0 && (
-              <div className="chat-search-nav">
-                <span className="chat-search-nav-count">{convSearchIndex + 1}/{convSearchResults.length}</span>
-                <button className="chat-search-nav-btn" onClick={() => navigateSearch('prev')} title="上一个">↑</button>
-                <button className="chat-search-nav-btn" onClick={() => navigateSearch('next')} title="下一个">↓</button>
-              </div>
-            )}
             <button className="chat-search-bar-close" onClick={() => { setConvSearchOpen(false); setConvSearchQuery(''); }}>
               <CloseOutlined />
             </button>
           </div>
           <div className="chat-search-results">
+            <SearchFilterBar
+              senderOptions={convSenderOptions}
+              senderId={convSenderId}
+              onSenderIdChange={setConvSenderId}
+              senderType={convSenderType}
+              onSenderTypeChange={setConvSenderType}
+              startTime={convStartTime}
+              endTime={convEndTime}
+              onTimeRangeChange={(s, e) => { setConvStartTime(s); setConvEndTime(e); }}
+              messageTypes={activeConvTypeFilters}
+              onMessageTypesChange={setActiveConvTypeFilters}
+              typeCounts={convTypeCounts}
+              typeLabels={MSG_TYPE_LABELS}
+              total={convSearchTotal}
+              page={convSearchPage}
+              pageSize={20}
+              onPageChange={setConvSearchPage}
+              navIndex={convSearchIndex}
+              navTotal={convSearchResults.length}
+              onNavPrev={() => navigateSearch('prev')}
+              onNavNext={() => navigateSearch('next')}
+            />
             {convSearching && <div className="chat-search-status">搜索中...</div>}
-            {!convSearching && convSearchQuery.trim() && convSearchResults.length === 0 && (
+            {!convSearching && !convSearchQuery.trim() && !convSenderId && !convSenderType && !convStartTime && !convEndTime && activeConvTypeFilters.length === 0 && (
+              <div className="chat-search-status">输入关键词或设置过滤条件开始搜索</div>
+            )}
+            {!convSearching && (convSearchQuery.trim() || convSenderId || convSenderType || convStartTime || convEndTime || activeConvTypeFilters.length > 0) && convSearchResults.length === 0 && (
               <div className="chat-search-status">未找到相关消息</div>
             )}
-            {!convSearching && convSearchResults.length > 0 && (
-              <>
-                {convTypeCounts.length > 0 && (
-                  <div className="conv-type-chips" style={{ padding: '6px 12px', borderBottom: '1px solid var(--aim-border)' }}>
-                    <button
-                      className={`conv-type-chip ${activeConvTypeFilters.length === 0 ? 'active' : ''}`}
-                      onClick={() => setActiveConvTypeFilters([])}
-                    >全部({convSearchTotal})</button>
-                    {convTypeCounts.map((tc) => {
-                      const selected = activeConvTypeFilters.includes(tc.msg_type);
-                      return (
-                        <button
-                          key={tc.msg_type}
-                          className={`conv-type-chip ${selected ? 'active' : ''}`}
-                          onClick={() => {
-                            setActiveConvTypeFilters((prev) =>
-                              selected ? prev.filter((t) => t !== tc.msg_type) : [...prev, tc.msg_type]
-                            );
-                          }}
-                        >{MSG_TYPE_LABELS[tc.msg_type] || `类型${tc.msg_type}`}({tc.count})</button>
-                      );
-                    })}
-                  </div>
-                )}
-                {convSearchResults.map((msg: any) => {
-                  const highlight = convSearchHighlights[String(msg.message_id)];
-                  return (
-                    <div
-                      key={msg.message_id}
-                      className="chat-search-result-item"
-                      onClick={() => scrollToMessage(msg.message_id)}
-                    >
-                      <div className="chat-search-result-preview">
-                        {highlight ? (
-                          <span dangerouslySetInnerHTML={{ __html: highlight }} />
-                        ) : extractTextPreview(msg.content)}
-                      </div>
-                      <div className="chat-search-result-time">
-                        {formatTime(msg.created_at)}
-                      </div>
+            {convSearchResults.map((msg: any) => {
+              const highlight = convSearchHighlights[String(msg.message_id)];
+              const senderInfo = getMsgUserInfo(msg, userMap);
+              return (
+                <div
+                  key={msg.message_id}
+                  className="chat-search-result-item"
+                  onClick={() => scrollToMessage(msg.message_id)}
+                >
+                  <Avatar
+                    src={senderInfo?.avatar}
+                    name={senderInfo?.username || `用户${msg.from_user_id}`}
+                    size={28}
+                  />
+                  <div className="chat-search-result-body">
+                    <div className="chat-search-result-sender">
+                      {senderInfo?.username || `用户${msg.from_user_id}`}
                     </div>
-                  );
-                })}
-              </>
-            )}
+                    <div className="chat-search-result-preview">
+                      {highlight ? (
+                        <span dangerouslySetInnerHTML={{ __html: highlight }} />
+                      ) : extractTextPreview(msg.content)}
+                    </div>
+                  </div>
+                  <div className="chat-search-result-time">
+                    {formatTime(msg.created_at)}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1505,14 +1607,161 @@ export function ChatPage() {
           }
           if (msg.type === 7) {
             const sysContent = msg.content?.system || {};
-            const detail = sysContent.detail || sysContent.action || '';
+            const action = sysContent.action || '';
+
+            // 公告变更 — 使用卡片式展示
+            if (action === 'announcement.updated' || action === 'announcement.deleted') {
+              const isDeleted = action === 'announcement.deleted';
+              let payload: { content?: string; old_content?: string } = {};
+              try { payload = JSON.parse(sysContent.payload || '{}'); } catch { /* ignore */ }
+              const announcementText = payload.content || '';
+              const operatorInfo = getMsgUserInfo({ from_user_id: sysContent.actor_id }, userMap);
+              const operatorName = operatorInfo?.username || `用户${sysContent.actor_id}`;
+              const operatorRole = memberRoleMap.get(String(sysContent.actor_id));
+              const roleLabel = roleLabels[operatorRole || ''] || '成员';
+              const roleColor = roleColors[operatorRole || ''] || 'default';
+
+              return (
+                <div key={msg.message_id || msg.seq} className="chat-announcement-card">
+                  <div className="chat-announcement-card-inner">
+                    {/* Header */}
+                    <div className="chat-announcement-card-header">
+                      <div className="chat-announcement-card-title">
+                        <div className="chat-announcement-card-icon">📢</div>
+                        <span className="chat-announcement-card-title-text">
+                          {isDeleted ? '群公告已删除' : '群公告'}
+                        </span>
+                      </div>
+                      <span className="chat-announcement-card-time">{formatTime(msg.created_at)}</span>
+                    </div>
+                    <hr className="chat-announcement-card-divider" />
+                    {/* Body */}
+                    <div className="chat-announcement-card-body">
+                      {isDeleted ? (
+                        <div className="chat-announcement-card-empty">
+                          <span className="chat-announcement-card-empty-icon">📭</span>
+                          <span className="chat-announcement-card-empty-text">该群暂无公告</span>
+                        </div>
+                      ) : (
+                        <div className="chat-announcement-card-content">{announcementText}</div>
+                      )}
+                    </div>
+                    <hr className="chat-announcement-card-divider" />
+                    {/* Footer */}
+                    <div className="chat-announcement-card-footer">
+                      <Tag color={roleColor} style={{ fontSize: 11, lineHeight: '18px', padding: '0 4px', margin: 0 }}>
+                        {roleLabel}
+                      </Tag>
+                      <span>{operatorName}</span>
+                      <span>{isDeleted ? '删除了群公告' : '更新了群公告'}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            // 解析操作者和被操作者信息
+            const actorInfo = getMsgUserInfo({ from_user_id: sysContent.actor_id }, userMap);
+            const actorName = actorInfo?.username || `用户${sysContent.actor_id}`;
+            const relatedIDs: number[] = Array.isArray(sysContent.related_user_ids) ? sysContent.related_user_ids : [];
+            const relatedNames = relatedIDs.map((uid: number) => {
+              const info = getMsgUserInfo({ from_user_id: uid }, userMap);
+              return info?.username || `用户${uid}`;
+            });
+
+            // 转让群主 — 突出展示
+            if (action === 'conversation.owner.transferred') {
+              const targetName = relatedNames[0] || '新成员';
+              return (
+                <div key={msg.message_id || msg.seq} className="chat-system-msg">
+                  <div className="chat-system-msg-time">{formatTime(msg.created_at)}</div>
+                  <div className="chat-system-msg-body">
+                    <span className="chat-system-msg-actor">{actorName}</span>
+                    <span> 将群主转让给 </span>
+                    <span className="chat-system-msg-target">{targetName}</span>
+                  </div>
+                </div>
+              );
+            }
+
+            // 禁言/取消禁言 — 展示操作双方
+            if (action === 'member.muted' || action === 'member.unmuted') {
+              const targetName = relatedNames[0] || '成员';
+              const actText = action === 'member.muted' ? '禁言' : '取消禁言';
+              return (
+                <div key={msg.message_id || msg.seq} className="chat-system-msg">
+                  <div className="chat-system-msg-time">{formatTime(msg.created_at)}</div>
+                  <div className="chat-system-msg-body">
+                    <span className="chat-system-msg-actor">{actorName}</span>
+                    <span> {actText}了 </span>
+                    <span className="chat-system-msg-target">{targetName}</span>
+                    {sysContent.detail && !sysContent.detail.startsWith('被') && (
+                      <span>（{sysContent.detail}）</span>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            // 全员禁言/取消 — 展示操作者
+            if (action === 'conversation.muted_all' || action === 'conversation.unmuted_all') {
+              return (
+                <div key={msg.message_id || msg.seq} className="chat-system-msg">
+                  <div className="chat-system-msg-time">{formatTime(msg.created_at)}</div>
+                  <div className="chat-system-msg-body">
+                    <span className="chat-system-msg-actor">{actorName}</span>
+                    <span> {sysContent.detail || action}</span>
+                  </div>
+                </div>
+              );
+            }
+
+            // 成员加入/退出、机器人加入/退出 — 带名字展示
+            if (action === 'member.joined' || action === 'member.left' ||
+                action === 'bot.joined' || action === 'bot.removed') {
+              const displayNames = relatedNames.length > 0
+                ? relatedNames.join('、')
+                : '';
+              if (action === 'member.left' && relatedNames.length === 1 && String(sysContent.actor_id) === String(relatedIDs[0])) {
+                // 自己退出
+                return (
+                  <div key={msg.message_id || msg.seq} className="chat-system-msg">
+                    <div className="chat-system-msg-time">{formatTime(msg.created_at)}</div>
+                    <div className="chat-system-msg-body">
+                      <span className="chat-system-msg-actor">{displayNames}</span>
+                      <span> 退出了群聊</span>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div key={msg.message_id || msg.seq} className="chat-system-msg">
+                  <div className="chat-system-msg-time">{formatTime(msg.created_at)}</div>
+                  <div className="chat-system-msg-body">
+                    {displayNames && (
+                      <span className="chat-system-msg-target">{displayNames} </span>
+                    )}
+                    <span>{sysContent.detail || action}</span>
+                  </div>
+                </div>
+              );
+            }
+
+            // 其他系统消息 — 兜底展示
             return (
               <div key={msg.message_id || msg.seq} className="chat-system-msg">
                 <div className="chat-system-msg-time">
                   {formatTime(msg.created_at)}
                 </div>
                 <div className="chat-system-msg-body">
-                  {detail}
+                  {sysContent.actor_id ? (
+                    <>
+                      <span className="chat-system-msg-actor">{actorName}</span>
+                      <span> {sysContent.detail || sysContent.action || ''}</span>
+                    </>
+                  ) : (
+                    sysContent.detail || sysContent.action || ''
+                  )}
                 </div>
               </div>
             );
@@ -1534,11 +1783,21 @@ export function ChatPage() {
                     <span className="chat-msg-nickname">{msgUserInfo.username}</span>
                     {(() => {
                       const role = memberRoleMap.get(String(msg.from_user_id));
-                      return role && role !== 'member' ? (
-                        <Tag color={roleColors[role]} style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                          {roleLabels[role]}
-                        </Tag>
-                      ) : null;
+                      const isBot = botIdSet.has(String(msg.from_user_id));
+                      return (
+                        <>
+                          {role && role !== 'MEMBER_ROLE_MEMBER' ? (
+                            <Tag color={roleColors[role]} style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                              {roleLabels[role]}
+                            </Tag>
+                          ) : null}
+                          {isBot ? (
+                            <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                              BOT
+                            </Tag>
+                          ) : null}
+                        </>
+                      );
                     })()}
                   </div>
                 )}
@@ -1580,7 +1839,7 @@ export function ChatPage() {
           .filter(([key]) => key.startsWith(`${id}:`))
           .map(([key, entry]) => {
             const botId = key.split(':')[1];
-            const userInfo = getMsgUserInfo({ from_user_id: botId, content: { bot: { text: entry.text } }, type: 9 }, userMap);
+            const userInfo = getMsgUserInfo({ from_user_id: botId, content: { bot: { bot_id: botId, text: entry.text } }, type: 9 }, userMap);
             return (
               <div key={key} className="chat-msg chat-msg-other">
                 <div className="chat-msg-avatar-col">
@@ -1596,11 +1855,21 @@ export function ChatPage() {
                       <span className="chat-msg-nickname">{userInfo.username}</span>
                       {(() => {
                         const role = memberRoleMap.get(botId);
-                        return role && role !== 'member' ? (
-                          <Tag color={roleColors[role]} style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                            {roleLabels[role]}
-                          </Tag>
-                        ) : null;
+                        const isBot = botIdSet.has(botId);
+                        return (
+                          <>
+                            {role && role !== 'MEMBER_ROLE_MEMBER' ? (
+                              <Tag color={roleColors[role]} style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                                {roleLabels[role]}
+                              </Tag>
+                            ) : null}
+                            {isBot ? (
+                              <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                                BOT
+                              </Tag>
+                            ) : null}
+                          </>
+                        );
                       })()}
                     </div>
                   )}
@@ -1780,7 +2049,12 @@ export function ChatPage() {
                   setMsgActions(null);
                   try {
                     const resp: any = await convToolApi.replyCandidates(convId as any, msgId);
-                    setReplyCandidates(resp?.candidates || []);
+                    if (resp?.status === 'processing') {
+                      message.info('正在生成回复建议...');
+                      // Result will arrive via WS conv.reply_candidates.done
+                    } else {
+                      setReplyCandidates(resp?.candidates || []);
+                    }
                   } catch {
                     message.error('生成回复失败');
                   }
@@ -1789,12 +2063,18 @@ export function ChatPage() {
                 </div>
                 <div className="chat-msg-action-item" onClick={async () => {
                   const text = extractTextPreview(msgActions.msg.content);
+                  const msgId = msgActions.msg.message_id;
                   setMsgActions(null);
                   if (!text) { message.info('无法翻译此消息'); return; }
                   try {
                     const userLang = (useAuthStore.getState().user as any)?.settings?.language || 'zh-CN';
-                    const resp: any = await convToolApi.translate(msgActions.msg.message_id, text, userLang);
-                    setTranslateMap((prev: Record<string, string>) => ({ ...prev, [msgActions.msg.message_id]: resp.translated_text }));
+                    const resp: any = await convToolApi.translate(msgId, text, userLang);
+                    if (resp?.status === 'processing') {
+                      message.info('正在翻译...');
+                      // Result will arrive via WS conv.translate.done
+                    } else {
+                      setTranslateMap((prev: Record<string, string>) => ({ ...prev, [msgId]: resp.translated_text }));
+                    }
                   } catch {
                     message.error('翻译失败');
                   }

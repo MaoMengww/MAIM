@@ -52,6 +52,15 @@ func (r *DocumentRepo) Get(ctx context.Context, docID int64) (*domain.Document, 
 	return &doc, nil
 }
 
+func (r *DocumentRepo) GetByHash(ctx context.Context, kbID int64, contentHash string) (*domain.Document, error) {
+	var doc domain.Document
+	err := r.db.WithContext(ctx).Where("kb_id = ? AND content_hash = ?", kbID, contentHash).First(&doc).Error
+	if err != nil {
+		return nil, err
+	}
+	return &doc, nil
+}
+
 func (r *DocumentRepo) ListByKB(ctx context.Context, kbID int64, offset, limit int, status string) ([]domain.Document, int64, error) {
 	var docs []domain.Document
 	var total int64

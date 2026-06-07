@@ -140,7 +140,7 @@ const logSummaryTemplate = `Generate a concise change summary (30-50 words) base
 Operation type: %s
 Change details: %s
 
-Output only the summary content, no prefix.`
+Output only the summary content, no prefix. Write the summary in Chinese.`
 
 // generateLogSummary calls LLM to generate a change summary, falls back to raw detail on failure
 func generateLogSummary(ctx context.Context, llm LLMGateway, modelID int64, ownerID int64, action, detail string) string {

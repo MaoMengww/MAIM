@@ -15,7 +15,7 @@ import { DocDetailPage } from '@/pages/knowledge/DocDetailPage';
 import { WikiPageView } from '@/pages/knowledge/WikiPageView';
 import { WikiGraphPage } from '@/pages/knowledge/WikiGraphPage';
 import { WikiDocDetailPage } from '@/pages/knowledge/WikiDocDetailPage';
-import { SettingsPage, SettingsProfile } from '@/pages/settings/SettingsPage';
+import { SettingsPage, ProfilePage } from '@/pages/settings/SettingsPage';
 import { ModelManagePage } from '@/pages/settings/ModelManagePage';
 import { McpServersPage } from '@/pages/settings/McpServersPage';
 import { BillingPage } from '@/pages/settings/BillingPage';
@@ -55,7 +55,7 @@ export const routes: RouteObject[] = [
       { path: '/knowledge/:kbId/wiki/graph', element: <WikiGraphPage /> },
       { path: '/knowledge/:kbId/wiki/*', element: <WikiPageView /> },
       { path: '/settings', element: <SettingsPage />, children: [
-        { index: true, element: <SettingsProfile /> },
+        { index: true, element: <ProfilePage /> },
         { path: 'models', element: <ModelManagePage /> },
         { path: 'mcp', element: <McpServersPage /> },
         { path: 'billing', element: <BillingPage /> },

@@ -2,21 +2,29 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	convclient "github.com/maomeng/aim/app/conversation-service/client/conversationservice"
 	"github.com/maomeng/aim/app/conversation-service/pb/conversation"
+	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
 	"github.com/zeromicro/go-zero/zrpc"
+	"google.golang.org/grpc"
 )
 
 type ConversationHandler struct {
 	convClient convclient.ConversationService
+	fileClient filepb.FileServiceClient
 }
 
-func NewConversationHandler(cli zrpc.Client) *ConversationHandler {
-	return &ConversationHandler{convClient: convclient.NewConversationService(cli)}
+func NewConversationHandler(cli zrpc.Client, fileConn grpc.ClientConnInterface) *ConversationHandler {
+	return &ConversationHandler{
+		convClient: convclient.NewConversationService(cli),
+		fileClient: filepb.NewFileServiceClient(fileConn),
+	}
 }
 
 func (h *ConversationHandler) CreateConversation(c *gin.Context) {
@@ -103,6 +111,57 @@ func (h *ConversationHandler) UpdateConversation(c *gin.Context) {
 		response.GRPCError(c, err)
 		return
 	}
+	response.Success(c, resp)
+}
+
+func (h *ConversationHandler) UploadConvAvatar(c *gin.Context) {
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		response.BadRequest(c, "file required")
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		response.BadRequest(c, "read file failed")
+		return
+	}
+
+	mimeType := header.Header.Get("Content-Type")
+	if mimeType == "" || !strings.HasPrefix(mimeType, "image/") {
+		mimeType = "image/jpeg"
+	}
+
+	userID := c.GetInt64(middleware.CtxKeyUserID)
+	convID := parseInt64(c.Param("id"))
+
+	req := &filepb.UploadAvatarReq{
+		Data:     data,
+		UserId:   userID,
+		MimeType: mimeType,
+	}
+	ctx := middleware.WithGRPCMetadata(c)
+	resp, err := h.fileClient.UploadAvatar(ctx, req)
+	if err != nil {
+		response.GRPCError(c, err)
+		return
+	}
+
+	// Update conversation avatar with the uploaded file URL
+	if resp.Url != "" {
+		avatar := resp.Url
+		_, err = h.convClient.UpdateConversation(ctx, &conversation.UpdateConversationReq{
+			ConversationId: convID,
+			UserId:         userID,
+			Avatar:         &avatar,
+		})
+		if err != nil {
+			response.GRPCError(c, err)
+			return
+		}
+	}
+
 	response.Success(c, resp)
 }
 
@@ -205,6 +264,7 @@ func (h *ConversationHandler) UnmuteMember(c *gin.Context) {
 	req := &convclient.UnmuteMemberReq{
 		ConversationId: parseInt64(c.Param("id")),
 		UserId:         parseInt64(c.Param("uid")),
+		OperatorId:     c.GetInt64(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.convClient.UnmuteMember(ctx, req)

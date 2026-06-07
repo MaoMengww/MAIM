@@ -36,7 +36,10 @@ func (l *SendBroadcastLogic) SendBroadcast(in *message.SendBroadcastReq) (*messa
 		return nil, ErrBroadcastContentRequired
 	}
 
-	broadcastID := l.svcCtx.Snowflake.Generate()
+	broadcastID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeInternal, "generate broadcast id failed", err)
+	}
 	now := time.Now()
 
 	var scopeTargetID int64

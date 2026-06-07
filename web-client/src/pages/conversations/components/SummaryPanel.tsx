@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Select, Input, message, Spin, Empty, Checkbox, Popconfirm } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { convToolApi } from '@/services/conversation-tool';
+import { wsOn } from '@/services/ws';
 import type { TodoItem, SummaryItem, SummariesResponse } from '@/services/conversation-tool';
 
 interface SummaryPanelProps {
@@ -27,16 +30,41 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
     enabled: open,
   });
 
+  // Listen for async summarize results via WebSocket
+  useEffect(() => {
+    if (!open) return;
+
+    const unsubDone = wsOn('conv.summarize.done', (payload: any) => {
+      if (payload.conv_id == null || String(payload.conv_id) !== String(convId)) return;
+      setSummarizing(false);
+      message.success('总结完成');
+      queryClient.invalidateQueries({ queryKey: ['conv-summaries', convId] });
+    });
+
+    const unsubFailed = wsOn('conv.summarize.failed', (payload: any) => {
+      if (payload.conv_id == null || String(payload.conv_id) !== String(convId)) return;
+      setSummarizing(false);
+      message.error(payload.error || '总结失败');
+    });
+
+    return () => { unsubDone(); unsubFailed(); };
+  }, [open, convId, queryClient]);
+
   const handleSummarize = async () => {
     setSummarizing(true);
     try {
       const payload = range === 0 ? { all: true } : { last_message_count: range };
-      await convToolApi.summarize(convId, payload);
-      message.success('总结完成');
-      queryClient.invalidateQueries({ queryKey: ['conv-summaries', convId] });
+      const resp: any = await convToolApi.summarize(convId, payload);
+      if (resp?.status === 'processing') {
+        message.info('总结任务已提交，正在处理中...');
+        // Keep summarizing=true, wait for WS event conv.summarize.done
+      } else {
+        message.success('总结完成');
+        queryClient.invalidateQueries({ queryKey: ['conv-summaries', convId] });
+        setSummarizing(false);
+      }
     } catch {
-      message.error('总结失败');
-    } finally {
+      message.error('总结请求失败');
       setSummarizing(false);
     }
   };
@@ -156,12 +184,12 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
               {isExpanded && (
                 <div className="summary-panel-item-body">
                   <div className="summary-panel-summary-text">
-                    {s.summary.split('\n').map((line, i) => (
-                      <div key={i}>{line || ' '}</div>
-                    ))}
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {s.summary}
+                    </ReactMarkdown>
                   </div>
 
-                  {s.todos.length > 0 && (
+                  {s.todos?.length > 0 && (
                     <div className="summary-panel-todos">
                       <div className="summary-panel-todos-title">✅ 待办事项</div>
                       {s.todos.map((todo) => (

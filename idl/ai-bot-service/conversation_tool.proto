@@ -37,6 +37,7 @@ message SummarizeResp {
   repeated TodoItem todos = 3;
   int32 total_messages = 4;
   int64 created_at = 5;
+  string status = 6; // "processing" | "completed"
 }
 
 message GetConvSummariesReq {
@@ -82,14 +83,17 @@ message ReplyCandidatesReq {
 
 message ReplyCandidatesResp {
   repeated string candidates = 1;
+  string status = 2; // "processing" | "completed"
 }
 
 message TranslateMessageReq {
   string text = 1;
   string target_lang = 2;
+  int64 msg_id = 3;
 }
 
 message TranslateMessageResp {
   string translated_text = 1;
   string detected_lang = 2;
+  string status = 3; // "processing" | "completed"
 }

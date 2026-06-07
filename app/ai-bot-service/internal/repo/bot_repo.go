@@ -108,6 +108,7 @@ func protoToBot(pb *botplatform.Bot) *model.Bot {
 		ConnMode:               pb.ConnMode,
 		CallbackURL:            pb.CallbackUrl,
 		BotTags:                pb.BotTags,
+		ResponseTriggers:       pb.ResponseTriggers,
 	}
 	if pb.CreatedAt > 0 {
 		bot.CreatedAt = time.Unix(pb.CreatedAt, 0)

@@ -336,7 +336,6 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
             editForm.setFieldsValue({
               name: kb.name,
               description: kb.description,
-              preset: pc.preset,
               engines: pc.parsing?.engines,
               vlm_model_id: vlm.model_id,
               parent_child_enabled: cc.parent_child?.enabled || false,
@@ -386,7 +385,6 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
               { label: '状态', value: kb.status, color: kb.status === 'active' ? '#52c41a' : '#faad14', tag: true },
               { label: '向量模型', value: kb.embedding_model || '默认', color: '#722ed1' },
               { label: '检索模式', value: pc.retrieval?.mode || 'hybrid', color: '#13c2c2' },
-              { label: '预设', value: pc.preset || 'general', color: '#eb2f96' },
             ].map((stat, i) => (
               <div key={i} style={{
                 background: 'var(--aim-surface)',
@@ -470,7 +468,6 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
         onOk={() => editForm.validateFields().then((vals) => {
           const payload: Record<string, unknown> = { name: vals.name, description: vals.description };
           const pipelineConfig: Record<string, any> = {};
-          if (vals.preset) pipelineConfig.preset = vals.preset;
           pipelineConfig.parsing = {
             engines: vals.engines?.length ? vals.engines : undefined,
             vlm: vals.vlm_model_id ? {
@@ -479,26 +476,26 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
             } : undefined,
           };
           pipelineConfig.chunking = {
-            chunk_size: vals.parent_child_enabled ? undefined : vals.chunk_size,
-            overlap: vals.parent_child_enabled ? undefined : vals.overlap,
+            chunk_size: vals.parent_child_enabled ? undefined : (vals.chunk_size != null ? Number(vals.chunk_size) : undefined),
+            overlap: vals.parent_child_enabled ? undefined : (vals.overlap != null ? Number(vals.overlap) : undefined),
             separators: vals.separators?.length ? vals.separators : undefined,
             parent_child: {
               enabled: !!vals.parent_child_enabled,
-              parent_size: vals.parent_child_enabled ? vals.parent_size : undefined,
-              child_size: vals.parent_child_enabled ? vals.child_size : undefined,
+              parent_size: vals.parent_child_enabled ? (vals.parent_size != null ? Number(vals.parent_size) : undefined) : undefined,
+              child_size: vals.parent_child_enabled ? (vals.child_size != null ? Number(vals.child_size) : undefined) : undefined,
             },
           };
           pipelineConfig.retrieval = {
             mode: vals.retrieval_mode,
-            top_k: vals.top_k,
-            candidate_top_k: vals.candidate_top_k,
-            score_threshold: vals.score_threshold,
-            dense_weight: vals.dense_weight,
-            sparse_weight: vals.sparse_weight,
+            top_k: vals.top_k != null ? Number(vals.top_k) : undefined,
+            candidate_top_k: vals.candidate_top_k != null ? Number(vals.candidate_top_k) : undefined,
+            score_threshold: vals.score_threshold != null ? Number(vals.score_threshold) : undefined,
+            dense_weight: vals.dense_weight != null ? Number(vals.dense_weight) : undefined,
+            sparse_weight: vals.sparse_weight != null ? Number(vals.sparse_weight) : undefined,
             rerank: vals.rerank_enabled ? {
               enabled: true,
-              model_id: vals.rerank_model_id,
-              top_n: vals.rerank_top_n,
+              model_id: vals.rerank_model_id != null ? Number(vals.rerank_model_id) : undefined,
+              top_n: vals.rerank_top_n != null ? Number(vals.rerank_top_n) : undefined,
             } : undefined,
           };
           payload.pipeline_config = pipelineConfig;
@@ -757,7 +754,7 @@ function WikiBrowser({ kbId, kb }: { kbId: number; kb: any }) {
         model_id: vals.wiki_model_id || 14,
         model_name: vals.wiki_model_id ? (modelMap[vals.wiki_model_id] || '') : 'qwen-plus',
         auto_lint: vals.wiki_auto_lint ?? true,
-        stale_threshold_hours: vals.wiki_stale_hours || 168,
+        stale_threshold_hours: Number(vals.wiki_stale_hours) || 168,
       };
       if (vals.maintenance?.maintenance_enabled) {
         wiki.maintenance_enabled = true;
@@ -769,6 +766,7 @@ function WikiBrowser({ kbId, kb }: { kbId: number; kb: any }) {
     onSuccess: () => {
       message.success('知识库已更新');
       queryClient.invalidateQueries({ queryKey: ['kb', String(kbId)] });
+      queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
       setEditOpen(false);
     },
     onError: (err: any) => message.error(err?.response?.data?.message || '更新失败'),
@@ -776,7 +774,15 @@ function WikiBrowser({ kbId, kb }: { kbId: number; kb: any }) {
 
   const deleteKBMutation = useMutation({
     mutationFn: () => kbApi.delete(kbId),
-    onSuccess: () => { message.success('知识库已删除'); navigate('/knowledge'); },
+    onSuccess: () => {
+      message.success('知识库已删除');
+      queryClient.setQueryData(['knowledge-bases'], (old: any) => {
+        if (!old?.list) return old;
+        return { ...old, list: old.list.filter((kb: any) => kb.id !== kbId) };
+      });
+      queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
+      navigate('/knowledge');
+    },
     onError: (err: any) => message.error(err?.response?.data?.message || '删除失败'),
   });
 

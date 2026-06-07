@@ -99,7 +99,7 @@ export interface ConvMember {
   user_id: number;
   username: string;
   avatar: string;
-  role: 'owner' | 'admin' | 'member';
+  role: 'MEMBER_ROLE_OWNER' | 'MEMBER_ROLE_ADMIN' | 'MEMBER_ROLE_MEMBER' | number;
   alias: string;
   joined_at: number;
   last_read_seq: number;
@@ -308,6 +308,7 @@ export interface Bot {
   has_webhook_secret: boolean;
   has_app_secret: boolean;
   bot_tags: string[];
+  response_triggers: string[];
   capabilities: string;
   settings: string;
   created_at: number;
@@ -372,7 +373,6 @@ export interface KBRsp {
 }
 
 export interface PipelineConfig {
-  preset: string;
   parsing: ParsingConfig;
   chunking: ChunkingConfig;
   retrieval: RetrievalConfig;

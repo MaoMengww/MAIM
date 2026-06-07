@@ -27,5 +27,9 @@ func (l *UnmuteAllLogic) UnmuteAll(in *conversation.UnmuteAllReq) (*common.BaseR
 		l.Logger.Errorf("unmute all failed: %v", err)
 		return nil, err
 	}
+
+	// 发送系统消息
+	emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "conversation.unmuted_all", "关闭了全员禁言", nil)
+
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

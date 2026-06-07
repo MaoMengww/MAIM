@@ -11,6 +11,7 @@ import (
 	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/snowflake"
+	"gorm.io/gorm"
 )
 
 type mockFileStore struct{}
@@ -53,6 +54,9 @@ func (m *mockDocRepo) Update(ctx context.Context, doc *domain.Document) error { 
 func (m *mockDocRepo) Delete(ctx context.Context, docID int64) error          { return nil }
 func (m *mockDocRepo) Get(ctx context.Context, docID int64) (*domain.Document, error) {
 	return &domain.Document{}, nil
+}
+func (m *mockDocRepo) GetByHash(ctx context.Context, kbID int64, contentHash string) (*domain.Document, error) {
+	return nil, gorm.ErrRecordNotFound
 }
 func (m *mockDocRepo) ListByKB(ctx context.Context, kbID int64, offset, limit int, status string) ([]domain.Document, int64, error) {
 	return nil, 0, nil

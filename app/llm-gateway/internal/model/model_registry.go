@@ -11,8 +11,8 @@ type ModelRegistry struct {
 	APIKeyEncrypted    string         `gorm:"column:api_key_encrypted" json:"-"`
 	ContextWindow      int            `gorm:"column:context_window" json:"context_window"`
 	MaxOutputTokens    int            `gorm:"column:max_output_tokens" json:"max_output_tokens"`
-	InputPricePerMTok  float64        `gorm:"column:input_price_per_mtok" json:"input_price_per_mtok"`
-	OutputPricePerMTok float64        `gorm:"column:output_price_per_mtok" json:"output_price_per_mtok"`
+	InputPricePerMTok  float64        `gorm:"column:input_price_per_mtok;type:double precision" json:"input_price_per_mtok"`
+	OutputPricePerMTok float64        `gorm:"column:output_price_per_mtok;type:double precision" json:"output_price_per_mtok"`
 	Status             string         `gorm:"column:status" json:"status"`
 	OwnerID            int64          `gorm:"column:owner_id" json:"owner_id"`
 	Metadata           map[string]any `gorm:"column:metadata;serializer:json" json:"metadata"`

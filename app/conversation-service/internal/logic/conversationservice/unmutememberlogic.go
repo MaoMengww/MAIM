@@ -30,5 +30,9 @@ func (l *UnmuteMemberLogic) UnmuteMember(in *conversation.UnmuteMemberReq) (*com
 		l.Logger.Errorf("unmute member failed: %v", err)
 		return nil, err
 	}
+
+	// 发送系统消息
+	emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "member.unmuted", "被取消禁言", []int64{in.UserId})
+
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

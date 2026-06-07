@@ -11,7 +11,10 @@ func TestSnowflakeGeneratesNonZeroID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create snowflake node failed: %v", err)
 	}
-	id := node.Generate()
+	id, err := node.Generate()
+	if err != nil {
+		t.Fatalf("generate id failed: %v", err)
+	}
 	if id == 0 {
 		t.Fatal("expected non-zero snowflake id")
 	}
@@ -24,7 +27,10 @@ func TestSnowflakeIDsAreUnique(t *testing.T) {
 	}
 	seen := make(map[int64]bool)
 	for i := 0; i < 100; i++ {
-		id := node.Generate()
+		id, err := node.Generate()
+		if err != nil {
+			t.Fatalf("generate id failed: %v", err)
+		}
 		if seen[id] {
 			t.Fatalf("duplicate snowflake id: %d", id)
 		}
@@ -37,9 +43,15 @@ func TestSnowflakeIDsIncrease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create snowflake node failed: %v", err)
 	}
-	prev := node.Generate()
+	prev, err := node.Generate()
+	if err != nil {
+		t.Fatalf("generate id failed: %v", err)
+	}
 	for i := 0; i < 10; i++ {
-		curr := node.Generate()
+		curr, err := node.Generate()
+		if err != nil {
+			t.Fatalf("generate id failed: %v", err)
+		}
 		if curr <= prev {
 			t.Fatalf("snowflake id %d <= previous %d", curr, prev)
 		}

@@ -54,13 +54,12 @@ func (l *ListBotsLogic) ListBots(in *conversation.ListBotsReq) (*conversation.Li
 			avatar = bot.Avatar
 		}
 		bots = append(bots, &conversation.BotInConv{
-			BotId:            cb.BotID,
-			Name:             name,
-			Avatar:           avatar,
-			ResponseTriggers: cb.ResponseTriggers,
-			BotSettings:      settingsStr,
-			AddedBy:          cb.AddedBy,
-			AddedAt:          cb.CreatedAt.Unix(),
+			BotId:       cb.BotID,
+			Name:        name,
+			Avatar:      avatar,
+			BotSettings: settingsStr,
+			AddedBy:     cb.AddedBy,
+			AddedAt:     cb.CreatedAt.Unix(),
 		})
 	}
 	l.Infof("bots listed: conv_id=%d count=%d", in.ConversationId, len(bots))

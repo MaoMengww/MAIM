@@ -34,6 +34,7 @@ type Bot struct {
 	CallbackURL            string    `gorm:"column:callback_url"`
 	AppSecretHash          string    `gorm:"column:app_secret_hash"`
 	BotTags                []string  `gorm:"column:bot_tags;type:jsonb;serializer:json"`
+	ResponseTriggers       []string  `gorm:"column:response_triggers;type:jsonb;serializer:json"`
 	Capabilities           []byte    `gorm:"column:capabilities;type:jsonb"`
 	Settings               []byte    `gorm:"column:settings;type:jsonb"`
 	CreatedAt              time.Time `gorm:"column:created_at;autoCreateTime"`

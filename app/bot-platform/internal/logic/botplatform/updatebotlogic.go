@@ -2,6 +2,7 @@ package botplatform
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/maomeng/aim/app/bot-platform/internal/model"
 	"github.com/maomeng/aim/app/bot-platform/internal/svc"
@@ -131,7 +132,12 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 	}
 
 	if in.BotTags != nil {
-		updates["bot_tags"] = in.BotTags
+		data, _ := json.Marshal(in.BotTags)
+		updates["bot_tags"] = data
+	}
+	if len(in.ResponseTriggers) > 0 {
+		data, _ := json.Marshal(in.ResponseTriggers)
+		updates["response_triggers"] = data
 	}
 	if in.Capabilities != "" {
 		updates["capabilities"] = []byte(in.Capabilities)

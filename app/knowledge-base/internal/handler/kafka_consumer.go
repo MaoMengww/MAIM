@@ -35,7 +35,7 @@ func (h *DocumentUploadedHandler) Handle(ctx context.Context, key, value []byte)
 	logger.Infof("document event received: event=upload doc_id=%d", event.DocID)
 
 	go func() {
-		pipeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		pipeCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 		defer cancel()
 		logger := h.Logger.WithContext(pipeCtx)
 
@@ -56,7 +56,17 @@ func (h *DocumentUploadedHandler) Handle(ctx context.Context, key, value []byte)
 			if h.WikiIngestPipe != nil {
 				if err := h.WikiIngestPipe.Start(pipeCtx, doc.KBID, []int64{doc.ID}); err != nil {
 					logger.Errorf("wiki ingest failed for doc %d: %v", event.DocID, err)
-					_ = h.DocRepo.UpdateStatus(pipeCtx, doc.ID, domain.DocStatusFailed, err.Error())
+					// Use fresh context to ensure status update and event push work even after pipeline timeout
+					bgCtx := context.Background()
+					_ = h.DocRepo.UpdateStatus(bgCtx, doc.ID, domain.DocStatusFailed, err.Error())
+					if h.WikiIngestPipe.Progress != nil {
+						h.WikiIngestPipe.Progress(bgCtx, doc.ID, eventpkg.RealtimeEvent{
+							Type:    eventpkg.EventTypeKnowledgeFailed,
+							Level:   eventpkg.EventLevelError,
+							Title:   "Wiki 处理失败",
+							Message: "文档 Wiki 解析失败，请稍后重试",
+						})
+					}
 				}
 			}
 		default:

@@ -48,7 +48,7 @@ func (m *mockRepo) RemoveBotMember(ctx context.Context, convID, botID int64) err
 	return m.removeBotMemberErr
 }
 
-func (m *mockRepo) UpdateBot(ctx context.Context, convID, botID int64, triggers []string, settings any) error {
+func (m *mockRepo) UpdateBot(ctx context.Context, convID, botID int64, settings any) error {
 	return m.updateBotErr
 }
 
@@ -61,9 +61,8 @@ func (m *mockRepo) GetBotInConv(ctx context.Context, convID, botID int64) (*mode
 		return nil, m.getMemberErr
 	}
 	return &model.ConvBot{
-		ConvID:           convID,
-		BotID:            botID,
-		ResponseTriggers: []string{"mention"},
+		ConvID: convID,
+		BotID:  botID,
 	}, nil
 }
 
@@ -85,7 +84,6 @@ func TestAddBot_AddsConversationBotMemberTransactionally(t *testing.T) {
 	require.NotNil(t, repo.addedBot)
 	assert.Equal(t, int64(100), repo.addedBot.ConvID)
 	assert.Equal(t, int64(200), repo.addedBot.BotID)
-	assert.Equal(t, []string{"mention"}, repo.addedBot.ResponseTriggers)
 	require.NotNil(t, repo.addedMember)
 	assert.Equal(t, int64(100), repo.addedMember.ConvID)
 	assert.Equal(t, int64(200), repo.addedMember.UserID)
@@ -94,27 +92,8 @@ func TestAddBot_AddsConversationBotMemberTransactionally(t *testing.T) {
 	assert.Equal(t, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER), repo.addedMember.Role)
 	assert.Empty(t, repo.memberCountDeltas)
 }
-func TestAddBot_CustomTriggers(t *testing.T) {
-	repo := &mockRepo{
-		getBot: &model.Bot{ID: 200, Name: "assistant", Avatar: "bot.png"},
-	}
-	svcCtx := newTestSvcCtx(repo)
 
-	logic := NewAddBotLogic(context.Background(), svcCtx)
-	resp, err := logic.AddBot(&conversation.AddBotReq{
-		ConversationId:   100,
-		BotId:            200,
-		OperatorId:       10,
-		ResponseTriggers: []string{"mention", "always"},
-	})
-
-	require.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.Equal(t, int32(0), resp.Code)
-	assert.Equal(t, []string{"mention", "always"}, repo.addedBot.ResponseTriggers)
-}
-
-func TestAddBot_DefaultTriggers(t *testing.T) {
+func TestAddBot_NoTriggers(t *testing.T) {
 	repo := &mockRepo{
 		getBot: &model.Bot{ID: 200, Name: "assistant", Avatar: "bot.png"},
 	}
@@ -172,10 +151,9 @@ func TestUpdateBot_Success(t *testing.T) {
 
 	logic := NewUpdateBotLogic(context.Background(), svcCtx)
 	resp, err := logic.UpdateBot(&conversation.UpdateBotReq{
-		ConversationId:   100,
-		BotId:            200,
-		ResponseTriggers: []string{"keyword:帮助"},
-		BotSettings:      `{"temperature":0.5}`,
+		ConversationId: 100,
+		BotId:          200,
+		BotSettings:    `{"temperature":0.5}`,
 	})
 
 	require.NoError(t, err)

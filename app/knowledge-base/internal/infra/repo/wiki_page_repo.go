@@ -81,7 +81,11 @@ func (r *WikiPageRepo) Upsert(ctx context.Context, page *domain.WikiPage) error 
 			page.DeletedAt = gorm.DeletedAt{} // clear deleted_at to restore
 		} else {
 			if page.ID == 0 {
-				page.ID = r.snowID.Generate()
+				pageID, err := r.snowID.Generate()
+			if err != nil {
+				return fmt.Errorf("generate wiki page id failed: %w", err)
+			}
+			page.ID = pageID
 			}
 			page.Version = 1
 		}
@@ -188,7 +192,11 @@ func (r *WikiPageRepo) RemoveInLink(ctx context.Context, kbID int64, slug string
 
 func (r *WikiPageRepo) CreateIssue(ctx context.Context, issue *domain.WikiPageIssue) error {
 	if issue.ID == 0 {
-		issue.ID = r.snowID.Generate()
+		issueID, err := r.snowID.Generate()
+		if err != nil {
+			return fmt.Errorf("generate issue id failed: %w", err)
+		}
+		issue.ID = issueID
 	}
 	if issue.Status == "" {
 		issue.Status = "open"

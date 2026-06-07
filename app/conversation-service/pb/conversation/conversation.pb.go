@@ -2649,17 +2649,16 @@ func (x *GetReadStatusResp) GetReadUsers() []*ReadUser {
 }
 
 type BotInConv struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	BotId            int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Avatar           string                 `protobuf:"bytes,3,opt,name=avatar,proto3" json:"avatar,omitempty"`
-	Type             string                 `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`
-	ResponseTriggers []string               `protobuf:"bytes,5,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"`
-	BotSettings      string                 `protobuf:"bytes,6,opt,name=bot_settings,json=botSettings,proto3" json:"bot_settings,omitempty"`
-	AddedBy          int64                  `protobuf:"varint,7,opt,name=added_by,json=addedBy,proto3" json:"added_by,omitempty"`
-	AddedAt          int64                  `protobuf:"varint,8,opt,name=added_at,json=addedAt,proto3" json:"added_at,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Avatar        string                 `protobuf:"bytes,3,opt,name=avatar,proto3" json:"avatar,omitempty"`
+	Type          string                 `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`
+	BotSettings   string                 `protobuf:"bytes,6,opt,name=bot_settings,json=botSettings,proto3" json:"bot_settings,omitempty"`
+	AddedBy       int64                  `protobuf:"varint,7,opt,name=added_by,json=addedBy,proto3" json:"added_by,omitempty"`
+	AddedAt       int64                  `protobuf:"varint,8,opt,name=added_at,json=addedAt,proto3" json:"added_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BotInConv) Reset() {
@@ -2720,13 +2719,6 @@ func (x *BotInConv) GetType() string {
 	return ""
 }
 
-func (x *BotInConv) GetResponseTriggers() []string {
-	if x != nil {
-		return x.ResponseTriggers
-	}
-	return nil
-}
-
 func (x *BotInConv) GetBotSettings() string {
 	if x != nil {
 		return x.BotSettings
@@ -2749,14 +2741,13 @@ func (x *BotInConv) GetAddedAt() int64 {
 }
 
 type AddBotReq struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	ConversationId   int64                  `protobuf:"varint,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
-	BotId            int64                  `protobuf:"varint,2,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	OperatorId       int64                  `protobuf:"varint,3,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
-	ResponseTriggers []string               `protobuf:"bytes,4,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"`
-	BotSettings      string                 `protobuf:"bytes,5,opt,name=bot_settings,json=botSettings,proto3" json:"bot_settings,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ConversationId int64                  `protobuf:"varint,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	BotId          int64                  `protobuf:"varint,2,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	OperatorId     int64                  `protobuf:"varint,3,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	BotSettings    string                 `protobuf:"bytes,5,opt,name=bot_settings,json=botSettings,proto3" json:"bot_settings,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AddBotReq) Reset() {
@@ -2808,13 +2799,6 @@ func (x *AddBotReq) GetOperatorId() int64 {
 		return x.OperatorId
 	}
 	return 0
-}
-
-func (x *AddBotReq) GetResponseTriggers() []string {
-	if x != nil {
-		return x.ResponseTriggers
-	}
-	return nil
 }
 
 func (x *AddBotReq) GetBotSettings() string {
@@ -2885,14 +2869,13 @@ func (x *RemoveBotReq) GetOperatorId() int64 {
 }
 
 type UpdateBotReq struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	ConversationId   int64                  `protobuf:"varint,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
-	BotId            int64                  `protobuf:"varint,2,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	OperatorId       int64                  `protobuf:"varint,3,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
-	ResponseTriggers []string               `protobuf:"bytes,4,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"`
-	BotSettings      string                 `protobuf:"bytes,5,opt,name=bot_settings,json=botSettings,proto3" json:"bot_settings,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ConversationId int64                  `protobuf:"varint,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	BotId          int64                  `protobuf:"varint,2,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	OperatorId     int64                  `protobuf:"varint,3,opt,name=operator_id,json=operatorId,proto3" json:"operator_id,omitempty"`
+	BotSettings    string                 `protobuf:"bytes,5,opt,name=bot_settings,json=botSettings,proto3" json:"bot_settings,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *UpdateBotReq) Reset() {
@@ -2944,13 +2927,6 @@ func (x *UpdateBotReq) GetOperatorId() int64 {
 		return x.OperatorId
 	}
 	return 0
-}
-
-func (x *UpdateBotReq) GetResponseTriggers() []string {
-	if x != nil {
-		return x.ResponseTriggers
-	}
-	return nil
 }
 
 func (x *UpdateBotReq) GetBotSettings() string {
@@ -3291,35 +3267,32 @@ const file_conversation_service_conversation_proto_rawDesc = "" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
 	"totalCount\x125\n" +
 	"\n" +
-	"read_users\x18\x03 \x03(\v2\x16.conversation.ReadUserR\treadUsers\"\xe8\x01\n" +
+	"read_users\x18\x03 \x03(\v2\x16.conversation.ReadUserR\treadUsers\"\xc1\x01\n" +
 	"\tBotInConv\x12\x15\n" +
 	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
 	"\x06avatar\x18\x03 \x01(\tR\x06avatar\x12\x12\n" +
-	"\x04type\x18\x04 \x01(\tR\x04type\x12+\n" +
-	"\x11response_triggers\x18\x05 \x03(\tR\x10responseTriggers\x12!\n" +
+	"\x04type\x18\x04 \x01(\tR\x04type\x12!\n" +
 	"\fbot_settings\x18\x06 \x01(\tR\vbotSettings\x12\x19\n" +
 	"\badded_by\x18\a \x01(\x03R\aaddedBy\x12\x19\n" +
-	"\badded_at\x18\b \x01(\x03R\aaddedAt\"\xbc\x01\n" +
+	"\badded_at\x18\b \x01(\x03R\aaddedAtJ\x04\b\x05\x10\x06\"\x95\x01\n" +
 	"\tAddBotReq\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\x03R\x0econversationId\x12\x15\n" +
 	"\x06bot_id\x18\x02 \x01(\x03R\x05botId\x12\x1f\n" +
 	"\voperator_id\x18\x03 \x01(\x03R\n" +
-	"operatorId\x12+\n" +
-	"\x11response_triggers\x18\x04 \x03(\tR\x10responseTriggers\x12!\n" +
-	"\fbot_settings\x18\x05 \x01(\tR\vbotSettings\"o\n" +
+	"operatorId\x12!\n" +
+	"\fbot_settings\x18\x05 \x01(\tR\vbotSettingsJ\x04\b\x04\x10\x05\"o\n" +
 	"\fRemoveBotReq\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\x03R\x0econversationId\x12\x15\n" +
 	"\x06bot_id\x18\x02 \x01(\x03R\x05botId\x12\x1f\n" +
 	"\voperator_id\x18\x03 \x01(\x03R\n" +
-	"operatorId\"\xbf\x01\n" +
+	"operatorId\"\x98\x01\n" +
 	"\fUpdateBotReq\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\x03R\x0econversationId\x12\x15\n" +
 	"\x06bot_id\x18\x02 \x01(\x03R\x05botId\x12\x1f\n" +
 	"\voperator_id\x18\x03 \x01(\x03R\n" +
-	"operatorId\x12+\n" +
-	"\x11response_triggers\x18\x04 \x03(\tR\x10responseTriggers\x12!\n" +
-	"\fbot_settings\x18\x05 \x01(\tR\vbotSettings\"O\n" +
+	"operatorId\x12!\n" +
+	"\fbot_settings\x18\x05 \x01(\tR\vbotSettingsJ\x04\b\x04\x10\x05\"O\n" +
 	"\vListBotsReq\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\x03R\x0econversationId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\";\n" +

@@ -7,6 +7,7 @@ type DocumentRepo interface {
 	Update(ctx context.Context, doc *Document) error
 	Delete(ctx context.Context, docID int64) error
 	Get(ctx context.Context, docID int64) (*Document, error)
+	GetByHash(ctx context.Context, kbID int64, contentHash string) (*Document, error)
 	ListByKB(ctx context.Context, kbID int64, offset, limit int, status string) ([]Document, int64, error)
 	UpdateStatus(ctx context.Context, docID int64, status DocStatus, errMsg string) error
 	UpdateStages(ctx context.Context, docID int64, stages []Stage) error

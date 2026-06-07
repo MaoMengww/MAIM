@@ -305,8 +305,12 @@ func newWikiWritePageTool(deps *WikiToolDeps) *wikiTool {
 				return "Incomplete parameters: slug, title, content, knowledge_base_id, and page_type are required.", nil
 			}
 
-			page := &domain.WikiPage{
-				ID:              deps.Snowflake.Generate(),
+			pageID, err := deps.Snowflake.Generate()
+				if err != nil {
+					return "", fmt.Errorf("generate page id failed: %w", err)
+				}
+				page := &domain.WikiPage{
+				ID:              pageID,
 				KnowledgeBaseID: kbID,
 				Slug:            slug,
 				Title:           title,
@@ -415,7 +419,11 @@ func newWikiRenamePageTool(deps *WikiToolDeps) *wikiTool {
 			// Rename: soft-delete old record, create new record with new slug
 			oldID := page.ID
 			page.Slug = newSlug
-			page.ID = deps.Snowflake.Generate()
+			newID, err := deps.Snowflake.Generate()
+			if err != nil {
+				return "", fmt.Errorf("generate page id failed: %w", err)
+			}
+			page.ID = newID
 			page.Version++
 
 			if err := deps.WikiRepo.SoftDelete(ctx, kbID, slug); err != nil {
@@ -511,8 +519,12 @@ func newWikiFlagIssueTool(deps *WikiToolDeps) *wikiTool {
 			}
 
 			title := issueTypeLabel(issueType) + ": " + slug
-			issue := &domain.WikiPageIssue{
-				ID:              deps.Snowflake.Generate(),
+			issueID, err := deps.Snowflake.Generate()
+				if err != nil {
+					return "", fmt.Errorf("generate issue id failed: %w", err)
+				}
+				issue := &domain.WikiPageIssue{
+				ID:              issueID,
 				KnowledgeBaseID: kbID,
 				PageSlug:        slug,
 				IssueType:       issueType,

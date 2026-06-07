@@ -27,5 +27,9 @@ func (l *MuteAllLogic) MuteAll(in *conversation.MuteAllReq) (*common.BaseRespons
 		l.Logger.Errorf("mute all failed: %v", err)
 		return nil, err
 	}
+
+	// 发送系统消息
+	emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "conversation.muted_all", "开启了全员禁言", nil)
+
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

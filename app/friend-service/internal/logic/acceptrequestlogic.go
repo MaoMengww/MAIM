@@ -45,7 +45,7 @@ func (l *AcceptRequestLogic) AcceptRequest(in *friend.AcceptRequestReq) (*common
 	if err := l.svcCtx.FriendRequestRepo.UpdateStatus(l.ctx, req.ID, model.FriendRequestStatusAccepted); err != nil {
 		return nil, grpcError(err)
 	}
-	if err := l.svcCtx.FriendRepo.CreatePair(l.ctx, req.FromUserID, req.ToUserID, 0, l.svcCtx.Snowflake.Generate); err != nil {
+	if err := l.svcCtx.FriendRepo.CreatePair(l.ctx, req.FromUserID, req.ToUserID, 0, func() int64 { id, _ := l.svcCtx.Snowflake.Generate(); return id }); err != nil {
 		return nil, grpcError(err)
 	}
 

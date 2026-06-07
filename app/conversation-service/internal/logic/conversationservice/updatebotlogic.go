@@ -25,7 +25,7 @@ func (l *UpdateBotLogic) UpdateBot(in *conversation.UpdateBotReq) (*common.BaseR
 	if in.BotSettings != "" {
 		json.Unmarshal([]byte(in.BotSettings), &settings)
 	}
-	if err := l.svcCtx.Repo.UpdateBot(l.ctx, in.ConversationId, in.BotId, in.ResponseTriggers, settings); err != nil {
+	if err := l.svcCtx.Repo.UpdateBot(l.ctx, in.ConversationId, in.BotId, settings); err != nil {
 		return nil, ErrConvUpdateFailed
 	}
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil

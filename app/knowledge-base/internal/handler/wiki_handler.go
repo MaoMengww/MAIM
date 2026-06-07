@@ -308,8 +308,12 @@ type wikiIssueItem struct {
 }
 
 func (h *WikiHandler) FlagIssue(ctx context.Context, kbID int64, slug, issueType, description string) (int64, error) {
+	issueID, err := h.Snowflake.Generate()
+	if err != nil {
+		return 0, fmt.Errorf("generate issue id failed: %w", err)
+	}
 	issue := &domain.WikiPageIssue{
-		ID: h.Snowflake.Generate(), KnowledgeBaseID: kbID,
+		ID: issueID, KnowledgeBaseID: kbID,
 		PageSlug: slug, IssueType: issueType,
 		Level: domain.WikiIssueWarning, Title: issueType,
 		Description: description, Status: "open",

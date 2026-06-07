@@ -88,7 +88,6 @@ func (KnowledgeBinding) TableName() string {
 }
 
 type PipelineConfig struct {
-	Preset    string          `json:"preset"`
 	Parsing   ParsingConfig   `json:"parsing"`
 	Chunking  ChunkingConfig  `json:"chunking"`
 	Retrieval RetrievalConfig `json:"retrieval"`

@@ -19,18 +19,18 @@ func NewWsGatewayClient(c zrpc.Client) *WsGatewayClient {
 	}
 }
 
-// StreamToConv sends a raw message to all online users in a conversation.
-func (c *WsGatewayClient) StreamToConv(ctx context.Context, convID int64, msg []byte) error {
-	_, err := c.cli.StreamToConv(ctx, &pushpb.StreamToConvReq{
+// PushToConv sends a raw message to all online users in a conversation.
+func (c *WsGatewayClient) PushToConv(ctx context.Context, convID int64, msg []byte) error {
+	_, err := c.cli.PushToConv(ctx, &pushpb.PushToConvReq{
 		ConvId:  convID,
 		Message: msg,
 	})
 	return err
 }
 
-// StreamToUser sends a raw message to a specific user's connections.
-func (c *WsGatewayClient) StreamToUser(ctx context.Context, userID int64, msg []byte) error {
-	_, err := c.cli.StreamToUser(ctx, &pushpb.StreamToUserReq{
+// PushToUser sends a raw message to a specific user's connections.
+func (c *WsGatewayClient) PushToUser(ctx context.Context, userID int64, msg []byte) error {
+	_, err := c.cli.PushToUser(ctx, &pushpb.PushToUserReq{
 		UserId:  userID,
 		Message: msg,
 	})

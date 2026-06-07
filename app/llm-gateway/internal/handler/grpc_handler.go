@@ -495,8 +495,12 @@ func (h *LLMGatewayHandler) CreateModel(ctx context.Context, req *pb.CreateModel
 	if err != nil {
 		return nil, status.Error(codes.Internal, "encrypt api key failed")
 	}
+	recID, err := h.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("generate model id failed: %v", err))
+	}
 	rec := &appModel.ModelRegistry{
-		ID:                 h.svcCtx.Snowflake.Generate(),
+		ID:                 recID,
 		ModelName:          req.ModelName,
 		Provider:           req.Provider,
 		Capability:         req.Capability,

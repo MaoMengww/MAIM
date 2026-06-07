@@ -10,7 +10,7 @@ import (
 
 // WsGatewayClient is the gRPC client for sending WS messages.
 type WsGatewayClient interface {
-	StreamToConv(ctx context.Context, convID int64, msg []byte) error
+	PushToConv(ctx context.Context, convID int64, msg []byte) error
 }
 
 // WSPusher sends streaming chunks to ws-gateway for group chat streaming.
@@ -57,7 +57,7 @@ func (w *WSPusher) Send(chunk *model.StreamChunk) error {
 		return fmt.Errorf("marshal ws message: %w", err)
 	}
 
-	if err := w.client.StreamToConv(context.Background(), w.convID, b); err != nil {
+	if err := w.client.PushToConv(context.Background(), w.convID, b); err != nil {
 		return fmt.Errorf("stream to conv: %w", err)
 	}
 

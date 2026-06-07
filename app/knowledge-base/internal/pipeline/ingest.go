@@ -226,8 +226,12 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 		// Store parent chunks and build index -> ID mapping
 		parentIDMap := make(map[int]int64)
 		for _, parent := range pcResult.Parents {
+			chunkID, err := p.Snowflake.Generate()
+			if err != nil {
+				return fmt.Errorf("generate chunk id failed: %w", err)
+			}
 			parentRecord := &domain.ChunkRecord{
-				ID:         p.Snowflake.Generate(),
+				ID:         chunkID,
 				DocID:      doc.ID,
 				KBID:       doc.KBID,
 				ChunkIndex: parent.Index,
@@ -244,8 +248,12 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 		// Create child records with ParentChunkID
 		records := make([]domain.ChunkRecord, len(pcResult.Children))
 		for i, ch := range pcResult.Children {
+			chunkID, err := p.Snowflake.Generate()
+			if err != nil {
+				return fmt.Errorf("generate chunk id failed: %w", err)
+			}
 			record := domain.ChunkRecord{
-				ID:          p.Snowflake.Generate(),
+				ID:          chunkID,
 				DocID:       ch.DocID,
 				KBID:        ch.KBID,
 				ChunkIndex:  ch.Index,

@@ -19,7 +19,9 @@ import (
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/snowflake"
 	"github.com/zeromicro/go-zero/zrpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -71,11 +73,12 @@ func (h *KnowledgeBaseHandler) CreateKB(ctx context.Context, req *pb.CreateKBReq
 			}
 		}
 	}
-	if req.EmbeddingModel == "" {
-		req.EmbeddingModel = h.getDefaultEmbeddingModel()
+	kbID, err := h.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate kb id failed: %w", err)
 	}
 	kb := &domain.KnowledgeBase{
-		ID:               h.Snowflake.Generate(),
+		ID:               kbID,
 		OwnerID:          ownerID,
 		Name:             req.Name,
 		Description:      req.Description,
@@ -222,6 +225,12 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 		return domain.ErrForbidden
 	}
 	contentHash := fmt.Sprintf("%x", sha256.Sum256(fileBytes.Bytes()))
+
+	// Check for duplicate content within the same KB
+	if existing, err := h.DocRepo.GetByHash(ctx, kbID, contentHash); err == nil && existing != nil {
+		return status.Error(codes.AlreadyExists, fmt.Sprintf("文件已存在（文档 #%d: %s）", existing.ID, existing.OriginalFilename))
+	}
+
 	minioKey := fmt.Sprintf("knowledge/%d/%s/%s", kbID, contentHash, meta.OriginalFilename)
 	if err := h.FileStore.Put(ctx, minioKey, bytes.NewReader(fileBytes.Bytes()), meta.FileSize, contentType(meta.FileType)); err != nil {
 		return errors.Wrap(errors.CodeIOError, "upload file failed", err)
@@ -231,8 +240,12 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 	if fileType == "" {
 		fileType = "txt"
 	}
+	docID, err := h.Snowflake.Generate()
+	if err != nil {
+		return fmt.Errorf("generate doc id failed: %w", err)
+	}
 	doc := &domain.Document{
-		ID:               h.Snowflake.Generate(),
+		ID:               docID,
 		KBID:             kbID,
 		Title:            meta.Title,
 		FileType:         fileType,
@@ -306,6 +319,13 @@ func (h *KnowledgeBaseHandler) WikiBatchUploadDocuments(stream pb.KnowledgeBase_
 			fileBytes = fileBuffers[i]
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(fileBytes))
+
+			// Skip duplicate content within the same KB
+			if existing, err := h.DocRepo.GetByHash(ctx, kbID, contentHash); err == nil && existing != nil {
+				h.Logger.WithContext(ctx).Infof("batch upload: skipping duplicate file %s (existing doc #%d)", meta.OriginalFilename, existing.ID)
+				continue
+			}
+
 		minioKey := fmt.Sprintf("knowledge/%d/%s/%s", kbID, contentHash, meta.OriginalFilename)
 		if err := h.FileStore.Put(ctx, minioKey, bytes.NewReader(fileBytes), meta.FileSize, contentType(meta.FileType)); err != nil {
 			h.Logger.WithContext(ctx).Errorf("batch upload: minio put failed for %s: %v", meta.OriginalFilename, err)
@@ -315,8 +335,13 @@ func (h *KnowledgeBaseHandler) WikiBatchUploadDocuments(stream pb.KnowledgeBase_
 		if fileType == "" {
 			fileType = "txt"
 		}
+		docID, err := h.Snowflake.Generate()
+		if err != nil {
+			h.Logger.WithContext(ctx).Errorf("generate doc id failed: %v", err)
+			continue
+		}
 		doc := &domain.Document{
-			ID:               h.Snowflake.Generate(),
+			ID:               docID,
 			KBID:             kbID,
 			Title:            meta.Title,
 			FileType:         fileType,
@@ -828,8 +853,12 @@ func (h *KnowledgeBaseHandler) Bind(ctx context.Context, req *pb.BindReq) (*empt
 	if kb.OwnerID != callerID && !isAdmin(ctx) {
 		return nil, domain.ErrForbidden
 	}
+	bindingID, err := h.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate binding id failed: %w", err)
+	}
 	binding := &domain.KnowledgeBinding{
-		ID:         h.Snowflake.Generate(),
+		ID:         bindingID,
 		KBID:       req.KbId,
 		TargetType: req.TargetType,
 		TargetID:   req.TargetId,
@@ -897,9 +926,6 @@ func (h *KnowledgeBaseHandler) ListBoundTargets(ctx context.Context, req *pb.Lis
 	return &pb.ListBoundTargetsRsp{Items: items}, nil
 }
 
-func (h *KnowledgeBaseHandler) getDefaultEmbeddingModel() string {
-	return "text-embedding-v4"
-}
 
 func getCallerID(ctx context.Context) int64 {
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
@@ -999,9 +1025,7 @@ func convertPipelineConfig(pbCfg *pb.PipelineConfig) domain.PipelineConfig {
 	if pbCfg == nil {
 		return domain.PipelineConfig{}
 	}
-	cfg := domain.PipelineConfig{
-		Preset: pbCfg.Preset,
-	}
+	cfg := domain.PipelineConfig{}
 	if pbCfg.Parsing != nil {
 		parsing := domain.ParsingConfig{
 			Engines: pbCfg.Parsing.Engines,
@@ -1075,10 +1099,10 @@ func convertPipelineConfig(pbCfg *pb.PipelineConfig) domain.PipelineConfig {
 }
 
 func pipelineConfigToProto(cfg domain.PipelineConfig) *pb.PipelineConfig {
-	if cfg.Preset == "" && !cfg.Wiki.Enabled {
+	if !cfg.Wiki.Enabled && cfg.Chunking.ChunkSize == 0 && !cfg.Chunking.ParentChild.Enabled && cfg.Retrieval.Mode == "" && len(cfg.Parsing.Engines) == 0 {
 		return nil
 	}
-	pbCfg := &pb.PipelineConfig{Preset: cfg.Preset}
+	pbCfg := &pb.PipelineConfig{}
 	if len(cfg.Parsing.Engines) > 0 || cfg.Parsing.MinerUPrecision != nil || cfg.Parsing.MinerUAgent != nil || cfg.Parsing.VLM != nil {
 		parsing := &pb.ParsingConfig{
 			Engines: cfg.Parsing.Engines,

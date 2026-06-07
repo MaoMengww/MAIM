@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"fmt"
 	"context"
 
 	"github.com/maomeng/aim/app/audit-service/internal/model"
@@ -34,7 +35,10 @@ func (l *BatchRecordAuditLogic) BatchRecordAudit(in *audit.BatchRecordAuditReq) 
 
 	events := make([]*model.AuditEvent, 0, len(in.Events))
 	for _, req := range in.Events {
-		eventID := l.svcCtx.Snowflake.GenerateString()
+		eventID, err := l.svcCtx.Snowflake.GenerateString()
+		if err != nil {
+			return nil, fmt.Errorf("generate audit event id failed: %w", err)
+		}
 		event := &model.AuditEvent{
 			EventID:        eventID,
 			Action:         int32(req.Action),

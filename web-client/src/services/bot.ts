@@ -44,8 +44,8 @@ export const botApi = {
     client.delete<APIResponse<null>>(`/bots/${botId}/memory/${memoryId}`).then(unwrap),
 
   // Bot in conversation
-  addToConv: (convId: number, botId: string, triggers?: string[]) =>
-    client.post<APIResponse<null>>(`/convs/${convId}/bots`, { bot_id: botId, response_triggers: triggers }).then(unwrap),
+  addToConv: (convId: number, botId: string) =>
+    client.post<APIResponse<null>>(`/convs/${convId}/bots`, { bot_id: botId }).then(unwrap),
 
   removeFromConv: (convId: number, botId: string) =>
     client.delete<APIResponse<null>>(`/convs/${convId}/bots/${botId}`).then(unwrap),

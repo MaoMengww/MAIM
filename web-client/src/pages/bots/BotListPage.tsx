@@ -99,6 +99,8 @@ export function BotListPage() {
 
       const selectedModelName = vals.model_id ? (modelMap[vals.model_id] || '') : (vals.model_name || '');
       const selectedMemoryModelName = vals.memory_model_id ? (modelMap[vals.memory_model_id] || '') : '';
+      if (vals.temperature != null) vals.temperature = Number(vals.temperature);
+      if (vals.max_context_messages != null) vals.max_context_messages = Number(vals.max_context_messages);
       if (selectedType === 'official') {
         Object.assign(basePayload, {
           template_id: vals.template_id,

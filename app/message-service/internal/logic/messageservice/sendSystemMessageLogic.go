@@ -31,7 +31,10 @@ func NewSendSystemMessageLogic(ctx context.Context, svcCtx *svc.ServiceContext) 
 }
 
 func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessageReq) (*message.SendMessageResp, error) {
-	msgID := l.svcCtx.Snowflake.Generate()
+	msgID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeInternal, "generate msg id failed", err)
+	}
 	now := time.Now()
 
 	sysContent := model.SystemContent{
@@ -58,7 +61,7 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 	// 生成 seq + 插入消息 + 更新会话元数据（同一 PG 事务）
 	previewText := extractTextPreview(msg.MsgType, msg.Content)
 	var seq int64
-	err := l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
 		s, err := nextSeq(l.svcCtx.Redis, l.ctx, in.ConversationId)
 		if err != nil {
 			return err

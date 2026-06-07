@@ -143,16 +143,15 @@ export function KBListPage() {
       const pipelineConfig: any = {};
 
       if (mode === 'rag') {
-        if (vals.preset) pipelineConfig.preset = vals.preset;
         if (vals.chunk_size || vals.overlap != null || vals.separators?.length || vals.parent_child_enabled) {
           pipelineConfig.chunking = {};
-          if (vals.chunk_size) pipelineConfig.chunking.chunk_size = vals.chunk_size;
-          if (vals.overlap != null) pipelineConfig.chunking.overlap = vals.overlap;
+          if (vals.chunk_size) pipelineConfig.chunking.chunk_size = Number(vals.chunk_size);
+          if (vals.overlap != null) pipelineConfig.chunking.overlap = Number(vals.overlap);
           if (vals.separators?.length) pipelineConfig.chunking.separators = vals.separators;
           if (vals.parent_child_enabled) {
             pipelineConfig.chunking.parent_child = { enabled: true };
-            if (vals.parent_size) pipelineConfig.chunking.parent_child.parent_size = vals.parent_size;
-            if (vals.child_size) pipelineConfig.chunking.parent_child.child_size = vals.child_size;
+            if (vals.parent_size) pipelineConfig.chunking.parent_child.parent_size = Number(vals.parent_size);
+            if (vals.child_size) pipelineConfig.chunking.parent_child.child_size = Number(vals.child_size);
           }
         }
         if (vals.parsing_engines?.length) {
@@ -170,13 +169,13 @@ export function KBListPage() {
         }
         pipelineConfig.retrieval = {};
         if (vals.retrieval_mode) pipelineConfig.retrieval.mode = vals.retrieval_mode;
-        if (vals.top_k) pipelineConfig.retrieval.top_k = vals.top_k;
-        if (vals.candidate_top_k) pipelineConfig.retrieval.candidate_top_k = vals.candidate_top_k;
-        if (vals.score_threshold != null) pipelineConfig.retrieval.score_threshold = vals.score_threshold;
-        if (vals.dense_weight != null) pipelineConfig.retrieval.dense_weight = vals.dense_weight;
-        if (vals.sparse_weight != null) pipelineConfig.retrieval.sparse_weight = vals.sparse_weight;
+        if (vals.top_k) pipelineConfig.retrieval.top_k = Number(vals.top_k);
+        if (vals.candidate_top_k) pipelineConfig.retrieval.candidate_top_k = Number(vals.candidate_top_k);
+        if (vals.score_threshold != null) pipelineConfig.retrieval.score_threshold = Number(vals.score_threshold);
+        if (vals.dense_weight != null) pipelineConfig.retrieval.dense_weight = Number(vals.dense_weight);
+        if (vals.sparse_weight != null) pipelineConfig.retrieval.sparse_weight = Number(vals.sparse_weight);
         if (vals.rerank_enabled) {
-          pipelineConfig.retrieval.rerank = { enabled: true, model_id: vals.rerank_model || 0, top_n: vals.rerank_top_n || 20 };
+          pipelineConfig.retrieval.rerank = { enabled: true, model_id: Number(vals.rerank_model) || 0, top_n: Number(vals.rerank_top_n) || 20 };
         }
         if (Object.keys(pipelineConfig.retrieval).length === 0) delete pipelineConfig.retrieval;
         if (Object.keys(pipelineConfig.chunking || {}).length === 0) delete pipelineConfig.chunking;
@@ -186,7 +185,7 @@ export function KBListPage() {
           model_id: vals.wiki_model_id || 14,
           model_name: vals.wiki_model_id ? (modelMap[vals.wiki_model_id] || '') : 'qwen-plus',
           auto_lint: vals.wiki_auto_lint ?? true,
-          stale_threshold_hours: vals.wiki_stale_hours || 168,
+          stale_threshold_hours: Number(vals.wiki_stale_hours) || 168,
         };
         if (vals.maintenance?.maintenance_enabled) {
           wikiConfig.maintenance_enabled = true;

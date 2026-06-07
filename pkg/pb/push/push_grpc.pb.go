@@ -19,10 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	InternalPushService_PushToUsers_FullMethodName  = "/push.InternalPushService/PushToUsers"
-	InternalPushService_PushToBot_FullMethodName    = "/push.InternalPushService/PushToBot"
-	InternalPushService_StreamToConv_FullMethodName = "/push.InternalPushService/StreamToConv"
-	InternalPushService_StreamToUser_FullMethodName = "/push.InternalPushService/StreamToUser"
+	InternalPushService_PushToUsers_FullMethodName = "/push.InternalPushService/PushToUsers"
+	InternalPushService_PushToBot_FullMethodName   = "/push.InternalPushService/PushToBot"
+	InternalPushService_PushToConv_FullMethodName  = "/push.InternalPushService/PushToConv"
+	InternalPushService_PushToUser_FullMethodName  = "/push.InternalPushService/PushToUser"
 )
 
 // InternalPushServiceClient is the client API for InternalPushService service.
@@ -31,8 +31,8 @@ const (
 type InternalPushServiceClient interface {
 	PushToUsers(ctx context.Context, in *PushToUsersReq, opts ...grpc.CallOption) (*PushToUsersResp, error)
 	PushToBot(ctx context.Context, in *PushToBotReq, opts ...grpc.CallOption) (*PushToBotResp, error)
-	StreamToConv(ctx context.Context, in *StreamToConvReq, opts ...grpc.CallOption) (*StreamToConvResp, error)
-	StreamToUser(ctx context.Context, in *StreamToUserReq, opts ...grpc.CallOption) (*StreamToUserResp, error)
+	PushToConv(ctx context.Context, in *PushToConvReq, opts ...grpc.CallOption) (*PushToConvResp, error)
+	PushToUser(ctx context.Context, in *PushToUserReq, opts ...grpc.CallOption) (*PushToUserResp, error)
 }
 
 type internalPushServiceClient struct {
@@ -63,20 +63,20 @@ func (c *internalPushServiceClient) PushToBot(ctx context.Context, in *PushToBot
 	return out, nil
 }
 
-func (c *internalPushServiceClient) StreamToConv(ctx context.Context, in *StreamToConvReq, opts ...grpc.CallOption) (*StreamToConvResp, error) {
+func (c *internalPushServiceClient) PushToConv(ctx context.Context, in *PushToConvReq, opts ...grpc.CallOption) (*PushToConvResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(StreamToConvResp)
-	err := c.cc.Invoke(ctx, InternalPushService_StreamToConv_FullMethodName, in, out, cOpts...)
+	out := new(PushToConvResp)
+	err := c.cc.Invoke(ctx, InternalPushService_PushToConv_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *internalPushServiceClient) StreamToUser(ctx context.Context, in *StreamToUserReq, opts ...grpc.CallOption) (*StreamToUserResp, error) {
+func (c *internalPushServiceClient) PushToUser(ctx context.Context, in *PushToUserReq, opts ...grpc.CallOption) (*PushToUserResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(StreamToUserResp)
-	err := c.cc.Invoke(ctx, InternalPushService_StreamToUser_FullMethodName, in, out, cOpts...)
+	out := new(PushToUserResp)
+	err := c.cc.Invoke(ctx, InternalPushService_PushToUser_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -89,8 +89,8 @@ func (c *internalPushServiceClient) StreamToUser(ctx context.Context, in *Stream
 type InternalPushServiceServer interface {
 	PushToUsers(context.Context, *PushToUsersReq) (*PushToUsersResp, error)
 	PushToBot(context.Context, *PushToBotReq) (*PushToBotResp, error)
-	StreamToConv(context.Context, *StreamToConvReq) (*StreamToConvResp, error)
-	StreamToUser(context.Context, *StreamToUserReq) (*StreamToUserResp, error)
+	PushToConv(context.Context, *PushToConvReq) (*PushToConvResp, error)
+	PushToUser(context.Context, *PushToUserReq) (*PushToUserResp, error)
 	mustEmbedUnimplementedInternalPushServiceServer()
 }
 
@@ -107,11 +107,11 @@ func (UnimplementedInternalPushServiceServer) PushToUsers(context.Context, *Push
 func (UnimplementedInternalPushServiceServer) PushToBot(context.Context, *PushToBotReq) (*PushToBotResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method PushToBot not implemented")
 }
-func (UnimplementedInternalPushServiceServer) StreamToConv(context.Context, *StreamToConvReq) (*StreamToConvResp, error) {
-	return nil, status.Error(codes.Unimplemented, "method StreamToConv not implemented")
+func (UnimplementedInternalPushServiceServer) PushToConv(context.Context, *PushToConvReq) (*PushToConvResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method PushToConv not implemented")
 }
-func (UnimplementedInternalPushServiceServer) StreamToUser(context.Context, *StreamToUserReq) (*StreamToUserResp, error) {
-	return nil, status.Error(codes.Unimplemented, "method StreamToUser not implemented")
+func (UnimplementedInternalPushServiceServer) PushToUser(context.Context, *PushToUserReq) (*PushToUserResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method PushToUser not implemented")
 }
 func (UnimplementedInternalPushServiceServer) mustEmbedUnimplementedInternalPushServiceServer() {}
 func (UnimplementedInternalPushServiceServer) testEmbeddedByValue()                             {}
@@ -170,38 +170,38 @@ func _InternalPushService_PushToBot_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _InternalPushService_StreamToConv_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(StreamToConvReq)
+func _InternalPushService_PushToConv_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PushToConvReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(InternalPushServiceServer).StreamToConv(ctx, in)
+		return srv.(InternalPushServiceServer).PushToConv(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: InternalPushService_StreamToConv_FullMethodName,
+		FullMethod: InternalPushService_PushToConv_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(InternalPushServiceServer).StreamToConv(ctx, req.(*StreamToConvReq))
+		return srv.(InternalPushServiceServer).PushToConv(ctx, req.(*PushToConvReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _InternalPushService_StreamToUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(StreamToUserReq)
+func _InternalPushService_PushToUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PushToUserReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(InternalPushServiceServer).StreamToUser(ctx, in)
+		return srv.(InternalPushServiceServer).PushToUser(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: InternalPushService_StreamToUser_FullMethodName,
+		FullMethod: InternalPushService_PushToUser_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(InternalPushServiceServer).StreamToUser(ctx, req.(*StreamToUserReq))
+		return srv.(InternalPushServiceServer).PushToUser(ctx, req.(*PushToUserReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -222,12 +222,12 @@ var InternalPushService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _InternalPushService_PushToBot_Handler,
 		},
 		{
-			MethodName: "StreamToConv",
-			Handler:    _InternalPushService_StreamToConv_Handler,
+			MethodName: "PushToConv",
+			Handler:    _InternalPushService_PushToConv_Handler,
 		},
 		{
-			MethodName: "StreamToUser",
-			Handler:    _InternalPushService_StreamToUser_Handler,
+			MethodName: "PushToUser",
+			Handler:    _InternalPushService_PushToUser_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

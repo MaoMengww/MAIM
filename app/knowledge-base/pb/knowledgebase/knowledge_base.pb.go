@@ -532,7 +532,6 @@ func (x *ListKBsRsp) GetTotal() int64 {
 
 type PipelineConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Preset        string                 `protobuf:"bytes,1,opt,name=preset,proto3" json:"preset,omitempty"` // "general" | "tech_doc" | "legal" | "customer_service" | "academic" | "custom"
 	Parsing       *ParsingConfig         `protobuf:"bytes,2,opt,name=parsing,proto3" json:"parsing,omitempty"`
 	Chunking      *ChunkingConfig        `protobuf:"bytes,3,opt,name=chunking,proto3" json:"chunking,omitempty"`
 	Retrieval     *RetrievalConfig       `protobuf:"bytes,4,opt,name=retrieval,proto3" json:"retrieval,omitempty"`
@@ -569,13 +568,6 @@ func (x *PipelineConfig) ProtoReflect() protoreflect.Message {
 // Deprecated: Use PipelineConfig.ProtoReflect.Descriptor instead.
 func (*PipelineConfig) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *PipelineConfig) GetPreset() string {
-	if x != nil {
-		return x.Preset
-	}
-	return ""
 }
 
 func (x *PipelineConfig) GetParsing() *ParsingConfig {
@@ -5387,9 +5379,8 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\n" +
 	"ListKBsRsp\x12*\n" +
 	"\x05items\x18\x01 \x03(\v2\x14.knowledgebase.KBRspR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\x88\x02\n" +
-	"\x0ePipelineConfig\x12\x16\n" +
-	"\x06preset\x18\x01 \x01(\tR\x06preset\x126\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xf0\x01\n" +
+	"\x0ePipelineConfig\x126\n" +
 	"\aparsing\x18\x02 \x01(\v2\x1c.knowledgebase.ParsingConfigR\aparsing\x129\n" +
 	"\bchunking\x18\x03 \x01(\v2\x1d.knowledgebase.ChunkingConfigR\bchunking\x12<\n" +
 	"\tretrieval\x18\x04 \x01(\v2\x1e.knowledgebase.RetrievalConfigR\tretrieval\x12-\n" +

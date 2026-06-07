@@ -2,10 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/maomeng/aim/app/ai-bot-service/internal/client"
 	"github.com/maomeng/aim/app/ai-bot-service/internal/convtool"
@@ -58,7 +58,31 @@ func (s *ConversationToolServer) getLLMInput(ctx context.Context, userID, convID
 	}, nil
 }
 
+// pushAsyncResult pushes an async operation result to a user via ws-gateway.
+func (s *ConversationToolServer) pushAsyncResult(userID int64, eventType string, data map[string]any) {
+	wsClient := client.NewWsGatewayClient(s.svcCtx.WsGatewayConn)
+	msg := map[string]any{
+		"type": eventType,
+	}
+	for k, v := range data {
+		msg[k] = v
+	}
+	b, err := json.Marshal(msg)
+	if err != nil {
+		s.svcCtx.Logger.Errorf("pushAsyncResult marshal failed: type=%s err=%v", eventType, err)
+		return
+	}
+	if err := wsClient.PushToUser(context.Background(), userID, b); err != nil {
+		s.svcCtx.Logger.Errorf("pushAsyncResult push failed: type=%s user=%d err=%v", eventType, userID, err)
+	}
+}
+
+// SummarizeConversation summarizes a conversation asynchronously.
+// It validates the request and returns immediately with status "processing".
+// The actual LLM call and persistence run in a background goroutine.
+// When done, the result is pushed to the user via WebSocket (type: conv.summarize.done).
 func (s *ConversationToolServer) SummarizeConversation(ctx context.Context, req *aibot.SummarizeReq) (*aibot.SummarizeResp, error) {
+	// Fast validation
 	input, err := s.getLLMInput(ctx, req.UserId, req.ConvId)
 	if err != nil {
 		return nil, err
@@ -82,7 +106,7 @@ func (s *ConversationToolServer) SummarizeConversation(ctx context.Context, req 
 		return nil, errors.New(errors.CodeInvalidParam, "没有可总结的消息")
 	}
 
-	// Reverse to chronological order
+	// Build messages in chronological order (reversed from GetAllMessages)
 	msgs := make([]convtool.Message, len(allMsgs))
 	for i, m := range allMsgs {
 		msgs[len(allMsgs)-1-i] = convtool.Message{
@@ -94,67 +118,74 @@ func (s *ConversationToolServer) SummarizeConversation(ctx context.Context, req 
 		}
 	}
 
-	// Handle time range filtering
-	if tr, ok := req.Range.(*aibot.SummarizeReq_TimeRange); ok {
-		startTime := tr.TimeRange.StartTime
-		endTime := tr.TimeRange.EndTime
-		if endTime == 0 {
-			endTime = time.Now().Unix()
-		}
-		_ = startTime
-		_ = endTime
-		// Time-based filtering would require message timestamp - use all messages for now
-	}
-
 	messageText := convtool.BuildMessageText(msgs)
-	result, err := convtool.Summarize(ctx, input, messageText, len(msgs))
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "总结失败", err)
-	}
+	totalCount := len(msgs)
 
-	// Persist summary
-	summaryRepo := repo.NewConvSummaryRepo(s.svcCtx.DB)
-	summary := &repo.ConvSummary{
-		ConvID:       req.ConvId,
-		UserID:       req.UserId,
-		RangeType:    fmt.Sprintf("count_%d", maxCount),
-		MessageCount: result.TotalMessages,
-		Summary:      result.Summary,
-	}
-	if err := summaryRepo.Create(ctx, summary); err != nil {
-		s.svcCtx.Logger.WithContext(ctx).Errorf("save summary failed: %v", err)
-	}
+	// Spawn async processing
+	go func() {
+		bgCtx := context.Background()
+		result, llmErr := convtool.Summarize(bgCtx, input, messageText, totalCount)
+		if llmErr != nil {
+			s.svcCtx.Logger.Errorf("async summarize failed: conv=%d user=%d err=%v", req.ConvId, req.UserId, llmErr)
+			s.pushAsyncResult(req.UserId, "conv.summarize.failed", map[string]any{
+				"conv_id": strconv.FormatInt(req.ConvId, 10),
+				"error":   llmErr.Error(),
+			})
+			return
+		}
 
-	// Persist todos
-	todoRepo := repo.NewSummaryTodoRepo(s.svcCtx.DB)
-	pbTodos := make([]*aibot.TodoItem, 0, len(result.Todos))
-	for _, todoText := range result.Todos {
-		t := &repo.SummaryTodo{
-			SummaryID: summary.ID,
-			ConvID:    req.ConvId,
-			Content:   todoText,
+		// Persist summary
+		summaryRepo := repo.NewConvSummaryRepo(s.svcCtx.DB)
+		summary := &repo.ConvSummary{
+			ConvID:       req.ConvId,
+			UserID:       req.UserId,
+			RangeType:    fmt.Sprintf("count_%d", maxCount),
+			MessageCount: result.TotalMessages,
+			Summary:      result.Summary,
 		}
-		if err := todoRepo.Create(ctx, t); err != nil {
-			s.svcCtx.Logger.WithContext(ctx).Errorf("save todo failed: %v", err)
-			continue
+		if err := summaryRepo.Create(bgCtx, summary); err != nil {
+			s.svcCtx.Logger.Errorf("async save summary failed: %v", err)
 		}
-		pbTodos = append(pbTodos, &aibot.TodoItem{
-			Id:        t.ID,
-			SummaryId: t.SummaryID,
-			ConvId:    t.ConvID,
-			Content:   t.Content,
-			Done:      t.Done,
-			CreatedAt: t.CreatedAt.Unix(),
-			UpdatedAt: t.UpdatedAt.Unix(),
+
+		// Persist todos
+		todoRepo := repo.NewSummaryTodoRepo(s.svcCtx.DB)
+		var pbTodos []map[string]any
+		for _, todoText := range result.Todos {
+			t := &repo.SummaryTodo{
+				SummaryID: summary.ID,
+				ConvID:    req.ConvId,
+				Content:   todoText,
+			}
+			if err := todoRepo.Create(bgCtx, t); err != nil {
+				s.svcCtx.Logger.Errorf("async save todo failed: %v", err)
+				continue
+			}
+			pbTodos = append(pbTodos, map[string]any{
+				"id":         strconv.FormatInt(t.ID, 10),
+				"summary_id": strconv.FormatInt(t.SummaryID, 10),
+				"conv_id":    strconv.FormatInt(t.ConvID, 10),
+				"content":    t.Content,
+				"done":       t.Done,
+				"created_at": t.CreatedAt.Unix(),
+			})
+		}
+
+		// Push result via WebSocket
+		s.pushAsyncResult(req.UserId, "conv.summarize.done", map[string]any{
+			"conv_id":        strconv.FormatInt(req.ConvId, 10),
+			"summary_id":     strconv.FormatInt(summary.ID, 10),
+			"summary":        result.Summary,
+			"todos":          pbTodos,
+			"total_messages": result.TotalMessages,
+			"created_at":     summary.CreatedAt.Unix(),
 		})
-	}
+
+		s.svcCtx.Logger.Infof("async summarize done: conv=%d user=%d summary_id=%d todos=%d",
+			req.ConvId, req.UserId, summary.ID, len(pbTodos))
+	}()
 
 	return &aibot.SummarizeResp{
-		SummaryId:     summary.ID,
-		Summary:       result.Summary,
-		Todos:         pbTodos,
-		TotalMessages: int32(result.TotalMessages),
-		CreatedAt:     summary.CreatedAt.Unix(),
+		Status: "processing",
 	}, nil
 }
 
@@ -187,6 +218,7 @@ func (s *ConversationToolServer) GetConvSummaries(ctx context.Context, req *aibo
 			Todos:         pbTodos,
 			TotalMessages: int32(s.MessageCount),
 			CreatedAt:     s.CreatedAt.Unix(),
+			Status:        "completed",
 		})
 	}
 	return &aibot.GetConvSummariesResp{Items: items}, nil
@@ -229,6 +261,9 @@ func (s *ConversationToolServer) DeleteTodo(ctx context.Context, req *aibot.Dele
 	return &emptypb.Empty{}, nil
 }
 
+// GenerateReplyCandidates generates reply suggestions asynchronously.
+// The LLM call runs in a background goroutine and pushes the complete result
+// via WebSocket (type: conv.reply_candidates.done).
 func (s *ConversationToolServer) GenerateReplyCandidates(ctx context.Context, req *aibot.ReplyCandidatesReq) (*aibot.ReplyCandidatesResp, error) {
 	input, err := s.getLLMInput(ctx, req.UserId, req.ConvId)
 	if err != nil {
@@ -245,15 +280,37 @@ func (s *ConversationToolServer) GenerateReplyCandidates(ctx context.Context, re
 	for _, m := range msgs {
 		b.WriteString(fmt.Sprintf("[user_%d]: %s\n", m.SenderID, m.Content))
 	}
+	contextText := b.String()
 
-	candidates, err := convtool.GenerateReplyCandidates(ctx, input, b.String())
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "生成回复候选失败", err)
-	}
+	go func() {
+		bgCtx := context.Background()
+		candidates, llmErr := convtool.GenerateReplyCandidates(bgCtx, input, contextText)
+		if llmErr != nil {
+			s.svcCtx.Logger.Errorf("async reply candidates failed: conv=%d user=%d err=%v", req.ConvId, req.UserId, llmErr)
+			s.pushAsyncResult(req.UserId, "conv.reply_candidates.failed", map[string]any{
+				"conv_id": strconv.FormatInt(req.ConvId, 10),
+				"error":   llmErr.Error(),
+			})
+			return
+		}
 
-	return &aibot.ReplyCandidatesResp{Candidates: candidates}, nil
+		s.pushAsyncResult(req.UserId, "conv.reply_candidates.done", map[string]any{
+			"conv_id":    strconv.FormatInt(req.ConvId, 10),
+			"candidates": candidates,
+		})
+
+		s.svcCtx.Logger.Infof("async reply candidates done: conv=%d user=%d count=%d",
+			req.ConvId, req.UserId, len(candidates))
+	}()
+
+	return &aibot.ReplyCandidatesResp{
+		Status: "processing",
+	}, nil
 }
 
+// TranslateMessage translates text asynchronously.
+// It returns immediately with status "processing". The actual LLM call runs in a
+// background goroutine and pushes the result via WebSocket (type: conv.translate.done).
 func (s *ConversationToolServer) TranslateMessage(ctx context.Context, req *aibot.TranslateMessageReq) (*aibot.TranslateMessageResp, error) {
 	userID := s.getUserID(ctx)
 	input, err := s.getLLMInput(ctx, userID, 0)
@@ -261,13 +318,33 @@ func (s *ConversationToolServer) TranslateMessage(ctx context.Context, req *aibo
 		return nil, err
 	}
 
-	result, err := convtool.Translate(ctx, input, req.Text, req.TargetLang)
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "翻译失败", err)
-	}
+	text := req.Text
+	targetLang := req.TargetLang
+	msgID := req.MsgId
+
+	// Spawn async processing
+	go func() {
+		bgCtx := context.Background()
+		result, llmErr := convtool.Translate(bgCtx, input, text, targetLang)
+		if llmErr != nil {
+			s.svcCtx.Logger.Errorf("async translate failed: user=%d msg=%d err=%v", userID, msgID, llmErr)
+			s.pushAsyncResult(userID, "conv.translate.failed", map[string]any{
+				"msg_id": strconv.FormatInt(msgID, 10),
+				"error":  llmErr.Error(),
+			})
+			return
+		}
+
+		s.pushAsyncResult(userID, "conv.translate.done", map[string]any{
+			"msg_id":          strconv.FormatInt(msgID, 10),
+			"translated_text": result.TranslatedText,
+			"detected_lang":   result.DetectedLang,
+		})
+
+		s.svcCtx.Logger.Infof("async translate done: user=%d msg=%d target=%s", userID, msgID, targetLang)
+	}()
 
 	return &aibot.TranslateMessageResp{
-		TranslatedText: result.TranslatedText,
-		DetectedLang:   result.DetectedLang,
+		Status: "processing",
 	}, nil
 }

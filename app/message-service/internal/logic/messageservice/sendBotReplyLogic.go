@@ -40,7 +40,10 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		return nil, ErrBotNotInConversation
 	}
 
-	msgID := l.svcCtx.Snowflake.Generate()
+	msgID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeInternal, "generate msg id failed", err)
+	}
 	now := time.Now()
 	content := extractBotContent(in)
 
@@ -90,6 +93,7 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		"reply_to_msg_id": in.GetReplyToId(),
 		"created_at":      now.Unix(),
 		"sender_name":     botName,
+		"preview_text":    extractTextPreview(int32(model.MsgTypeBot), model.JSONContent{"text": in.Text}),
 	}
 	if replyToID := in.GetReplyToId(); replyToID != 0 {
 		payload["reply_to"] = buildReplyToMap(l.ctx, l.svcCtx, replyToID)

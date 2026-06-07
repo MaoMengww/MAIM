@@ -32,33 +32,50 @@ func (p *WikiLintPipeline) Lint(ctx context.Context, kbID int64) ([]domain.WikiP
 
 	for _, page := range pages {
 		if len([]rune(page.Content)) < 50 {
-			issues = append(issues, p.makeIssue(kbID, page.Slug,
+			issue, err := p.makeIssue(kbID, page.Slug,
 				"low_quality", domain.WikiIssueInfo,
-				"内容过短", "页面内容不足 50 字，建议更新"))
+				"内容过短", "页面内容不足 50 字，建议更新")
+			if err != nil {
+				return nil, err
+			}
+			issues = append(issues, issue)
 		}
 		links := extractWikiLinks(page.Content)
 		for _, link := range links {
 			if _, err := p.WikiRepo.GetBySlug(ctx, kbID, link); err != nil {
-				issues = append(issues, p.makeIssue(kbID, page.Slug,
+				issue, err := p.makeIssue(kbID, page.Slug,
 					"missing_ref", domain.WikiIssueWarning,
-					"引用缺失", fmt.Sprintf("页面引用了 [[%s]] 但不存在", link)))
+					"引用缺失", fmt.Sprintf("页面引用了 [[%s]] 但不存在", link))
+				if err != nil {
+					return nil, err
+				}
+				issues = append(issues, issue)
 			}
 		}
 		if time.Since(page.UpdatedAt) > 7*24*time.Hour {
-			issues = append(issues, p.makeIssue(kbID, page.Slug,
+			issue, err := p.makeIssue(kbID, page.Slug,
 				"stale", domain.WikiIssueWarning,
-				"内容可能过期", "页面超过 7 天未更新"))
+				"内容可能过期", "页面超过 7 天未更新")
+			if err != nil {
+				return nil, err
+			}
+			issues = append(issues, issue)
 		}
 	}
 	return issues, nil
 }
 
-func (p *WikiLintPipeline) makeIssue(kbID int64, slug, issueType string, level domain.WikiIssueLevel, title, desc string) domain.WikiPageIssue {
+
+func (p *WikiLintPipeline) makeIssue(kbID int64, slug, issueType string, level domain.WikiIssueLevel, title, desc string) (domain.WikiPageIssue, error) {
+	id, err := p.Snowflake.Generate()
+	if err != nil {
+		return domain.WikiPageIssue{}, fmt.Errorf("generate issue id failed: %w", err)
+	}
 	return domain.WikiPageIssue{
-		ID: p.Snowflake.Generate(), KnowledgeBaseID: kbID,
+		ID: id, KnowledgeBaseID: kbID,
 		PageSlug: slug, IssueType: issueType, Level: level,
 		Title: title, Description: desc, Status: "open",
-	}
+	}, nil
 }
 
 var linkRegex = regexp.MustCompile(`\[\[([^\[\]]+)\]\]`)

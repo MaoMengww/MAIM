@@ -2,6 +2,7 @@ package conversationservice
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/maomeng/aim/app/conversation-service/internal/model"
 	"github.com/maomeng/aim/app/conversation-service/internal/svc"
@@ -21,8 +22,12 @@ func NewUpdateSettingsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Up
 }
 
 func (l *UpdateSettingsLogic) UpdateSettings(in *conversation.UpdateSettingsReq) (*common.BaseResponse, error) {
+	settingsID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate settings id failed: %w", err)
+	}
 	s := &model.ConvSettings{
-		ID:     l.svcCtx.Snowflake.Generate(),
+		ID:     settingsID,
 		ConvID: in.ConversationId,
 		UserID: in.UserId,
 	}

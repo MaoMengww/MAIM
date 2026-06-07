@@ -1,0 +1,55 @@
+Name: ws-gateway
+ListenOn: 0.0.0.0:50060
+Host: 0.0.0.0
+Port: 50060
+
+Etcd:
+  Hosts:
+    - localhost:2379
+  Key: ws-gateway.rpc
+
+WebSocket:
+  Host: 0.0.0.0
+  Port: 8081
+  ReadBufferSize: 4096
+  WriteBufferSize: 4096
+  HeartbeatInterval: 30
+  MaxConn: 10000
+
+JWT:
+  Secret: aim-dev-secret-key
+  ExpireSec: 7200
+  RefreshSec: 604800
+
+BotPlatform:
+  Etcd:
+    Hosts:
+      - localhost:2379
+    Key: bot-platform.rpc
+  NonBlock: true
+
+MessageService:
+  Etcd:
+    Hosts:
+      - localhost:2379
+    Key: message.rpc
+  NonBlock: true
+
+Redis:
+  Host: localhost:6379
+  Password: ""
+  DB: 0
+  PoolSize: 100
+  MinIdleConn: 10
+
+Metrics:
+  Port: 9110
+
+Log:
+  Level: info
+  Format: text
+
+Telemetry:
+  Name: ws-gateway
+  Endpoint: localhost:4317
+  Sampler: 1.0

@@ -191,8 +191,12 @@ func (p *WikiIngestPipeline) Start(ctx context.Context, kbID int64, docIDs []int
 				logger.Errorf("reduceMerge entity %s failed: %v", slug, err)
 			}
 		} else {
-			pages = append(pages, &domain.WikiPage{
-				ID: p.Snowflake.Generate(), KnowledgeBaseID: kbID,
+			pageID, err := p.Snowflake.Generate()
+				if err != nil {
+					return fmt.Errorf("generate page id failed: %w", err)
+				}
+				pages = append(pages, &domain.WikiPage{
+				ID: pageID, KnowledgeBaseID: kbID,
 				Slug: slug, Title: ent.Name,
 				PageType: domain.WikiPageEntity, Status: domain.WikiPagePublished,
 				Content: ent.Description, Aliases: toRawJSON(ent.Aliases),
@@ -210,8 +214,12 @@ func (p *WikiIngestPipeline) Start(ctx context.Context, kbID int64, docIDs []int
 				logger.Errorf("reduceMerge concept %s failed: %v", slug, err)
 			}
 		} else {
+			pageID, err := p.Snowflake.Generate()
+			if err != nil {
+				return fmt.Errorf("generate page id failed: %w", err)
+			}
 			pages = append(pages, &domain.WikiPage{
-				ID: p.Snowflake.Generate(), KnowledgeBaseID: kbID,
+				ID: pageID, KnowledgeBaseID: kbID,
 				Slug: slug, Title: cpt.Name,
 				PageType: domain.WikiPageConcept, Status: domain.WikiPagePublished,
 				Content: cpt.Description, Aliases: toRawJSON(cpt.Aliases),
@@ -233,8 +241,12 @@ func (p *WikiIngestPipeline) Start(ctx context.Context, kbID int64, docIDs []int
 		}
 		s := truncate(summary, 200)
 		slug := "summary/doc-" + slugify(doc.Title)
-		pages = append(pages, &domain.WikiPage{
-			ID: p.Snowflake.Generate(), KnowledgeBaseID: kbID,
+		pageID, err := p.Snowflake.Generate()
+			if err != nil {
+				return fmt.Errorf("generate page id failed: %w", err)
+			}
+			pages = append(pages, &domain.WikiPage{
+			ID: pageID, KnowledgeBaseID: kbID,
 			Slug: slug, Title: doc.Title + " 摘要",
 			PageType: domain.WikiPageSummary, Status: domain.WikiPagePublished,
 			Content: summary, Summary: s,
@@ -258,8 +270,12 @@ func (p *WikiIngestPipeline) Start(ctx context.Context, kbID int64, docIDs []int
 		if title == "" {
 			title = kb.Name + " 综合论述"
 		}
+		pageID, err := p.Snowflake.Generate()
+		if err != nil {
+			return fmt.Errorf("generate page id failed: %w", err)
+		}
 		pages = append(pages, &domain.WikiPage{
-			ID: p.Snowflake.Generate(), KnowledgeBaseID: kbID,
+			ID: pageID, KnowledgeBaseID: kbID,
 			Slug: slug, Title: title,
 			PageType: domain.WikiPageSynthesis, Status: domain.WikiPagePublished,
 			Content:    item.Content,
@@ -278,8 +294,12 @@ func (p *WikiIngestPipeline) Start(ctx context.Context, kbID int64, docIDs []int
 		if title == "" {
 			title = kb.Name + " 对比分析"
 		}
+		pageID, err := p.Snowflake.Generate()
+		if err != nil {
+			return fmt.Errorf("generate page id failed: %w", err)
+		}
 		pages = append(pages, &domain.WikiPage{
-			ID: p.Snowflake.Generate(), KnowledgeBaseID: kbID,
+			ID: pageID, KnowledgeBaseID: kbID,
 			Slug: slug, Title: title,
 			PageType: domain.WikiPageComparison, Status: domain.WikiPagePublished,
 			Content:    item.Content,
@@ -582,8 +602,13 @@ func (p *WikiIngestPipeline) updateIndexPage(ctx context.Context, kbID int64) {
 		}
 		sb.WriteString("\n")
 	}
+	pageID, err := p.Snowflake.Generate()
+	if err != nil {
+		p.Logger.Error("generate index page id failed: %v", err)
+		return
+	}
 	p.WikiRepo.Upsert(ctx, &domain.WikiPage{
-		ID: p.Snowflake.Generate(), KnowledgeBaseID: kbID,
+		ID: pageID, KnowledgeBaseID: kbID,
 		Slug: "index", Title: "知识库索引",
 		PageType: domain.WikiPageIndex, Status: domain.WikiPagePublished,
 		Content: sb.String(), Version: 1,
@@ -607,17 +632,26 @@ func (w *LogWriter) Write(ctx context.Context, kbID int64, action, detail string
 	// Check threshold: count entries (### 开头)
 	if strings.Count(content, "\n### ") >= logMaxEntries {
 		archiveSlug := "log-" + time.Now().Format("2006-01-02")
-		_ = w.WikiRepo.Upsert(ctx, &domain.WikiPage{
-			ID: w.Snowflake.Generate(), KnowledgeBaseID: kbID,
-			Slug: archiveSlug, Title: "变更日志 " + time.Now().Format("2006-01-02"),
-			PageType: domain.WikiPageLog, Status: domain.WikiPagePublished,
-			Content: content, Version: 1,
-		})
+		entryID, err := w.Snowflake.Generate()
+		if err != nil {
+			// skip archive on id generation failure
+		} else {
+			_ = w.WikiRepo.Upsert(ctx, &domain.WikiPage{
+				ID: entryID, KnowledgeBaseID: kbID,
+				Slug: archiveSlug, Title: "变更日志 " + time.Now().Format("2006-01-02"),
+				PageType: domain.WikiPageLog, Status: domain.WikiPagePublished,
+				Content: content, Version: 1,
+			})
+		}
 		content = ""
 	}
 	entry := fmt.Sprintf("### %s\n\n**%s**: %s\n\n", time.Now().Format("2006-01-02 15:04:05"), action, detail)
+	entryID, err := w.Snowflake.Generate()
+	if err != nil {
+		return fmt.Errorf("generate log entry id failed: %w", err)
+	}
 	if err := w.WikiRepo.Upsert(ctx, &domain.WikiPage{
-		ID: w.Snowflake.Generate(), KnowledgeBaseID: kbID,
+		ID: entryID, KnowledgeBaseID: kbID,
 		Slug: "log", Title: "变更日志",
 		PageType: domain.WikiPageLog, Status: domain.WikiPagePublished,
 		Content: entry + content, Version: 1,

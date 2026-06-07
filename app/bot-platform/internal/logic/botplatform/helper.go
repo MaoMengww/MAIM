@@ -96,6 +96,7 @@ func modelBotToProto(b *model.Bot) *pb.Bot {
 		HasWebhookSecret:       b.WebhookSecret != "",
 		HasAppSecret:           b.AppSecretHash != "",
 		BotTags:                b.BotTags,
+		ResponseTriggers:       b.ResponseTriggers,
 		Capabilities:           string(b.Capabilities),
 		Settings:               string(b.Settings),
 		CreatedAt:              b.CreatedAt.Unix(),

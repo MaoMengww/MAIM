@@ -107,7 +107,11 @@ func walkAndConvertWithKey(v any, key string) any {
 	case []any:
 		result := make([]any, len(val))
 		for i, elem := range val {
-			result[i] = walkAndConvert(elem)
+			if isIDKey(key) {
+				result[i] = walkAndConvertWithKey(elem, key)
+			} else {
+				result[i] = walkAndConvert(elem)
+			}
 		}
 		return result
 	default:
@@ -116,5 +120,5 @@ func walkAndConvertWithKey(v any, key string) any {
 }
 
 func isIDKey(key string) bool {
-	return key == "id" || strings.HasSuffix(key, "_id") || strings.HasPrefix(key, "id_")
+	return key == "id" || strings.HasSuffix(key, "_id") || strings.HasSuffix(key, "_ids") || strings.HasPrefix(key, "id_")
 }

@@ -54,7 +54,10 @@ func (l *ForwardMessageLogic) ForwardMessage(in *message.ForwardMessageReq) (*me
 				return seqErr
 			}
 
-			newID := l.svcCtx.Snowflake.Generate()
+			newID, err := l.svcCtx.Snowflake.Generate()
+				if err != nil {
+					return errors.Wrap(errors.CodeInternal, "generate msg id failed", err)
+				}
 			newMsg := &model.Message{
 				ID:           newID,
 				ConvID:       in.TargetConversationId,

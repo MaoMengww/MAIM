@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"fmt"
 	"context"
 	"time"
 
@@ -30,7 +31,10 @@ func (l *GetUploadURLLogic) GetUploadURL(in *filepb.GetUploadURLReq) (*filepb.Ge
 		return nil, ErrInvalidParam
 	}
 
-	fileID := l.svcCtx.Snowflake.Generate()
+	fileID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate file id failed: %w", err)
+	}
 	ext := extFromName(in.GetName())
 	key := formatObjectKey(fileID, ext)
 

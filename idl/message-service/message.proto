@@ -305,9 +305,16 @@ message SearchMessagesReq {
   common.Pagination pagination = 10;
 }
 
+message TypeCount {
+  int32 msg_type = 1;
+  int64 count = 2;
+}
+
 message SearchMessagesResp {
   repeated Message messages = 1;
   common.PaginationResp pagination = 2;
+  map<string, string> highlights = 3;
+  repeated TypeCount type_counts = 4;
 }
 
 // ========== Broadcast ==========

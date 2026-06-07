@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package push;
+
+option go_package = "github.com/maomeng/aim/pkg/pb/push";
+
+service InternalPushService {
+  rpc PushToUsers(PushToUsersReq) returns (PushToUsersResp);
+  rpc PushToBot(PushToBotReq) returns (PushToBotResp);
+
+  rpc PushToConv(PushToConvReq) returns (PushToConvResp);
+  rpc PushToUser(PushToUserReq) returns (PushToUserResp);
+}
+
+message PushToUsersReq {
+  repeated int64 user_ids = 1;
+  bytes message = 2;
+}
+
+message PushToUsersResp {}
+
+message PushToBotReq {
+  int64 bot_id = 1;
+  bytes message = 2;
+}
+
+message PushToBotResp {}
+
+message PushToConvReq {
+  int64 conv_id = 1;
+  bytes message = 2;
+}
+
+message PushToConvResp {}
+
+message PushToUserReq {
+  int64 user_id = 1;
+  bytes message = 2;
+}
+
+message PushToUserResp {}

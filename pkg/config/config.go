@@ -58,12 +58,13 @@ type EtcdConfig struct {
 }
 
 type MinIOConfig struct {
-	Endpoint  string `json:"Endpoint"            yaml:"Endpoint"`
-	AccessKey string `json:"AccessKey"           yaml:"AccessKey"`
-	SecretKey string `json:"SecretKey"           yaml:"SecretKey"`
-	UseSSL    bool   `json:",optional"        yaml:"UseSSL"`
-	Bucket    string `json:",default=aim"     yaml:"Bucket"`
-	Region    string `json:",optional"        yaml:"Region"`
+	Endpoint       string `json:"Endpoint"            yaml:"Endpoint"`
+	PublicEndpoint string `json:",optional"        yaml:"PublicEndpoint"`
+	AccessKey      string `json:"AccessKey"           yaml:"AccessKey"`
+	SecretKey      string `json:"SecretKey"           yaml:"SecretKey"`
+	UseSSL         bool   `json:",optional"        yaml:"UseSSL"`
+	Bucket         string `json:",default=aim"     yaml:"Bucket"`
+	Region         string `json:",optional"        yaml:"Region"`
 }
 
 type JWTConfig struct {

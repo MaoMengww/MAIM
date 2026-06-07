@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"fmt"
 	"context"
 
 	"github.com/maomeng/aim/app/audit-service/internal/model"
@@ -28,7 +29,10 @@ func NewRecordAuditLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Recor
 func (l *RecordAuditLogic) RecordAudit(in *audit.RecordAuditReq) (*common.BaseResponse, error) {
 	logger := l.WithContext(l.ctx)
 
-	eventID := l.svcCtx.Snowflake.GenerateString()
+	eventID, err := l.svcCtx.Snowflake.GenerateString()
+	if err != nil {
+		return nil, fmt.Errorf("generate audit event id failed: %w", err)
+	}
 
 	event := &model.AuditEvent{
 		EventID:        eventID,

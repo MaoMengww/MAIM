@@ -108,6 +108,11 @@ func (l *CreateBotLogic) CreateBot(in *botplatform.CreateBotReq) (*botplatform.B
 		SubType:                subType,
 		TemplateID:             in.TemplateId,
 		BotTags:                in.BotTags,
+		ResponseTriggers:       in.ResponseTriggers,
+	}
+
+	if len(bot.ResponseTriggers) == 0 {
+		bot.ResponseTriggers = []string{"mention"}
 	}
 
 	if in.Capabilities != "" {

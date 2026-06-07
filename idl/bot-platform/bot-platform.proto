@@ -109,6 +109,9 @@ message Bot {
   string template_id = 53;  // "qa" | "knowledge" (official only)
   string sub_type = 54;     // "webhook" | "ws" (third_party only)
 
+  // Trigger config
+  repeated string response_triggers = 55;  // "always" | "mention" | "keyword:xxx"
+
   int64 created_at = 50;
   int64 updated_at = 51;
 }
@@ -150,6 +153,8 @@ message CreateBotReq {
   int64 model_id = 43;
   string template_id = 44;
   string sub_type = 45;
+
+  repeated string response_triggers = 46;  // "always" | "mention" | "keyword:xxx"
 }
 
 // ========== Update Bot ==========
@@ -188,6 +193,8 @@ message UpdateBotReq {
   int64 model_id = 43;
   string template_id = 44;
   string sub_type = 45;
+
+  repeated string response_triggers = 46;  // "always" | "mention" | "keyword:xxx"
 }
 
 // ========== Delete Bot ==========

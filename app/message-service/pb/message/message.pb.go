@@ -2400,18 +2400,62 @@ func (x *SearchMessagesReq) GetPagination() *common.Pagination {
 }
 
 type TypeCount struct {
-	MsgType int32 `json:"msg_type,omitempty"`
-	Count   int64 `json:"count,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MsgType       int32                  `protobuf:"varint,1,opt,name=msg_type,json=msgType,proto3" json:"msg_type,omitempty"`
+	Count         int64                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TypeCount) GetMsgType() int32 { return x.MsgType }
-func (x *TypeCount) GetCount() int64   { return x.Count }
+func (x *TypeCount) Reset() {
+	*x = TypeCount{}
+	mi := &file_message_service_message_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TypeCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TypeCount) ProtoMessage() {}
+
+func (x *TypeCount) ProtoReflect() protoreflect.Message {
+	mi := &file_message_service_message_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TypeCount.ProtoReflect.Descriptor instead.
+func (*TypeCount) Descriptor() ([]byte, []int) {
+	return file_message_service_message_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *TypeCount) GetMsgType() int32 {
+	if x != nil {
+		return x.MsgType
+	}
+	return 0
+}
+
+func (x *TypeCount) GetCount() int64 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
 
 type SearchMessagesResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Messages      []*Message             `protobuf:"bytes,1,rep,name=messages,proto3" json:"messages,omitempty"`
 	Pagination    *common.PaginationResp `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
-	Highlights    map[string]string      `protobuf:"bytes,3,rep,name=highlights,proto3" json:"highlights,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	Highlights    map[string]string      `protobuf:"bytes,3,rep,name=highlights,proto3" json:"highlights,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	TypeCounts    []*TypeCount           `protobuf:"bytes,4,rep,name=type_counts,json=typeCounts,proto3" json:"type_counts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2419,7 +2463,7 @@ type SearchMessagesResp struct {
 
 func (x *SearchMessagesResp) Reset() {
 	*x = SearchMessagesResp{}
-	mi := &file_message_service_message_proto_msgTypes[28]
+	mi := &file_message_service_message_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2431,7 +2475,7 @@ func (x *SearchMessagesResp) String() string {
 func (*SearchMessagesResp) ProtoMessage() {}
 
 func (x *SearchMessagesResp) ProtoReflect() protoreflect.Message {
-	mi := &file_message_service_message_proto_msgTypes[28]
+	mi := &file_message_service_message_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2444,7 +2488,7 @@ func (x *SearchMessagesResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchMessagesResp.ProtoReflect.Descriptor instead.
 func (*SearchMessagesResp) Descriptor() ([]byte, []int) {
-	return file_message_service_message_proto_rawDescGZIP(), []int{28}
+	return file_message_service_message_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SearchMessagesResp) GetMessages() []*Message {
@@ -2487,7 +2531,7 @@ type SendBroadcastReq struct {
 
 func (x *SendBroadcastReq) Reset() {
 	*x = SendBroadcastReq{}
-	mi := &file_message_service_message_proto_msgTypes[29]
+	mi := &file_message_service_message_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2499,7 +2543,7 @@ func (x *SendBroadcastReq) String() string {
 func (*SendBroadcastReq) ProtoMessage() {}
 
 func (x *SendBroadcastReq) ProtoReflect() protoreflect.Message {
-	mi := &file_message_service_message_proto_msgTypes[29]
+	mi := &file_message_service_message_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2512,7 +2556,7 @@ func (x *SendBroadcastReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendBroadcastReq.ProtoReflect.Descriptor instead.
 func (*SendBroadcastReq) Descriptor() ([]byte, []int) {
-	return file_message_service_message_proto_rawDescGZIP(), []int{29}
+	return file_message_service_message_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SendBroadcastReq) GetSenderId() int64 {
@@ -2553,7 +2597,7 @@ type SendBroadcastResp struct {
 
 func (x *SendBroadcastResp) Reset() {
 	*x = SendBroadcastResp{}
-	mi := &file_message_service_message_proto_msgTypes[30]
+	mi := &file_message_service_message_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2565,7 +2609,7 @@ func (x *SendBroadcastResp) String() string {
 func (*SendBroadcastResp) ProtoMessage() {}
 
 func (x *SendBroadcastResp) ProtoReflect() protoreflect.Message {
-	mi := &file_message_service_message_proto_msgTypes[30]
+	mi := &file_message_service_message_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2578,7 +2622,7 @@ func (x *SendBroadcastResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendBroadcastResp.ProtoReflect.Descriptor instead.
 func (*SendBroadcastResp) Descriptor() ([]byte, []int) {
-	return file_message_service_message_proto_rawDescGZIP(), []int{30}
+	return file_message_service_message_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SendBroadcastResp) GetBroadcastId() int64 {
@@ -2608,7 +2652,7 @@ type SendBotReplyReq struct {
 
 func (x *SendBotReplyReq) Reset() {
 	*x = SendBotReplyReq{}
-	mi := &file_message_service_message_proto_msgTypes[31]
+	mi := &file_message_service_message_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2620,7 +2664,7 @@ func (x *SendBotReplyReq) String() string {
 func (*SendBotReplyReq) ProtoMessage() {}
 
 func (x *SendBotReplyReq) ProtoReflect() protoreflect.Message {
-	mi := &file_message_service_message_proto_msgTypes[31]
+	mi := &file_message_service_message_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2633,7 +2677,7 @@ func (x *SendBotReplyReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendBotReplyReq.ProtoReflect.Descriptor instead.
 func (*SendBotReplyReq) Descriptor() ([]byte, []int) {
-	return file_message_service_message_proto_rawDescGZIP(), []int{31}
+	return file_message_service_message_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SendBotReplyReq) GetBotId() int64 {
@@ -2686,7 +2730,7 @@ type SendSystemMessageReq struct {
 
 func (x *SendSystemMessageReq) Reset() {
 	*x = SendSystemMessageReq{}
-	mi := &file_message_service_message_proto_msgTypes[32]
+	mi := &file_message_service_message_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2698,7 +2742,7 @@ func (x *SendSystemMessageReq) String() string {
 func (*SendSystemMessageReq) ProtoMessage() {}
 
 func (x *SendSystemMessageReq) ProtoReflect() protoreflect.Message {
-	mi := &file_message_service_message_proto_msgTypes[32]
+	mi := &file_message_service_message_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2711,7 +2755,7 @@ func (x *SendSystemMessageReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendSystemMessageReq.ProtoReflect.Descriptor instead.
 func (*SendSystemMessageReq) Descriptor() ([]byte, []int) {
-	return file_message_service_message_proto_rawDescGZIP(), []int{32}
+	return file_message_service_message_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SendSystemMessageReq) GetConversationId() int64 {
@@ -2774,7 +2818,7 @@ type SendBotReplyResp struct {
 
 func (x *SendBotReplyResp) Reset() {
 	*x = SendBotReplyResp{}
-	mi := &file_message_service_message_proto_msgTypes[33]
+	mi := &file_message_service_message_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2786,7 +2830,7 @@ func (x *SendBotReplyResp) String() string {
 func (*SendBotReplyResp) ProtoMessage() {}
 
 func (x *SendBotReplyResp) ProtoReflect() protoreflect.Message {
-	mi := &file_message_service_message_proto_msgTypes[33]
+	mi := &file_message_service_message_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2799,7 +2843,7 @@ func (x *SendBotReplyResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendBotReplyResp.ProtoReflect.Descriptor instead.
 func (*SendBotReplyResp) Descriptor() ([]byte, []int) {
-	return file_message_service_message_proto_rawDescGZIP(), []int{33}
+	return file_message_service_message_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SendBotReplyResp) GetMessageId() int64 {
@@ -3039,12 +3083,23 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\v_start_timeB\v\n" +
 	"\t_end_timeB\f\n" +
 	"\n" +
-	"_sender_id\"z\n" +
+	"_sender_id\"<\n" +
+	"\tTypeCount\x12\x19\n" +
+	"\bmsg_type\x18\x01 \x01(\x05R\amsgType\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x03R\x05count\"\xbb\x02\n" +
 	"\x12SearchMessagesResp\x12,\n" +
 	"\bmessages\x18\x01 \x03(\v2\x10.message.MessageR\bmessages\x126\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x16.common.PaginationRespR\n" +
-	"pagination\"\xa0\x01\n" +
+	"pagination\x12K\n" +
+	"\n" +
+	"highlights\x18\x03 \x03(\v2+.message.SearchMessagesResp.HighlightsEntryR\n" +
+	"highlights\x123\n" +
+	"\vtype_counts\x18\x04 \x03(\v2\x12.message.TypeCountR\n" +
+	"typeCounts\x1a=\n" +
+	"\x0fHighlightsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x01\n" +
 	"\x10SendBroadcastReq\x12\x1b\n" +
 	"\tsender_id\x18\x01 \x01(\x03R\bsenderId\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x14\n" +
@@ -3124,7 +3179,7 @@ func file_message_service_message_proto_rawDescGZIP() []byte {
 }
 
 var file_message_service_message_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_message_service_message_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_message_service_message_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_message_service_message_proto_goTypes = []any{
 	(MessageType)(0),                    // 0: message.MessageType
 	(MessageStatus)(0),                  // 1: message.MessageStatus
@@ -3156,17 +3211,19 @@ var file_message_service_message_proto_goTypes = []any{
 	(*ForwardMessageReq)(nil),           // 27: message.ForwardMessageReq
 	(*ForwardMessageResp)(nil),          // 28: message.ForwardMessageResp
 	(*SearchMessagesReq)(nil),           // 29: message.SearchMessagesReq
-	(*SearchMessagesResp)(nil),          // 30: message.SearchMessagesResp
-	(*SendBroadcastReq)(nil),            // 31: message.SendBroadcastReq
-	(*SendBroadcastResp)(nil),           // 32: message.SendBroadcastResp
-	(*SendBotReplyReq)(nil),             // 33: message.SendBotReplyReq
-	(*SendSystemMessageReq)(nil),        // 34: message.SendSystemMessageReq
-	(*SendBotReplyResp)(nil),            // 35: message.SendBotReplyResp
-	(*common.CursorPagination)(nil),     // 36: common.CursorPagination
-	(*common.CursorPaginationResp)(nil), // 37: common.CursorPaginationResp
-	(*common.Pagination)(nil),           // 38: common.Pagination
-	(*common.PaginationResp)(nil),       // 39: common.PaginationResp
-	(*common.BaseResponse)(nil),         // 40: common.BaseResponse
+	(*TypeCount)(nil),                   // 30: message.TypeCount
+	(*SearchMessagesResp)(nil),          // 31: message.SearchMessagesResp
+	(*SendBroadcastReq)(nil),            // 32: message.SendBroadcastReq
+	(*SendBroadcastResp)(nil),           // 33: message.SendBroadcastResp
+	(*SendBotReplyReq)(nil),             // 34: message.SendBotReplyReq
+	(*SendSystemMessageReq)(nil),        // 35: message.SendSystemMessageReq
+	(*SendBotReplyResp)(nil),            // 36: message.SendBotReplyResp
+	nil,                                 // 37: message.SearchMessagesResp.HighlightsEntry
+	(*common.CursorPagination)(nil),     // 38: common.CursorPagination
+	(*common.CursorPaginationResp)(nil), // 39: common.CursorPaginationResp
+	(*common.Pagination)(nil),           // 40: common.Pagination
+	(*common.PaginationResp)(nil),       // 41: common.PaginationResp
+	(*common.BaseResponse)(nil),         // 42: common.BaseResponse
 }
 var file_message_service_message_proto_depIdxs = []int32{
 	0,  // 0: message.ReplyMessageSummary.type:type_name -> message.MessageType
@@ -3191,50 +3248,52 @@ var file_message_service_message_proto_depIdxs = []int32{
 	8,  // 19: message.SendMessageReq.location:type_name -> message.LocationContent
 	11, // 20: message.SendMessageReq.custom:type_name -> message.CustomContent
 	3,  // 21: message.EditMessageReq.text:type_name -> message.TextContent
-	36, // 22: message.GetMessagesReq.pagination:type_name -> common.CursorPagination
+	38, // 22: message.GetMessagesReq.pagination:type_name -> common.CursorPagination
 	0,  // 23: message.GetMessagesReq.filter_types:type_name -> message.MessageType
 	12, // 24: message.GetMessagesResp.messages:type_name -> message.Message
-	37, // 25: message.GetMessagesResp.pagination:type_name -> common.CursorPaginationResp
+	39, // 25: message.GetMessagesResp.pagination:type_name -> common.CursorPaginationResp
 	12, // 26: message.SyncMessagesResp.messages:type_name -> message.Message
 	12, // 27: message.GetMessageByIDResp.message:type_name -> message.Message
 	12, // 28: message.BatchGetMessagesResp.messages:type_name -> message.Message
 	0,  // 29: message.SearchMessagesReq.message_types:type_name -> message.MessageType
-	38, // 30: message.SearchMessagesReq.pagination:type_name -> common.Pagination
+	40, // 30: message.SearchMessagesReq.pagination:type_name -> common.Pagination
 	12, // 31: message.SearchMessagesResp.messages:type_name -> message.Message
-	39, // 32: message.SearchMessagesResp.pagination:type_name -> common.PaginationResp
-	13, // 33: message.MessageService.SendMessage:input_type -> message.SendMessageReq
-	15, // 34: message.MessageService.RecallMessage:input_type -> message.RecallMessageReq
-	16, // 35: message.MessageService.EditMessage:input_type -> message.EditMessageReq
-	17, // 36: message.MessageService.DeleteMessage:input_type -> message.DeleteMessageReq
-	18, // 37: message.MessageService.GetMessages:input_type -> message.GetMessagesReq
-	21, // 38: message.MessageService.SyncMessages:input_type -> message.SyncMessagesReq
-	23, // 39: message.MessageService.GetMessageByID:input_type -> message.GetMessageByIDReq
-	25, // 40: message.MessageService.BatchGetMessages:input_type -> message.BatchGetMessagesReq
-	20, // 41: message.MessageService.GetAroundSeq:input_type -> message.GetAroundSeqReq
-	29, // 42: message.MessageService.SearchMessages:input_type -> message.SearchMessagesReq
-	27, // 43: message.MessageService.ForwardMessage:input_type -> message.ForwardMessageReq
-	31, // 44: message.MessageService.SendBroadcast:input_type -> message.SendBroadcastReq
-	33, // 45: message.MessageService.SendBotReply:input_type -> message.SendBotReplyReq
-	34, // 46: message.MessageService.SendSystemMessage:input_type -> message.SendSystemMessageReq
-	14, // 47: message.MessageService.SendMessage:output_type -> message.SendMessageResp
-	40, // 48: message.MessageService.RecallMessage:output_type -> common.BaseResponse
-	40, // 49: message.MessageService.EditMessage:output_type -> common.BaseResponse
-	40, // 50: message.MessageService.DeleteMessage:output_type -> common.BaseResponse
-	19, // 51: message.MessageService.GetMessages:output_type -> message.GetMessagesResp
-	22, // 52: message.MessageService.SyncMessages:output_type -> message.SyncMessagesResp
-	24, // 53: message.MessageService.GetMessageByID:output_type -> message.GetMessageByIDResp
-	26, // 54: message.MessageService.BatchGetMessages:output_type -> message.BatchGetMessagesResp
-	19, // 55: message.MessageService.GetAroundSeq:output_type -> message.GetMessagesResp
-	30, // 56: message.MessageService.SearchMessages:output_type -> message.SearchMessagesResp
-	28, // 57: message.MessageService.ForwardMessage:output_type -> message.ForwardMessageResp
-	32, // 58: message.MessageService.SendBroadcast:output_type -> message.SendBroadcastResp
-	35, // 59: message.MessageService.SendBotReply:output_type -> message.SendBotReplyResp
-	14, // 60: message.MessageService.SendSystemMessage:output_type -> message.SendMessageResp
-	47, // [47:61] is the sub-list for method output_type
-	33, // [33:47] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	41, // 32: message.SearchMessagesResp.pagination:type_name -> common.PaginationResp
+	37, // 33: message.SearchMessagesResp.highlights:type_name -> message.SearchMessagesResp.HighlightsEntry
+	30, // 34: message.SearchMessagesResp.type_counts:type_name -> message.TypeCount
+	13, // 35: message.MessageService.SendMessage:input_type -> message.SendMessageReq
+	15, // 36: message.MessageService.RecallMessage:input_type -> message.RecallMessageReq
+	16, // 37: message.MessageService.EditMessage:input_type -> message.EditMessageReq
+	17, // 38: message.MessageService.DeleteMessage:input_type -> message.DeleteMessageReq
+	18, // 39: message.MessageService.GetMessages:input_type -> message.GetMessagesReq
+	21, // 40: message.MessageService.SyncMessages:input_type -> message.SyncMessagesReq
+	23, // 41: message.MessageService.GetMessageByID:input_type -> message.GetMessageByIDReq
+	25, // 42: message.MessageService.BatchGetMessages:input_type -> message.BatchGetMessagesReq
+	20, // 43: message.MessageService.GetAroundSeq:input_type -> message.GetAroundSeqReq
+	29, // 44: message.MessageService.SearchMessages:input_type -> message.SearchMessagesReq
+	27, // 45: message.MessageService.ForwardMessage:input_type -> message.ForwardMessageReq
+	32, // 46: message.MessageService.SendBroadcast:input_type -> message.SendBroadcastReq
+	34, // 47: message.MessageService.SendBotReply:input_type -> message.SendBotReplyReq
+	35, // 48: message.MessageService.SendSystemMessage:input_type -> message.SendSystemMessageReq
+	14, // 49: message.MessageService.SendMessage:output_type -> message.SendMessageResp
+	42, // 50: message.MessageService.RecallMessage:output_type -> common.BaseResponse
+	42, // 51: message.MessageService.EditMessage:output_type -> common.BaseResponse
+	42, // 52: message.MessageService.DeleteMessage:output_type -> common.BaseResponse
+	19, // 53: message.MessageService.GetMessages:output_type -> message.GetMessagesResp
+	22, // 54: message.MessageService.SyncMessages:output_type -> message.SyncMessagesResp
+	24, // 55: message.MessageService.GetMessageByID:output_type -> message.GetMessageByIDResp
+	26, // 56: message.MessageService.BatchGetMessages:output_type -> message.BatchGetMessagesResp
+	19, // 57: message.MessageService.GetAroundSeq:output_type -> message.GetMessagesResp
+	31, // 58: message.MessageService.SearchMessages:output_type -> message.SearchMessagesResp
+	28, // 59: message.MessageService.ForwardMessage:output_type -> message.ForwardMessageResp
+	33, // 60: message.MessageService.SendBroadcast:output_type -> message.SendBroadcastResp
+	36, // 61: message.MessageService.SendBotReply:output_type -> message.SendBotReplyResp
+	14, // 62: message.MessageService.SendSystemMessage:output_type -> message.SendMessageResp
+	49, // [49:63] is the sub-list for method output_type
+	35, // [35:49] is the sub-list for method input_type
+	35, // [35:35] is the sub-list for extension type_name
+	35, // [35:35] is the sub-list for extension extendee
+	0,  // [0:35] is the sub-list for field type_name
 }
 
 func init() { file_message_service_message_proto_init() }
@@ -3264,15 +3323,15 @@ func file_message_service_message_proto_init() {
 	}
 	file_message_service_message_proto_msgTypes[16].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[27].OneofWrappers = []any{}
-	file_message_service_message_proto_msgTypes[29].OneofWrappers = []any{}
-	file_message_service_message_proto_msgTypes[31].OneofWrappers = []any{}
+	file_message_service_message_proto_msgTypes[30].OneofWrappers = []any{}
+	file_message_service_message_proto_msgTypes[32].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_message_service_message_proto_rawDesc), len(file_message_service_message_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   34,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -90,7 +90,10 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 	}
 
 	// 5. 构造消息
-	msgID := l.svcCtx.Snowflake.Generate()
+	msgID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeInternal, "generate msg id failed", err)
+	}
 	now := time.Now()
 	contentJSON := extractSendContent(in)
 
@@ -120,7 +123,7 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 
 	// 7. 异步发送 Kafka 事件（不阻塞响应，失败写 failed_events 表兜底）
 	senderName := resolveReplySenderName(ctx, l.svcCtx, msg.SenderID, "user")
-	asyncSendKafka(l.ctx, l.svcCtx, msg.ID, in.ConversationId, msg.Seq, int64(msg.MsgType), contentJSON, msg.ReplyToMsgID, msg.CreatedAt.Unix(), senderName)
+	asyncSendKafka(l.ctx, l.svcCtx, msg.ID, in.ConversationId, msg.Seq, int64(msg.MsgType), contentJSON, msg.ReplyToMsgID, msg.CreatedAt.Unix(), senderName, msg.SenderID)
 
 	metrics.MessagesSentTotal.Inc(strconv.FormatInt(int64(in.Type), 10))
 
@@ -218,17 +221,18 @@ func extractSendContent(req *message.SendMessageReq) model.JSONContent {
 }
 // asyncSendKafka 异步发送 Kafka 事件，不阻塞响应路径。
 // Kafka 发送失败时写 failed_events 表，由后台 goroutine 重试。
-func asyncSendKafka(ctx context.Context, svcCtx *svc.ServiceContext, msgID, convID, seq, msgType int64, contentJSON model.JSONContent, replyToMsgID int64, createdAt int64, senderName string) {
+func asyncSendKafka(ctx context.Context, svcCtx *svc.ServiceContext, msgID, convID, seq, msgType int64, contentJSON model.JSONContent, replyToMsgID int64, createdAt int64, senderName string, senderID int64) {
 	payload := map[string]any{
 		"message_id":      msgID,
 		"conv_id":         convID,
-		"sender_id":       0,
+		"sender_id":       senderID,
 		"msg_type":        msgType,
 		"content":         contentJSON,
 		"seq":             seq,
 		"reply_to_msg_id": replyToMsgID,
 		"created_at":      createdAt,
 		"sender_name":     senderName,
+		"preview_text":    extractTextPreview(int32(msgType), contentJSON),
 	}
 	if replyToMsgID != 0 {
 		payload["reply_to"] = buildReplyToMap(ctx, svcCtx, replyToMsgID)

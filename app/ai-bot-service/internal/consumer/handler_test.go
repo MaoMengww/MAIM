@@ -13,10 +13,10 @@ func TestShouldRespond_Always(t *testing.T) {
 		EventType: "message.created",
 		Message:   &model.EventMessage{Text: "你好"},
 	}
-	convBot := &model.ConvBot{
-		ResponseTriggers: model.StringArray{"always"},
+	bot := &model.Bot{
+		ResponseTriggers: []string{"always"},
 	}
-	assert.True(t, shouldRespond(event, convBot))
+	assert.True(t, shouldRespond(event, bot))
 }
 
 func TestShouldRespond_Mention(t *testing.T) {
@@ -25,10 +25,10 @@ func TestShouldRespond_Mention(t *testing.T) {
 		Message:          &model.EventMessage{Text: "你好"},
 		MentionedUserIDs: []int64{100, 200},
 	}
-	convBot := &model.ConvBot{
-		ResponseTriggers: model.StringArray{"mention"},
+	bot := &model.Bot{
+		ResponseTriggers: []string{"mention"},
 	}
-	assert.True(t, shouldRespond(event, convBot))
+	assert.True(t, shouldRespond(event, bot))
 }
 
 func TestShouldRespond_Mention_NotMentioned(t *testing.T) {
@@ -37,61 +37,61 @@ func TestShouldRespond_Mention_NotMentioned(t *testing.T) {
 		Message:          &model.EventMessage{Text: "你好"},
 		MentionedUserIDs: nil,
 	}
-	convBot := &model.ConvBot{
-		ResponseTriggers: model.StringArray{"mention"},
+	bot := &model.Bot{
+		ResponseTriggers: []string{"mention"},
 	}
-	assert.False(t, shouldRespond(event, convBot))
+	assert.False(t, shouldRespond(event, bot))
 }
 
 func TestShouldRespond_Keyword(t *testing.T) {
 	event := &model.BotEvent{
 		Message: &model.EventMessage{Text: "帮助"},
 	}
-	convBot := &model.ConvBot{
-		ResponseTriggers: model.StringArray{"keyword:帮助"},
+	bot := &model.Bot{
+		ResponseTriggers: []string{"keyword:帮助"},
 	}
-	assert.True(t, shouldRespond(event, convBot))
+	assert.True(t, shouldRespond(event, bot))
 }
 
 func TestShouldRespond_Keyword_NotMatch(t *testing.T) {
 	event := &model.BotEvent{
 		Message: &model.EventMessage{Text: "你好"},
 	}
-	convBot := &model.ConvBot{
-		ResponseTriggers: model.StringArray{"keyword:帮助"},
+	bot := &model.Bot{
+		ResponseTriggers: []string{"keyword:帮助"},
 	}
-	assert.False(t, shouldRespond(event, convBot))
+	assert.False(t, shouldRespond(event, bot))
 }
 
 func TestShouldRespond_EventType(t *testing.T) {
 	event := &model.BotEvent{
 		EventType: "member.joined",
 	}
-	convBot := &model.ConvBot{
-		ResponseTriggers: model.StringArray{"event:member.joined"},
+	bot := &model.Bot{
+		ResponseTriggers: []string{"event:member.joined"},
 	}
-	assert.True(t, shouldRespond(event, convBot))
+	assert.True(t, shouldRespond(event, bot))
 }
 
 func TestShouldRespond_EventType_NotMatch(t *testing.T) {
 	event := &model.BotEvent{
 		EventType: "message.created",
 	}
-	convBot := &model.ConvBot{
-		ResponseTriggers: model.StringArray{"event:member.joined"},
+	bot := &model.Bot{
+		ResponseTriggers: []string{"event:member.joined"},
 	}
-	assert.False(t, shouldRespond(event, convBot))
+	assert.False(t, shouldRespond(event, bot))
 }
 
 func TestShouldRespond_MultipleTriggers(t *testing.T) {
 	event := &model.BotEvent{
 		Message: &model.EventMessage{Text: "帮助"},
 	}
-	convBot := &model.ConvBot{
-		ResponseTriggers: model.StringArray{"mention", "keyword:帮助"},
+	bot := &model.Bot{
+		ResponseTriggers: []string{"mention", "keyword:帮助"},
 	}
 	// Second trigger matches ("keyword:帮助")
-	assert.True(t, shouldRespond(event, convBot))
+	assert.True(t, shouldRespond(event, bot))
 }
 
 func TestShouldRespond_NoTriggers(t *testing.T) {
@@ -99,13 +99,13 @@ func TestShouldRespond_NoTriggers(t *testing.T) {
 		EventType: "message.created",
 		Message:   &model.EventMessage{Text: "你好"},
 	}
-	convBot := &model.ConvBot{
+	bot := &model.Bot{
 		ResponseTriggers: nil,
 	}
-	assert.False(t, shouldRespond(event, convBot))
+	assert.False(t, shouldRespond(event, bot))
 }
 
-func TestShouldRespond_NilConvBot(t *testing.T) {
+func TestShouldRespond_NilBot(t *testing.T) {
 	event := &model.BotEvent{
 		EventType: "message.created",
 	}

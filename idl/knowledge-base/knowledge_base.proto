@@ -112,7 +112,6 @@ message ListKBsRsp {
 // ============================================================
 
 message PipelineConfig {
-    string preset = 1;               // "general" | "tech_doc" | "legal" | "customer_service" | "academic" | "custom"
     ParsingConfig parsing = 2;
     ChunkingConfig chunking = 3;
     RetrievalConfig retrieval = 4;

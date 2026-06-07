@@ -96,7 +96,6 @@ func TestRetrieveItemFields(t *testing.T) {
 
 func TestPipelineConfigDefaults(t *testing.T) {
 	cfg := PipelineConfig{}
-	assert.Empty(t, cfg.Preset)
 	assert.Empty(t, cfg.Parsing.Engines)
 	assert.Zero(t, cfg.Chunking.ChunkSize)
 	assert.False(t, cfg.Retrieval.Rerank.Enabled)

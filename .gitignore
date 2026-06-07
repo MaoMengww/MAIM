@@ -64,5 +64,5 @@ tools/
 .trae/
 .kiro/
 /task/
-ws-gateway
 CLAUDE.md
+web-client/tsconfig.tsbuildinfo

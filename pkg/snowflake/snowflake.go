@@ -9,12 +9,13 @@ import (
 )
 
 const (
-	epoch         int64 = 1700000000000
-	workerBits    uint8 = 10
-	sequenceBits  uint8 = 12
-	workerMax     int64 = -1 ^ (-1 << workerBits)
-	sequenceMax   int64 = -1 ^ (-1 << sequenceBits)
-	workerShift   uint8 = sequenceBits
+	epoch          int64 = 1700000000000
+	workerBits     uint8 = 10
+	sequenceBits   uint8 = 12
+	workerMax      int64 = -1 ^ (-1 << workerBits)
+	sequenceMax    int64 = -1 ^ (-1 << sequenceBits)
+	maxRollbackMs  int64 = 500 // 最大容忍时钟回拨，超过则拒绝生成
+	workerShift    uint8 = sequenceBits
 	timestampShift uint8 = sequenceBits + workerBits
 )
 
@@ -36,20 +37,20 @@ func NewNode(workerID int64) (*Node, error) {
 	}, nil
 }
 
-func (n *Node) Generate() int64 {
+func (n *Node) Generate() (int64, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	now := time.Now().UnixMilli()
 	if now < n.lastMs {
 		offset := n.lastMs - now
-		if offset <= 5 {
-			time.Sleep(time.Duration(offset) * time.Millisecond)
-			now = time.Now().UnixMilli()
-			if now < n.lastMs {
-				now = n.waitNextMs(n.lastMs)
-			}
-		} else {
+		if offset > maxRollbackMs {
+			return 0, fmt.Errorf("clock rollback too large: %dms", offset)
+		}
+		// offset <= 500ms: sleep 等待时钟追上
+		time.Sleep(time.Duration(offset) * time.Millisecond)
+		now = time.Now().UnixMilli()
+		if now < n.lastMs {
 			now = n.waitNextMs(n.lastMs)
 		}
 	}
@@ -67,19 +68,22 @@ func (n *Node) Generate() int64 {
 	id := (now-n.epoch)<<timestampShift |
 		n.workerID<<workerShift |
 		n.sequence
-	return id
+	return id, nil
 }
 
-func (n *Node) GenerateString() string {
-	id := n.Generate()
-	return fmt.Sprintf("%d", id)
+func (n *Node) GenerateString() (string, error) {
+	id, err := n.Generate()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d", id), nil
 }
 
 func (n *Node) GenerateWithError() (int64, error) {
 	if n == nil {
 		return 0, errors.New(1006, "snowflake node is nil")
 	}
-	return n.Generate(), nil
+	return n.Generate()
 }
 
 func (n *Node) waitNextMs(lastMs int64) int64 {

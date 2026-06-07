@@ -92,11 +92,6 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		bots, cbErr := h.convBotRepo.FindByConv(ctx, event.ConvID)
 		if cbErr == nil && len(bots) > 0 {
 			event.BotID = bots[0].BotID
-			if convBot := &bots[0]; event.BotConfig == nil {
-				event.BotConfig = &model.EventBotConfig{
-					ResponseTriggers: convBot.ResponseTriggers,
-				}
-			}
 		}
 	}
 
@@ -122,7 +117,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		return fmt.Errorf("bot/conv not found: %w", err)
 	}
 
-	if !shouldRespond(event, convBot) {
+	if !shouldRespond(event, bot) {
 		return nil
 	}
 
@@ -490,11 +485,11 @@ func fallbackForLanguage(sender *model.EventSender) string {
 	}
 }
 
-func shouldRespond(event *model.BotEvent, convBot *model.ConvBot) bool {
-	if convBot == nil || len(convBot.ResponseTriggers) == 0 {
+func shouldRespond(event *model.BotEvent, bot *model.Bot) bool {
+	if bot == nil || len(bot.ResponseTriggers) == 0 {
 		return false
 	}
-	for _, trigger := range convBot.ResponseTriggers {
+	for _, trigger := range bot.ResponseTriggers {
 		switch {
 		case trigger == "always":
 			return true

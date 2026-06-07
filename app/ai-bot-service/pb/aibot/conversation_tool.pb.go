@@ -195,6 +195,7 @@ type SummarizeResp struct {
 	Todos         []*TodoItem            `protobuf:"bytes,3,rep,name=todos,proto3" json:"todos,omitempty"`
 	TotalMessages int32                  `protobuf:"varint,4,opt,name=total_messages,json=totalMessages,proto3" json:"total_messages,omitempty"`
 	CreatedAt     int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Status        string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"` // "processing" | "completed"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -262,6 +263,13 @@ func (x *SummarizeResp) GetCreatedAt() int64 {
 		return x.CreatedAt
 	}
 	return 0
+}
+
+func (x *SummarizeResp) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
 }
 
 type GetConvSummariesReq struct {
@@ -679,6 +687,7 @@ func (x *ReplyCandidatesReq) GetReplyToMsgId() int64 {
 type ReplyCandidatesResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Candidates    []string               `protobuf:"bytes,1,rep,name=candidates,proto3" json:"candidates,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"` // "processing" | "completed"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -720,10 +729,18 @@ func (x *ReplyCandidatesResp) GetCandidates() []string {
 	return nil
 }
 
+func (x *ReplyCandidatesResp) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
 type TranslateMessageReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
 	TargetLang    string                 `protobuf:"bytes,2,opt,name=target_lang,json=targetLang,proto3" json:"target_lang,omitempty"`
+	MsgId         int64                  `protobuf:"varint,3,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -772,10 +789,18 @@ func (x *TranslateMessageReq) GetTargetLang() string {
 	return ""
 }
 
+func (x *TranslateMessageReq) GetMsgId() int64 {
+	if x != nil {
+		return x.MsgId
+	}
+	return 0
+}
+
 type TranslateMessageResp struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	TranslatedText string                 `protobuf:"bytes,1,opt,name=translated_text,json=translatedText,proto3" json:"translated_text,omitempty"`
 	DetectedLang   string                 `protobuf:"bytes,2,opt,name=detected_lang,json=detectedLang,proto3" json:"detected_lang,omitempty"`
+	Status         string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"` // "processing" | "completed"
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -824,6 +849,13 @@ func (x *TranslateMessageResp) GetDetectedLang() string {
 	return ""
 }
 
+func (x *TranslateMessageResp) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
 var File_ai_bot_service_conversation_tool_proto protoreflect.FileDescriptor
 
 const file_ai_bot_service_conversation_tool_proto_rawDesc = "" +
@@ -840,7 +872,7 @@ const file_ai_bot_service_conversation_tool_proto_rawDesc = "" +
 	"\tTimeRange\x12\x1d\n" +
 	"\n" +
 	"start_time\x18\x01 \x01(\x03R\tstartTime\x12\x19\n" +
-	"\bend_time\x18\x02 \x01(\x03R\aendTime\"\xb5\x01\n" +
+	"\bend_time\x18\x02 \x01(\x03R\aendTime\"\xcd\x01\n" +
 	"\rSummarizeResp\x12\x1d\n" +
 	"\n" +
 	"summary_id\x18\x01 \x01(\x03R\tsummaryId\x12\x18\n" +
@@ -848,7 +880,8 @@ const file_ai_bot_service_conversation_tool_proto_rawDesc = "" +
 	"\x05todos\x18\x03 \x03(\v2\x0f.aibot.TodoItemR\x05todos\x12%\n" +
 	"\x0etotal_messages\x18\x04 \x01(\x05R\rtotalMessages\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\x03R\tcreatedAt\"D\n" +
+	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\"D\n" +
 	"\x13GetConvSummariesReq\x12\x17\n" +
 	"\aconv_id\x18\x01 \x01(\x03R\x06convId\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\"B\n" +
@@ -879,18 +912,21 @@ const file_ai_bot_service_conversation_tool_proto_rawDesc = "" +
 	"\x12ReplyCandidatesReq\x12\x17\n" +
 	"\aconv_id\x18\x01 \x01(\x03R\x06convId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12%\n" +
-	"\x0freply_to_msg_id\x18\x03 \x01(\x03R\freplyToMsgId\"5\n" +
+	"\x0freply_to_msg_id\x18\x03 \x01(\x03R\freplyToMsgId\"M\n" +
 	"\x13ReplyCandidatesResp\x12\x1e\n" +
 	"\n" +
 	"candidates\x18\x01 \x03(\tR\n" +
-	"candidates\"J\n" +
+	"candidates\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"a\n" +
 	"\x13TranslateMessageReq\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12\x1f\n" +
 	"\vtarget_lang\x18\x02 \x01(\tR\n" +
-	"targetLang\"d\n" +
+	"targetLang\x12\x15\n" +
+	"\x06msg_id\x18\x03 \x01(\x03R\x05msgId\"|\n" +
 	"\x14TranslateMessageResp\x12'\n" +
 	"\x0ftranslated_text\x18\x01 \x01(\tR\x0etranslatedText\x12#\n" +
-	"\rdetected_lang\x18\x02 \x01(\tR\fdetectedLang2\xf6\x03\n" +
+	"\rdetected_lang\x18\x02 \x01(\tR\fdetectedLang\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status2\xf6\x03\n" +
 	"\x17ConversationToolService\x12B\n" +
 	"\x15SummarizeConversation\x12\x13.aibot.SummarizeReq\x1a\x14.aibot.SummarizeResp\x12K\n" +
 	"\x10GetConvSummaries\x12\x1a.aibot.GetConvSummariesReq\x1a\x1b.aibot.GetConvSummariesResp\x123\n" +

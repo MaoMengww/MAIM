@@ -37,7 +37,8 @@ func TestGenerate(t *testing.T) {
 	n, err := NewNode(1)
 	require.NoError(t, err)
 
-	id := n.Generate()
+	id, err := n.Generate()
+	require.NoError(t, err)
 	assert.Greater(t, id, int64(0))
 
 	extractedWorker := ExtractWorkerID(id)
@@ -55,7 +56,8 @@ func TestGenerateUniqueness(t *testing.T) {
 	count := 10000
 	ids := make(map[int64]bool, count)
 	for i := 0; i < count; i++ {
-		id := n.Generate()
+		id, err := n.Generate()
+		require.NoError(t, err)
 		assert.False(t, ids[id], "duplicate ID: %d", id)
 		ids[id] = true
 	}
@@ -66,7 +68,8 @@ func TestGenerateString(t *testing.T) {
 	n, err := NewNode(1)
 	require.NoError(t, err)
 
-	s := n.GenerateString()
+	s, err := n.GenerateString()
+	require.NoError(t, err)
 	assert.NotEmpty(t, s)
 	assert.Greater(t, len(s), 10)
 
@@ -92,7 +95,8 @@ func TestExtractComponents(t *testing.T) {
 	n, err := NewNode(42)
 	require.NoError(t, err)
 
-	id := n.Generate()
+	id, err := n.Generate()
+	require.NoError(t, err)
 
 	workerID := ExtractWorkerID(id)
 	assert.Equal(t, int64(42), workerID)
@@ -119,7 +123,11 @@ func TestConcurrentGeneration(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < count; i++ {
-				ids <- n.Generate()
+				id, err := n.Generate()
+				if err != nil {
+					panic(err)
+				}
+				ids <- id
 			}
 		}()
 	}
@@ -143,7 +151,8 @@ func TestMultipleWorkersUniqueness(t *testing.T) {
 		n, err := NewNode(int64(wid))
 		require.NoError(t, err)
 		for i := 0; i < count; i++ {
-			id := n.Generate()
+			id, err := n.Generate()
+			require.NoError(t, err)
 			assert.False(t, seen[id], "duplicate across workers: %d", id)
 			seen[id] = true
 		}
@@ -157,7 +166,8 @@ func TestMonotonicIncreasing(t *testing.T) {
 
 	prev := int64(0)
 	for i := 0; i < 5000; i++ {
-		id := n.Generate()
+		id, err := n.Generate()
+		require.NoError(t, err)
 		assert.Greater(t, id, prev)
 		prev = id
 	}
@@ -167,14 +177,68 @@ func TestSequenceResetOnNewMs(t *testing.T) {
 	n, err := NewNode(1)
 	require.NoError(t, err)
 
-	id1 := n.Generate()
+	id1, err := n.Generate()
+	require.NoError(t, err)
 	seq1 := ExtractSequence(id1)
 
 	time.Sleep(2 * time.Millisecond)
 
-	id2 := n.Generate()
+	id2, err := n.Generate()
+	require.NoError(t, err)
 	seq2 := ExtractSequence(id2)
 
 	assert.Equal(t, int64(0), seq2)
 	_ = seq1
+}
+
+func TestClockRollbackSmallWaits(t *testing.T) {
+	n, err := NewNode(1)
+	require.NoError(t, err)
+
+	// Generate a first ID to set lastMs
+	id1, err := n.Generate()
+	require.NoError(t, err)
+	assert.Greater(t, id1, int64(0))
+
+	// Simulate a small clock rollback by manually setting lastMs ahead
+	n.mu.Lock()
+	n.lastMs = time.Now().UnixMilli() + 100 // pretend clock was 100ms ahead
+	n.mu.Unlock()
+
+	// Should wait and still generate a valid ID (≤500ms threshold)
+	start := time.Now()
+	id2, err := n.Generate()
+	elapsed := time.Since(start)
+	require.NoError(t, err)
+	assert.Greater(t, id2, id1, "ID should be greater after small rollback")
+	assert.GreaterOrEqual(t, elapsed, 100*time.Millisecond, "should have waited for clock to catch up")
+}
+
+func TestClockRollbackLargeRejects(t *testing.T) {
+	n, err := NewNode(1)
+	require.NoError(t, err)
+
+	// Generate a first ID
+	id1, err := n.Generate()
+	require.NoError(t, err)
+
+	// Simulate a large clock rollback (1 second)
+	n.mu.Lock()
+	n.lastMs = time.Now().UnixMilli() + 1000 // pretend clock was 1s ahead
+	n.mu.Unlock()
+
+	id2, err := n.Generate()
+	assert.Error(t, err, "should reject large clock rollback")
+	assert.Contains(t, err.Error(), "clock rollback too large")
+	assert.Equal(t, int64(0), id2, "ID should be 0 on error")
+
+	// After fixing the clock, should work again
+	n.mu.Lock()
+	n.lastMs = 0 // reset
+	n.mu.Unlock()
+
+	time.Sleep(time.Millisecond)
+	id3, err := n.Generate()
+	require.NoError(t, err)
+	assert.Greater(t, id3, id1)
 }

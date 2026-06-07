@@ -49,7 +49,10 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 	}
 
 	now := time.Now()
-	id := l.svcCtx.Snowflake.Generate()
+	id, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate conv id failed: %w", err)
+	}
 
 	conv := &model.Conversation{
 		ID:        id,
@@ -70,9 +73,13 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 		return nil, err
 	}
 
+		ownerID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate owner id failed: %w", err)
+	}
 	ownerRole := int32(conversation.MemberRole_MEMBER_ROLE_OWNER)
 	owner := model.ConversationMember{
-		ID:       l.svcCtx.Snowflake.Generate(),
+		ID:       ownerID,
 		ConvID:   id,
 		UserID:   in.CreatorId,
 		Role:     ownerRole,
@@ -87,16 +94,23 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 		// Check if peer is a bot → create conv_bot + member with member_type="bot"
 		bot, botErr := l.svcCtx.Repo.GetBot(l.ctx, in.GetPeerUserId())
 		if botErr == nil {
+			cbID, err := l.svcCtx.Snowflake.Generate()
+			if err != nil {
+				return nil, fmt.Errorf("generate conv bot id failed: %w", err)
+			}
 			cb := &model.ConvBot{
-				ID:               l.svcCtx.Snowflake.Generate(),
-				ConvID:           id,
-				BotID:            bot.ID,
-				AddedBy:          in.CreatorId,
-				ResponseTriggers: []string{"mention"},
-				CreatedAt:        now,
+				ID:        cbID,
+				ConvID:    id,
+				BotID:     bot.ID,
+				AddedBy:   in.CreatorId,
+				CreatedAt: now,
+			}
+			botMemberID, err := l.svcCtx.Snowflake.Generate()
+			if err != nil {
+				return nil, fmt.Errorf("generate bot member id failed: %w", err)
 			}
 			botMember := &model.ConversationMember{
-				ID:         l.svcCtx.Snowflake.Generate(),
+				ID:         botMemberID,
 				ConvID:     id,
 				UserID:     bot.ID,
 				MemberType: model.MemberTypeBot,
@@ -110,8 +124,12 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 			}
 		} else {
 			peerRole := int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)
+			peerID, err := l.svcCtx.Snowflake.Generate()
+			if err != nil {
+				return nil, fmt.Errorf("generate peer id failed: %w", err)
+			}
 			peer := model.ConversationMember{
-				ID:       l.svcCtx.Snowflake.Generate(),
+				ID:       peerID,
 				ConvID:   id,
 				UserID:   in.GetPeerUserId(),
 				Role:     peerRole,
@@ -134,8 +152,12 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 			if uid == in.CreatorId {
 				continue
 			}
+			memberID, err := l.svcCtx.Snowflake.Generate()
+			if err != nil {
+				return nil, fmt.Errorf("generate member id failed: %w", err)
+			}
 			members = append(members, model.ConversationMember{
-				ID:       l.svcCtx.Snowflake.Generate(),
+				ID:       memberID,
 				ConvID:   id,
 				UserID:   uid,
 				Role:     memberRole,

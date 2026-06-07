@@ -3,10 +3,12 @@ package conversationservice
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/maomeng/aim/app/conversation-service/internal/model"
 	"github.com/maomeng/aim/app/conversation-service/internal/svc"
 	"github.com/maomeng/aim/app/conversation-service/pb/conversation"
+	messagepb "github.com/maomeng/aim/app/message-service/pb/message"
 )
 
 func toProtoConv(c *model.Conversation, lastReadSeq int64, unread int32, muted, pinned bool) *conversation.Conversation {
@@ -32,18 +34,33 @@ func toProtoConv(c *model.Conversation, lastReadSeq int64, unread int32, muted, 
 	}
 }
 
-func emitSystemMessage(ctx context.Context, svcCtx *svc.ServiceContext, convID, operatorID int64, action, content string, metadata any) {
-	if svcCtx.BotEventProducer != nil {
-		payload, _ := json.Marshal(map[string]any{
-			"conv_id":     convID,
-			"operator_id": operatorID,
-			"action":      action,
-			"content":     content,
-			"metadata":    metadata,
-			"type":        "system",
-		})
-		if err := svcCtx.BotEventProducer.Send(ctx, "", payload); err != nil {
-			svcCtx.Logger.WithContext(ctx).Errorf("emit system message failed: %v", err)
+// emitSystemMessage 发送系统消息到会话（通过 message-service gRPC）
+func emitSystemMessage(ctx context.Context, svcCtx *svc.ServiceContext, convID, operatorID int64, action, detail string, relatedUserIDs []int64) {
+	if svcCtx.MessageRpc == nil {
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"action":   action,
+		"operator": operatorID,
+	})
+	go func() {
+		if _, err := svcCtx.MessageRpc.SendSystemMessage(context.Background(), &messagepb.SendSystemMessageReq{
+			ConversationId: convID,
+			ActorId:        operatorID,
+			ActorType:      "user",
+			Action:         action,
+			Detail:         detail,
+			RelatedUserIds: relatedUserIDs,
+			Payload:        string(payload),
+		}); err != nil {
+			svcCtx.Logger.WithContext(context.Background()).Errorf("emit system message failed: conv=%d action=%s err=%v", convID, action, err)
 		}
+	}()
+}
+
+// batchEmitSystemMessage 为多个相关用户各发送一条系统消息
+func batchEmitSystemMessage(ctx context.Context, svcCtx *svc.ServiceContext, convID, operatorID int64, action, detailTemplate string, userIDs []int64) {
+	for _, uid := range userIDs {
+		emitSystemMessage(ctx, svcCtx, convID, uid, action, fmt.Sprintf(detailTemplate, uid), []int64{uid})
 	}
 }

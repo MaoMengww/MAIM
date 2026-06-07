@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -13,8 +14,9 @@ import (
 )
 
 type Client struct {
-	client *minio.Client
-	bucket string
+	client         *minio.Client
+	bucket         string
+	publicEndpoint string
 }
 
 func NewClient(cfg config.MinIOConfig) (*Client, error) {
@@ -37,7 +39,7 @@ func NewClient(cfg config.MinIOConfig) (*Client, error) {
 		return nil, fmt.Errorf("create minio client failed: %w", err)
 	}
 
-	return &Client{client: client, bucket: cfg.Bucket}, nil
+	return &Client{client: client, bucket: cfg.Bucket, publicEndpoint: cfg.PublicEndpoint}, nil
 }
 
 func (c *Client) Bucket() string {
@@ -98,7 +100,7 @@ func (c *Client) PresignedURL(ctx context.Context, objectName string, expiry tim
 	if err != nil {
 		return "", fmt.Errorf("generate presigned url failed: %w", err)
 	}
-	return url.String(), nil
+	return c.replaceEndpoint(url.String()), nil
 }
 
 func (c *Client) PresignedPutURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
@@ -112,7 +114,7 @@ func (c *Client) PresignedPutURL(ctx context.Context, objectName string, expiry 
 	if err != nil {
 		return "", fmt.Errorf("generate presigned put url failed: %w", err)
 	}
-	return url.String(), nil
+	return c.replaceEndpoint(url.String()), nil
 }
 
 func (c *Client) ListObjects(ctx context.Context, prefix string, recursive bool) <-chan minio.ObjectInfo {
@@ -138,5 +140,28 @@ func (c *Client) SetPublicBucketPolicy(ctx context.Context) error {
 
 // PublicURL returns the public accessible URL for the given object.
 func (c *Client) PublicURL(objectName string) string {
-	return fmt.Sprintf("%s/%s/%s", c.client.EndpointURL(), c.bucket, objectName)
+	url := fmt.Sprintf("%s/%s/%s", c.client.EndpointURL(), c.bucket, objectName)
+	return c.replaceEndpoint(url)
+}
+
+// replaceEndpoint substitutes the internal endpoint with the public endpoint
+// in the given URL string, so that URLs returned to the browser use an
+// externally-resolvable hostname.
+func (c *Client) replaceEndpoint(rawURL string) string {
+	if c.publicEndpoint == "" {
+		return rawURL
+	}
+	internal := c.client.EndpointURL().String()
+	return strings.Replace(rawURL, internal, withScheme(c.publicEndpoint, c.client.EndpointURL().Scheme), 1)
+}
+
+// withScheme ensures the endpoint string has a scheme prefix (http:// or https://).
+func withScheme(endpoint, defaultScheme string) string {
+	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
+		return endpoint
+	}
+	if defaultScheme == "" {
+		defaultScheme = "https"
+	}
+	return defaultScheme + "://" + endpoint
 }

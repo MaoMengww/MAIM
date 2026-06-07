@@ -9,6 +9,7 @@ import (
 	"github.com/maomeng/aim/app/conversation-service/internal/config"
 	"github.com/maomeng/aim/app/conversation-service/internal/model"
 	"github.com/maomeng/aim/app/conversation-service/internal/repo"
+	messagepb "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/cache"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/database"
@@ -31,6 +32,7 @@ type ServiceContext struct {
 	BotEventProducer *kafka.Producer
 	BotPlatformRpc   botplatform.BotPlatformClient
 	UserClient       *client.UserClient
+	MessageRpc       messagepb.MessageServiceClient
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -61,6 +63,12 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if c.BotPlatform.Etcd.Hosts != nil || c.BotPlatform.Endpoints != nil {
 		botPlatformRpc = botplatform.NewBotPlatformClient(zrpc.MustNewClient(c.BotPlatform).Conn())
 		logger.Infof("bot-platform rpc client initialized")
+	}
+
+	var messageRpc messagepb.MessageServiceClient
+	if c.MessageService.Etcd.Hosts != nil || c.MessageService.Endpoints != nil {
+		messageRpc = messagepb.NewMessageServiceClient(zrpc.MustNewClient(c.MessageService).Conn())
+		logger.Infof("message-service rpc client initialized")
 	}
 
 	var userClient *client.UserClient
@@ -105,5 +113,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		BotEventProducer: botEventProducer,
 		BotPlatformRpc:   botPlatformRpc,
 		UserClient:       userClient,
+		MessageRpc:       messageRpc,
 	}
 }

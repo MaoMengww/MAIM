@@ -2,6 +2,7 @@ package conversationservice
 
 import (
 	"context"
+	"fmt"
 	"encoding/json"
 	"time"
 
@@ -29,15 +30,15 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 		return nil, ErrMemberAddFailed
 	}
 
-	cb := &model.ConvBot{
-		ID:               l.svcCtx.Snowflake.Generate(),
-		ConvID:           in.ConversationId,
-		BotID:            in.BotId,
-		AddedBy:          in.OperatorId,
-		ResponseTriggers: in.ResponseTriggers,
+	cbID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate conv bot id failed: %w", err)
 	}
-	if len(cb.ResponseTriggers) == 0 {
-		cb.ResponseTriggers = []string{"mention"}
+	cb := &model.ConvBot{
+		ID:      cbID,
+		ConvID:  in.ConversationId,
+		BotID:   in.BotId,
+		AddedBy: in.OperatorId,
 	}
 	if in.BotSettings != "" {
 		var settings map[string]any
@@ -46,8 +47,12 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 		}
 	}
 
+	memberID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("generate member id failed: %w", err)
+	}
 	member := &model.ConversationMember{
-		ID:         l.svcCtx.Snowflake.Generate(),
+		ID:         memberID,
 		ConvID:     in.ConversationId,
 		UserID:     bot.ID,
 		MemberType: model.MemberTypeBot,

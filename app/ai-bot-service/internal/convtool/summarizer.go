@@ -2,6 +2,7 @@ package convtool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -14,14 +15,22 @@ const summarizePrompt = `You are a conversation summarizer. Summarize the follow
 Total messages: %d
 %s
 
-Return in the following format:
-## Key Points
-1. ...
-2. ...
+Return ONLY a JSON object (no markdown, no extra text) in this exact format:
+{
+  "key_points": ["要点一", "要点二"],
+  "action_items": ["待办事项一", "待办事项二"]
+}
 
-## Action Items
-- [ ] description
-- [ ] description`
+Rules:
+- Respond in Chinese.
+- key_points: summarize the main discussion points concisely. Each item is one sentence.
+- action_items: extract ONLY actionable, concrete todo items from the conversation. If there are none, return an empty array [].
+- Do NOT include action items in key_points. The two arrays must be disjoint.`
+
+type llmResponse struct {
+	KeyPoints   []string `json:"key_points"`
+	ActionItems []string `json:"action_items"`
+}
 
 type SummarizeResult struct {
 	Summary       string
@@ -39,21 +48,51 @@ func Summarize(ctx context.Context, input *Input, messageText string, totalCount
 		return nil, fmt.Errorf("summarize call failed: %w", err)
 	}
 
-	text := result.Content
-	var todos []string
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "- [ ] ") || strings.HasPrefix(trimmed, "- [x] ") {
-			todos = append(todos, strings.TrimPrefix(strings.TrimPrefix(trimmed, "- [x] "), "- [ ] "))
+	// Parse JSON response — the model may wrap it in ```json fences
+	raw := result.Content
+	if i := strings.Index(raw, "```"); i >= 0 {
+		// Extract content between optional ```json ... ``` fences
+		start := strings.Index(raw[i:], "\n")
+		if start < 0 {
+			start = 0
+		} else {
+			start = i + start + 1
+		}
+		end := strings.LastIndex(raw, "```")
+		if end > start {
+			raw = raw[start:end]
 		}
 	}
+	raw = strings.TrimSpace(raw)
 
-	logx.DefaultLogger().WithContext(ctx).Infof("summarize done: conv=%d messages=%d summary_len=%d todos=%d",
-		input.ConvID, totalCount, len(text), len(todos))
+	var parsed llmResponse
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		// Fallback: treat the whole response as summary, no todos
+		logx.DefaultLogger().WithContext(ctx).Errorf("summarize json parse failed, fallback to raw: conv=%d err=%v", input.ConvID, err)
+		return &SummarizeResult{
+			Summary:       result.Content,
+			Todos:         nil,
+			TotalMessages: totalCount,
+		}, nil
+	}
+
+	// Format key points as markdown for storage
+	summary := ""
+	if len(parsed.KeyPoints) > 0 {
+		var b strings.Builder
+		b.WriteString("## Key Points\n")
+		for i, p := range parsed.KeyPoints {
+			fmt.Fprintf(&b, "%d. %s\n", i+1, p)
+		}
+		summary = b.String()
+	}
+
+	logx.DefaultLogger().WithContext(ctx).Infof("summarize done: conv=%d messages=%d key_points=%d todos=%d",
+		input.ConvID, totalCount, len(parsed.KeyPoints), len(parsed.ActionItems))
 
 	return &SummarizeResult{
-		Summary:       text,
-		Todos:         todos,
+		Summary:       summary,
+		Todos:         parsed.ActionItems,
 		TotalMessages: totalCount,
 	}, nil
 }
@@ -61,7 +100,7 @@ func Summarize(ctx context.Context, input *Input, messageText string, totalCount
 func BuildMessageText(msgs []Message) string {
 	var b strings.Builder
 	for _, m := range msgs {
-		b.WriteString(fmt.Sprintf("[user_%d]: %s\n", m.SenderID, m.Content))
+		fmt.Fprintf(&b, "[user_%d]: %s\n", m.SenderID, m.Content)
 	}
 	return b.String()
 }

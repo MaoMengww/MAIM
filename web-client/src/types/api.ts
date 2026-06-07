@@ -80,8 +80,8 @@ export interface SearchMessagesReq {
 }
 
 export interface ForwardMessageReq {
-  message_ids: number[];
-  target_conversation_id: number;
+  message_ids: string[];
+  target_conversation_id: string;
 }
 
 // ─── Friend ───
@@ -197,7 +197,6 @@ export interface CreateKBReq {
 }
 
 export interface PipelineConfig {
-  preset?: string;
   parsing?: ParsingConfigReq;
   chunking?: ChunkingConfigReq;
   retrieval?: RetrievalConfigReq;

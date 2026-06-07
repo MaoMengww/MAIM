@@ -2,6 +2,7 @@ package conversationservice
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/maomeng/aim/app/conversation-service/internal/svc"
@@ -35,5 +36,13 @@ func (l *MuteMemberLogic) MuteMember(in *conversation.MuteMemberReq) (*common.Ba
 		l.Logger.Errorf("mute member failed: %v", err)
 		return nil, err
 	}
+
+	// 发送系统消息
+	detail := "被禁言"
+	if in.DurationSeconds > 0 {
+		detail = fmt.Sprintf("被禁言 %d 秒", in.DurationSeconds)
+	}
+	emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "member.muted", detail, []int64{in.UserId})
+
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

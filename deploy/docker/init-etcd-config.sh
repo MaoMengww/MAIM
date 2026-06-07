@@ -51,7 +51,7 @@ put "aim-config-message.rpc" '{
 # ---- file-service (50054) ----
 put "aim-config-file.rpc" '{
   "database": {"dsn": "postgres://aim:aim123@postgres:5432/aim?sslmode=disable&search_path=file"},
-  "minio": {"endpoint": "minio:9000", "accessKey": "minioadmin", "secretKey": "minioadmin123", "bucket": "aim"}
+  "minio": {"endpoint": "minio:9000", "publicEndpoint": "localhost:9000", "accessKey": "minioadmin", "secretKey": "minioadmin123", "bucket": "aim"}
 }'
 
 # ---- conversation-service (50055) ----

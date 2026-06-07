@@ -184,6 +184,8 @@ export function ModelManagePage() {
           if (vals.provider !== editingModel.provider) payload.provider = vals.provider;
           if (vals.capability !== editingModel.capability) payload.capability = vals.capability;
           if (vals.base_url !== editingModel.base_url) payload.base_url = vals.base_url;
+          if (vals.input_price_per_mtok != null) vals.input_price_per_mtok = Number(vals.input_price_per_mtok);
+          if (vals.output_price_per_mtok != null) vals.output_price_per_mtok = Number(vals.output_price_per_mtok);
           if (vals.input_price_per_mtok !== editingModel.input_price_per_mtok) payload.input_price_per_mtok = vals.input_price_per_mtok;
           if (vals.output_price_per_mtok !== editingModel.output_price_per_mtok) payload.output_price_per_mtok = vals.output_price_per_mtok;
           if (vals.api_key) payload.api_key = vals.api_key;

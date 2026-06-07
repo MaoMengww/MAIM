@@ -201,16 +201,18 @@ type Bot struct {
 	HasWebhookSecret bool   `protobuf:"varint,32,opt,name=has_webhook_secret,json=hasWebhookSecret,proto3" json:"has_webhook_secret,omitempty"`
 	HasAppSecret     bool   `protobuf:"varint,33,opt,name=has_app_secret,json=hasAppSecret,proto3" json:"has_app_secret,omitempty"`
 	// General
-	BotTags       []string `protobuf:"bytes,40,rep,name=bot_tags,json=botTags,proto3" json:"bot_tags,omitempty"`
-	Capabilities  string   `protobuf:"bytes,41,opt,name=capabilities,proto3" json:"capabilities,omitempty"` // JSONB
-	Settings      string   `protobuf:"bytes,42,opt,name=settings,proto3" json:"settings,omitempty"`         // JSONB
-	ModelId       int64    `protobuf:"varint,52,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	TemplateId    string   `protobuf:"bytes,53,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"` // "qa" | "knowledge" (official only)
-	SubType       string   `protobuf:"bytes,54,opt,name=sub_type,json=subType,proto3" json:"sub_type,omitempty"`          // "webhook" | "ws" (third_party only)
-	CreatedAt     int64    `protobuf:"varint,50,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     int64    `protobuf:"varint,51,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	BotTags      []string `protobuf:"bytes,40,rep,name=bot_tags,json=botTags,proto3" json:"bot_tags,omitempty"`
+	Capabilities string   `protobuf:"bytes,41,opt,name=capabilities,proto3" json:"capabilities,omitempty"` // JSONB
+	Settings     string   `protobuf:"bytes,42,opt,name=settings,proto3" json:"settings,omitempty"`         // JSONB
+	ModelId      int64    `protobuf:"varint,52,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	TemplateId   string   `protobuf:"bytes,53,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"` // "qa" | "knowledge" (official only)
+	SubType      string   `protobuf:"bytes,54,opt,name=sub_type,json=subType,proto3" json:"sub_type,omitempty"`          // "webhook" | "ws" (third_party only)
+	// Trigger config
+	ResponseTriggers []string `protobuf:"bytes,55,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"` // "always" | "mention" | "keyword:xxx"
+	CreatedAt        int64    `protobuf:"varint,50,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt        int64    `protobuf:"varint,51,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Bot) Reset() {
@@ -446,6 +448,13 @@ func (x *Bot) GetSubType() string {
 	return ""
 }
 
+func (x *Bot) GetResponseTriggers() []string {
+	if x != nil {
+		return x.ResponseTriggers
+	}
+	return nil
+}
+
 func (x *Bot) GetCreatedAt() int64 {
 	if x != nil {
 		return x.CreatedAt
@@ -484,16 +493,17 @@ type CreateBotReq struct {
 	MemoryApiKey           string `protobuf:"bytes,23,opt,name=memory_api_key,json=memoryApiKey,proto3" json:"memory_api_key,omitempty"` // plaintext, server encrypts
 	MemoryLimit            int32  `protobuf:"varint,24,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"`     // 0=default(5)
 	// Connection config (third_party)
-	ConnMode      string   `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
-	CallbackUrl   string   `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
-	BotTags       []string `protobuf:"bytes,40,rep,name=bot_tags,json=botTags,proto3" json:"bot_tags,omitempty"`
-	Capabilities  string   `protobuf:"bytes,41,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
-	Settings      string   `protobuf:"bytes,42,opt,name=settings,proto3" json:"settings,omitempty"`
-	ModelId       int64    `protobuf:"varint,43,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	TemplateId    string   `protobuf:"bytes,44,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
-	SubType       string   `protobuf:"bytes,45,opt,name=sub_type,json=subType,proto3" json:"sub_type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ConnMode         string   `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
+	CallbackUrl      string   `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
+	BotTags          []string `protobuf:"bytes,40,rep,name=bot_tags,json=botTags,proto3" json:"bot_tags,omitempty"`
+	Capabilities     string   `protobuf:"bytes,41,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Settings         string   `protobuf:"bytes,42,opt,name=settings,proto3" json:"settings,omitempty"`
+	ModelId          int64    `protobuf:"varint,43,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	TemplateId       string   `protobuf:"bytes,44,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
+	SubType          string   `protobuf:"bytes,45,opt,name=sub_type,json=subType,proto3" json:"sub_type,omitempty"`
+	ResponseTriggers []string `protobuf:"bytes,46,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"` // "always" | "mention" | "keyword:xxx"
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CreateBotReq) Reset() {
@@ -715,6 +725,13 @@ func (x *CreateBotReq) GetSubType() string {
 	return ""
 }
 
+func (x *CreateBotReq) GetResponseTriggers() []string {
+	if x != nil {
+		return x.ResponseTriggers
+	}
+	return nil
+}
+
 type UpdateBotReq struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	BotId                  int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
@@ -745,6 +762,7 @@ type UpdateBotReq struct {
 	ModelId                int64                  `protobuf:"varint,43,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	TemplateId             string                 `protobuf:"bytes,44,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
 	SubType                string                 `protobuf:"bytes,45,opt,name=sub_type,json=subType,proto3" json:"sub_type,omitempty"`
+	ResponseTriggers       []string               `protobuf:"bytes,46,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"` // "always" | "mention" | "keyword:xxx"
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -973,6 +991,13 @@ func (x *UpdateBotReq) GetSubType() string {
 		return x.SubType
 	}
 	return ""
+}
+
+func (x *UpdateBotReq) GetResponseTriggers() []string {
+	if x != nil {
+		return x.ResponseTriggers
+	}
+	return nil
 }
 
 type DeleteBotReq struct {
@@ -3174,7 +3199,7 @@ var File_bot_platform_bot_platform_proto protoreflect.FileDescriptor
 
 const file_bot_platform_bot_platform_proto_rawDesc = "" +
 	"\n" +
-	"\x1fbot-platform/bot-platform.proto\x12\vbotplatform\x1a\x13common/common.proto\"\x91\b\n" +
+	"\x1fbot-platform/bot-platform.proto\x12\vbotplatform\x1a\x13common/common.proto\"\xbe\b\n" +
 	"\x03Bot\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
 	"\bowner_id\x18\x02 \x01(\x03R\aownerId\x12\x12\n" +
@@ -3207,11 +3232,12 @@ const file_bot_platform_bot_platform_proto_rawDesc = "" +
 	"\bmodel_id\x184 \x01(\x03R\amodelId\x12\x1f\n" +
 	"\vtemplate_id\x185 \x01(\tR\n" +
 	"templateId\x12\x19\n" +
-	"\bsub_type\x186 \x01(\tR\asubType\x12\x1d\n" +
+	"\bsub_type\x186 \x01(\tR\asubType\x12+\n" +
+	"\x11response_triggers\x187 \x03(\tR\x10responseTriggers\x12\x1d\n" +
 	"\n" +
 	"created_at\x182 \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x183 \x01(\x03R\tupdatedAt\"\x9f\a\n" +
+	"updated_at\x183 \x01(\x03R\tupdatedAt\"\xcc\a\n" +
 	"\fCreateBotReq\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\x03R\aownerId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -3242,7 +3268,8 @@ const file_bot_platform_bot_platform_proto_rawDesc = "" +
 	"\bmodel_id\x18+ \x01(\x03R\amodelId\x12\x1f\n" +
 	"\vtemplate_id\x18, \x01(\tR\n" +
 	"templateId\x12\x19\n" +
-	"\bsub_type\x18- \x01(\tR\asubType\"\xb8\a\n" +
+	"\bsub_type\x18- \x01(\tR\asubType\x12+\n" +
+	"\x11response_triggers\x18. \x03(\tR\x10responseTriggers\"\xe5\a\n" +
 	"\fUpdateBotReq\x12\x15\n" +
 	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
@@ -3274,7 +3301,8 @@ const file_bot_platform_bot_platform_proto_rawDesc = "" +
 	"\bmodel_id\x18+ \x01(\x03R\amodelId\x12\x1f\n" +
 	"\vtemplate_id\x18, \x01(\tR\n" +
 	"templateId\x12\x19\n" +
-	"\bsub_type\x18- \x01(\tR\asubType\">\n" +
+	"\bsub_type\x18- \x01(\tR\asubType\x12+\n" +
+	"\x11response_triggers\x18. \x03(\tR\x10responseTriggers\">\n" +
 	"\fDeleteBotReq\x12\x15\n" +
 	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\"\"\n" +

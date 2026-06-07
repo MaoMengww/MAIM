@@ -16,6 +16,7 @@ import (
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type MessageHandler struct {
@@ -53,10 +54,10 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 	userID, _ := c.Get(middleware.CtxKeyUserID)
 	response.Created(c, map[string]any{
 		"id":            strconv.FormatInt(resp.MessageId, 10),
-		"message_id":    resp.MessageId,
+		"message_id":    strconv.FormatInt(resp.MessageId, 10),
 		"conv_id":       rawDTO.ConvID,
-		"from_user_id":  userID,
-		"seq":           resp.Seq,
+		"from_user_id":  strconv.FormatInt(userID.(int64), 10),
+		"seq":           strconv.FormatInt(resp.Seq, 10),
 		"type":          protoReq.Type,
 		"created_at":    strconv.FormatInt(resp.CreatedAt, 10),
 		"client_msg_id": rawDTO.ClientMsgID,
@@ -118,13 +119,20 @@ func (h *MessageHandler) RecallMessage(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+type editMessageDTO struct {
+	Text string `json:"text"`
+}
+
 func (h *MessageHandler) EditMessage(c *gin.Context) {
-	var req msgclient.EditMessageReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var dto editMessageDTO
+	if err := c.ShouldBindJSON(&dto); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.MessageId = parseInt64(c.Param("id"))
+	req := msgclient.EditMessageReq{
+		MessageId: parseInt64(c.Param("id")),
+		Text:      &msgpb.TextContent{Text: dto.Text},
+	}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.msgClient.EditMessage(ctx, &req)
 	if err != nil {
@@ -165,10 +173,10 @@ func (h *MessageHandler) ReplyMessage(c *gin.Context) {
 	}
 	response.Created(c, map[string]any{
 		"id":            strconv.FormatInt(resp.MessageId, 10),
-		"message_id":    resp.MessageId,
+		"message_id":    strconv.FormatInt(resp.MessageId, 10),
 		"conv_id":       rawDTO.ConvID,
-		"from_user_id":  rawDTO.UserID,
-		"seq":           resp.Seq,
+		"from_user_id":  strconv.FormatInt(rawDTO.UserID, 10),
+		"seq":           strconv.FormatInt(resp.Seq, 10),
 		"type":          protoReq.Type,
 		"created_at":    strconv.FormatInt(resp.CreatedAt, 10),
 		"client_msg_id": rawDTO.ClientMsgID,
@@ -331,10 +339,18 @@ func (h *MessageHandler) SearchMessages(c *gin.Context) {
 		response.BadRequest(c, "invalid user id")
 		return
 	}
-	if convID := parseInt64(c.Query("conv_id")); convID > 0 {
+	convIDStr := c.Query("conversation_id")
+	if convIDStr == "" {
+		convIDStr = c.Query("conv_id")
+	}
+	if convID := parseInt64(convIDStr); convID > 0 {
 		req.ConversationId = &convID
 	}
-	req.Keyword = c.Query("q")
+	if kw := c.Query("keyword"); kw != "" {
+		req.Keyword = kw
+	} else {
+		req.Keyword = c.Query("q")
+	}
 	if senderID := parseInt64(c.Query("sender_id")); senderID > 0 {
 		req.SenderId = &senderID
 	}
@@ -347,7 +363,11 @@ func (h *MessageHandler) SearchMessages(c *gin.Context) {
 	if endTime := parseInt64(c.Query("end_time")); endTime > 0 {
 		req.EndTime = &endTime
 	}
-	if msgTypeVals := c.QueryArray("msg_type"); len(msgTypeVals) > 0 {
+	msgTypeVals := c.QueryArray("message_types")
+	if len(msgTypeVals) == 0 {
+		msgTypeVals = c.QueryArray("msg_type")
+	}
+	if len(msgTypeVals) > 0 {
 		for _, raw := range msgTypeVals {
 			if n := parseInt64(raw); n > 0 {
 				req.MessageTypes = append(req.MessageTypes, msgpb.MessageType(n))
@@ -375,7 +395,12 @@ func (h *MessageHandler) SearchMessages(c *gin.Context) {
 
 func (h *MessageHandler) ForwardMessage(c *gin.Context) {
 	var req msgclient.ForwardMessageReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if err := protojson.Unmarshal(body, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}

@@ -11,9 +11,10 @@ type Config struct {
 	Kafka       config.KafkaConfig     `json:"kafka"`
 	Snowflake   SnowflakeConfig        `json:"snowflake"`
 	Conv        ConvConfig             `json:"conv"`
-	BotPlatform zrpc.RpcClientConf     `json:"botPlatform,optional"`
-	UserService zrpc.RpcClientConf     `json:"userService,optional"`
-	RateLimit   config.RateLimitConfig `json:"rateLimit"`
+	BotPlatform    zrpc.RpcClientConf     `json:"botPlatform,optional"`
+	UserService    zrpc.RpcClientConf     `json:"userService,optional"`
+	MessageService zrpc.RpcClientConf     `json:"messageService,optional"`
+	RateLimit      config.RateLimitConfig `json:"rateLimit"`
 }
 
 type SnowflakeConfig struct {

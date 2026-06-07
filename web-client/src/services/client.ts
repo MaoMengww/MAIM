@@ -26,6 +26,15 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
+// ─── Business error code → Chinese message mapping ───
+const errorMessages: Record<number, string> = {
+  1003: '已被禁言',
+};
+
+function mapErrorMessage(code: number, originalMessage: string): string {
+  return errorMessages[code] ?? originalMessage;
+}
+
 // ─── Response: unwrap & 401 refresh ───
 let isRefreshing = false;
 let refreshQueue: Array<{
@@ -80,6 +89,11 @@ client.interceptors.response.use(
           reject,
         });
       });
+    }
+
+    // Map business error code to Chinese message
+    if (response?.data?.code) {
+      response.data.message = mapErrorMessage(response.data.code, response.data.message);
     }
     return Promise.reject(error);
   },

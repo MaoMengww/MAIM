@@ -5,4 +5,4 @@ service:
 config:
   name: llm-gateway
   extraEnv:
-    encKey: ""
+    encKey: "Ay+h5wU31Vfy5gITlP1P2cmNtOPkTsnqIupXHqpgutw="

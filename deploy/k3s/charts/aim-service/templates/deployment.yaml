@@ -92,6 +92,8 @@ spec:
               value: {{ .Values.infra.elasticsearch | default "aim-elasticsearch" }}
             - name: K8S_OTEL_HOST
               value: {{ .Values.infra.otel | default "aim-otel-collector" }}
+            - name: K8S_SERVICE_NAME
+              value: {{ include "aim-service.fullname" . }}
             {{- range $k, $v := .Values.config.extraEnv }}
             - name: {{ $k }}
               value: {{ $v | quote }}

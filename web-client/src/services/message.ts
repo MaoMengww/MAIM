@@ -80,10 +80,7 @@ function normalizeFlatContent(type: number | undefined, content: any) {
 export function normalizeRealtimeMessageContent(msg: any): Message {
   if (!msg) return msg;
 
-  // Normalize message_id to number so dedup comparisons work across sync (string) and WS (number)
-  if (msg.message_id !== undefined) {
-    msg.message_id = Number(msg.message_id);
-  }
+  // Keep message_id as string to avoid JS precision loss for int64 IDs
 
   // Map Kafka event field names → frontend Message field names
   if (msg.conv_id !== undefined && msg.conversation_id === undefined) {
@@ -154,7 +151,7 @@ export const msgApi = {
         };
       }),
 
-  forward: (messageIds: number[], targetConvId: number) =>
+  forward: (messageIds: string[], targetConvId: string) =>
     client.post<APIResponse<any>>('/messages/forward', {
       message_ids: messageIds,
       target_conversation_id: targetConvId,

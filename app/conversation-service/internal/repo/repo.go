@@ -46,7 +46,7 @@ type RepoInterface interface {
 	GetBot(ctx context.Context, botID int64) (*model.Bot, error)
 	AddBot(ctx context.Context, bot *model.ConvBot) error
 	RemoveBot(ctx context.Context, convID, botID int64) error
-	UpdateBot(ctx context.Context, convID, botID int64, triggers []string, settings any) error
+	UpdateBot(ctx context.Context, convID, botID int64, settings any) error
 	ListBotsByConv(ctx context.Context, convID int64) ([]model.ConvBot, error)
 	GetBotInConv(ctx context.Context, convID, botID int64) (*model.ConvBot, error)
 	AddBotWithMember(ctx context.Context, bot *model.ConvBot, member *model.ConversationMember) error
@@ -340,11 +340,8 @@ func (r *Repo) RemoveBot(ctx context.Context, convID, botID int64) error {
 		Delete(&model.ConvBot{}).Error
 }
 
-func (r *Repo) UpdateBot(ctx context.Context, convID, botID int64, triggers []string, settings any) error {
+func (r *Repo) UpdateBot(ctx context.Context, convID, botID int64, settings any) error {
 	updates := map[string]any{}
-	if triggers != nil {
-		updates["response_triggers"] = triggers
-	}
 	if settings != nil {
 		updates["bot_settings"] = settings
 	}

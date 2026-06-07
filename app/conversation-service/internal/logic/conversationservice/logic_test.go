@@ -149,10 +149,10 @@ func (m *mockRepo) GetReadSeq(ctx context.Context, convID, userID int64) (*model
 	return m.getReadSeq, m.getReadSeqErr
 }
 func (m *mockRepo) GetReadSeqs(ctx context.Context, convID int64) ([]model.ConvReadSeq, error) {
+	return m.readSeqs, m.readSeqsErr
+}
 func (m *mockRepo) GetReadSeqsByUser(ctx context.Context, convIDs []int64, userID int64) (map[int64]int64, error) {
 	return nil, nil
-}
-	return m.readSeqs, m.readSeqsErr
 }
 func (m *mockRepo) GetSettings(ctx context.Context, convID, userID int64) (*model.ConvSettings, error) {
 	return m.getSettings, m.getSettingsErr
