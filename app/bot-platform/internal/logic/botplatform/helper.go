@@ -11,14 +11,11 @@ import (
 
 	"github.com/maomeng/aim/app/bot-platform/internal/model"
 	pb "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	"github.com/maomeng/aim/pkg/consts"
 )
 
 // Bot type constants
-const (
-	TypeOfficial     = "official"
-	TypeSelfDeployed = "self_deployed"
-	TypeThirdParty   = "third_party"
-)
+// Bot type constants are defined in pkg/consts — use consts.BotType* directly
 
 // Sub type constants (third_party only)
 const (
@@ -42,11 +39,11 @@ const (
 func NormalizeBotType(t string) string {
 	switch strings.ToLower(t) {
 	case "bot_type_official", "official":
-		return TypeOfficial
+		return consts.BotTypeOfficial
 	case "bot_type_self_deployed", "self_deployed":
-		return TypeSelfDeployed
+		return consts.BotTypeSelfDeployed
 	case "bot_type_third_party", "third_party":
-		return TypeThirdParty
+		return consts.BotTypeThirdParty
 	default:
 		return t
 	}

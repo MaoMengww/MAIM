@@ -11,6 +11,7 @@ import (
 	"github.com/maomeng/aim/app/conversation-service/internal/svc"
 	"github.com/maomeng/aim/app/conversation-service/pb/conversation"
 	"github.com/maomeng/aim/pkg/configcenter"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/kafka"
 
@@ -32,7 +33,7 @@ func main() {
 	ctx := svc.NewServiceContext(c)
 
 	// Start Kafka consumer for message.created events
-	msgConsumer, err := kafka.NewConsumer(c.Kafka, []string{"message.created"}, c.Kafka.ConsumerGroup, ctx.Logger)
+	msgConsumer, err := kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated}, c.Kafka.ConsumerGroup, ctx.Logger)
 	if err != nil {
 		ctx.Logger.Errorf("init msg consumer failed: %v", err)
 	} else {

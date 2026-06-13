@@ -66,9 +66,12 @@ func main() {
 		progressPusher = eventpush.New(realtimeevent.NewRealtimeEventServiceClient(realtimeClient.Conn()), "knowledge-base")
 	}
 
-	// Wire pusher to scheduler for maintenance completion events
+	// Wire pusher for maintenance completion events
 	if ctx.MaintenanceScheduler != nil {
 		ctx.MaintenanceScheduler.WithPusher(progressPusher)
+	}
+	if ctx.WikiMaintain != nil {
+		ctx.WikiMaintain.WithPusher(progressPusher)
 	}
 
 	ingestPipe := &pipeline.IngestPipeline{

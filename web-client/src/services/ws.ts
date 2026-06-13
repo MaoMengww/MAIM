@@ -7,6 +7,13 @@ type Handler = (payload: any) => void;
 // WebSocket event types matching ws-gateway
 const eventHandlers = new Map<string, Set<Handler>>();
 
+// Track active streaming sessions for reconnection replay
+interface ActiveStream {
+  streamId: string;
+  lastSeq: number;
+}
+const activeStreams = new Map<string, ActiveStream>();
+
 let ws: WebSocket | null = null;
 let currentWs: WebSocket | null = null;
 let reconnectTimer: number | null = null;
@@ -43,6 +50,10 @@ export function wsConnect() {
     useWSStore.getState().setReconnectAttempts(0);
     if (!isFirstConnect) {
       useWSStore.getState().bumpReconnectVersion();
+      // Replay any active streaming sessions
+      activeStreams.forEach(({ streamId, lastSeq }) => {
+        wsSend({ type: 'stream.replay', stream_id: streamId, from_seq: lastSeq });
+      });
     }
     isFirstConnect = false;
     startHeartbeat();
@@ -53,6 +64,20 @@ export function wsConnect() {
     try {
       const payload = safeJsonParse(event.data);
       const type = payload.type as string;
+
+      // Track streaming sessions for reconnection replay
+      if (type && type.startsWith('bot.streaming.')) {
+        const streamId = payload.stream_id as string;
+        const seq = payload.seq as number;
+        if (streamId !== undefined && seq !== undefined) {
+          if (type === 'bot.streaming.done') {
+            activeStreams.delete(streamId);
+          } else {
+            activeStreams.set(streamId, { streamId, lastSeq: seq });
+          }
+        }
+      }
+
       const handlers = eventHandlers.get(type);
       if (handlers) {
         handlers.forEach((h) => h(payload));
@@ -78,6 +103,7 @@ export function wsDisconnect() {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  activeStreams.clear();
   ws?.close();
   ws = null;
   useWSStore.getState().setStatus('disconnected');

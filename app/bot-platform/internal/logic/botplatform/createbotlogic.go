@@ -7,6 +7,7 @@ import (
 	"github.com/maomeng/aim/app/bot-platform/internal/model"
 	"github.com/maomeng/aim/app/bot-platform/internal/svc"
 	"github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/crypto"
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -32,18 +33,18 @@ func (l *CreateBotLogic) CreateBot(in *botplatform.CreateBotReq) (*botplatform.B
 
 	botType := NormalizeBotType(in.Type)
 	switch botType {
-	case TypeOfficial, TypeSelfDeployed, TypeThirdParty:
+	case consts.BotTypeOfficial, consts.BotTypeSelfDeployed, consts.BotTypeThirdParty:
 	default:
 		return nil, fmt.Errorf("invalid bot type: %s", in.Type)
 	}
 
-	if botType == TypeSelfDeployed && in.OwnerId == 0 {
+	if botType == consts.BotTypeSelfDeployed && in.OwnerId == 0 {
 		return nil, fmt.Errorf("owner_id is required for user bot")
 	}
 
 	// capture normalized subType for third-party bot construction below
 	var subType string
-	if botType == TypeThirdParty {
+	if botType == consts.BotTypeThirdParty {
 		subType = in.SubType
 		if subType == "" {
 			// fall back to conn_mode for backwards compatibility
@@ -58,7 +59,7 @@ func (l *CreateBotLogic) CreateBot(in *botplatform.CreateBotReq) (*botplatform.B
 	}
 
 	// Official bot: require template_id
-	if botType == TypeOfficial {
+	if botType == consts.BotTypeOfficial {
 		if in.TemplateId == "" {
 			return nil, fmt.Errorf("template_id is required for official bot")
 		}
@@ -73,7 +74,7 @@ func (l *CreateBotLogic) CreateBot(in *botplatform.CreateBotReq) (*botplatform.B
 	}
 
 	var webhookSecret string
-	if botType == TypeThirdParty && subType == SubTypeWebhook {
+	if botType == consts.BotTypeThirdParty && subType == SubTypeWebhook {
 		s, genErr := generateRandomSecret(32)
 		if genErr != nil {
 			return nil, fmt.Errorf("generate webhook secret: %w", genErr)
@@ -87,7 +88,7 @@ func (l *CreateBotLogic) CreateBot(in *botplatform.CreateBotReq) (*botplatform.B
 		Name:                   in.Name,
 		Avatar:                 in.Avatar,
 		Type:                   botType,
-		Status:                 "active",
+		Status:                 consts.BotStatusActive,
 		UsePlatformModel:       in.UsePlatformModel,
 		ModelName:              in.ModelName,
 		ModelID:                in.ModelId,

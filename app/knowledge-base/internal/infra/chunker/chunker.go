@@ -39,14 +39,43 @@ type splitUnit struct {
 }
 
 func (c *RecursiveChunker) Chunk(ctx context.Context, doc *domain.ParsedDocument, cfg domain.ChunkingConfig) (*domain.ParentChildChunks, error) {
-	if cfg.ParentChild.Enabled {
-		return c.chunkWithParent(doc, cfg)
+	// Scan raw text for heading markers instead of relying on parser Sections,
+	// which may have stale byte positions after text modifications.
+	hasHeadings := strings.Contains(doc.RawText, "\n# ") || strings.HasPrefix(doc.RawText, "# ")
+	switch {
+	case hasHeadings:
+		// Tier 1: heading-aware splitting
+		if cfg.ParentChild.Enabled {
+			return c.headingAwareParentChild(doc, cfg)
+		}
+		chunks, err := c.headingAwareChunk(doc, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return &domain.ParentChildChunks{Children: chunks}, nil
+
+	case shouldUseHeuristic(doc.RawText):
+		// Tier 2: heuristic boundary splitting
+		if cfg.ParentChild.Enabled {
+			return c.heuristicParentChild(doc, cfg)
+		}
+		chunks, err := c.heuristicChunk(doc, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return &domain.ParentChildChunks{Children: chunks}, nil
+
+	default:
+		// Tier 3: flat recursive splitting (existing behavior)
+		if cfg.ParentChild.Enabled {
+			return c.chunkWithParent(doc, cfg)
+		}
+		chunks, err := c.chunkFlat(doc, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return &domain.ParentChildChunks{Children: chunks}, nil
 	}
-	chunks, err := c.chunkFlat(doc, cfg)
-	if err != nil {
-		return nil, err
-	}
-	return &domain.ParentChildChunks{Children: chunks}, nil
 }
 
 // chunkFlat implements single-level chunking with protection and header context.

@@ -4,11 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/config"
 	"github.com/maomeng/aim/app/message-service/internal/consumer"
-	"github.com/maomeng/aim/app/message-service/internal/model"
 	messageserviceServer "github.com/maomeng/aim/app/message-service/internal/server/messageservice"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
@@ -74,29 +72,10 @@ func main() {
 		}
 	}()
 
-	kafkaCtx, kafkaCancel := context.WithCancel(context.Background())
-	defer kafkaCancel()
-	// 后台重试 failed_events 中的 Kafka 发送失败事件
-	go func() {
-		for {
-			select {
-			case <-kafkaCtx.Done():
-				return
-			case <-time.After(30 * time.Second):
-				var events []model.FailedEvent
-				if err := ctx.DB.WithContext(context.Background()).Where("retry_count < 3").Order("created_at ASC").Limit(100).Find(&events).Error; err != nil {
-					continue
-				}
-				for _, e := range events {
-					if err := ctx.MessageCreatedProducer.Send(context.Background(), e.Key, e.Payload); err != nil {
-						ctx.DB.Model(&e).Update("retry_count", e.RetryCount+1).Update("last_error", err.Error())
-						continue
-					}
-					ctx.DB.Delete(&e)
-				}
-			}
-		}
-	}()
+	// Start OutboxDispatcher for reliable Kafka event delivery
+	outboxCtx, outboxCancel := context.WithCancel(context.Background())
+	defer outboxCancel()
+	go ctx.OutboxDispatcher.Run(outboxCtx)
 
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
 		message.RegisterMessageServiceServer(grpcServer, messageserviceServer.NewMessageServiceServer(ctx))

@@ -95,7 +95,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	kbRepo := repo.NewKBRepo(db).WithSnow(snowNode)
 	docRepo := repo.NewDocumentRepo(db).WithSnow(snowNode)
 	llmGatewayClient := zrpc.MustNewClient(c.LLMGateway)
-	defaultParser := parser.NewParserChain(parser.NewBuiltinParser())
+	defaultParser := parser.NewParserChain(parser.NewBuiltinParser("txt"))
 	defaultChunker := chunker.NewChunker()
 
 	// Wiki 组件

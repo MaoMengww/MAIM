@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/maomeng/aim/app/gateway/internal/response"
+	bizerrors "github.com/maomeng/aim/pkg/errors"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -43,10 +45,8 @@ func RateLimit(rdb *redis.Client, requestsPerSec, messagePerSec int) gin.Handler
 
 		count, _ := cmds[1].(*redis.IntCmd).Result()
 		if int(count) > limit {
-			c.AbortWithStatusJSON(429, gin.H{
-				"code":    429,
-				"message": "rate limit exceeded",
-			})
+			response.Error(c, 429, bizerrors.CodeTooManyRequests, "rate limit exceeded")
+			c.Abort()
 			return
 		}
 

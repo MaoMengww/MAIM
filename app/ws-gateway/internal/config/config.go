@@ -23,6 +23,7 @@ type (
 		Metrics        MetricsConfig      `yaml:"Metrics"`
 		Log            config.LogConfig   `yaml:"Log"`
 		Telemetry      TelemetryConfig    `yaml:"Telemetry"`
+		StreamCache    StreamCacheConfig  `yaml:"StreamCache"`
 	}
 
 	EtcdConfig struct {
@@ -49,6 +50,12 @@ type (
 		Sampler  float64 `yaml:"Sampler"`
 		Disabled bool    `yaml:"Disabled"`
 	}
+
+	StreamCacheConfig struct {
+		Enabled            bool `yaml:"Enabled"`
+		TTLSeconds         int  `yaml:"TTLSeconds"`
+		MaxChunksPerStream int  `yaml:"MaxChunksPerStream"`
+	}
 )
 
 func defaultConfig() Config {
@@ -61,6 +68,11 @@ func defaultConfig() Config {
 			HeartbeatInterval: 30, MaxConn: 10000,
 		},
 		Log: config.LogConfig{Level: "info", Format: "json", Output: "stdout"},
+		StreamCache: StreamCacheConfig{
+			Enabled:            true,
+			TTLSeconds:         60,
+			MaxChunksPerStream: 500,
+		},
 	}
 }
 

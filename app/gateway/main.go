@@ -15,9 +15,9 @@ import (
 	"github.com/maomeng/aim/pkg/configcenter"
 	"github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/logx"
-	pkgtrace "github.com/maomeng/aim/pkg/trace"
 	"github.com/redis/go-redis/v9"
 	"github.com/zeromicro/go-zero/core/prometheus"
+	"github.com/zeromicro/go-zero/core/trace"
 )
 
 var configFile = flag.String("f", "etc/gateway.yaml", "config file")
@@ -42,22 +42,13 @@ func main() {
 		Path:     cfg.Log.Path,
 	})
 
-	tp, err := pkgtrace.InitTracerProvider(pkgtrace.Config{
+	trace.StartAgent(trace.Config{
 		Name:     cfg.Telemetry.Name,
 		Endpoint: cfg.Telemetry.Endpoint,
 		Sampler:  cfg.Telemetry.Sampler,
 		Disabled: cfg.Telemetry.Disabled,
 	})
-	if err != nil {
-		logger.Errorf("failed to init tracer: %v", err)
-	}
-	if tp != nil {
-		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = tp.Shutdown(ctx)
-		}()
-	}
+	defer trace.StopAgent()
 
 	jwtMgr := jwt.NewManager(cfg.JWT.Secret, cfg.JWT.ExpireSec, cfg.JWT.RefreshSec)
 

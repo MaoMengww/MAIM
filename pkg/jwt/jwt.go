@@ -60,7 +60,7 @@ func (m *Manager) Generate(userID, username string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, err := token.SignedString(m.secret)
 	if err != nil {
-		return "", errors.Wrap(1002, "token sign failed", err)
+		return "", errors.Wrap(errors.CodeUnauthorized, "token sign failed", err)
 	}
 	return tokenStr, nil
 }
@@ -68,16 +68,16 @@ func (m *Manager) Generate(userID, username string) (string, error) {
 func (m *Manager) Parse(tokenStr string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New(1002, "unexpected signing method")
+			return nil, errors.New(errors.CodeUnauthorized, "unexpected signing method")
 		}
 		return m.secret, nil
 	}, jwt.WithLeeway(time.Duration(0)))
 	if err != nil {
-		return nil, errors.Wrap(1002, "token parse failed", err)
+		return nil, errors.Wrap(errors.CodeUnauthorized, "token parse failed", err)
 	}
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
-		return nil, errors.New(1002, "invalid token")
+		return nil, errors.New(errors.CodeUnauthorized, "invalid token")
 	}
 	return claims, nil
 }
@@ -87,16 +87,16 @@ func (m *Manager) Parse(tokenStr string) (*Claims, error) {
 func (m *Manager) ParseIgnoreExpiry(tokenStr string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New(1002, "unexpected signing method")
+			return nil, errors.New(errors.CodeUnauthorized, "unexpected signing method")
 		}
 		return m.secret, nil
 	}, jwt.WithoutClaimsValidation())
 	if err != nil {
-		return nil, errors.Wrap(1002, "token parse failed", err)
+		return nil, errors.Wrap(errors.CodeUnauthorized, "token parse failed", err)
 	}
 	claims, ok := token.Claims.(*Claims)
 	if !ok {
-		return nil, errors.New(1002, "invalid token")
+		return nil, errors.New(errors.CodeUnauthorized, "invalid token")
 	}
 	return claims, nil
 }
@@ -107,7 +107,7 @@ func (m *Manager) Refresh(tokenStr string) (string, error) {
 		return "", err
 	}
 	if claims == nil {
-		return "", errors.New(1002, "invalid token for refresh")
+		return "", errors.New(errors.CodeUnauthorized, "invalid token for refresh")
 	}
 	return m.Generate(claims.UserID, claims.Username)
 }
@@ -129,7 +129,7 @@ func (m *Manager) GenerateBotToken(botID, ownerID int64, botType string) (string
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, err := token.SignedString(m.secret)
 	if err != nil {
-		return "", errors.Wrap(1002, "bot token sign failed", err)
+		return "", errors.Wrap(errors.CodeUnauthorized, "bot token sign failed", err)
 	}
 	return tokenStr, nil
 }
@@ -137,16 +137,16 @@ func (m *Manager) GenerateBotToken(botID, ownerID int64, botType string) (string
 func (m *Manager) ParseBotToken(tokenStr string) (*BotClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &BotClaims{}, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New(1002, "unexpected signing method")
+			return nil, errors.New(errors.CodeUnauthorized, "unexpected signing method")
 		}
 		return m.secret, nil
 	})
 	if err != nil {
-		return nil, errors.Wrap(1002, "bot token parse failed", err)
+		return nil, errors.Wrap(errors.CodeUnauthorized, "bot token parse failed", err)
 	}
 	claims, ok := token.Claims.(*BotClaims)
 	if !ok || !token.Valid {
-		return nil, errors.New(1002, "invalid bot token")
+		return nil, errors.New(errors.CodeUnauthorized, "invalid bot token")
 	}
 	return claims, nil
 }

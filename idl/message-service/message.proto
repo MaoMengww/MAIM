@@ -21,8 +21,7 @@ service MessageService {
   rpc GetAroundSeq(GetAroundSeqReq) returns (GetMessagesResp);
   rpc SearchMessages(SearchMessagesReq) returns (SearchMessagesResp);
 
-  // ========== Forward & Broadcast ==========
-  rpc ForwardMessage(ForwardMessageReq) returns (ForwardMessageResp);
+  // ========== Broadcast ==========
   rpc SendBroadcast(SendBroadcastReq) returns (SendBroadcastResp);
 
   // ========== Bot Reply (called by bot-service) ==========
@@ -277,18 +276,6 @@ message BatchGetMessagesReq {
 
 message BatchGetMessagesResp {
   repeated Message messages = 1;
-}
-
-// ========== Forward ==========
-
-message ForwardMessageReq {
-  repeated int64 message_ids = 1;
-  int64 target_conversation_id = 2;
-  int64 from_user_id = 3;
-}
-
-message ForwardMessageResp {
-  repeated int64 message_ids = 1;
 }
 
 // ========== Search ==========

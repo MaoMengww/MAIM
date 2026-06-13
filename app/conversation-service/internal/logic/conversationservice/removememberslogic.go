@@ -5,10 +5,10 @@ import (
 
 	"github.com/maomeng/aim/app/conversation-service/internal/svc"
 	"github.com/maomeng/aim/app/conversation-service/pb/conversation"
+	"github.com/maomeng/aim/pkg/consts"
+	pkg_errors "github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type RemoveMembersLogic struct {
@@ -45,13 +45,13 @@ func (l *RemoveMembersLogic) RemoveMembers(in *conversation.RemoveMembersReq) (*
 			}
 		}
 		if err := l.svcCtx.Repo.RemoveMember(l.ctx, in.ConversationId, uid); err != nil {
-			return nil, status.Error(codes.Internal, "failed to remove member")
+			return nil, pkg_errors.Wrap(pkg_errors.CodeInternal, "failed to remove member", err)
 		}
 		if err := l.svcCtx.Repo.IncrementMemberCount(l.ctx, in.ConversationId, -1); err != nil {
 			l.Logger.Errorf("decrement member count failed: conv=%d, err=%v", in.ConversationId, err)
 		}
 		// 发送成员退出系统消息
-		action := "member.left"
+		action := consts.ConvActionMemberLeft
 		detail := "成员退出了群聊"
 		if uid == in.OperatorId {
 			detail = "退出了群聊"

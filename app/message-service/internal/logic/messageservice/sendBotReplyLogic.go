@@ -9,9 +9,11 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type SendBotReplyLogic struct {
@@ -65,13 +67,23 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		UpdatedAt:    now,
 	}
 
-	// 生成 seq + 插入消息
-	seq, err := nextSeq(l.svcCtx.Redis, l.ctx, in.ConversationId)
+	// 事务：生成 seq + 插入消息 + 更新会话 max_seq
+	var seq int64
+	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		seq, err = l.svcCtx.SequenceRepo.NextSeq(l.ctx, tx, in.ConversationId)
+		if err != nil {
+			return err
+		}
+		msg.Seq = seq
+
+		if err := tx.Create(msg).Error; err != nil {
+			return err
+		}
+		return tx.Table("conv.conversations").Where("id = ?", in.ConversationId).
+			Update("max_seq", seq).Error
+	})
 	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "next seq failed", err)
-	}
-	msg.Seq = seq
-	if err := l.svcCtx.DB.WithContext(l.ctx).Create(msg).Error; err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "insert bot message failed", err)
 	}
 
@@ -105,7 +117,7 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		if err := producer.Send(context.Background(), fmt.Sprintf("%d", msgID), val); err != nil {
 			l.Errorf("kafka async send failed, write to failed_events: msg_id=%d, err=%v", msgID, err)
 			_ = l.svcCtx.DB.WithContext(context.Background()).Create(&model.FailedEvent{
-				Topic:   "message.created",
+				Topic:   consts.KafkaTopicMessageCreated,
 				Key:     fmt.Sprintf("%d", msgID),
 				Payload: val,
 			}).Error

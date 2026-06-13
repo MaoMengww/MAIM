@@ -14,11 +14,11 @@ const summaryTemplate = `## Role
 You are a professional knowledge base analysis assistant. Your task is to generate knowledge point summaries based on document content.
 
 ## Constraints
-1. 请使用中文(专有名词除外)
+1. use chinese to respond, except for proper nouns and technical terms
 2. Elaborate based on the document content, ensuring all important information is covered
 3. Organize in the following structure:
-   - Core topic (1-2 sentences summary)
-   - Key knowledge points (3-5 points, 1-2 sentences each)
+   - Core topic 
+   - Key knowledge points
    - Relationships between knowledge points (if any)
 4. Do not output any irrelevant content
 5. If the document content is empty, output "No content"
@@ -42,7 +42,7 @@ You are a knowledge extraction expert. Extract both entities and concepts from t
 7. If unsure whether it is an entity or concept, prioritize as entity
 8. Each object contains:
    - "name": string, standard name
-   - "description": string, 1-2 sentences
+   - "description": string, less than 300 characters
    - "aliases": array of strings, alternative names/abbreviations
 9. Maximum 20 entities and 15 concepts (prioritize entity count)
 10. Write names and descriptions in Chinese. Do NOT translate proper nouns or technical terms.
@@ -57,7 +57,7 @@ const synthesisTemplate = `## Role
 You are a knowledge base analysis expert. Analyze the following document content and generate cross-document synthesis reviews.
 
 ## Constraints
-1. 请使用中文(专有名词除外)
+1. use chinese to respond, except for proper nouns and technical terms
 2. Output only a valid JSON array, do not output any other text, explanations, or markdown
 3. JSON must be valid and directly parseable by json.Unmarshal
 4. Based on document richness, generate 0-5 reviews. Return empty array [] when content is insufficient or unsuitable for synthesis
@@ -79,7 +79,7 @@ const comparisonTemplate = `## Role
 You are a knowledge comparison analysis expert. Find comparable entity or concept pairs in the documents and generate comparison analysis.
 
 ## Constraints
-1. 请使用中文(专有名词除外)
+1. use chinese to respond, except for proper nouns and technical terms
 2. Output only a valid JSON array, do not output any other text, explanations, or markdown
 3. JSON must be valid and directly parseable by json.Unmarshal
 4. Based on document content, generate 0-5 comparisons. Return empty array [] when no comparable objects exist
@@ -162,51 +162,100 @@ func generateLogSummary(ctx context.Context, llm LLMGateway, modelID int64, owne
 	return resp.Content
 }
 
-const candidateExtractionTemplate = `You are a lightweight candidate extraction system. Analyze the following document and list all significant entities and key concepts as a lightweight candidate set.
+const candidateExtractionTemplate = `You are a knowledge extraction system. Analyze the following document and extract all significant entities AND key concepts.
 
 <document>
+<content>
 {{.Content}}
+</content>
 </document>
 
 <previous_slugs>
 {{.PreviousSlugs}}
 </previous_slugs>
 
-Return a JSON object with "entities" and "concepts" arrays.
-Each item: name, description (definition, core characteristics, key details), slug (entity/... format), aliases (array), doc_ids (array of integers).
+<instructions>
+Return a JSON object with two arrays: "entities" and "concepts".
+**IMPORTANT: Write ALL names, descriptions, and details in Chinese, except for proper nouns and technical terms**.
 
-IMPORTANT: Write names and descriptions in Chinese. Do NOT translate proper nouns or technical terms.
-If content is empty -> {"entities": [], "concepts": []}.
+If the <content> block above is empty, contains only image references with no extracted text, or otherwise carries no substantive information, return {"entities": [], "concepts": []}. Do NOT invent entities or concepts from any other source.
 
-Slug Continuity: If an entity/concept from previous_slugs still exists, reuse its exact slug. Only create new slugs for genuinely new items.
+### Slug Continuity Rules
+If previous slugs are provided above, you MUST follow these rules:
+- If an entity or concept from the previous extraction still exists in the current document, **reuse its exact slug** from the previous list. Do NOT generate a new slug for the same thing.
+- If an entity or concept no longer appears in the document, do **NOT include it** in the output.
+- Only generate new slugs for entities/concepts that are genuinely new (not present in the previous list).
+- This ensures slug stability across document updates.
 
-Dedup: Named thing -> entity. Abstract idea -> concept. Never duplicate.
+### Entities (people, organizations, products, places, technologies, events, etc.)
+Each entity should have:
+- "name": The entity name in Chinese (human-readable)
+- "slug": URL-friendly slug, format "entity/<lowercase-hyphenated-name>" (use romanized/pinyin form for non-Latin names). **Reuse previous slug if the entity was extracted before.**
+- "aliases": An array of strings representing names that refer to THE EXACT SAME entity. Only include: official abbreviations (e.g. "IBM" for "International Business Machines"), full/short name variants (e.g. "腾讯" for "腾讯控股有限公司"), translations (e.g. "Apple" for "苹果公司"), and well-known alternate names (e.g. "Alphabet" for "Google母公司"). Do NOT include parent categories, related products, generic terms, or broader concepts. Provide [] if none.
+- "description": **Index listing summary** — one sentence, 15-40 words, in Chinese. Describes WHAT this entity IS and its role in the document. Must be self-contained (understandable without reading the full page). This will be displayed in the wiki index.
+- "details": <300 characters in Chinese. Key facts about this entity from the document. **Image rule**: If the document contains relevant <image> elements in an <images> tag, include them in the details using Markdown syntax: ![caption](url).
 
-STRICT: Output raw JSON only. NO markdown, NO code fences, NO explanation. ONLY the JSON object.`
+Only include entities that are substantively discussed. Do NOT include generic terms.
+
+### Concepts (topics, themes, methodologies, theories, etc.)
+Each concept should have:
+- "name": The concept name in Chinese (human-readable)
+- "slug": URL-friendly slug, format "concept/<lowercase-hyphenated-name>" (use romanized/pinyin form for non-Latin names). **Reuse previous slug if the concept was extracted before.**
+- "aliases": An array of strings representing names that refer to THE EXACT SAME concept. Only include: official abbreviations (e.g. "RAG" for "Retrieval-Augmented Generation"), full/short name variants, and well-known synonyms used interchangeably in the field. Do NOT include sub-topics, related techniques, broader categories, or implementation details. Provide [] if none.
+- "description": **Index listing summary** — one sentence, 15-40 words, in Chinese. Defines WHAT this concept IS. Must be self-contained (understandable without reading the full page). This will be displayed in the wiki index.
+- "details": <300 characters in Chinese. Key facts about this concept from the document. **Image rule**: If the document contains relevant <image> elements in an <images> tag, include them in the details using Markdown syntax: ![caption](url).
+
+Only include concepts that are substantively discussed. Skip trivial or overly generic concepts.
+
+### Deduplication Rules
+- If something is a specific named thing (person, company, product, place), put it ONLY in "entities".
+- If something is an abstract idea, methodology, or theory, put it ONLY in "concepts".
+- Never duplicate items across the two arrays.
+
+### JSON Formatting Rules
+- **CRITICAL**: Do NOT use literal newline characters inside JSON string values. If you need a newline in a string, you MUST use the escaped sequence \n.
+</instructions>
+
+Output ONLY valid JSON. Example:
+{
+  "entities": [
+    {
+      "name": "Acme Corp",
+      "slug": "entity/acme-corp",
+      "aliases": ["Acme", "Acme Corporation"],
+      "description": "A technology company specializing in AI solutions.",
+      "details": "Acme Corp was founded in 2020 and has grown to 500 employees. They focus on enterprise AI products and recently launched their flagship RAG platform."
+    }
+  ],
+  "concepts": [
+    {
+      "name": "Retrieval-Augmented Generation",
+      "slug": "concept/retrieval-augmented-generation",
+      "aliases": ["RAG"],
+      "description": "A technique that combines information retrieval with language model generation.",
+      "details": "RAG works by first retrieving relevant documents from a knowledge base using vector similarity search, then feeding those documents as context to an LLM for answer generation."
+    }
+  ]
+}`
 
 type candidateExtractionInput struct {
 	Content       string
 	PreviousSlugs string
-	Language      string
 }
 
-func buildCandidateExtractionPrompt(content, previousSlugs, language string) string {
+func buildCandidateExtractionPrompt(content, previousSlugs string) string {
 	var buf bytes.Buffer
 	tmpl, err := template.New("candidateExtraction").Parse(candidateExtractionTemplate)
 	if err != nil {
 		return `{"entities":[],"concepts":[]}`
 	}
-	if err := tmpl.Execute(&buf, candidateExtractionInput{Content: content, PreviousSlugs: previousSlugs, Language: language}); err != nil {
+	if err := tmpl.Execute(&buf, candidateExtractionInput{Content: content, PreviousSlugs: previousSlugs}); err != nil {
 		return `{"entities":[],"concepts":[]}`
 	}
 	return buf.String()
 }
 
-const reduceMergeTemplateStr = `You are a wiki editor tasked with updating an existing wiki page with new information, and/or removing facts from deleted documents.
-
-STRICT RULES:
-1. Do NOT invent information not in source documents.
-2. Stay close to source wording. No rhetorical filler.
+const reduceMergeTemplateStr = `You are a wiki editor tasked with updating an existing wiki page with new extracted information.
 
 <page_metadata>
 <slug>{{.PageSlug}}</slug>
@@ -214,70 +263,55 @@ STRICT RULES:
 <type>{{.PageType}}</type>
 </page_metadata>
 
+<existing_summary>
+{{.ExistingSummary}}
+</existing_summary>
+
 <existing_page_content>
 {{.ExistingContent}}
 </existing_page_content>
 
-{{if .HasAdditions}}
-<new_information>
-{{.NewContent}}
-</new_information>
-{{end}}
-
-{{if .HasRetractions}}
-<deleted_document_ids>{{.DeletedDocIDs}}</deleted_document_ids>
-<remaining_source_documents>
-{{.RemainingSourcesContent}}
-</remaining_source_documents>
-{{end}}
+<new_extracted_information>
+{{.NewExtractions}}
+</new_extracted_information>
 
 Instructions:
 1. FIRST line: SUMMARY: {one sentence}
-2. REMOVE facts only from deleted documents that are not present in remaining sources
-3. ADD/MERGE new information -- be a compiler, not a writer
-4. Preserve valid existing information
-5. Write in {{.Language}}
+2. MERGE the new extracted information into the existing page content
+3. Preserve valid existing information
+4. Write in Chinese. Do NOT translate proper nouns or technical terms.
 
 Output SUMMARY line first, then updated Markdown.`
 
 type reduceMergeTemplateData struct {
-	PageSlug                string
-	PageTitle               string
-	PageType                string
-	ExistingContent         string
-	HasAdditions            bool
-	NewContent              string
-	HasRetractions          bool
-	DeletedDocIDs           string
-	RemainingSourcesContent string
-	Language                string
+	PageSlug        string
+	PageTitle       string
+	PageType        string
+	ExistingSummary string
+	ExistingContent string
+	NewExtractions  string
 }
 
-func buildReduceMergePrompt(page *domain.WikiPage, additions []string, deletedDocIDs []int64, language string) string {
-	var newContent string
-	hasAdditions := len(additions) > 0
-	if hasAdditions {
-		newContent = strings.Join(additions, "\n")
-	}
-	hasRetractions := len(deletedDocIDs) > 0
-	var deletedIDsStr string
-	if hasRetractions {
-		idStrs := make([]string, len(deletedDocIDs))
-		for i, id := range deletedDocIDs {
-			idStrs[i] = fmt.Sprintf("%d", id)
+func buildReduceMergePrompt(page *domain.WikiPage, newInputs []mergeInput) string {
+	var sb strings.Builder
+	for i, in := range newInputs {
+		if i > 0 {
+			sb.WriteString("\n---\n")
 		}
-		deletedIDsStr = strings.Join(idStrs, ",")
+		sb.WriteString(fmt.Sprintf("Name: %s\n", in.Name))
+		if len(in.Aliases) > 0 {
+			sb.WriteString(fmt.Sprintf("Aliases: %s\n", strings.Join(in.Aliases, ", ")))
+		}
+		sb.WriteString(fmt.Sprintf("Description: %s\n", in.Description))
+		sb.WriteString(fmt.Sprintf("Details: %s\n", in.Details))
 	}
 	data := reduceMergeTemplateData{
 		PageSlug:        page.Slug,
 		PageTitle:       page.Title,
 		PageType:        string(page.PageType),
+		ExistingSummary: page.Summary,
 		ExistingContent: page.Content,
-		HasAdditions:    hasAdditions,
-		NewContent:      newContent,
-		HasRetractions:  hasRetractions,
-		DeletedDocIDs:   deletedIDsStr,
-		Language:        language,
+		NewExtractions:  sb.String(),
 	}
 	var buf bytes.Buffer
 	tmpl, err := template.New("reduceMerge").Parse(reduceMergeTemplateStr)
@@ -288,4 +322,92 @@ func buildReduceMergePrompt(page *domain.WikiPage, additions []string, deletedDo
 		return ""
 	}
 	return buf.String()
+}
+
+// ================================================================
+// Wiki dedup prompt — LLM decides which new items merge into
+// existing pages. Modeled on WeKnora's WikiDeduplicationPrompt.
+// ================================================================
+
+const wikiDedupTemplate = `You are a strict deduplication system. Given a list of newly extracted items and a list of existing wiki pages, determine which new items refer to the **exact same** real-world entity or concept as an existing page.
+
+<new_items>
+{{.NewItems}}
+</new_items>
+
+<existing_pages>
+{{.ExistingPages}}
+</existing_pages>
+
+<instructions>
+### Merge criteria — ALL must be true:
+1. The new item and the existing page refer to the **same real-world thing** (same algorithm, same protocol, same specific concept).
+2. The match is a **name variation**: abbreviation ↔ full name, alternative spelling/translation, or minor surface difference (e.g. spaces vs no spaces, "算法" vs "共识算法" suffixed).
+3. The types are compatible: entities merge with entities, concepts merge with concepts. **Never merge an entity into a concept or vice versa.**
+
+### Examples of CORRECT merges:
+- "Paxos算法" → "Paxos 算法" (same algorithm, space difference)
+- "Raft共识算法" → "Raft 算法" (same algorithm, suffix difference)
+- "RAG" → "Retrieval-Augmented Generation" (same concept, acronym)
+- "苹果公司" → "Apple Inc." (same entity, translation)
+
+### Examples of INCORRECT merges — do NOT merge:
+- "Paxos" → "Raft" (different algorithms in the same category)
+- "Multi-Paxos" → "Paxos" (variant vs base — only merge if they describe the SAME thing)
+- "GPT-4" → "GPT-3.5" (different specific versions)
+- "Machine Learning" → "Neural Networks" (subset vs superset)
+- "居民身份证" → "工作居住证" (different documents sharing a category)
+
+### Key principle: **related ≠ same**. Two items sharing domain keywords, belonging to the same category, or appearing in the same document is NOT a reason to merge. When in doubt, do NOT merge. It is far better to have separate pages than to wrongly merge different things.
+
+Return a JSON object with a "merges" map. The key is the NEW item's slug, the value is the EXISTING page's slug that it should merge into.
+
+If no items match any existing pages, return: {"merges": {}}
+
+### JSON Formatting Rules
+- **CRITICAL**: Do NOT use literal newline characters inside JSON string values. If you need a newline in a string, you MUST use the escaped sequence \n.
+</instructions>
+
+Output ONLY valid JSON. Example:
+{"merges": {"entity/paxos-algorithm": "entity/paxos", "concept/rag": "concept/retrieval-augmented-generation"}}`
+
+type wikiDedupData struct {
+	NewItems      string
+	ExistingPages string
+}
+
+func buildDedupPrompt(newItems, existingPages string) string {
+	var buf bytes.Buffer
+	tmpl, err := template.New("wikiDedup").Parse(wikiDedupTemplate)
+	if err != nil {
+		return `{"merges":{}}`
+	}
+	if err := tmpl.Execute(&buf, wikiDedupData{NewItems: newItems, ExistingPages: existingPages}); err != nil {
+		return `{"merges":{}}`
+	}
+	return buf.String()
+}
+
+// xmlEscape escapes characters that break XML text content.
+func xmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	return s
+}
+
+// writeDedupItemXML renders a single entity/concept as an XML block for
+// the dedup prompt. Structured form helps the LLM reliably tell name,
+// aliases, and type apart.
+func writeDedupItemXML(buf *bytes.Buffer, slug, name, itemType string, aliases []string) {
+	fmt.Fprintf(buf, "  <item slug=%q type=%q>\n", slug, itemType)
+	fmt.Fprintf(buf, "    <name>%s</name>\n", xmlEscape(name))
+	for _, alias := range aliases {
+		if alias == "" {
+			continue
+		}
+		fmt.Fprintf(buf, "    <alias>%s</alias>\n", xmlEscape(alias))
+	}
+	buf.WriteString("  </item>\n")
 }

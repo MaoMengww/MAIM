@@ -24,7 +24,7 @@ func SetupParser(cfg domain.ParsingConfig, fileType string) domain.Parser {
 		}
 		switch engine {
 		case "builtin":
-			parsers = append(parsers, NewBuiltinParser())
+			parsers = append(parsers, NewBuiltinParser(fileType))
 		case "mineru_precision":
 			if cfg.MinerUPrecision == nil || cfg.MinerUPrecision.APIURL == "" {
 				continue
@@ -44,6 +44,18 @@ func SetupParser(cfg domain.ParsingConfig, fileType string) domain.Parser {
 		return parsers[0]
 	}
 	return NewParserChain(parsers...)
+}
+
+// IsFileTypeSupported returns true if at least one known engine supports this file type.
+func IsFileTypeSupported(fileType string) bool {
+	for _, types := range engineFileTypes {
+		for _, t := range types {
+			if t == fileType {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func supportsFileType(engine, fileType string) bool {

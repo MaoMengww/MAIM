@@ -140,3 +140,40 @@ func TestWSPusher_ReplyToMsgIDOnlyInFirstChunk(t *testing.T) {
 	_ = w.Send(&model.StreamChunk{Type: "chunk", Content: "second"})
 	assert.NotContains(t, string(mc.lastMsg), "reply_to_msg_id")
 }
+
+func TestWSPusher_StreamIDInEveryChunk(t *testing.T) {
+	mc := &mockWsClient{}
+	w := NewWSPusher(mc, 456, 1001, 0)
+
+	// stream_id should be non-empty after creation
+	assert.NotEmpty(t, w.streamID)
+
+	// Send first chunk
+	err := w.Send(&model.StreamChunk{Type: "chunk", Content: "hello"})
+	assert.NoError(t, err)
+	assert.Contains(t, string(mc.lastMsg), `"stream_id":"`+w.streamID+`"`)
+
+	// Send second chunk — same stream_id
+	firstStreamID := w.streamID
+	err = w.Send(&model.StreamChunk{Type: "chunk", Content: "world"})
+	assert.NoError(t, err)
+	assert.Contains(t, string(mc.lastMsg), `"stream_id":"`+firstStreamID+`"`)
+	assert.Equal(t, firstStreamID, w.streamID) // stream_id does not change
+}
+
+func TestWSPusher_StreamIDInDoneChunk(t *testing.T) {
+	mc := &mockWsClient{}
+	w := NewWSPusher(mc, 456, 1001, 0)
+
+	err := w.Send(&model.StreamChunk{Type: "done", Content: "全文", MessageID: "msg_123"})
+	assert.NoError(t, err)
+	assert.Contains(t, string(mc.lastMsg), `"stream_id":"`+w.streamID+`"`)
+	assert.Contains(t, string(mc.lastMsg), `"message_id":"msg_123"`)
+	assert.Contains(t, string(mc.lastMsg), `"type":"bot.streaming.done"`)
+}
+
+func TestWSPusher_StreamIDsAreUnique(t *testing.T) {
+	w1 := NewWSPusher(nil, 1, 100, 0)
+	w2 := NewWSPusher(nil, 2, 200, 0)
+	assert.NotEqual(t, w1.streamID, w2.streamID)
+}

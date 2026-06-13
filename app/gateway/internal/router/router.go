@@ -142,7 +142,6 @@ func New(
 	msgs.DELETE("/:id", msgH.DeleteMessage)
 	msgs.POST("/:id/reply", msgH.ReplyMessage)
 	msgs.GET("/search", msgH.SearchMessages)
-	msgs.POST("/forward", msgH.ForwardMessage)
 	msgs.GET("/:id/around/:seq", msgH.GetAroundSeq)
 
 	// File

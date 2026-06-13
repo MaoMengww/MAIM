@@ -2,8 +2,10 @@ package repo
 
 import (
 	"context"
+	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
+	"gorm.io/gorm"
 )
 
 type SearchFilter struct {
@@ -28,9 +30,12 @@ type MessageRepoInterface interface {
 	GetByConvIDAndSeq(ctx context.Context, convID int64, fromSeq int64, limit int32) ([]model.Message, error)
 	GetMaxSeq(ctx context.Context, convID int64) (int64, error)
 	UpdateContent(ctx context.Context, id int64, content model.JSONContent, editHistory model.JSONArray, editCount int32) error
+	UpdateContentWithTx(ctx context.Context, tx *gorm.DB, id int64, content model.JSONContent, editHistory model.JSONArray, editCount int32) error
 	UpdateStatus(ctx context.Context, id int64, status int32) error
+	UpdateStatusWithTx(ctx context.Context, tx *gorm.DB, id int64, status int32) error
 	Search(ctx context.Context, filter SearchFilter) ([]model.Message, int64, error)
 	Delete(ctx context.Context, id int64) error
+	DeleteWithTx(ctx context.Context, tx *gorm.DB, id int64) error
 }
 
 type InboxRepoInterface interface {
@@ -40,6 +45,7 @@ type InboxRepoInterface interface {
 	GetByUserAndConv(ctx context.Context, userID, convID int64, fromSeq int64, limit int32) ([]model.UserInbox, error)
 	GetMaxSeq(ctx context.Context, userID, convID int64) (int64, error)
 	DeleteByUser(ctx context.Context, userID, convID, messageID int64) error
+	ExistsByMessageID(ctx context.Context, messageID, convID int64) (bool, error)
 }
 
 type BroadcastRepoInterface interface {
@@ -52,4 +58,18 @@ type BroadcastRepoInterface interface {
 type SequenceRepoInterface interface {
 	GetCurrentSeq(ctx context.Context, convID int64) (int64, error)
 	SetCurrentSeq(ctx context.Context, convID int64, seq int64) error
+	NextSeq(ctx context.Context, db *gorm.DB, convID int64) (int64, error)
+}
+
+type OutboxRepoInterface interface {
+	// Insert inserts an outbox event within an existing transaction.
+	Insert(ctx context.Context, tx *gorm.DB, event *model.OutboxEvent) error
+	// FetchPending returns pending events ordered by created_at ASC, using SKIP LOCKED.
+	FetchPending(ctx context.Context, limit int) ([]model.OutboxEvent, error)
+	MarkSent(ctx context.Context, id int64) error
+	MarkRetry(ctx context.Context, id int64, nextRetryAt time.Time, lastError string) error
+	MarkFailed(ctx context.Context, id int64, lastError string) error
+	// DeleteSentBefore deletes sent events older than the given time.
+	DeleteSentBefore(ctx context.Context, before time.Time, limit int) (int64, error)
+	CountByStatus(ctx context.Context, status int16) (int64, error)
 }

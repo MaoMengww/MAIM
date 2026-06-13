@@ -3,11 +3,11 @@ package messageservicelogic
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/pb/message"
-	goredis "github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 )
 
 func modelToPbMessage(msg *model.Message) *message.Message {
@@ -139,11 +139,6 @@ func broadcastContentJSON(content string) model.JSONContent {
 	return m
 }
 
-func nextSeq(rdb *goredis.Client, ctx context.Context, convID int64) (int64, error) {
-	key := fmt.Sprintf("conv:seq:%d", convID)
-	seq, err := rdb.Incr(ctx, key).Result()
-	if err != nil {
-		return 0, err
-	}
-	return seq, nil
+func nextSeq(seqRepo *repo.SequenceRepo, db *gorm.DB, ctx context.Context, convID int64) (int64, error) {
+	return seqRepo.NextSeq(ctx, db, convID)
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	bizerrors "github.com/maomeng/aim/pkg/errors"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -113,23 +114,23 @@ func Error(c *gin.Context, httpStatus int, code int, message string) {
 }
 
 func BadRequest(c *gin.Context, message string) {
-	Error(c, StatusBadRequest, 400, message)
+	Error(c, StatusBadRequest, bizerrors.CodeInvalidParam, message)
 }
 
 func Unauthorized(c *gin.Context, message string) {
-	Error(c, StatusUnauthorized, 401, message)
+	Error(c, StatusUnauthorized, bizerrors.CodeUnauthorized, message)
 }
 
 func Forbidden(c *gin.Context, message string) {
-	Error(c, StatusForbidden, 403, message)
+	Error(c, StatusForbidden, bizerrors.CodeForbidden, message)
 }
 
 func NotFound(c *gin.Context, message string) {
-	Error(c, StatusNotFound, 404, message)
+	Error(c, StatusNotFound, bizerrors.CodeNotFound, message)
 }
 
 func Conflict(c *gin.Context, message string) {
-	Error(c, StatusConflict, 409, message)
+	Error(c, StatusConflict, bizerrors.CodeConflict, message)
 }
 
 func NotImplemented(c *gin.Context, args ...string) {
@@ -137,11 +138,11 @@ func NotImplemented(c *gin.Context, args ...string) {
 	if len(args) > 0 {
 		msg = args[0]
 	}
-	Error(c, StatusInternal, 501, msg)
+	Error(c, StatusInternal, bizerrors.CodeInternal, msg)
 }
 
 func InternalError(c *gin.Context, message string) {
-	Error(c, StatusInternal, 500, message)
+	Error(c, StatusInternal, bizerrors.CodeInternal, message)
 }
 
 func PageDataResult(list any, total int64, page, pageSize int32) *PageData {

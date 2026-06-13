@@ -13,6 +13,7 @@ import (
 	"github.com/maomeng/aim/app/signaling-service/internal/model"
 	"github.com/maomeng/aim/app/signaling-service/internal/push"
 	"github.com/maomeng/aim/app/signaling-service/internal/repo"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/redis/go-redis/v9"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -161,7 +162,7 @@ func (a *botKafkaAdapter) Send(_ context.Context, key string, value []byte) erro
 		return nil
 	}
 	_, _, err := a.producer.SendMessage(&sarama.ProducerMessage{
-		Topic: "bot.event.ai", Key: sarama.StringEncoder(key), Value: sarama.ByteEncoder(value),
+		Topic: consts.KafkaTopicBotEventAI, Key: sarama.StringEncoder(key), Value: sarama.ByteEncoder(value),
 	})
 	return err
 }

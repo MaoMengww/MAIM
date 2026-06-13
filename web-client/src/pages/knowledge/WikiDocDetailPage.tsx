@@ -116,7 +116,18 @@ export function WikiDocDetailPage() {
             fontSize: 14,
             color: 'var(--aim-text)',
           }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                img: ({ src, alt }) => (
+                  <img
+                    src={src}
+                    alt={alt ?? ''}
+                    style={{ maxWidth: '100%', height: 'auto', borderRadius: 4 }}
+                  />
+                ),
+              }}
+            >
               {contentData.content}
             </ReactMarkdown>
           </div>

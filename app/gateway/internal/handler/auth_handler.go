@@ -7,7 +7,6 @@ import (
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
 	"github.com/maomeng/aim/app/user-service/pb/user"
-	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -30,7 +29,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.userClient.Register(ctx, &req)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		response.GRPCError(c, err)
 		return
 	}
 	response.Created(c, resp)
@@ -45,7 +44,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.userClient.Login(ctx, &req)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		response.GRPCError(c, err)
 		return
 	}
 	response.Success(c, resp)
@@ -60,7 +59,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.userClient.Logout(ctx, &req)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		response.GRPCError(c, err)
 		return
 	}
 	response.Success(c, resp)
@@ -75,12 +74,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.userClient.RefreshToken(ctx, &req)
 	if err != nil {
-		code, msg := errors.FromGRPCStatus(err)
-		if code == errors.CodeUnauthorized {
-			response.Unauthorized(c, msg)
-		} else {
-			response.InternalError(c, msg)
-		}
+		response.GRPCError(c, err)
 		return
 	}
 
@@ -118,7 +112,7 @@ func (h *AuthHandler) OAuthLogin(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.userClient.OAuthLogin(ctx, &req)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		response.GRPCError(c, err)
 		return
 	}
 	response.Success(c, resp)
@@ -128,7 +122,7 @@ func (h *AuthHandler) GetSessions(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.userClient.GetSessions(ctx, &common.Empty{})
 	if err != nil {
-		response.InternalError(c, err.Error())
+		response.GRPCError(c, err)
 		return
 	}
 	response.Success(c, resp)
@@ -139,7 +133,7 @@ func (h *AuthHandler) RevokeSession(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.userClient.RevokeSession(ctx, req)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		response.GRPCError(c, err)
 		return
 	}
 	response.Success(c, resp)

@@ -7,7 +7,7 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/maomeng/aim/pkg/consts"
-	"github.com/maomeng/aim/pkg/elasticsearch"
+	"github.com/maomeng/aim/app/message-service/internal/es"
 	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/logx"
 	"strings"
@@ -25,12 +25,12 @@ type ESMessageDoc struct {
 }
 
 type SearchIndexer struct {
-	es         *elasticsearch.Client
+	es         *es.Client
 	logger     logx.Logger
 	maxRetries int
 }
 
-func NewSearchIndexer(es *elasticsearch.Client, logger logx.Logger, maxRetries int) *SearchIndexer {
+func NewSearchIndexer(es *es.Client, logger logx.Logger, maxRetries int) *SearchIndexer {
 	return &SearchIndexer{
 		es:         es,
 		logger:     logger,

@@ -10,7 +10,6 @@ import (
 	"github.com/maomeng/aim/app/conversation-service/internal/model"
 	"github.com/maomeng/aim/app/conversation-service/internal/repo"
 	messagepb "github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/cache"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/kafka"
@@ -27,7 +26,7 @@ type ServiceContext struct {
 	Snowflake        *snowflake.Node
 	Logger           logx.Logger
 	Repo             repo.RepoInterface
-	UnreadCache      *cache.UnreadCache
+	UnreadCache      *repo.UnreadCache
 	UnreadProducer   *kafka.Producer
 	BotEventProducer *kafka.Producer
 	BotPlatformRpc   botplatform.BotPlatformClient
@@ -80,7 +79,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	r := repo.NewRepo(db, botPlatformRpc)
 
 	// 初始化未读数缓存
-	unreadCache := cache.NewUnreadCache(rdb)
+	unreadCache := repo.NewUnreadCache(rdb)
 
 	var unreadProducer *kafka.Producer
 	if len(c.Kafka.Brokers) > 0 {

@@ -320,7 +320,7 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
             最后更新: {kb.updated_at ? new Date(kb.updated_at * 1000).toLocaleString('zh-CN') : '-'}
           </span>
           <Upload
-            accept=".txt,.md,.pdf,.doc,.docx,.html,.csv"
+            accept=".txt,.md,.html,.json,.xml,.csv,.yaml,.yml,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.bmp,.tiff"
             showUploadList={false}
             customRequest={({ file }) => uploadMutation.mutate(file as File)}
           >
@@ -754,7 +754,6 @@ function WikiBrowser({ kbId, kb }: { kbId: number; kb: any }) {
         model_id: vals.wiki_model_id || 14,
         model_name: vals.wiki_model_id ? (modelMap[vals.wiki_model_id] || '') : 'qwen-plus',
         auto_lint: vals.wiki_auto_lint ?? true,
-        stale_threshold_hours: Number(vals.wiki_stale_hours) || 168,
       };
       if (vals.maintenance?.maintenance_enabled) {
         wiki.maintenance_enabled = true;
@@ -871,7 +870,7 @@ function WikiBrowser({ kbId, kb }: { kbId: number; kb: any }) {
           <input
             type="file"
             multiple
-            accept=".txt,.md,.pdf,.doc,.docx,.html,.csv"
+            accept=".txt,.md,.html,.json,.xml,.csv,.yaml,.yml,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.bmp,.tiff"
             style={{ display: 'none' }}
             ref={fileInputRef}
             onChange={(e) => {
@@ -901,7 +900,6 @@ function WikiBrowser({ kbId, kb }: { kbId: number; kb: any }) {
               description: kb.description,
               wiki_model_id: wc.model_id,
               wiki_auto_lint: wc.auto_lint ?? true,
-              wiki_stale_hours: wc.stale_threshold_hours || 168,
               maintenance: { maintenance_enabled: wc.maintenance_enabled ?? false, maintenance_cron: wc.maintenance_cron || "" },
             });
             setEditOpen(true);
@@ -1149,14 +1147,9 @@ function WikiBrowser({ kbId, kb }: { kbId: number; kb: any }) {
               filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())}
             />
           </Form.Item>
-          <div style={{ display: 'flex', gap: 16 }}>
-            <Form.Item name="wiki_auto_lint" label="自动检查" valuePropName="checked" style={{ flex: 1, marginBottom: 12 }}>
+          <Form.Item name="wiki_auto_lint" label="自动检查" valuePropName="checked" style={{ marginBottom: 12 }}>
               <Switch />
             </Form.Item>
-            <Form.Item name="wiki_stale_hours" label="过期阈值(小时)" style={{ flex: 1, marginBottom: 12 }}>
-              <InputNumber min={1} max={8760} style={{ width: '100%' }} />
-            </Form.Item>
-          </div>
           <Form.Item name="maintenance" label="自动维护" style={{ marginBottom: 0 }}>
             <WikiMaintenanceConfig />
           </Form.Item>
@@ -1169,9 +1162,7 @@ function WikiBrowser({ kbId, kb }: { kbId: number; kb: any }) {
 /* ─── Issues View ─── */
 
 const ISSUE_TYPE_LABEL: Record<string, string> = {
-  low_quality: '内容过短',
   missing_ref: '引用缺失',
-  stale: '内容过期',
   factual_error: '事实错误',
   merge_conflict: '合并冲突',
   outdated: '内容过时',

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/maomeng/aim/app/bot-platform/internal/model"
+	"github.com/maomeng/aim/pkg/consts"
 )
 
 // MCPClient interacts with an MCP (Model Context Protocol) server over HTTP.
@@ -29,14 +30,14 @@ func NewMCPClient(srv *model.McpServer) *MCPClient {
 	}
 
 	headers := make(map[string]string)
-	headers["Content-Type"] = "application/json"
-	headers["Accept"] = "application/json, text/event-stream"
+	headers[consts.HeaderContentType] = consts.ContentTypeJSON
+	headers["Accept"] = consts.ContentTypeJSON + ", text/event-stream"
 	if srv.AuthConfig != nil {
 		if srv.AuthConfig.APIKey != "" {
 			headers["X-API-Key"] = srv.AuthConfig.APIKey
 		}
 		if srv.AuthConfig.Token != "" {
-			headers["Authorization"] = "Bearer " + srv.AuthConfig.Token
+			headers[consts.HeaderToken] = "Bearer " + srv.AuthConfig.Token
 		}
 	}
 

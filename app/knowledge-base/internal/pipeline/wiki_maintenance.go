@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/compose"
@@ -11,7 +12,9 @@ import (
 
 	llmgatewaypb "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
+	"github.com/maomeng/aim/app/knowledge-base/internal/eventpush"
 	neo4j "github.com/maomeng/aim/app/knowledge-base/internal/infra/neo4j"
+	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/snowflake"
 )
@@ -39,6 +42,10 @@ type WikiMaintenanceAgent struct {
 	Neo4jStore neo4j.GraphStore
 	LogWriter  *LogWriter
 	ReActAgent *MaintenanceReActAgent
+	Pusher     eventpush.Pusher
+
+	mu         sync.Mutex
+	runningKBs map[int64]bool
 }
 
 func NewWikiMaintenanceAgent(
@@ -52,10 +59,30 @@ func NewWikiMaintenanceAgent(
 		FileStore: fileStore, LLMGateway: llmGW,
 		Snowflake: snow, Logger: logger,
 		Neo4jStore: graphStore,
+		runningKBs: make(map[int64]bool),
 	}
 }
 
+// WithPusher sets the realtime event pusher for maintenance completion notifications.
+func (a *WikiMaintenanceAgent) WithPusher(pusher eventpush.Pusher) *WikiMaintenanceAgent {
+	a.Pusher = pusher
+	return a
+}
+
 func (a *WikiMaintenanceAgent) Run(ctx context.Context, kbID int64) (*MaintenanceReport, error) {
+	a.mu.Lock()
+	if a.runningKBs[kbID] {
+		a.mu.Unlock()
+		return nil, fmt.Errorf("knowledge base %d maintenance is already running", kbID)
+	}
+	a.runningKBs[kbID] = true
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.runningKBs, kbID)
+		a.mu.Unlock()
+	}()
+
 	report := &MaintenanceReport{KBID: kbID, StartedAt: time.Now()}
 	logger := a.Logger.WithContext(ctx)
 	logger.Infof("wiki maintenance start: kb=%d", kbID)
@@ -89,13 +116,20 @@ func (a *WikiMaintenanceAgent) Run(ctx context.Context, kbID int64) (*Maintenanc
 	// Step 2: run ReAct agent for intelligent maintenance
 	logger.Infof("maintenance: running react agent for kb %d", kbID)
 	if a.ReActAgent != nil {
-		agentReport, err := a.ReActAgent.Run(ctx, kbID)
-		if err != nil {
-			logger.Errorf("react maintenance agent failed: %v", err)
-		} else {
-			report.IssuesFound += agentReport.IssuesFound
-			report.Issues = append(report.Issues, agentReport.Issues...)
+		agentReport, agentErr := a.ReActAgent.Run(ctx, kbID)
+		if agentErr != nil {
+			logger.Errorf("react maintenance agent failed: %v", agentErr)
+			// Merge partial results from agentReport before returning error
+			if agentReport != nil {
+				report.IssuesFound += agentReport.IssuesFound
+				report.Issues = append(report.Issues, agentReport.Issues...)
+			}
+			report.CompletedAt = time.Now()
+			report.Duration = report.CompletedAt.Sub(report.StartedAt)
+			return report, agentErr
 		}
+		report.IssuesFound += agentReport.IssuesFound
+		report.Issues = append(report.Issues, agentReport.Issues...)
 	}
 
 	// Step 3: update index page
@@ -113,6 +147,57 @@ func (a *WikiMaintenanceAgent) Run(ctx context.Context, kbID int64) (*Maintenanc
 	logger.Infof("wiki maintenance done: kb=%d created=%d issues=%d duration=%s",
 		kbID, report.PagesCreated, report.IssuesFound, report.Duration)
 	return report, nil
+}
+
+// PushResult updates last_maintenance_at and pushes a realtime event to the KB owner.
+// The prefix parameter distinguishes scheduled ("自动") from manual ("") maintenance in messages.
+func (a *WikiMaintenanceAgent) PushResult(ctx context.Context, kbID int64, report *MaintenanceReport, runErr error, prefix string) {
+	logger := a.Logger.WithContext(ctx)
+
+	if runErr != nil {
+		logger.Errorf("wiki maintenance failed: kb=%d err=%v", kbID, runErr)
+		if a.Pusher != nil {
+			kb, kbErr := a.KBRepo.Get(ctx, kbID)
+			if kbErr == nil {
+				_ = a.Pusher.PushToUser(ctx, kb.OwnerID, event.RealtimeEvent{
+					Type:    event.EventTypeWikiMaintained,
+					Level:   event.EventLevelError,
+					Title:   "知识库维护失败",
+					Message: fmt.Sprintf("知识库「%s」%s维护失败：%v", kb.Name, prefix, runErr),
+					KBID:    kbID,
+				})
+			}
+		}
+		return
+	}
+
+	// Update last_maintenance_at
+	kb, kbErr := a.KBRepo.Get(ctx, kbID)
+	if kbErr != nil {
+		logger.Errorf("get kb for push result failed: kb=%d err=%v", kbID, kbErr)
+		return
+	}
+	now := time.Now()
+	kb.LastMaintenanceAt = &now
+	_ = a.KBRepo.Update(ctx, kb)
+
+	if a.Pusher != nil {
+		_ = a.Pusher.PushToUser(ctx, kb.OwnerID, event.RealtimeEvent{
+			Type:    event.EventTypeWikiMaintained,
+			Level:   event.EventLevelSuccess,
+			Title:   "知识库维护完成",
+			Message: fmt.Sprintf("知识库「%s」%s维护完成：新增 %d 页，发现 %d 个问题", kb.Name, prefix, report.PagesCreated, report.IssuesFound),
+			KBID:    kbID,
+			Metadata: map[string]any{
+				"pages_created": report.PagesCreated,
+				"issues_found":  report.IssuesFound,
+				"kb_name":       kb.Name,
+			},
+		})
+	}
+
+	logger.Infof("wiki maintenance completed: kb=%d created=%d issues=%d",
+		kbID, report.PagesCreated, report.IssuesFound)
 }
 
 // =============================================================================
@@ -220,6 +305,9 @@ func (a *MaintenanceReActAgent) Run(ctx context.Context, kbID int64) (*Maintenan
 		_ = a.LogWriter.Write(ctx, kbID, logAction, msg.Content)
 	}
 
+	if agentErr != nil {
+		return report, agentErr
+	}
 	return report, nil
 }
 

@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -59,17 +59,17 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 	logger := l.ctxLogger(ctx)
 
 	if req.Username == "" || req.Password == "" {
-		err := errors.New(1001, "username and password are required")
+		err := errors.New(errors.CodeInvalidParam, "username and password are required")
 		logger.Errorf("method=Register error=%v", err)
 		return nil, err
 	}
 
 	exist, err := l.userRepo.GetByUsername(ctx, req.Username)
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return nil, errors.Wrap(1010, "check username failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "check username failed", err)
 	}
 	if exist != nil {
-		err := errors.New(1005, "username already exists")
+		err := errors.New(errors.CodeConflict, "username already exists")
 		logger.Errorf("method=Register error=%v", err)
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 	if req.Phone != "" {
 		exist, _ = l.userRepo.GetByPhone(ctx, req.Phone)
 		if exist != nil {
-			err := errors.New(1005, "phone already registered")
+			err := errors.New(errors.CodeConflict, "phone already registered")
 			logger.Errorf("method=Register error=%v", err)
 			return nil, err
 		}
@@ -85,7 +85,7 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 	if req.Email != "" {
 		exist, _ = l.userRepo.GetByEmail(ctx, req.Email)
 		if exist != nil {
-			err := errors.New(1005, "email already registered")
+			err := errors.New(errors.CodeConflict, "email already registered")
 			logger.Errorf("method=Register error=%v", err)
 			return nil, err
 		}
@@ -93,7 +93,7 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, errors.Wrap(1006, "hash password failed", err)
+		return nil, errors.Wrap(errors.CodeInternal, "hash password failed", err)
 	}
 
 	id, err := l.snow.Generate()
@@ -111,7 +111,7 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 		UpdatedAt:    now,
 	}
 	if err := l.userRepo.Create(ctx, user); err != nil {
-		return nil, errors.Wrap(1010, "create user failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "create user failed", err)
 	}
 
 	source := "username"
@@ -125,11 +125,11 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 	userIDStr := strconv.FormatInt(id, 10)
 	accessToken, err := l.jwtMgr.Generate(userIDStr, req.Username)
 	if err != nil {
-		return nil, errors.Wrap(1002, "generate access token failed", err)
+		return nil, errors.Wrap(errors.CodeUnauthorized, "generate access token failed", err)
 	}
 	refreshToken, err := l.jwtMgr.Generate(userIDStr, req.Username)
 	if err != nil {
-		return nil, errors.Wrap(1002, "generate refresh token failed", err)
+		return nil, errors.Wrap(errors.CodeUnauthorized, "generate refresh token failed", err)
 	}
 
 	if req.DeviceId != "" {

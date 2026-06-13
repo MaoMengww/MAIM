@@ -5,8 +5,6 @@ import (
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	pkg_errors "github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 func usernameFromUser(u *userpb.UserInfo) string {
@@ -67,25 +65,5 @@ func statusToString(s int32) string {
 }
 
 func grpcError(err error) error {
-	if err == nil {
-		return nil
-	}
-	bizErr, ok := pkg_errors.IsBizError(err)
-	if !ok {
-		return status.Error(codes.Internal, err.Error())
-	}
-	switch bizErr.Code {
-	case 1001: // invalid param
-		return status.Error(codes.InvalidArgument, bizErr.Message)
-	case 1002: // unauthenticated
-		return status.Error(codes.Unauthenticated, bizErr.Message)
-	case 1003: // permission denied
-		return status.Error(codes.PermissionDenied, bizErr.Message)
-	case 1004: // not found
-		return status.Error(codes.NotFound, bizErr.Message)
-	case 1005: // conflict / already exists
-		return status.Error(codes.AlreadyExists, bizErr.Message)
-	default:
-		return status.Error(codes.Internal, bizErr.Message)
-	}
+	return pkg_errors.ToGRPCError(err)
 }

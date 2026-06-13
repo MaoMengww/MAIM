@@ -12,6 +12,7 @@ import (
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
+	"github.com/maomeng/aim/pkg/consts"
 	common "github.com/maomeng/aim/pkg/pb/common"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -177,8 +178,8 @@ func (h *BotHandler) Webhook(c *gin.Context) {
 	}
 	req := &botplatform.WebhookReq{
 		Body:      body,
-		Signature: c.GetHeader("X-AIM-Signature"),
-		Timestamp: parseInt64(c.GetHeader("X-AIM-Timestamp")),
+		Signature: c.GetHeader(consts.HeaderAIMSignature),
+		Timestamp: parseInt64(c.GetHeader(consts.HeaderAIMTimestamp)),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.botClient.HandleIncomingWebhook(ctx, req)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/maomeng/aim/app/ws-gateway/internal/session"
+	"github.com/maomeng/aim/app/ws-gateway/internal/streamcache"
 	"github.com/maomeng/aim/pkg/logx"
 	pushpb "github.com/maomeng/aim/pkg/pb/push"
 )
@@ -51,12 +52,13 @@ func (r *Router) PushToConvExcept(ctx context.Context, excludeUserID int64, mess
 
 // Implements the gRPC InternalPushService interface
 type PushServer struct {
-	router *Router
+	router      *Router
+	streamCache *streamcache.StreamCache
 	pushpb.UnimplementedInternalPushServiceServer
 }
 
-func NewPushServer(router *Router) *PushServer {
-	return &PushServer{router: router}
+func NewPushServer(router *Router, sc *streamcache.StreamCache) *PushServer {
+	return &PushServer{router: router, streamCache: sc}
 }
 
 func (s *PushServer) PushToUsers(ctx context.Context, req *pushpb.PushToUsersReq) (*pushpb.PushToUsersResp, error) {
@@ -72,6 +74,17 @@ func (s *PushServer) PushToBot(ctx context.Context, req *pushpb.PushToBotReq) (*
 }
 
 func (s *PushServer) PushToConv(ctx context.Context, req *pushpb.PushToConvReq) (*pushpb.PushToConvResp, error) {
+	// Intercept streaming messages for cache
+	if s.streamCache != nil && s.streamCache.Enabled() {
+		if streamID, isDone, ok := streamcache.ShouldCache(req.Message); ok {
+			if isDone {
+				_ = s.streamCache.Done(ctx, streamID)
+			} else {
+				_ = s.streamCache.Store(ctx, streamID, req.Message)
+			}
+		}
+	}
+
 	// Broadcast to all online users; frontend filters by conv_id from the message payload
 	_ = s.router.PushToConvExcept(ctx, 0, req.Message)
 	return &pushpb.PushToConvResp{}, nil

@@ -185,7 +185,6 @@ export function KBListPage() {
           model_id: vals.wiki_model_id || 14,
           model_name: vals.wiki_model_id ? (modelMap[vals.wiki_model_id] || '') : 'qwen-plus',
           auto_lint: vals.wiki_auto_lint ?? true,
-          stale_threshold_hours: Number(vals.wiki_stale_hours) || 168,
         };
         if (vals.maintenance?.maintenance_enabled) {
           wikiConfig.maintenance_enabled = true;
@@ -534,14 +533,9 @@ function renderWikiConfig({ chatModelOptions }: { chatModelOptions: any[] }) {
           filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())}
         />
       </Form.Item>
-      <div style={{ display: 'flex', gap: 16 }}>
-        <Form.Item name="wiki_auto_lint" label="自动检查" valuePropName="checked" initialValue={true} style={{ flex: 1, marginBottom: 12 }}>
+      <Form.Item name="wiki_auto_lint" label="自动检查" valuePropName="checked" initialValue={true} style={{ marginBottom: 12 }}>
           <Switch />
         </Form.Item>
-        <Form.Item name="wiki_stale_hours" label="过期阈值(小时)" initialValue={168} style={{ flex: 1, marginBottom: 12 }}>
-          <InputNumber min={1} max={8760} placeholder="默认 168 (7天)" style={{ width: '100%' }} />
-        </Form.Item>
-      </div>
       <Form.Item name="maintenance" label="自动维护" style={{ marginBottom: 16 }}>
         <WikiMaintenanceConfig />
       </Form.Item>

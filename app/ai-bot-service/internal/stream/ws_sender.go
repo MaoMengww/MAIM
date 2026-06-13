@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/maomeng/aim/app/ai-bot-service/internal/model"
 )
 
@@ -20,6 +21,7 @@ type WSPusher struct {
 	botID        int64
 	replyToMsgID int64
 	seq          int64
+	streamID     string // UUID v4, identifies this streaming session for cache/replay
 }
 
 // NewWSPusher creates a new WSPusher.
@@ -29,17 +31,19 @@ func NewWSPusher(client WsGatewayClient, convID, botID, replyToMsgID int64) *WSP
 		convID:       convID,
 		botID:        botID,
 		replyToMsgID: replyToMsgID,
+		streamID:     uuid.NewString(),
 	}
 }
 
 // Send pushes a chunk to ws-gateway for delivery to online conversation members.
 func (w *WSPusher) Send(chunk *model.StreamChunk) error {
 	wsMsg := map[string]any{
-		"type":    "bot.streaming." + chunk.Type,
-		"bot_id":  w.botID,
-		"conv_id": w.convID,
-		"content": chunk.Content,
-		"seq":     w.seq,
+		"type":      "bot.streaming." + chunk.Type,
+		"stream_id": w.streamID,
+		"bot_id":    w.botID,
+		"conv_id":   w.convID,
+		"content":   chunk.Content,
+		"seq":       w.seq,
 	}
 	// Include reply info on the first chunk so frontend can render reply bar immediately
 	if w.seq == 0 && w.replyToMsgID > 0 {

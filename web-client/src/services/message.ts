@@ -151,11 +151,7 @@ export const msgApi = {
         };
       }),
 
-  forward: (messageIds: string[], targetConvId: string) =>
-    client.post<APIResponse<any>>('/messages/forward', {
-      message_ids: messageIds,
-      target_conversation_id: targetConvId,
-    }).then(unwrap),
+
 
   getAroundSeq: (convId: number, seq: number) =>
     client.get<APIResponse<{ messages: Message[] }>>(`/messages/${convId}/around/${seq}`)

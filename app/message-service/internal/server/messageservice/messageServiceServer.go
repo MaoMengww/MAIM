@@ -77,11 +77,6 @@ func (s *MessageServiceServer) SearchMessages(ctx context.Context, in *message.S
 }
 
 // ========== Forward & Broadcast ==========
-func (s *MessageServiceServer) ForwardMessage(ctx context.Context, in *message.ForwardMessageReq) (*message.ForwardMessageResp, error) {
-	l := messageservicelogic.NewForwardMessageLogic(ctx, s.svcCtx)
-	return l.ForwardMessage(in)
-}
-
 func (s *MessageServiceServer) SendBroadcast(ctx context.Context, in *message.SendBroadcastReq) (*message.SendBroadcastResp, error) {
 	l := messageservicelogic.NewSendBroadcastLogic(ctx, s.svcCtx)
 	return l.SendBroadcast(in)

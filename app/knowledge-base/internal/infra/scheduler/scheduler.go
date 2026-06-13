@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	"github.com/maomeng/aim/app/knowledge-base/internal/eventpush"
 	"github.com/maomeng/aim/app/knowledge-base/internal/pipeline"
-	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/logx"
 )
 
@@ -91,51 +89,16 @@ func (s *MaintenanceScheduler) removeEntry(kbID int64) {
 }
 
 func (s *MaintenanceScheduler) runMaintenance(kbID int64) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
 	logger := s.logger.WithContext(ctx)
 	logger.Infof("wiki maintenance triggered: kb=%d", kbID)
 
 	report, err := s.wikiMaintain.Run(ctx, kbID)
-	if err != nil {
-		logger.Errorf("wiki maintenance failed: kb=%d err=%v", kbID, err)
-		if s.pusher != nil {
-			if kb, kbErr := s.kbRepo.Get(ctx, kbID); kbErr == nil {
-				_ = s.pusher.PushToUser(ctx, kb.OwnerID, event.RealtimeEvent{
-					Type:    event.EventTypeWikiMaintained,
-					Level:   event.EventLevelError,
-					Title:   "知识库维护失败",
-					Message: fmt.Sprintf("知识库「%s」自动维护失败：%v", kb.Name, err),
-					KBID:    kbID,
-				})
-			}
-		}
-		return
+	if report == nil {
+		report = &pipeline.MaintenanceReport{KBID: kbID}
 	}
-
-	// 更新 last_maintenance_at
-	if kb, kbErr := s.kbRepo.Get(ctx, kbID); kbErr == nil {
-		now := time.Now()
-		kb.LastMaintenanceAt = &now
-		_ = s.kbRepo.Update(ctx, kb)
-
-		if s.pusher != nil {
-			_ = s.pusher.PushToUser(ctx, kb.OwnerID, event.RealtimeEvent{
-				Type:    event.EventTypeWikiMaintained,
-				Level:   event.EventLevelSuccess,
-				Title:   "知识库维护完成",
-				Message: fmt.Sprintf("知识库「%s」自动维护完成：新增 %d 页，发现 %d 个问题", kb.Name, report.PagesCreated, report.IssuesFound),
-				KBID:    kbID,
-				Metadata: map[string]any{
-					"pages_created": report.PagesCreated,
-					"issues_found":  report.IssuesFound,
-					"kb_name":       kb.Name,
-				},
-			})
-		}
-	}
-
-	logger.Infof("wiki maintenance completed: kb=%d created=%d issues=%d",
-		kbID, report.PagesCreated, report.IssuesFound)
+	s.wikiMaintain.PushResult(ctx, kbID, report, err, "自动")
 }
 
 // ListSchedules 返回当前所有定时任务的 kbID 列表（调试用）

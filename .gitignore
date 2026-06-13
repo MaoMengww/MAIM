@@ -41,6 +41,7 @@ web-client/dist/
 # ==== AI assistants ====
 .claude/
 .codegraph/
+.reasonix/
 REASONIX.md
 
 # ==== IDE & OS ====
@@ -66,3 +67,4 @@ tools/
 /task/
 CLAUDE.md
 web-client/tsconfig.tsbuildinfo
+github.com/

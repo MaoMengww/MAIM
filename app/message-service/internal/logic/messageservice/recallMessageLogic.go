@@ -2,7 +2,6 @@ package messageservicelogic
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,10 +9,12 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type RecallMessageLogic struct {
@@ -46,24 +47,39 @@ func (l *RecallMessageLogic) RecallMessage(in *message.RecallMessageReq) (*commo
 		return nil, ErrRecallWindowExpired
 	}
 
-	if err := msgRepo.UpdateStatus(l.ctx, in.MessageId, model.MessageStatusRecalled); err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "update status failed", err)
-	}
-
 	convID := in.ConversationId
 	if convID == 0 {
 		convID = msg.ConvID
 	}
-	kafkaMsg := map[string]any{
+
+	// 构造 outbox 事件
+	outboxID, err := l.svcCtx.Snowflake.Generate()
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeInternal, "generate outbox id failed", err)
+	}
+	outboxEvent := &model.OutboxEvent{
+		ID:         outboxID,
+		Topic:      consts.KafkaTopicMessageRecalled,
+		Key:        fmt.Sprintf("recall:%d", in.MessageId),
+		MaxRetries: model.DefaultMaxRetries,
+	}
+	if err := outboxEvent.SetPayload(map[string]any{
 		"message_id": in.MessageId,
 		"conv_id":    convID,
 		"user_id":    in.UserId,
+	}); err != nil {
+		return nil, errors.Wrap(errors.CodeInternal, "marshal outbox payload failed", err)
 	}
-	kafkaVal, marshalErr := json.Marshal(kafkaMsg)
-	if marshalErr != nil {
-		l.Errorf("json marshal failed for message.recalled: msg_id=%d, err=%v", in.MessageId, marshalErr)
-	} else if err := l.svcCtx.MessageRecalledProducer.Send(l.ctx, fmt.Sprintf("recall:%d", in.MessageId), kafkaVal); err != nil {
-		l.Errorf("kafka produce message.recalled failed: msg_id=%d, err=%v", in.MessageId, err)
+
+	// 事务写: 更新状态 + 插入 outbox
+	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+		if err := msgRepo.UpdateStatusWithTx(l.ctx, tx, in.MessageId, model.MessageStatusRecalled); err != nil {
+			return err
+		}
+		return l.svcCtx.OutboxRepo.Insert(l.ctx, tx, outboxEvent)
+	})
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeInternal, "update status failed", err)
 	}
 
 	metrics.MessageEditRecalledTotal.Inc("recall")

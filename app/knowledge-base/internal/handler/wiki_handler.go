@@ -15,7 +15,6 @@ import (
 	"github.com/maomeng/aim/app/knowledge-base/internal/eventpush"
 	neo4j "github.com/maomeng/aim/app/knowledge-base/internal/infra/neo4j"
 	"github.com/maomeng/aim/app/knowledge-base/internal/pipeline"
-	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/snowflake"
 )
@@ -390,53 +389,16 @@ func (h *WikiHandler) RunMaintenance(ctx context.Context, kbID int64) (*pipeline
 // a realtime event to the knowledge base owner when complete.
 func (h *WikiHandler) RunMaintenanceAsync(ctx context.Context, kbID int64) {
 	go func() {
-		bgCtx := context.Background()
+		bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
 		logger := h.Logger.WithContext(bgCtx)
 		logger.Infof("async wiki maintenance started: kb=%d", kbID)
 
 		report, err := h.WikiMaintain.Run(bgCtx, kbID)
-		if err != nil {
-			logger.Errorf("async wiki maintenance failed: kb=%d err=%v", kbID, err)
-			// Push failure event
-			if h.Pusher != nil {
-				kb, kbErr := h.KBRepo.Get(bgCtx, kbID)
-				if kbErr == nil {
-					h.Pusher.PushToUser(bgCtx, kb.OwnerID, event.RealtimeEvent{
-						Type:    event.EventTypeWikiMaintained,
-						Level:   event.EventLevelError,
-						Title:   "知识库维护失败",
-						Message: fmt.Sprintf("知识库「%s」维护失败：%v", kb.Name, err),
-						KBID:    kbID,
-					})
-				}
-			}
-			return
+		if report == nil {
+			report = &pipeline.MaintenanceReport{KBID: kbID}
 		}
-
-		// Update last_maintenance_at
-		if kb, kbErr := h.KBRepo.Get(bgCtx, kbID); kbErr == nil {
-			now := time.Now()
-			kb.LastMaintenanceAt = &now
-			_ = h.KBRepo.Update(bgCtx, kb)
-
-			if h.Pusher != nil {
-				h.Pusher.PushToUser(bgCtx, kb.OwnerID, event.RealtimeEvent{
-					Type:    event.EventTypeWikiMaintained,
-					Level:   event.EventLevelSuccess,
-					Title:   "知识库维护完成",
-					Message: fmt.Sprintf("知识库「%s」维护完成：新增 %d 页，发现 %d 个问题", kb.Name, report.PagesCreated, report.IssuesFound),
-					KBID:    kbID,
-					Metadata: map[string]any{
-						"pages_created": report.PagesCreated,
-						"issues_found":  report.IssuesFound,
-						"kb_name":       kb.Name,
-					},
-				})
-			}
-		}
-
-		logger.Infof("async wiki maintenance completed: kb=%d created=%d issues=%d",
-			kbID, report.PagesCreated, report.IssuesFound)
+		h.WikiMaintain.PushResult(bgCtx, kbID, report, err, "")
 	}()
 }
 

@@ -3,7 +3,9 @@ package errors
 import (
 	stderrors "errors"
 	"fmt"
+	"strconv"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -49,7 +51,12 @@ func (e *BizError) Unwrap() error {
 
 // GRPCCode maps the business error code to a gRPC status code.
 func (e *BizError) GRPCCode() codes.Code {
-	switch e.Code {
+	return GRPCCodeFromCode(e.Code)
+}
+
+// GRPCCodeFromCode maps a business error code to a gRPC status code.
+func GRPCCodeFromCode(code int) codes.Code {
+	switch code {
 	case CodeInvalidParam:
 		return codes.InvalidArgument
 	case CodeUnauthorized:
@@ -63,8 +70,8 @@ func (e *BizError) GRPCCode() codes.Code {
 	case CodeTimeout:
 		return codes.DeadlineExceeded
 	case CodeTooManyRequests:
-		return codes.Unavailable
-	case CodeServiceDown:
+		return codes.ResourceExhausted
+	case CodeServiceDown, CodeRPCError:
 		return codes.Unavailable
 	case CodeBotNotFound:
 		return codes.NotFound
@@ -76,6 +83,30 @@ func (e *BizError) GRPCCode() codes.Code {
 		return codes.DeadlineExceeded
 	default:
 		return codes.Internal
+	}
+}
+
+// HTTPStatusFromCode maps a business error code to an HTTP status code.
+func HTTPStatusFromCode(code int) int {
+	switch code {
+	case CodeInvalidParam, CodeWebhookInvalid:
+		return 400
+	case CodeUnauthorized:
+		return 401
+	case CodeForbidden, CodeBotForbidden:
+		return 403
+	case CodeNotFound, CodeBotNotFound:
+		return 404
+	case CodeConflict:
+		return 409
+	case CodeTimeout, CodeWebhookTimeout:
+		return 408
+	case CodeTooManyRequests:
+		return 429
+	case CodeServiceDown, CodeRPCError:
+		return 503
+	default:
+		return 500
 	}
 }
 
@@ -106,7 +137,17 @@ func ToGRPCError(err error) error {
 		return nil
 	}
 	if be, ok := IsBizError(err); ok {
-		return status.Error(be.GRPCCode(), be.Message)
+		st := status.New(be.GRPCCode(), be.Message)
+		stWithDetails, detailErr := st.WithDetails(&errdetails.ErrorInfo{
+			Reason: "BIZ_ERROR",
+			Metadata: map[string]string{
+				"biz_code": strconv.Itoa(be.Code),
+			},
+		})
+		if detailErr == nil {
+			return stWithDetails.Err()
+		}
+		return st.Err()
 	}
 	return status.Error(codes.Internal, "internal server error")
 }
@@ -120,6 +161,17 @@ func FromGRPCStatus(err error) (code int, message string) {
 	st, ok := status.FromError(err)
 	if !ok {
 		return CodeInternal, "internal server error"
+	}
+	for _, detail := range st.Details() {
+		info, ok := detail.(*errdetails.ErrorInfo)
+		if !ok || info.Reason != "BIZ_ERROR" {
+			continue
+		}
+		if value := info.Metadata["biz_code"]; value != "" {
+			if bizCode, parseErr := strconv.Atoi(value); parseErr == nil {
+				return bizCode, st.Message()
+			}
+		}
 	}
 	return CodeFromGRPCCode(st.Code()), st.Message()
 }
@@ -161,9 +213,9 @@ var (
 	ErrCacheError      = New(CodeCacheError, "cache error")
 	ErrMQError         = New(CodeMQError, "message queue error")
 	ErrRPCError        = New(CodeRPCError, "rpc call error")
-	ErrIOError        = New(CodeIOError, "io error")
-	ErrBotNotFound    = New(CodeBotNotFound, "bot not found")
-	ErrBotForbidden   = New(CodeBotForbidden, "operation not allowed for this bot")
-	ErrWebhookInvalid = New(CodeWebhookInvalid, "webhook signature invalid")
-	ErrWebhookTimeout = New(CodeWebhookTimeout, "webhook timestamp expired")
+	ErrIOError         = New(CodeIOError, "io error")
+	ErrBotNotFound     = New(CodeBotNotFound, "bot not found")
+	ErrBotForbidden    = New(CodeBotForbidden, "operation not allowed for this bot")
+	ErrWebhookInvalid  = New(CodeWebhookInvalid, "webhook signature invalid")
+	ErrWebhookTimeout  = New(CodeWebhookTimeout, "webhook timestamp expired")
 )

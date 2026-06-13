@@ -63,14 +63,18 @@ func (p *WikiIngestPipeline) emitProgress(ctx context.Context, docID int64, evt 
 
 type wikiEntity struct {
 	Name        string   `json:"name"`
+	Slug        string   `json:"slug"`
 	Description string   `json:"description"`
+	Details     string   `json:"details"`
 	Aliases     []string `json:"aliases"`
 	DocIDs      []int64  `json:"doc_ids"`
 }
 
 type wikiConcept struct {
 	Name        string   `json:"name"`
+	Slug        string   `json:"slug"`
 	Description string   `json:"description"`
+	Details     string   `json:"details"`
 	Aliases     []string `json:"aliases"`
 	DocIDs      []int64  `json:"doc_ids"`
 }
@@ -78,6 +82,26 @@ type wikiConcept struct {
 type docInfo struct {
 	ID    int64
 	Title string
+}
+
+// itemSlug returns the canonical slug for an extracted item.
+// Prefers the LLM-provided slug (from the JSON output) over a
+// slugify(name) fallback for backward compatibility with items
+// extracted before the Slug field was added.
+func itemSlug(name, slug, prefix string) string {
+	if slug != "" {
+		return slug
+	}
+	return prefix + "/" + slugify(name)
+}
+
+// mergeInput 是 reduceMerge 的摘要输入。
+// extractCandidates 已经用 LLM 提取好了结构化信息，不需要再传原始文档全文。
+type mergeInput struct {
+	Name        string
+	Description string
+	Details     string
+	Aliases     []string
 }
 
 func NewWikiIngestPipeline(
@@ -129,8 +153,6 @@ func (p *WikiIngestPipeline) Start(ctx context.Context, kbID int64, docIDs []int
 	}
 	ownerID := kb.OwnerID
 	previousSlugs := p.getPreviousSlugs(ctx, kbID)
-	language := "Chinese"
-
 	// 3. Pass 0: Per-document candidate extraction (concurrent, semaphore 5)
 	type candResult struct {
 		docID    int64
@@ -145,7 +167,7 @@ func (p *WikiIngestPipeline) Start(ctx context.Context, kbID int64, docIDs []int
 		go func(d *domain.Document) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			ents, concs, err := p.extractCandidates(ctx, kbID, d, language, previousSlugs)
+			ents, concs, err := p.extractCandidates(ctx, kbID, d, previousSlugs)
 			candCh <- candResult{docID: d.ID, entities: ents, concepts: concs, err: err}
 		}(doc)
 	}
@@ -162,70 +184,94 @@ func (p *WikiIngestPipeline) Start(ctx context.Context, kbID int64, docIDs []int
 		allConcepts = append(allConcepts, r.concepts...)
 	}
 
-	// 4. Dedup
-	allEntities = dedupEntities(allEntities)
-	allConcepts = dedupConcepts(allConcepts)
-
-	entityNames := make(map[string]bool)
-	for _, e := range allEntities {
-		entityNames[strings.ToLower(strings.TrimSpace(e.Name))] = true
+	// 4.5 Dedup: for each new item, use pg_trgm to find similar existing
+	// pages and let the LLM decide which ones should merge. Items whose
+	// Slug is redirected to an existing slug (by the LLM) will hit the
+	// GetBySlug fast path below and go through reduceMerge.
+	if len(allEntities) > 0 || len(allConcepts) > 0 {
+		allEntities, allConcepts = p.deduplicateExtractedBatch(ctx, kbID, allEntities, allConcepts, modelID, ownerID)
 	}
-	deduped := allConcepts[:0]
-	for _, c := range allConcepts {
-		if !entityNames[strings.ToLower(strings.TrimSpace(c.Name))] {
-			deduped = append(deduped, c)
-		}
-	}
-	allConcepts = deduped
 
 	// 5. Reduce merge or create new pages (serial, write consistency)
 	now := time.Now()
 	var pages []*domain.WikiPage
+	createdSlugs := make(map[string]*domain.WikiPage) // slug → in-memory page for in-batch dedup
 
 	for _, ent := range allEntities {
-		slug := "entity/" + slugify(ent.Name)
+		slug := itemSlug(ent.Name, ent.Slug, "entity")
+		if existing, ok := createdSlugs[slug]; ok {
+			if err := p.reduceMerge(ctx, kbID, existing, []mergeInput{{
+				Name: ent.Name, Description: ent.Description,
+				Details: ent.Details, Aliases: ent.Aliases,
+			}}); err != nil {
+				logger.Errorf("reduceMerge entity %s (in-batch dup) failed: %v", slug, err)
+			}
+			continue
+		}
 		existing, err := p.WikiRepo.GetBySlug(ctx, kbID, slug)
 		if err == nil {
-			// Merge new info into existing page
-			if err := p.reduceMerge(ctx, kbID, existing, docInfos, nil, language); err != nil {
+			if err := p.reduceMerge(ctx, kbID, existing, []mergeInput{{
+				Name: ent.Name, Description: ent.Description,
+				Details: ent.Details, Aliases: ent.Aliases,
+			}}); err != nil {
 				logger.Errorf("reduceMerge entity %s failed: %v", slug, err)
 			}
-		} else {
-			pageID, err := p.Snowflake.Generate()
-				if err != nil {
-					return fmt.Errorf("generate page id failed: %w", err)
-				}
-				pages = append(pages, &domain.WikiPage{
-				ID: pageID, KnowledgeBaseID: kbID,
-				Slug: slug, Title: ent.Name,
-				PageType: domain.WikiPageEntity, Status: domain.WikiPagePublished,
-				Content: ent.Description, Aliases: toRawJSON(ent.Aliases),
-				SourceRefs: toRawJSON(buildDocRefs(docInfos)),
-				Version:    1, CreatedAt: now, UpdatedAt: now,
-			})
-		}
-	}
-
-	for _, cpt := range allConcepts {
-		slug := "concept/" + slugify(cpt.Name)
-		existing, err := p.WikiRepo.GetBySlug(ctx, kbID, slug)
-		if err == nil {
-			if err := p.reduceMerge(ctx, kbID, existing, docInfos, nil, language); err != nil {
-				logger.Errorf("reduceMerge concept %s failed: %v", slug, err)
-			}
+			createdSlugs[slug] = existing
 		} else {
 			pageID, err := p.Snowflake.Generate()
 			if err != nil {
 				return fmt.Errorf("generate page id failed: %w", err)
 			}
-			pages = append(pages, &domain.WikiPage{
+			page := &domain.WikiPage{
+				ID: pageID, KnowledgeBaseID: kbID,
+				Slug: slug, Title: ent.Name,
+				PageType: domain.WikiPageEntity, Status: domain.WikiPagePublished,
+				Summary: ent.Description, Content: ent.Details,
+				Aliases:    toRawJSON(ent.Aliases),
+				SourceRefs: toRawJSON(buildDocRefs(docInfos)),
+				Version:    1, CreatedAt: now, UpdatedAt: now,
+			}
+			pages = append(pages, page)
+			createdSlugs[slug] = page
+		}
+	}
+
+	for _, cpt := range allConcepts {
+		slug := itemSlug(cpt.Name, cpt.Slug, "concept")
+		if existing, ok := createdSlugs[slug]; ok {
+			if err := p.reduceMerge(ctx, kbID, existing, []mergeInput{{
+				Name: cpt.Name, Description: cpt.Description,
+				Details: cpt.Details, Aliases: cpt.Aliases,
+			}}); err != nil {
+				logger.Errorf("reduceMerge concept %s (in-batch dup) failed: %v", slug, err)
+			}
+			continue
+		}
+		existing, err := p.WikiRepo.GetBySlug(ctx, kbID, slug)
+		if err == nil {
+			if err := p.reduceMerge(ctx, kbID, existing, []mergeInput{{
+				Name: cpt.Name, Description: cpt.Description,
+				Details: cpt.Details, Aliases: cpt.Aliases,
+			}}); err != nil {
+				logger.Errorf("reduceMerge concept %s failed: %v", slug, err)
+			}
+			createdSlugs[slug] = existing
+		} else {
+			pageID, err := p.Snowflake.Generate()
+			if err != nil {
+				return fmt.Errorf("generate page id failed: %w", err)
+			}
+			page := &domain.WikiPage{
 				ID: pageID, KnowledgeBaseID: kbID,
 				Slug: slug, Title: cpt.Name,
 				PageType: domain.WikiPageConcept, Status: domain.WikiPagePublished,
-				Content: cpt.Description, Aliases: toRawJSON(cpt.Aliases),
+				Summary: cpt.Description, Content: cpt.Details,
+				Aliases:    toRawJSON(cpt.Aliases),
 				SourceRefs: toRawJSON(buildDocRefs(docInfos)),
 				Version:    1, CreatedAt: now, UpdatedAt: now,
-			})
+			}
+			pages = append(pages, page)
+			createdSlugs[slug] = page
 		}
 	}
 
@@ -242,10 +288,10 @@ func (p *WikiIngestPipeline) Start(ctx context.Context, kbID int64, docIDs []int
 		s := truncate(summary, 200)
 		slug := "summary/doc-" + slugify(doc.Title)
 		pageID, err := p.Snowflake.Generate()
-			if err != nil {
-				return fmt.Errorf("generate page id failed: %w", err)
-			}
-			pages = append(pages, &domain.WikiPage{
+		if err != nil {
+			return fmt.Errorf("generate page id failed: %w", err)
+		}
+		pages = append(pages, &domain.WikiPage{
 			ID: pageID, KnowledgeBaseID: kbID,
 			Slug: slug, Title: doc.Title + " 摘要",
 			PageType: domain.WikiPageSummary, Status: domain.WikiPagePublished,
@@ -508,18 +554,23 @@ func (p *WikiIngestPipeline) injectCrossLinks(ctx context.Context, kbID int64) {
 					continue
 				}
 
-				// Check word boundary: ensure surrounding chars aren't similar
+				// Check word boundary: ensure surrounding chars aren't similar.
+				// For Latin scripts, prevent substring false matches (e.g. "cat" in "catalog").
+				// For CJK text, words are character sequences without spaces — a match
+				// adjacent to CJK characters is always a legitimate hit.
 				byteEnd := absIdx + len(ref.match)
 				boundaryOK := true
 				if byteEnd < len(content) {
 					nextRune, _ := utf8.DecodeRuneInString(content[byteEnd:])
-					if unicode.IsLetter(nextRune) || unicode.IsDigit(nextRune) {
+					lastMatchRune, _ := utf8.DecodeLastRuneInString(ref.match)
+					if isLatinAlnum(nextRune) && isLatinAlnum(lastMatchRune) {
 						boundaryOK = false
 					}
 				}
 				if absIdx > 0 {
 					prevRune, _ := utf8.DecodeLastRuneInString(content[:absIdx])
-					if unicode.IsLetter(prevRune) || unicode.IsDigit(prevRune) {
+					firstMatchRune, _ := utf8.DecodeRuneInString(ref.match)
+					if isLatinAlnum(prevRune) && isLatinAlnum(firstMatchRune) {
 						boundaryOK = false
 					}
 				}
@@ -697,16 +748,142 @@ func (p *WikiIngestPipeline) getPreviousSlugs(ctx context.Context, kbID int64) s
 	return strings.Join(slugs, "\n")
 }
 
+// deduplicateExtractedBatch checks each new entity/concept against
+// existing wiki pages via pg_trgm similarity + LLM judgment. Items
+// judged to be duplicates have their Slug redirected to the existing
+// page's slug, so the downstream loop hits GetBySlug → reduceMerge
+// instead of creating a new page.
+//
+// Modeled on WeKnora's deduplicateExtractedBatch.
+func (p *WikiIngestPipeline) deduplicateExtractedBatch(
+	ctx context.Context,
+	kbID int64,
+	entities []wikiEntity,
+	concepts []wikiConcept,
+	modelID, ownerID int64,
+) ([]wikiEntity, []wikiConcept) {
+	if len(entities) == 0 && len(concepts) == 0 {
+		return entities, concepts
+	}
+
+	// Phase 1: probe FindSimilarPages for each new item.
+	// Union all matches into candidatePages (dedup by slug).
+	candidatePages := make(map[string]*domain.WikiPageLite)
+	probe := func(name string, aliases []string) {
+		queries := make([]string, 0, 1+len(aliases))
+		if name != "" {
+			queries = append(queries, name)
+		}
+		for _, alias := range aliases {
+			if alias != "" {
+				queries = append(queries, alias)
+			}
+		}
+		for _, q := range queries {
+			pages, err := p.WikiRepo.FindSimilarPages(ctx, kbID, q,
+				[]string{string(domain.WikiPageEntity), string(domain.WikiPageConcept)}, 20)
+			if err != nil {
+				continue
+			}
+			for i := range pages {
+				pg := pages[i]
+				if pg.Slug == "" {
+					continue
+				}
+				if _, ok := candidatePages[pg.Slug]; !ok {
+					candidatePages[pg.Slug] = &pg
+				}
+			}
+		}
+	}
+	for _, e := range entities {
+		probe(e.Name, e.Aliases)
+	}
+	for _, c := range concepts {
+		probe(c.Name, c.Aliases)
+	}
+	if len(candidatePages) == 0 {
+		return entities, concepts
+	}
+
+	// Phase 2: build XML prompt with new items and candidate existing pages.
+	var newBuf bytes.Buffer
+	for _, item := range entities {
+		slug := itemSlug(item.Name, item.Slug, "entity")
+		writeDedupItemXML(&newBuf, slug, item.Name, "entity", item.Aliases)
+	}
+	for _, item := range concepts {
+		slug := itemSlug(item.Name, item.Slug, "concept")
+		writeDedupItemXML(&newBuf, slug, item.Name, "concept", item.Aliases)
+	}
+
+	var existingBuf bytes.Buffer
+	for _, p := range candidatePages {
+		writeDedupItemXML(&existingBuf, p.Slug, p.Title, p.PageType, p.Aliases)
+	}
+
+	prompt := buildDedupPrompt(newBuf.String(), existingBuf.String())
+	resp, err := p.callLLM(ctx, modelID, ownerID, prompt)
+	if err != nil || resp == "" {
+		return entities, concepts
+	}
+
+	// Phase 3: parse merges and validate.
+	var dedupeResult struct {
+		Merges map[string]string `json:"merges"`
+	}
+	if err := json.Unmarshal([]byte(resp), &dedupeResult); err != nil {
+		return entities, concepts
+	}
+	if len(dedupeResult.Merges) == 0 {
+		return entities, concepts
+	}
+
+	// Build candidate slug set for validation — the LLM only saw these
+	// as targets, so any merge outside them is a hallucination.
+	existingSlugs := make(map[string]bool, len(candidatePages))
+	for slug := range candidatePages {
+		existingSlugs[slug] = true
+	}
+
+	validMerge := func(srcSlug, dstSlug string) bool {
+		if !existingSlugs[dstSlug] {
+			return false
+		}
+		srcSlash := strings.Index(srcSlug, "/")
+		dstSlash := strings.Index(dstSlug, "/")
+		if srcSlash <= 0 || dstSlash <= 0 {
+			return false
+		}
+		return srcSlug[:srcSlash] == dstSlug[:dstSlash]
+	}
+
+	for i, item := range entities {
+		srcSlug := itemSlug(item.Name, item.Slug, "entity")
+		if dstSlug, ok := dedupeResult.Merges[srcSlug]; ok && validMerge(srcSlug, dstSlug) {
+			entities[i].Slug = dstSlug
+		}
+	}
+	for i, item := range concepts {
+		srcSlug := itemSlug(item.Name, item.Slug, "concept")
+		if dstSlug, ok := dedupeResult.Merges[srcSlug]; ok && validMerge(srcSlug, dstSlug) {
+			concepts[i].Slug = dstSlug
+		}
+	}
+
+	return entities, concepts
+}
+
 // extractCandidates performs Pass 0: lightweight per-document candidate extraction.
 // Returns entity and concept candidates with doc IDs.
-func (p *WikiIngestPipeline) extractCandidates(ctx context.Context, kbID int64, doc *domain.Document, language string, previousSlugs string) ([]wikiEntity, []wikiConcept, error) {
+func (p *WikiIngestPipeline) extractCandidates(ctx context.Context, kbID int64, doc *domain.Document, previousSlugs string) ([]wikiEntity, []wikiConcept, error) {
 	text, err := p.readFileContent(ctx, doc.MinioKey)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	modelID := p.getModelID(kbID)
-	prompt := buildCandidateExtractionPrompt(text, previousSlugs, language)
+	prompt := buildCandidateExtractionPrompt(text, previousSlugs)
 	resp, err := p.callLLM(ctx, modelID, p.getOwnerID(kbID), prompt)
 	if err != nil || resp == "" {
 		return nil, nil, err
@@ -730,23 +907,10 @@ func (p *WikiIngestPipeline) extractCandidates(ctx context.Context, kbID int64, 
 }
 
 // reduceMerge performs REDUCE: merge new document content into an existing wiki page.
-func (p *WikiIngestPipeline) reduceMerge(ctx context.Context, kbID int64, page *domain.WikiPage, newDocs []docInfo, deletedDocIDs []int64, language string) error {
+func (p *WikiIngestPipeline) reduceMerge(ctx context.Context, kbID int64, page *domain.WikiPage, newInputs []mergeInput) error {
 	modelID := p.getModelID(kbID)
 
-	var additions []string
-	for _, d := range newDocs {
-		doc, rerr := p.DocRepo.Get(ctx, d.ID)
-		if rerr != nil {
-			continue
-		}
-		text, rerr := p.readFileContent(ctx, doc.MinioKey)
-		if rerr != nil {
-			continue
-		}
-		additions = append(additions, fmt.Sprintf("<doc id=\"%d\">\n%s\n</doc>", d.ID, text))
-	}
-
-	prompt := buildReduceMergePrompt(page, additions, deletedDocIDs, language)
+	prompt := buildReduceMergePrompt(page, newInputs)
 	resp, err := p.callLLM(ctx, modelID, p.getOwnerID(kbID), prompt)
 	if err != nil || resp == "" {
 		return err
@@ -759,56 +923,58 @@ func (p *WikiIngestPipeline) reduceMerge(ctx context.Context, kbID int64, page *
 		page.Summary = strings.TrimPrefix(lines[0], "SUMMARY: ")
 	}
 
-	// Append new source refs to existing page
-	if len(newDocs) > 0 {
-		var existingRefs []map[string]any
-		if len(page.SourceRefs) > 0 {
-			json.Unmarshal(page.SourceRefs, &existingRefs)
-		}
-		existingIDs := make(map[int64]bool)
-		for _, r := range existingRefs {
-			if id, ok := r["doc_id"].(float64); ok {
-				existingIDs[int64(id)] = true
-			}
-		}
-		for _, d := range newDocs {
-			if !existingIDs[d.ID] {
-				existingRefs = append(existingRefs, map[string]any{"doc_id": d.ID, "title": d.Title})
-			}
-		}
-		page.SourceRefs = toRawJSON(existingRefs)
-	}
-
 	page.Version++
 	return p.WikiRepo.Upsert(ctx, page)
 }
 
-// dedupEntities deduplicates entities by name (case-insensitive).
+// dedupEntities merges entities with the same name (case-insensitive).
+// Details and DocIDs are combined from all duplicates.
 func dedupEntities(entities []wikiEntity) []wikiEntity {
-	seen := make(map[string]bool)
-	var result []wikiEntity
+	seen := make(map[string]*wikiEntity)
+	var order []string
 	for _, e := range entities {
 		key := strings.ToLower(strings.TrimSpace(e.Name))
-		if seen[key] {
-			continue
+		if existing, ok := seen[key]; ok {
+			// Merge details — concatenate if different
+			if e.Details != "" && !strings.Contains(existing.Details, e.Details) {
+				existing.Details += "\n\n" + e.Details
+			}
+			// Merge doc IDs
+			existing.DocIDs = append(existing.DocIDs, e.DocIDs...)
+		} else {
+			cp := e
+			seen[key] = &cp
+			order = append(order, key)
 		}
-		seen[key] = true
-		result = append(result, e)
+	}
+	result := make([]wikiEntity, 0, len(order))
+	for _, key := range order {
+		result = append(result, *seen[key])
 	}
 	return result
 }
 
-// dedupConcepts deduplicates concepts by name (case-insensitive).
+// dedupConcepts merges concepts with the same name (case-insensitive).
+// Details and DocIDs are combined from all duplicates.
 func dedupConcepts(concepts []wikiConcept) []wikiConcept {
-	seen := make(map[string]bool)
-	var result []wikiConcept
+	seen := make(map[string]*wikiConcept)
+	var order []string
 	for _, c := range concepts {
 		key := strings.ToLower(strings.TrimSpace(c.Name))
-		if seen[key] {
-			continue
+		if existing, ok := seen[key]; ok {
+			if c.Details != "" && !strings.Contains(existing.Details, c.Details) {
+				existing.Details += "\n\n" + c.Details
+			}
+			existing.DocIDs = append(existing.DocIDs, c.DocIDs...)
+		} else {
+			cp := c
+			seen[key] = &cp
+			order = append(order, key)
 		}
-		seen[key] = true
-		result = append(result, c)
+	}
+	result := make([]wikiConcept, 0, len(order))
+	for _, key := range order {
+		result = append(result, *seen[key])
 	}
 	return result
 }
@@ -845,6 +1011,20 @@ func (p *WikiIngestPipeline) concatAllDocTexts(ctx context.Context, docs []*doma
 		texts = append(texts, fmt.Sprintf("[文档: %s] (doc_id: %d)\n%s", doc.Title, doc.ID, text))
 	}
 	return strings.Join(texts, "\n\n---\n\n")
+}
+
+// isLatinAlnum reports whether r is a Latin-script letter or digit
+// (i.e. NOT a CJK ideograph). Used by injectCrossLinks to distinguish
+// Latin substring false matches from legitimate CJK word boundaries.
+func isLatinAlnum(r rune) bool {
+	return (unicode.IsLetter(r) || unicode.IsDigit(r)) && !isCJK(r)
+}
+
+// isCJK reports whether r is a CJK unified ideograph or compatibility ideograph.
+func isCJK(r rune) bool {
+	return (r >= 0x4E00 && r <= 0x9FFF) || // CJK Unified Ideographs
+		(r >= 0x3400 && r <= 0x4DBF) || // CJK Unified Ideographs Extension A
+		(r >= 0xF900 && r <= 0xFAFF) // CJK Compatibility Ideographs
 }
 
 func slugify(name string) string {

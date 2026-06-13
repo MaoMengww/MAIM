@@ -8,6 +8,7 @@ import (
 	"github.com/maomeng/aim/app/bot-platform/internal/config"
 	"github.com/maomeng/aim/app/bot-platform/internal/model"
 	"github.com/maomeng/aim/app/bot-platform/internal/repo"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/database"
 	pkgjwt "github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/logx"
@@ -112,9 +113,9 @@ func createTemplateBot(ctx context.Context, r repo.BotRepoInterface, log logx.Lo
 		ID:                 id,
 		OwnerID:            0,
 		Name:               name,
-		Type:               "official",
+		Type:               consts.BotTypeOfficial,
 		TemplateID:         templateID,
-		Status:             "active",
+		Status:             consts.BotStatusActive,
 		UsePlatformModel:   true,
 		SystemPrompt:       systemPrompt,
 		EnableKnowledge:    enableKnowledge,

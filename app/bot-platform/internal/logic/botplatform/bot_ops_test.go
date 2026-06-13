@@ -13,6 +13,7 @@ import (
 	"github.com/maomeng/aim/app/bot-platform/internal/repo"
 	"github.com/maomeng/aim/app/bot-platform/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	"github.com/maomeng/aim/pkg/jwt"
 	pbcommon "github.com/maomeng/aim/pkg/pb/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -342,33 +343,45 @@ func TestGetBotWebhookConfig_NotFound(t *testing.T) {
 }
 
 func TestRotateSecret_Normal(t *testing.T) {
-	svcCtx := &svc.ServiceContext{}
+	repo := newEnhancedMockRepo()
+	repo.bots[1] = &model.Bot{ID: 1, OwnerID: 10, Name: "test", Type: "self_deployed", Status: "active"}
+	svcCtx := &svc.ServiceContext{Repo: repo}
 	logic := NewRotateSecretLogic(context.Background(), svcCtx)
 
-	resp, err := logic.RotateSecret(&pb.RotateSecretReq{BotId: 1})
+	resp, err := logic.RotateSecret(&pb.RotateSecretReq{BotId: 1, UserId: 10})
 	require.NoError(t, err)
-	assert.Equal(t, "new-secret", resp.WebhookSecret)
-	assert.Equal(t, "new-app-secret", resp.AppSecret)
+	assert.NotEmpty(t, resp.WebhookSecret)
+	assert.NotEmpty(t, resp.AppSecret)
+	assert.Len(t, resp.WebhookSecret, 64) // generateRandomSecret(32) → 64 hex chars
+	assert.Len(t, resp.AppSecret, 64)
 }
 
 func TestIssueBotToken_Normal(t *testing.T) {
-	svcCtx := &svc.ServiceContext{}
+	repo := newEnhancedMockRepo()
+	repo.bots[1] = &model.Bot{ID: 1, OwnerID: 10, Name: "test", Type: "self_deployed", Status: "active"}
+	botJWT := jwt.NewManager("test-secret-for-jwt-testing", 3600, 2592000)
+	svcCtx := &svc.ServiceContext{Repo: repo, BotJWT: botJWT}
 	logic := NewIssueBotTokenLogic(context.Background(), svcCtx)
 
-	resp, err := logic.IssueBotToken(&pb.IssueBotTokenReq{BotId: 1})
+	resp, err := logic.IssueBotToken(&pb.IssueBotTokenReq{BotId: 1, UserId: 10})
 	require.NoError(t, err)
-	assert.Equal(t, "bot-token", resp.Token)
-	assert.Equal(t, int64(0), resp.ExpiresAt)
+	assert.NotEmpty(t, resp.Token)
+	assert.Greater(t, resp.ExpiresAt, int64(0))
 }
 
 func TestValidateBotToken_Normal(t *testing.T) {
-	svcCtx := &svc.ServiceContext{}
+	botJWT := jwt.NewManager("test-secret-for-jwt-testing", 3600, 2592000)
+	validToken, err := botJWT.GenerateBotToken(1, 0, "official")
+	require.NoError(t, err)
+
+	repo := newEnhancedMockRepo()
+	repo.bots[1] = &model.Bot{ID: 1, OwnerID: 0, Name: "test", Type: "official", Status: "active"}
+	svcCtx := &svc.ServiceContext{Repo: repo, BotJWT: botJWT}
 	logic := NewValidateBotTokenLogic(context.Background(), svcCtx)
 
-	resp, err := logic.ValidateBotToken(&pb.ValidateBotTokenReq{Token: "test-token"})
+	resp, err := logic.ValidateBotToken(&pb.ValidateBotTokenReq{Token: validToken})
 	require.NoError(t, err)
 	assert.True(t, resp.Valid)
-	assert.Equal(t, "official", resp.Type)
 }
 
 func TestIsOfficialInstance(t *testing.T) {

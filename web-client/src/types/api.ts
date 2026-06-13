@@ -79,11 +79,6 @@ export interface SearchMessagesReq {
   page_size?: number;
 }
 
-export interface ForwardMessageReq {
-  message_ids: string[];
-  target_conversation_id: string;
-}
-
 // ─── Friend ───
 export interface SendFriendRequestReq {
   to_user_id: number;

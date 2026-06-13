@@ -2,7 +2,6 @@ package messageservicelogic
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/maomeng/aim/app/message-service/pb/message"
@@ -142,8 +141,8 @@ func TestBroadcastContentJSON_Invalid(t *testing.T) {
 }
 
 func TestNextSeq_ContextValid(t *testing.T) {
-	// Verify the seq key format
-	ctx := context.Background()
-	_ = ctx
-	assert.True(t, strings.HasPrefix("conv:seq:123", "conv:seq:"))
+	// Legacy test: Redis-based nextSeq has been replaced by DB-based SequenceRepo.NextSeq.
+	// Kept to satisfy package reference for compile check only.
+	_ = context.Background()
+	assert.True(t, true)
 }

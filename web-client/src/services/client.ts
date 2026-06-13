@@ -26,13 +26,38 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
-// ─── Business error code → Chinese message mapping ───
+// ─── Business error code → Chinese message fallback ───
+// Backend now returns biz codes (1000-1018) instead of HTTP codes in JSON body.
+// See pkg/errors/errors.go for the authoritative list.
 const errorMessages: Record<number, string> = {
-  1003: '已被禁言',
+  1000: '未知错误',
+  1001: '请求参数错误',
+  1002: '请先登录',
+  1003: '权限不足',
+  1004: '资源不存在',
+  1005: '资源冲突',
+  1006: '服务器内部错误',
+  1007: '请求超时',
+  1008: '请求过于频繁，请稍后再试',
+  1009: '服务暂不可用',
+  1010: '数据库错误',
+  1011: '缓存错误',
+  1012: '消息队列错误',
+  1013: 'RPC 调用错误',
+  1014: 'IO 错误',
+  1015: 'Bot 不存在',
+  1016: 'Bot 操作受限',
+  1017: 'Webhook 签名无效',
+  1018: 'Webhook 时间戳过期',
 };
 
 function mapErrorMessage(code: number, originalMessage: string): string {
-  return errorMessages[code] ?? originalMessage;
+  // Prefer the backend's message; use Chinese fallback only when message is generic or empty
+  const fallback = errorMessages[code];
+  if (!fallback) return originalMessage;
+  // If the original message already contains the fallback or is empty, use fallback
+  if (!originalMessage || originalMessage === 'ok') return fallback;
+  return originalMessage;
 }
 
 // ─── Response: unwrap & 401 refresh ───
@@ -61,7 +86,16 @@ async function doRefresh(): Promise<string | null> {
 }
 
 client.interceptors.response.use(
-  (resp) => resp,
+  (resp) => {
+    // Backend guarantees code=0 for success. If we receive a non-zero code
+    // on a 2xx response, treat it as a business error (belt and suspenders).
+    if (resp.data && typeof resp.data === 'object' && 'code' in resp.data && resp.data.code !== 0) {
+      const bizCode = resp.data.code as number;
+      const msg = mapErrorMessage(bizCode, resp.data.message || '');
+      return Promise.reject({ response: resp, message: msg });
+    }
+    return resp;
+  },
   async (error) => {
     const { config, response } = error;
     if (response?.status === 401 && !config._retry) {

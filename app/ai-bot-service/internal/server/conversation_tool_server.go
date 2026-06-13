@@ -13,6 +13,7 @@ import (
 	"github.com/maomeng/aim/app/ai-bot-service/internal/svc"
 	"github.com/maomeng/aim/app/ai-bot-service/pb/aibot"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/interceptor"
 	commonpb "github.com/maomeng/aim/pkg/pb/common"
@@ -37,7 +38,7 @@ func (s *ConversationToolServer) getUserID(ctx context.Context) int64 {
 }
 
 func (s *ConversationToolServer) getLLMInput(ctx context.Context, userID, convID int64) (*convtool.Input, error) {
-	userCtx := metadata.AppendToOutgoingContext(ctx, "user-id", strconv.FormatInt(userID, 10))
+	userCtx := metadata.AppendToOutgoingContext(ctx, consts.MetadataKeyUserID, strconv.FormatInt(userID, 10))
 	userClient := userpb.NewUserServiceClient(s.svcCtx.UserServiceConn.Conn())
 	settingsResp, err := userClient.GetSettings(userCtx, &commonpb.Empty{})
 	if err != nil {

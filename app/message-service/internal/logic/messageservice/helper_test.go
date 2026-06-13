@@ -56,6 +56,7 @@ func newTestSvcCtx(t *testing.T) *testSvcCtx {
 			InboxRepo:               repo.NewInboxRepo(db),
 			BroadcastRepo:           repo.NewBroadcastRepo(db),
 			SequenceRepo:            repo.NewSequenceRepo(db),
+			OutboxRepo:              repo.NewOutboxRepo(db),
 			ConvClient:              newMockConvMember(true),
 			UserClient:              &mockUserClient{ids: []int64{}},
 			FriendClient:            &mockFriendClient{},

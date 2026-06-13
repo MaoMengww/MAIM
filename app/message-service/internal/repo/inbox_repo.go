@@ -77,3 +77,12 @@ func (r *InboxRepo) DeleteByUser(ctx context.Context, userID, convID, messageID 
 		Where("user_id = ? AND conv_id = ? AND message_id = ?", userID, convID, messageID).
 		Delete(&model.UserInbox{}).Error
 }
+
+func (r *InboxRepo) ExistsByMessageID(ctx context.Context, messageID, convID int64) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&model.UserInbox{}).
+		Where("message_id = ? AND conv_id = ?", messageID, convID).
+		Count(&count).Error
+	return count > 0, err
+}
