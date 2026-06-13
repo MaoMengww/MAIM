@@ -59,3 +59,27 @@ func TestSequenceModel_TableName(t *testing.T) {
 	s := model.Sequence{}
 	assert.Equal(t, "sequences", s.TableName())
 }
+
+func TestSequenceRepo_NextSeq(t *testing.T) {
+	db, mock := setupMockDB(t)
+	repo := NewSequenceRepo(db)
+
+	// First call: row doesn't exist → INSERT ... ON CONFLICT returns 1
+	mock.ExpectQuery(`INSERT INTO msg\.sequences`).
+		WithArgs(int64(100)).
+		WillReturnRows(sqlmock.NewRows([]string{"current_seq"}).AddRow(1))
+
+	seq, err := repo.NextSeq(context.Background(), db.DB, 100)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), seq)
+
+	// Second call: row exists → ON CONFLICT DO UPDATE increments to 2
+	mock.ExpectQuery(`INSERT INTO msg\.sequences`).
+		WithArgs(int64(100)).
+		WillReturnRows(sqlmock.NewRows([]string{"current_seq"}).AddRow(2))
+
+	seq, err = repo.NextSeq(context.Background(), db.DB, 100)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), seq)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

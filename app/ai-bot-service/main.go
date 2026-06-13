@@ -18,6 +18,7 @@ import (
 	"github.com/maomeng/aim/app/ai-bot-service/internal/server"
 	"github.com/maomeng/aim/app/ai-bot-service/internal/svc"
 	"github.com/maomeng/aim/app/ai-bot-service/pb/aibot"
+	"github.com/maomeng/aim/pkg/consts"
 	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
 	"github.com/maomeng/aim/pkg/configcenter"
 	"github.com/maomeng/aim/pkg/interceptor"
@@ -68,14 +69,14 @@ func main() {
 	callbacks.AppendGlobalHandlers(graph.NewOTelCallbackHandler(logger))
 
 	// Kafka consumer for message.created events
-	eventConsumer, err := kafka.NewConsumer(c.Kafka, []string{"message.created"}, c.Kafka.ConsumerGroup, logger)
+	eventConsumer, err := kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated}, c.Kafka.ConsumerGroup, logger)
 	if err != nil {
 		panic(fmt.Sprintf("kafka consumer init failed: %v", err))
 	}
 
 	// Start Kafka consumer lag monitoring
 	if kafkaClient := eventConsumer.GetClient(); kafkaClient != nil {
-		kafka.CollectConsumerLag(kafkaClient, c.Kafka.ConsumerGroup, []string{"message.created"})
+		kafka.CollectConsumerLag(kafkaClient, c.Kafka.ConsumerGroup, []string{consts.KafkaTopicMessageCreated})
 	}
 
 	db := ctx.DB

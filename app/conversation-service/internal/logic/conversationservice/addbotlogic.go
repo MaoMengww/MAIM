@@ -2,8 +2,8 @@ package conversationservice
 
 import (
 	"context"
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/maomeng/aim/app/conversation-service/internal/model"

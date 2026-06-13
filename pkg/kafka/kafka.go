@@ -94,7 +94,7 @@ func NewProducer(cfg config.KafkaConfig, topic string, log logx.Logger) (*Produc
 
 	producer, err := sarama.NewSyncProducer(cfg.Brokers, saramaCfg)
 	if err != nil {
-		return nil, errors.Wrap(1012, "kafka producer create failed", err)
+		return nil, errors.Wrap(errors.CodeMQError, "kafka producer create failed", err)
 	}
 
 	return &Producer{SyncProducer: producer, topic: topic, logger: log}, nil
@@ -120,7 +120,7 @@ func NewTransactionalProducer(cfg config.KafkaConfig, transactionalID, topic str
 
 	producer, err := sarama.NewSyncProducer(cfg.Brokers, saramaCfg)
 	if err != nil {
-		return nil, errors.Wrap(1012, "kafka transactional producer create failed", err)
+		return nil, errors.Wrap(errors.CodeMQError, "kafka transactional producer create failed", err)
 	}
 
 	return &Producer{SyncProducer: producer, topic: topic, logger: log}, nil
@@ -137,7 +137,7 @@ func (p *Producer) Send(ctx context.Context, key string, value []byte) error {
 	_, _, err := p.SyncProducer.SendMessage(msg)
 	if err != nil {
 		p.logger.WithContext(ctx).Errorf("kafka send failed: key=%s, err=%v", key, err)
-		return errors.Wrap(1012, "kafka send failed", err)
+		return errors.Wrap(errors.CodeMQError, "kafka send failed", err)
 	}
 	return nil
 }
@@ -170,13 +170,13 @@ func NewConsumer(cfg config.KafkaConfig, topics []string, groupID string, log lo
 
 	group, err := sarama.NewConsumerGroup(cfg.Brokers, groupID, saramaCfg)
 	if err != nil {
-		return nil, errors.Wrap(1012, "kafka consumer create failed", err)
+		return nil, errors.Wrap(errors.CodeMQError, "kafka consumer create failed", err)
 	}
 
 	// Create a separate client for offset queries (e.g. consumer lag monitoring).
 	client, err := sarama.NewClient(cfg.Brokers, saramaCfg)
 	if err != nil {
-		return nil, errors.Wrap(1012, "kafka client create failed", err)
+		return nil, errors.Wrap(errors.CodeMQError, "kafka client create failed", err)
 	}
 
 	return &Consumer{group: group, client: client, topics: topics, logger: log}, nil
@@ -191,7 +191,7 @@ func (c *Consumer) Consume(ctx context.Context, handler sarama.ConsumerGroupHand
 		default:
 			if err := c.group.Consume(ctx, c.topics, handler); err != nil {
 				c.logger.WithContext(ctx).Errorf("kafka consume error: %v", err)
-				return errors.Wrap(1012, "kafka consume failed", err)
+				return errors.Wrap(errors.CodeMQError, "kafka consume failed", err)
 			}
 		}
 	}

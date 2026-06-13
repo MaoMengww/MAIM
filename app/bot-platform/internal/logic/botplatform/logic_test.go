@@ -12,6 +12,7 @@ import (
 	"github.com/maomeng/aim/app/bot-platform/internal/repo"
 	"github.com/maomeng/aim/app/bot-platform/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,12 +61,12 @@ func TestCreateBotValidation(t *testing.T) {
 }
 
 func TestNormalizeBotType(t *testing.T) {
-	assert.Equal(t, TypeOfficial, NormalizeBotType("BOT_TYPE_OFFICIAL"))
-	assert.Equal(t, TypeOfficial, NormalizeBotType("official"))
-	assert.Equal(t, TypeSelfDeployed, NormalizeBotType("BOT_TYPE_SELF_DEPLOYED"))
-	assert.Equal(t, TypeSelfDeployed, NormalizeBotType("self_deployed"))
-	assert.Equal(t, TypeThirdParty, NormalizeBotType("BOT_TYPE_THIRD_PARTY"))
-	assert.Equal(t, TypeThirdParty, NormalizeBotType("third_party"))
+	assert.Equal(t, consts.BotTypeOfficial, NormalizeBotType("BOT_TYPE_OFFICIAL"))
+	assert.Equal(t, consts.BotTypeOfficial, NormalizeBotType("official"))
+	assert.Equal(t, consts.BotTypeSelfDeployed, NormalizeBotType("BOT_TYPE_SELF_DEPLOYED"))
+	assert.Equal(t, consts.BotTypeSelfDeployed, NormalizeBotType("self_deployed"))
+	assert.Equal(t, consts.BotTypeThirdParty, NormalizeBotType("BOT_TYPE_THIRD_PARTY"))
+	assert.Equal(t, consts.BotTypeThirdParty, NormalizeBotType("third_party"))
 }
 
 func TestNormalizeConnMode(t *testing.T) {
@@ -99,7 +100,7 @@ func TestModelBotToProto(t *testing.T) {
 		ID:          1,
 		OwnerID:     10,
 		Name:        "test",
-		Type:        TypeOfficial,
+		Type:        consts.BotTypeOfficial,
 		Status:      "active",
 		Temperature: 0.7,
 		BotTags:     []string{"tag1"},
@@ -110,7 +111,7 @@ func TestModelBotToProto(t *testing.T) {
 	assert.Equal(t, int64(1), pbBot.Id)
 	assert.Equal(t, int64(10), pbBot.OwnerId)
 	assert.Equal(t, "test", pbBot.Name)
-	assert.Equal(t, TypeOfficial, pbBot.Type)
+	assert.Equal(t, consts.BotTypeOfficial, pbBot.Type)
 	assert.Equal(t, "active", pbBot.Status)
 	assert.False(t, pbBot.HasWebhookSecret)
 	assert.False(t, pbBot.HasAppSecret)
@@ -134,7 +135,7 @@ func TestCreateOfficialInstanceLeavesEmptyCapabilitiesUnset(t *testing.T) {
 	tpl := &model.Bot{
 		ID:                 123,
 		Name:               "智能问答助手",
-		Type:               TypeOfficial,
+		Type:               consts.BotTypeOfficial,
 		TemplateID:         TemplateQA,
 		Status:             "active",
 		UsePlatformModel:   true,
@@ -156,7 +157,7 @@ func TestUpdateOfficialBotSavesStreamingEnabled(t *testing.T) {
 		bot: &model.Bot{
 			ID:               123,
 			OwnerID:          456,
-			Type:             TypeOfficial,
+			Type:             consts.BotTypeOfficial,
 			TemplateID:       TemplateQA,
 			StreamingEnabled: true,
 		},

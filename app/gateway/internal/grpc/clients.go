@@ -36,7 +36,7 @@ func NewClients(cfg *config.Config) *Clients {
 			NonBlock: true,
 			Timeout:  30000,
 			Middlewares: zrpc.ClientMiddlewaresConf{
-				Breaker: false,
+				Breaker: true,
 			},
 		}
 		c, err := zrpc.NewClient(conf)
@@ -62,7 +62,7 @@ func NewClients(cfg *config.Config) *Clients {
 
 func (c *Clients) Close() {
 	clients := []zrpc.Client{
-		c.User, c.Friend, c.Conversation, c.Message, c.File, c.Notification, c.BotPlatform, c.KnowledgeBase, c.AIBot,
+		c.User, c.Friend, c.Conversation, c.Message, c.File, c.Notification, c.BotPlatform, c.KnowledgeBase, c.AIBot, c.LLMGateway,
 	}
 	for _, cli := range clients {
 		if cli != nil {

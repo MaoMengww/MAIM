@@ -19,7 +19,7 @@ echo "etcd is ready."
 put() {
   local key="$1"
   local val="$2"
-  echo "$val" | etcdctl put $ENDPOINT "$key" --ignore-lease
+  echo "$val" | etcdctl put $ENDPOINT "$key"
   echo "  ✓ $key"
 }
 

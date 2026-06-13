@@ -76,6 +76,18 @@ func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) err
 
 	logger.Infof("inbox writer: processing message: conv_id=%d seq=%d", payload.ConvID, payload.Seq)
 
+	// Idempotency check: if inbox entries already exist for this message, skip.
+	// This handles duplicate deliveries from OutboxDispatcher retries.
+	exists, err := w.inboxRepo.ExistsByMessageID(ctx, payload.MessageID, payload.ConvID)
+	if err != nil {
+		logger.Errorf("inbox writer: idempotency check failed: %v", err)
+		return err
+	}
+	if exists {
+		logger.Infof("inbox writer: message %d already in inbox, skipping", payload.MessageID)
+		return nil
+	}
+
 	members, err := w.resolver.GetConvMembers(ctx, payload.ConvID)
 	if err != nil {
 		logger.Errorf("get conv members failed: conv=%d err=%v", payload.ConvID, err)

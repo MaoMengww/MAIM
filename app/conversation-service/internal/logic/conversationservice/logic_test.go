@@ -122,7 +122,11 @@ func (m *mockRepo) GetMember(ctx context.Context, convID, userID int64) (*model.
 	return m.getMember, m.getMemberErr
 }
 func (m *mockRepo) GetMembers(ctx context.Context, convID int64, offset, limit int) ([]model.ConversationMember, error) {
-	return m.getMembers, nil
+	members := m.getMembers
+	if m.addedMember != nil {
+		members = append(members, *m.addedMember)
+	}
+	return members, nil
 }
 func (m *mockRepo) CountMembers(ctx context.Context, convID int64) (int64, error) {
 	return m.countMembers, m.countMembersErr
@@ -323,9 +327,10 @@ func TestCreateConversation_ReturnsBotPeerInfo(t *testing.T) {
 			Name:   "智能问答助手",
 			Avatar: "https://example.com/bot.png",
 		},
+		// getMembers only includes the creator; the bot peer member is added
+		// dynamically via AddBotWithMember during conversation creation.
 		getMembers: []model.ConversationMember{
 			{UserID: 10},
-			{UserID: peerUserID},
 		},
 	}
 	svcCtx := newTestSvcCtx(repo)

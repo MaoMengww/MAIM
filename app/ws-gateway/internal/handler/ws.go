@@ -14,6 +14,7 @@ import (
 	"github.com/maomeng/aim/app/ws-gateway/internal/presence"
 	"github.com/maomeng/aim/app/ws-gateway/internal/push"
 	"github.com/maomeng/aim/app/ws-gateway/internal/session"
+	"github.com/maomeng/aim/app/ws-gateway/internal/streamcache"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/logx"
 	message "github.com/maomeng/aim/app/message-service/pb/message"
@@ -71,6 +72,7 @@ type WSHandler struct {
 	presenceMgr       *presence.Manager
 	pushRouter        *push.Router
 	rdb               *redis.Client
+	streamCache       *streamcache.StreamCache
 	jwtSecret         string
 	logger            logx.Logger
 	botPlatformClient botplatform.BotPlatformClient
@@ -83,6 +85,7 @@ func NewWSHandler(
 	presenceMgr *presence.Manager,
 	pushRouter *push.Router,
 	rdb *redis.Client,
+	sc *streamcache.StreamCache,
 	jwtSecret string,
 	logger logx.Logger,
 	botPlatClient botplatform.BotPlatformClient,
@@ -94,6 +97,7 @@ func NewWSHandler(
 		presenceMgr:       presenceMgr,
 		pushRouter:        pushRouter,
 		rdb:               rdb,
+		streamCache:       sc,
 		jwtSecret:         jwtSecret,
 		logger:            logger,
 		botPlatformClient: botPlatClient,
@@ -324,6 +328,50 @@ func (h *WSHandler) handleMessage(s *session.Session, userID int64, deviceID str
 			Username: evt.Username,
 		})
 		h.pushRouter.PushToConvExcept(ctx, userID, data)
+
+	case "stream.replay":
+		// Parse stream_id and from_seq from raw message
+		streamID := ""
+		var fromSeq int64 = -1
+		if rawMap := make(map[string]json.RawMessage); json.Unmarshal(raw, &rawMap) == nil {
+			if v, ok := rawMap["stream_id"]; ok {
+				json.Unmarshal(v, &streamID)
+			}
+			if v, ok := rawMap["from_seq"]; ok {
+				json.Unmarshal(v, &fromSeq)
+			}
+		}
+		if streamID == "" {
+			s.WriteMessage([]byte(`{"type":"stream.replay.error","error":"missing stream_id"}`))
+			return nil
+		}
+
+		if h.streamCache == nil || !h.streamCache.Enabled() {
+			s.WriteMessage([]byte(fmt.Sprintf(
+				`{"type":"stream.replay.miss","stream_id":"%s"}`, streamID)))
+			return nil
+		}
+
+		chunks, err := h.streamCache.Replay(ctx, streamID, fromSeq)
+		if err != nil {
+			h.logger.Errorf("stream replay failed: stream_id=%s err=%v", streamID, err)
+			s.WriteMessage([]byte(fmt.Sprintf(
+				`{"type":"stream.replay.miss","stream_id":"%s"}`, streamID)))
+			return nil
+		}
+		if chunks == nil {
+			// Cache miss — stream already completed or expired
+			s.WriteMessage([]byte(fmt.Sprintf(
+				`{"type":"stream.replay.miss","stream_id":"%s"}`, streamID)))
+			return nil
+		}
+
+		// Replay each cached chunk in order
+		for _, chunk := range chunks {
+			s.WriteMessage(chunk)
+		}
+		s.WriteMessage([]byte(fmt.Sprintf(
+			`{"type":"stream.replay.done","stream_id":"%s"}`, streamID)))
 
 	case consts.EventAck:
 		data := marshalServerEvent(ServerEvent{

@@ -10,6 +10,7 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -62,7 +63,7 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 	previewText := extractTextPreview(msg.MsgType, msg.Content)
 	var seq int64
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
-		s, err := nextSeq(l.svcCtx.Redis, l.ctx, in.ConversationId)
+		s, err := l.svcCtx.SequenceRepo.NextSeq(l.ctx, tx, in.ConversationId)
 		if err != nil {
 			return err
 		}
@@ -113,7 +114,7 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 		if err := producer.Send(context.Background(), fmt.Sprintf("%d", msgID), val); err != nil {
 			l.Errorf("kafka async send failed, write to failed_events: msg_id=%d, err=%v", msgID, err)
 			_ = l.svcCtx.DB.WithContext(context.Background()).Create(&model.FailedEvent{
-				Topic:   "message.created",
+				Topic:   consts.KafkaTopicMessageCreated,
 				Key:     fmt.Sprintf("%d", msgID),
 				Payload: val,
 			}).Error

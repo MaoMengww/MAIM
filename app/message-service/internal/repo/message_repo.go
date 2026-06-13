@@ -5,6 +5,7 @@ import (
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/pkg/database"
+	"gorm.io/gorm"
 )
 
 type MessageRepo struct {
@@ -115,8 +116,25 @@ func (r *MessageRepo) UpdateContent(ctx context.Context, id int64, content model
 		}).Error
 }
 
+func (r *MessageRepo) UpdateContentWithTx(ctx context.Context, tx *gorm.DB, id int64, content model.JSONContent, editHistory model.JSONArray, editCount int32) error {
+	return tx.WithContext(ctx).Model(&model.Message{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"content":      content,
+			"edit_history": editHistory,
+			"edit_count":   editCount,
+			"status":       model.MessageStatusEdited,
+		}).Error
+}
+
 func (r *MessageRepo) UpdateStatus(ctx context.Context, id int64, status int32) error {
 	return r.db.WithContext(ctx).Model(&model.Message{}).
+		Where("id = ?", id).
+		Update("status", status).Error
+}
+
+func (r *MessageRepo) UpdateStatusWithTx(ctx context.Context, tx *gorm.DB, id int64, status int32) error {
+	return tx.WithContext(ctx).Model(&model.Message{}).
 		Where("id = ?", id).
 		Update("status", status).Error
 }
@@ -170,4 +188,8 @@ func (r *MessageRepo) Search(ctx context.Context, filter SearchFilter) ([]model.
 
 func (r *MessageRepo) Delete(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Delete(&model.Message{}, id).Error
+}
+
+func (r *MessageRepo) DeleteWithTx(ctx context.Context, tx *gorm.DB, id int64) error {
+	return tx.WithContext(ctx).Delete(&model.Message{}, id).Error
 }

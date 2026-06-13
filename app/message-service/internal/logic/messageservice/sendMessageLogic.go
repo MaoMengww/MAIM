@@ -2,7 +2,6 @@ package messageservicelogic
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"google.golang.org/grpc/metadata"
+	"gorm.io/gorm"
 )
 
 type SendMessageLogic struct {
@@ -111,19 +111,46 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 		UpdatedAt:    now,
 	}
 
-	// 6. 生成 seq + 插入消息
-	seq, err := nextSeq(l.svcCtx.Redis, ctx, in.ConversationId)
+	// 6. 单事务：获取 seq + 写入消息 + outbox 事件 + 更新会话 max_seq
+	senderName := resolveReplySenderName(ctx, l.svcCtx, msg.SenderID, "user")
+
+	var seq int64
+	err = l.svcCtx.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		seq, err = l.svcCtx.SequenceRepo.NextSeq(ctx, tx, in.ConversationId)
+		if err != nil {
+			return err
+		}
+		msg.Seq = seq
+
+		if err := tx.Create(msg).Error; err != nil {
+			return err
+		}
+
+		outboxID, err := l.svcCtx.Snowflake.Generate()
+		if err != nil {
+			return err
+		}
+		outboxEvent := &model.OutboxEvent{
+			ID:         outboxID,
+			Topic:      consts.KafkaTopicMessageCreated,
+			Key:        fmt.Sprintf("%d", msgID),
+			MaxRetries: model.DefaultMaxRetries,
+		}
+		if err := outboxEvent.SetPayload(buildMessageCreatedPayload(msg, senderName)); err != nil {
+			return err
+		}
+		if err := l.svcCtx.OutboxRepo.Insert(ctx, tx, outboxEvent); err != nil {
+			return err
+		}
+
+		// 同步更新会话的最新 seq
+		return tx.Table("conv.conversations").Where("id = ?", in.ConversationId).
+			Update("max_seq", seq).Error
+	})
 	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "next seq failed", err)
-	}
-	msg.Seq = seq
-	if err := l.svcCtx.DB.WithContext(ctx).Create(msg).Error; err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "insert message failed", err)
 	}
-
-	// 7. 异步发送 Kafka 事件（不阻塞响应，失败写 failed_events 表兜底）
-	senderName := resolveReplySenderName(ctx, l.svcCtx, msg.SenderID, "user")
-	asyncSendKafka(l.ctx, l.svcCtx, msg.ID, in.ConversationId, msg.Seq, int64(msg.MsgType), contentJSON, msg.ReplyToMsgID, msg.CreatedAt.Unix(), senderName, msg.SenderID)
 
 	metrics.MessagesSentTotal.Inc(strconv.FormatInt(int64(in.Type), 10))
 
@@ -219,37 +246,19 @@ func extractSendContent(req *message.SendMessageReq) model.JSONContent {
 	}
 	return nil
 }
-// asyncSendKafka 异步发送 Kafka 事件，不阻塞响应路径。
-// Kafka 发送失败时写 failed_events 表，由后台 goroutine 重试。
-func asyncSendKafka(ctx context.Context, svcCtx *svc.ServiceContext, msgID, convID, seq, msgType int64, contentJSON model.JSONContent, replyToMsgID int64, createdAt int64, senderName string, senderID int64) {
-	payload := map[string]any{
-		"message_id":      msgID,
-		"conv_id":         convID,
-		"sender_id":       senderID,
-		"msg_type":        msgType,
-		"content":         contentJSON,
-		"seq":             seq,
-		"reply_to_msg_id": replyToMsgID,
-		"created_at":      createdAt,
+// buildMessageCreatedPayload builds the Kafka event payload for a new message.
+func buildMessageCreatedPayload(msg *model.Message, senderName string) map[string]any {
+	return map[string]any{
+		"message_id":      msg.ID,
+		"conv_id":         msg.ConvID,
+		"sender_id":       msg.SenderID,
+		"msg_type":        int64(msg.MsgType),
+		"content":         msg.Content,
+		"seq":             msg.Seq,
+		"reply_to_msg_id": msg.ReplyToMsgID,
+		"created_at":      msg.CreatedAt.Unix(),
 		"sender_name":     senderName,
-		"preview_text":    extractTextPreview(int32(msgType), contentJSON),
+		"preview_text":    extractTextPreview(msg.MsgType, msg.Content),
 	}
-	if replyToMsgID != 0 {
-		payload["reply_to"] = buildReplyToMap(ctx, svcCtx, replyToMsgID)
-	}
-	val, _ := json.Marshal(payload)
-
-	go func() {
-		bCtx := context.WithoutCancel(ctx)
-		producer := svcCtx.MessageCreatedProducer
-		if err := producer.Send(bCtx, fmt.Sprintf("%d", msgID), val); err != nil {
-			logx.WithContext(bCtx).Errorf("kafka async send failed, write to failed_events: msg_id=%d, err=%v", msgID, err)
-			svcCtx.DB.WithContext(bCtx).Create(&model.FailedEvent{
-				Topic:   "message.created",
-				Key:     fmt.Sprintf("%d", msgID),
-				Payload: val,
-			})
-		}
-	}()
 }
 

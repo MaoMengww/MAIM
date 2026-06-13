@@ -13,9 +13,9 @@ func (l *Logic) GetSettings(ctx context.Context, userID int64) (*userpb.GetSetti
 	u, err := l.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, errors.New(1004, "user not found")
+			return nil, errors.New(errors.CodeNotFound, "user not found")
 		}
-		return nil, errors.Wrap(1010, "get user failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	s := u.Settings
 	return &userpb.GetSettingsResp{
@@ -34,9 +34,9 @@ func (l *Logic) UpdateSettings(ctx context.Context, userID int64, req *userpb.Up
 	u, err := l.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, errors.New(1004, "user not found")
+			return nil, errors.New(errors.CodeNotFound, "user not found")
 		}
-		return nil, errors.Wrap(1010, "get user failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	s := &u.Settings
 	if req.Language != nil {
@@ -67,7 +67,7 @@ func (l *Logic) UpdateSettings(ctx context.Context, userID int64, req *userpb.Up
 	if err := l.userRepo.Update(ctx, userID, map[string]any{
 		"settings": u.Settings,
 	}); err != nil {
-		return nil, errors.Wrap(1010, "update settings failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "update settings failed", err)
 	}
 	return &commonpb.BaseResponse{Code: 0, Message: "ok"}, nil
 }

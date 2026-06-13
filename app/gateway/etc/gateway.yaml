@@ -9,7 +9,7 @@ JWT:
 
 Etcd:
   Hosts:
-    - localhost:2379
+    - 127.0.0.1:2379
   DialTimeout: 5
   TTL: 10
 

@@ -149,6 +149,27 @@
   padding-left: 20px;
   margin-bottom: 1em;
 }
+.wiki-content figure {
+  margin: 1.5em 0;
+  padding: 12px;
+  background: var(--aim-surface);
+  border: 1px solid var(--aim-border);
+  border-radius: 8px;
+  text-align: center;
+}
+.wiki-content figure img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+.wiki-content figure figcaption {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--aim-text-secondary);
+  line-height: 1.6;
+  text-align: left;
+  padding: 0 8px;
+}
 .wiki-content blockquote {
   border-left: 3px solid var(--aim-pink);
   padding-left: 12px;

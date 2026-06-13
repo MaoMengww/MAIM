@@ -7,6 +7,7 @@ import (
 	"github.com/maomeng/aim/app/bot-platform/internal/model"
 	"github.com/maomeng/aim/app/bot-platform/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/crypto"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -50,7 +51,7 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 	}
 
 	switch bot.Type {
-	case TypeOfficial:
+	case consts.BotTypeOfficial:
 		updates["max_context_messages"] = in.MaxContextMessages
 		updates["memory_limit"] = in.MemoryLimit
 		// Official bots: only model and (for knowledge template) knowledge toggle
@@ -74,7 +75,7 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 			updates["enable_knowledge"] = in.EnableKnowledge
 		}
 
-	case TypeSelfDeployed:
+	case consts.BotTypeSelfDeployed:
 		// Self-deployed bots: full AI config
 		if in.ModelName != "" {
 			updates["model_name"] = in.ModelName
@@ -118,7 +119,7 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 			}
 		}
 
-	case TypeThirdParty:
+	case consts.BotTypeThirdParty:
 		// Third-party bots: connection config
 		if in.SubType != "" {
 			updates["sub_type"] = in.SubType

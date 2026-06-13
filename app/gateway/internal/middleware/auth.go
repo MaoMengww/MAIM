@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/maomeng/aim/app/gateway/internal/response"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/jwt"
 	"google.golang.org/grpc/metadata"
 )
@@ -32,39 +34,31 @@ func AuthRequired(jwtMgr *jwt.Manager) gin.HandlerFunc {
 			return
 		}
 
-		authHeader := c.GetHeader("Authorization")
+		authHeader := c.GetHeader(consts.HeaderToken)
 		if authHeader == "" {
-			c.AbortWithStatusJSON(401, gin.H{
-				"code":    401,
-				"message": "missing authorization header",
-			})
+			response.Unauthorized(c, "missing authorization header")
+			c.Abort()
 			return
 		}
 
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			c.AbortWithStatusJSON(401, gin.H{
-				"code":    401,
-				"message": "invalid authorization format",
-			})
+			response.Unauthorized(c, "invalid authorization format")
+			c.Abort()
 			return
 		}
 
 		claims, err := jwtMgr.Parse(parts[1])
 		if err != nil || claims == nil {
-			c.AbortWithStatusJSON(401, gin.H{
-				"code":    401,
-				"message": "invalid or expired token",
-			})
+			response.Unauthorized(c, "invalid or expired token")
+			c.Abort()
 			return
 		}
 
 		userID, err := strconv.ParseInt(claims.UserID, 10, 64)
 		if err != nil {
-			c.AbortWithStatusJSON(401, gin.H{
-				"code":    401,
-				"message": "invalid user_id in token",
-			})
+			response.Unauthorized(c, "invalid user_id in token")
+			c.Abort()
 			return
 		}
 
@@ -76,21 +70,21 @@ func AuthRequired(jwtMgr *jwt.Manager) gin.HandlerFunc {
 }
 
 func WithGRPCMetadata(c *gin.Context) context.Context {
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	userID, exists := c.Get(CtxKeyUserID)
 	if exists {
-		ctx = metadata.AppendToOutgoingContext(ctx, "user-id", strconv.FormatInt(userID.(int64), 10))
+		ctx = metadata.AppendToOutgoingContext(ctx, consts.MetadataKeyUserID, strconv.FormatInt(userID.(int64), 10))
 	}
 
 	deviceID, exists := c.Get(CtxKeyDeviceID)
 	if exists {
-		ctx = metadata.AppendToOutgoingContext(ctx, "device-id", deviceID.(string))
+		ctx = metadata.AppendToOutgoingContext(ctx, consts.MetadataKeyDeviceID, deviceID.(string))
 	}
 
 	requestID, exists := c.Get(CtxKeyRequestID)
 	if exists {
-		ctx = metadata.AppendToOutgoingContext(ctx, "request-id", requestID.(string))
+		ctx = metadata.AppendToOutgoingContext(ctx, consts.MetadataKeyRequestID, requestID.(string))
 	}
 
 	return ctx

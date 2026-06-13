@@ -30,7 +30,7 @@ MessageService:
   Etcd:
     Hosts:
     - 127.0.0.1:2379
-    Key: message-service.rpc
+    Key: message.rpc
 
 BotPlatform:
   Etcd:

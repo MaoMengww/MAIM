@@ -14,8 +14,6 @@ import (
 	"github.com/maomeng/aim/app/file-service/internal/model"
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	pkg_errors "github.com/maomeng/aim/pkg/errors"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 func formatObjectKey(fileID int64, ext string) string {
@@ -32,25 +30,7 @@ func extFromName(name string) string {
 }
 
 func grpcError(err error) error {
-	if err == nil {
-		return nil
-	}
-	bizErr, ok := pkg_errors.IsBizError(err)
-	if !ok {
-		return status.Error(codes.Internal, err.Error())
-	}
-	switch bizErr.Code {
-	case 1001: // invalid param / unsupported type / md5 mismatch
-		return status.Error(codes.InvalidArgument, bizErr.Message)
-	case 1003: // access denied / not uploader
-		return status.Error(codes.PermissionDenied, bizErr.Message)
-	case 1004: // not found
-		return status.Error(codes.NotFound, bizErr.Message)
-	case 1014: // upload failed
-		return status.Error(codes.Internal, bizErr.Message)
-	default:
-		return status.Error(codes.Internal, bizErr.Message)
-	}
+	return pkg_errors.ToGRPCError(err)
 }
 
 func decodeImageDimensions(data []byte) (int32, int32) {

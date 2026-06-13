@@ -16,7 +16,6 @@ import (
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type MessageHandler struct {
@@ -386,26 +385,6 @@ func (h *MessageHandler) SearchMessages(c *gin.Context) {
 
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.msgClient.SearchMessages(ctx, &req)
-	if err != nil {
-		response.GRPCError(c, err)
-		return
-	}
-	response.Success(c, resp)
-}
-
-func (h *MessageHandler) ForwardMessage(c *gin.Context) {
-	var req msgclient.ForwardMessageReq
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-	if err := protojson.Unmarshal(body, &req); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-	ctx := middleware.WithGRPCMetadata(c)
-	resp, err := h.msgClient.ForwardMessage(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
 		return

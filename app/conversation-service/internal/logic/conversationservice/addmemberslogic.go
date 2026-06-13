@@ -8,6 +8,7 @@ import (
 	"github.com/maomeng/aim/app/conversation-service/internal/model"
 	"github.com/maomeng/aim/app/conversation-service/internal/svc"
 	"github.com/maomeng/aim/app/conversation-service/pb/conversation"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -60,7 +61,7 @@ func (l *AddMembersLogic) AddMembers(in *conversation.AddMembersReq) (*conversat
 		if err := l.svcCtx.Repo.IncrementMemberCount(l.ctx, in.ConversationId, len(added)); err != nil {
 			l.Logger.Errorf("increment member count failed: conv=%d, delta=%d, err=%v", in.ConversationId, len(added), err)
 		}
-		emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "member.joined", "成员加入了群聊", added)
+		emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, consts.ConvActionMemberJoined, "成员加入了群聊", added)
 	}
 
 	l.Infof("members added: conv_id=%d count=%d", in.ConversationId, len(added))

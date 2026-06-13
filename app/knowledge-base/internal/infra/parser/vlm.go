@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
+	"github.com/maomeng/aim/pkg/consts"
 )
 
 type VLMTranscriber struct {
@@ -94,8 +95,8 @@ func (v *VLMTranscriber) describeImage(ctx context.Context, dataURL string) (str
 	if err != nil {
 		return "", fmt.Errorf("create vlm request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+v.apiKey)
+	req.Header.Set(consts.HeaderContentType, consts.ContentTypeJSON)
+	req.Header.Set(consts.HeaderToken, "Bearer "+v.apiKey)
 
 	resp, err := v.client.Do(req)
 	if err != nil {

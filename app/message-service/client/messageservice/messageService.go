@@ -18,8 +18,6 @@ type (
 	BatchGetMessagesResp = message.BatchGetMessagesResp
 	DeleteMessageReq     = message.DeleteMessageReq
 	EditMessageReq       = message.EditMessageReq
-	ForwardMessageReq    = message.ForwardMessageReq
-	ForwardMessageResp   = message.ForwardMessageResp
 	GetAroundSeqReq      = message.GetAroundSeqReq
 	GetMessageByIDReq    = message.GetMessageByIDReq
 	GetMessageByIDResp   = message.GetMessageByIDResp
@@ -51,8 +49,7 @@ type (
 		BatchGetMessages(ctx context.Context, in *BatchGetMessagesReq, opts ...grpc.CallOption) (*BatchGetMessagesResp, error)
 		GetAroundSeq(ctx context.Context, in *GetAroundSeqReq, opts ...grpc.CallOption) (*GetMessagesResp, error)
 		SearchMessages(ctx context.Context, in *SearchMessagesReq, opts ...grpc.CallOption) (*SearchMessagesResp, error)
-		// ========== Forward & Broadcast ==========
-		ForwardMessage(ctx context.Context, in *ForwardMessageReq, opts ...grpc.CallOption) (*ForwardMessageResp, error)
+		// ========== Broadcast ==========
 		SendBroadcast(ctx context.Context, in *SendBroadcastReq, opts ...grpc.CallOption) (*SendBroadcastResp, error)
 		// ========== Bot Reply (called by bot-service) ==========
 		SendBotReply(ctx context.Context, in *SendBotReplyReq, opts ...grpc.CallOption) (*SendBotReplyResp, error)
@@ -116,11 +113,6 @@ func (m *defaultMessageService) GetAroundSeq(ctx context.Context, in *GetAroundS
 func (m *defaultMessageService) SearchMessages(ctx context.Context, in *SearchMessagesReq, opts ...grpc.CallOption) (*SearchMessagesResp, error) {
 	client := message.NewMessageServiceClient(m.cli.Conn())
 	return client.SearchMessages(ctx, in, opts...)
-}
-
-func (m *defaultMessageService) ForwardMessage(ctx context.Context, in *ForwardMessageReq, opts ...grpc.CallOption) (*ForwardMessageResp, error) {
-	client := message.NewMessageServiceClient(m.cli.Conn())
-	return client.ForwardMessage(ctx, in, opts...)
 }
 
 func (m *defaultMessageService) SendBroadcast(ctx context.Context, in *SendBroadcastReq, opts ...grpc.CallOption) (*SendBroadcastResp, error) {

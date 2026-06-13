@@ -32,6 +32,11 @@ func TestInboxWriter_HandleMessageCreatedAcceptsNumericMessageID(t *testing.T) {
 		nil,
 	)
 
+	// Idempotency check: ExistsByMessageID (should return 0 = not found)
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "user_inbox"`).
+		WithArgs(int64(333858130628710400), int64(333858130628710401)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
+
 	mock.ExpectBegin()
 	mock.ExpectExec(`INSERT INTO "user_inbox"`).
 		WillReturnResult(sqlmock.NewResult(2, 2))

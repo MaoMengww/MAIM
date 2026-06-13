@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import type { WikiPageItem, WikiSourceRef } from '@/types/model';
 
@@ -36,6 +37,7 @@ export function WikiMarkdown({ content, pages, onNavigate, kbId, sourceRefs }: W
     <div className="wiki-content">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
         components={{
           a: ({ href, children }) => {
             // Internal wiki link — render as span with onClick, matching footer pattern
@@ -69,10 +71,23 @@ export function WikiMarkdown({ content, pages, onNavigate, kbId, sourceRefs }: W
             // Other links (relative, anchor, mailto, etc.) — same window
             return <a href={href}>{children}</a>;
           },
+          img: ({ src, alt }) => (
+            <img
+              src={src}
+              alt={alt ?? ''}
+              style={{ maxWidth: '100%', height: 'auto', borderRadius: 4 }}
+            />
+          ),
           table: ({ children }) => (
             <div style={{ overflowX: 'auto' }}>
               <table>{children}</table>
             </div>
+          ),
+          figure: ({ children }) => (
+            <figure>{children}</figure>
+          ),
+          figcaption: ({ children }) => (
+            <figcaption>{children}</figcaption>
           ),
         }}
       >

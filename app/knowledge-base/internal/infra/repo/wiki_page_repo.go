@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
@@ -104,6 +105,55 @@ func (r *WikiPageRepo) Upsert(ctx context.Context, page *domain.WikiPage) error 
 			}),
 		}).
 		Create(page).Error
+}
+
+// FindSimilarPages returns the top-k entity/concept pages whose lowercase
+// title is most similar to the given query under pg_trgm trigram similarity.
+// pageTypes controls which page_type values to include; empty defaults to
+// entity+concept. limit is clamped to [1, 50].
+func (r *WikiPageRepo) FindSimilarPages(ctx context.Context, kbID int64, query string, pageTypes []string, limit int) ([]domain.WikiPageLite, error) {
+	if query == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if len(pageTypes) == 0 {
+		pageTypes = []string{"entity", "concept"}
+	}
+
+	var rows []struct {
+		Slug    string `gorm:"column:slug"`
+		Title   string `gorm:"column:title"`
+		PageType string `gorm:"column:page_type"`
+		Aliases string `gorm:"column:aliases"` // JSONB raw
+	}
+
+	q := strings.ToLower(strings.TrimSpace(query))
+	if err := r.db.WithContext(ctx).
+		Table("knowledge.wiki_pages").
+		Select("slug, title, page_type, aliases").
+		Where("knowledge_base_id = ? AND page_type IN ? AND deleted_at IS NULL AND lower(title) % ?",
+			kbID, pageTypes, q).
+		Order(fmt.Sprintf("similarity(lower(title), '%s') DESC", q)).
+		Limit(limit).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]domain.WikiPageLite, len(rows))
+	for i, row := range rows {
+		out[i].Slug = row.Slug
+		out[i].Title = row.Title
+		out[i].PageType = row.PageType
+		if row.Aliases != "" {
+			json.Unmarshal([]byte(row.Aliases), &out[i].Aliases)
+		}
+	}
+	return out, nil
 }
 
 func (r *WikiPageRepo) RegexSearch(ctx context.Context, kbID int64, query string, limit int) ([]domain.WikiPage, error) {

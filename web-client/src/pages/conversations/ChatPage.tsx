@@ -518,7 +518,7 @@ export function ChatPage() {
   const [replyTo, setReplyTo] = useState<{ msg_id: string; preview: string } | null>(null);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
-  const [forwardMsgId, setForwardMsgId] = useState<string | null>(null);
+
   // File preview for in-page file viewing
   const [filePreview, setFilePreview] = useState<any>(null);
   const [replyCandidates, setReplyCandidates] = useState<string[]>([]);
@@ -1061,7 +1061,7 @@ export function ChatPage() {
   const { data: convListData } = useQuery({
     queryKey: ['conversations'],
     queryFn: () => convApi.list(),
-    enabled: !!forwardMsgId,
+
   });
 
   // ─── Upload helper ───
@@ -2038,9 +2038,6 @@ export function ChatPage() {
             }}>
               @提及
             </div>
-            <div className="chat-msg-action-item" onClick={() => { setForwardMsgId(msgActions.msg.message_id); setMsgActions(null); }}>
-              转发
-            </div>
             {(msgActions.msg.type === 1 || msgActions.msg.type === 9) && (
               <>
                 <div className="chat-msg-action-item" onClick={async () => {
@@ -2127,38 +2124,7 @@ export function ChatPage() {
         />
       )}
 
-      {/* Forward Message Modal */}
-      {forwardMsgId && (
-        <AntModal
-          title="转发消息"
-          open={!!forwardMsgId}
-          onCancel={() => setForwardMsgId(null)}
-          footer={null}
-        >
-          <Input.Search
-            placeholder="搜索会话..."
-            onChange={(e) => {
-              // filter handled by existing conv list data
-            }}
-          />
-          <div style={{ marginTop: 8, maxHeight: 300, overflow: 'auto' }}>
-            {(convListData?.list || []).map((conv: any) => (
-              <div
-                key={conv.id}
-                className="chat-forward-conv-item"
-                onClick={() => {
-                  msgApi.forward([forwardMsgId] as any, conv.id as any)
-                    .then(() => { message.success('已转发'); setForwardMsgId(null); })
-                    .catch(() => message.error('转发失败'));
-                }}
-              >
-                <Avatar name={convTitle(conv)} size={28} />
-                <span className="chat-forward-conv-name">{convTitle(conv)}</span>
-              </div>
-            ))}
-          </div>
-        </AntModal>
-      )}
+
 
       {/* File Preview Modal */}
       <FilePreviewModal file={filePreview} onClose={() => setFilePreview(null)} />

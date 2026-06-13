@@ -56,7 +56,7 @@ func (n *Node) GenerateString() (string, error) {
 // node is nil. It exists for callers that need structured error codes.
 func (n *Node) GenerateWithError() (int64, error) {
 	if n == nil || n.inner == nil {
-		return 0, errors.New(1006, "snowflake node is nil")
+		return 0, errors.New(errors.CodeInternal, "snowflake node is nil")
 	}
 	return n.Generate()
 }

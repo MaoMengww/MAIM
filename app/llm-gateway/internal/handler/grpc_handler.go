@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -13,8 +12,6 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/eino-contrib/jsonschema"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/maomeng/aim/app/llm-gateway/internal/domain"
 	"github.com/maomeng/aim/app/llm-gateway/internal/llm"
@@ -43,17 +40,17 @@ func NewLLMGatewayHandler(svcCtx *svc.ServiceContext) *LLMGatewayHandler {
 // resolveModel looks up a model by its registry ID and returns its info.
 func (h *LLMGatewayHandler) resolveModel(modelID int64) (*modelEntryInfo, error) {
 	if modelID <= 0 {
-		return nil, status.Error(codes.InvalidArgument, "model_id is required")
+		return nil, errors.New(errors.CodeInvalidParam, "model_id is required")
 	}
 	entry, err := h.svcCtx.ModelRepo.FindByID(modelID)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "find model by id failed", err)
 	}
 	if entry == nil {
-		return nil, status.Error(codes.NotFound, "model not found: id="+fmt.Sprint(modelID))
+		return nil, errors.New(errors.CodeNotFound, "model not found")
 	}
 	if entry.Status != "active" {
-		return nil, status.Error(codes.PermissionDenied, "model disabled: "+entry.ModelName)
+		return nil, errors.New(errors.CodeForbidden, "model unavailable")
 	}
 	return &modelEntryInfo{ModelEntry: entry, Provider: entry.Provider, TrackBilling: entry.OwnerID == 0}, nil
 }
@@ -69,7 +66,7 @@ func (h *LLMGatewayHandler) checkBalance(ctx context.Context, ownerID int64) err
 		return err
 	}
 	if resp.Balance <= 0 {
-		return status.Error(codes.PermissionDenied, "余额不足，请充值")
+		return errors.New(errors.CodeForbidden, "余额不足，请充值")
 	}
 	return nil
 }
@@ -493,11 +490,11 @@ func (h *LLMGatewayHandler) ListModels(ctx context.Context, req *pb.ListModelsRe
 func (h *LLMGatewayHandler) CreateModel(ctx context.Context, req *pb.CreateModelReq) (*pb.ModelResp, error) {
 	encrypted, err := crypto.EncryptString(req.ApiKey, h.svcCtx.EncKey)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "encrypt api key failed")
+		return nil, errors.Wrap(errors.CodeInternal, "encrypt api key failed", err)
 	}
 	recID, err := h.svcCtx.Snowflake.Generate()
 	if err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("generate model id failed: %v", err))
+		return nil, errors.Wrap(errors.CodeInternal, "generate model id failed", err)
 	}
 	rec := &appModel.ModelRegistry{
 		ID:                 recID,
@@ -535,7 +532,7 @@ func (h *LLMGatewayHandler) UpdateModel(ctx context.Context, req *pb.UpdateModel
 		return nil, errors.Wrap(errors.CodeDBError, "model not found", err)
 	}
 	if current.OwnerID == 0 {
-		return nil, status.Error(codes.PermissionDenied, "platform models cannot be modified")
+		return nil, errors.New(errors.CodeForbidden, "platform models cannot be modified")
 	}
 	updates := map[string]any{}
 	if req.ModelName != "" {
@@ -553,7 +550,7 @@ func (h *LLMGatewayHandler) UpdateModel(ctx context.Context, req *pb.UpdateModel
 	if req.ApiKey != "" {
 		encrypted, err := crypto.EncryptString(req.ApiKey, h.svcCtx.EncKey)
 		if err != nil {
-			return nil, status.Error(codes.Internal, "encrypt api key failed")
+			return nil, errors.Wrap(errors.CodeInternal, "encrypt api key failed", err)
 		}
 		updates["api_key_encrypted"] = encrypted
 	}
@@ -572,7 +569,7 @@ func (h *LLMGatewayHandler) UpdateModel(ctx context.Context, req *pb.UpdateModel
 		return nil, errors.Wrap(errors.CodeDBError, "find model after update failed", err)
 	}
 	if entry == nil {
-		return nil, status.Error(codes.NotFound, "model not found after update")
+		return nil, errors.New(errors.CodeNotFound, "model not found")
 	}
 	return &pb.ModelResp{
 		Id:                 entry.ID,
@@ -594,7 +591,7 @@ func (h *LLMGatewayHandler) DeleteModel(ctx context.Context, req *pb.DeleteModel
 		return nil, errors.Wrap(errors.CodeDBError, "model not found", err)
 	}
 	if current.OwnerID == 0 {
-		return nil, status.Error(codes.PermissionDenied, "platform models cannot be deleted")
+		return nil, errors.New(errors.CodeForbidden, "platform models cannot be deleted")
 	}
 	if err := h.svcCtx.DB.WithContext(ctx).Model(&appModel.ModelRegistry{}).Where("id = ?", req.ModelId).Update("status", "disabled").Error; err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "delete model failed", err)

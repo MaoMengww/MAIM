@@ -5,7 +5,7 @@ Port: 50060
 
 Etcd:
   Hosts:
-    - localhost:2379
+    - 127.0.0.1:2379
   Key: ws-gateway.rpc
 
 WebSocket:
@@ -24,14 +24,14 @@ JWT:
 BotPlatform:
   Etcd:
     Hosts:
-      - localhost:2379
+      - 127.0.0.1:2379
     Key: bot-platform.rpc
   NonBlock: true
 
 MessageService:
   Etcd:
     Hosts:
-      - localhost:2379
+      - 127.0.0.1:2379
     Key: message.rpc
   NonBlock: true
 
@@ -53,3 +53,8 @@ Telemetry:
   Name: ws-gateway
   Endpoint: localhost:4317
   Sampler: 1.0
+
+StreamCache:
+  Enabled: true
+  TTLSeconds: 60
+  MaxChunksPerStream: 500

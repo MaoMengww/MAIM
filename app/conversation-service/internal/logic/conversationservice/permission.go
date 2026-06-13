@@ -5,8 +5,7 @@ import (
 
 	"github.com/maomeng/aim/app/conversation-service/internal/repo"
 	"github.com/maomeng/aim/app/conversation-service/pb/conversation"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/maomeng/aim/pkg/errors"
 	"gorm.io/gorm"
 )
 
@@ -15,12 +14,12 @@ func requireRole(ctx context.Context, r repo.RepoInterface, convID, operatorID i
 	member, err := r.GetMember(ctx, convID, operatorID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return status.Error(codes.PermissionDenied, "not a member of the conversation")
+			return errors.New(errors.CodeForbidden, "not a member of the conversation")
 		}
-		return status.Error(codes.Internal, "internal server error")
+		return errors.ErrInternal
 	}
 	if member.Role > minRole {
-		return status.Error(codes.PermissionDenied, "insufficient permissions")
+		return errors.New(errors.CodeForbidden, "insufficient permissions")
 	}
 	return nil
 }
@@ -30,19 +29,19 @@ func verifyTargetNotHigher(ctx context.Context, r repo.RepoInterface, convID, ta
 	target, err := r.GetMember(ctx, convID, targetID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return status.Error(codes.PermissionDenied, "target is not a member of the conversation")
+			return errors.New(errors.CodeForbidden, "target is not a member of the conversation")
 		}
-		return status.Error(codes.Internal, "internal server error")
+		return errors.ErrInternal
 	}
 	operator, err := r.GetMember(ctx, convID, operatorID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return status.Error(codes.PermissionDenied, "operator is not a member of the conversation")
+			return errors.New(errors.CodeForbidden, "operator is not a member of the conversation")
 		}
-		return status.Error(codes.Internal, "internal server error")
+		return errors.ErrInternal
 	}
 	if target.Role <= operator.Role {
-		return status.Error(codes.PermissionDenied, "cannot operate on member with equal or higher role")
+		return errors.New(errors.CodeForbidden, "cannot operate on member with equal or higher role")
 	}
 	return nil
 }

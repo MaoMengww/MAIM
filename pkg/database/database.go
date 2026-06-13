@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -26,6 +27,7 @@ var (
 
 type DB struct {
 	*gorm.DB
+	cancelMetrics context.CancelFunc
 }
 
 func NewDB(cfg config.DatabaseConfig, log logx.Logger) (*DB, error) {
@@ -72,28 +74,45 @@ func NewDB(cfg config.DatabaseConfig, log logx.Logger) (*DB, error) {
 		return nil, fmt.Errorf("database ping failed: %w", err)
 	}
 
-	CollectDBMetrics(db, "default")
+	stopMetrics := CollectDBMetrics(db, "default")
 
-	return &DB{db}, nil
+	return &DB{DB: db, cancelMetrics: stopMetrics}, nil
 }
 
-func CollectDBMetrics(db *gorm.DB, service string) {
+func CollectDBMetrics(db *gorm.DB, service string) context.CancelFunc {
 	sqlDB, err := db.DB()
 	if err != nil {
-		return
+		logx.DefaultLogger().Errorf("collect db metrics get underlying sql.DB failed: service=%s error=%v", service, err)
+		return func() {}
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+
 		for {
 			stats := sqlDB.Stats()
 			DBOpenConnections.Set(float64(stats.OpenConnections), service)
 			DBIdleConnections.Set(float64(stats.Idle), service)
 			DBInUseConnections.Set(float64(stats.InUse), service)
-			time.Sleep(15 * time.Second)
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
+
+	return cancel
 }
 
 func (d *DB) Close() error {
+	if d.cancelMetrics != nil {
+		d.cancelMetrics()
+	}
+
 	sqlDB, err := d.DB.DB()
 	if err != nil {
 		return err

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"net"
@@ -10,6 +9,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -20,15 +20,16 @@ import (
 	"github.com/maomeng/aim/app/ws-gateway/internal/push"
 	"github.com/maomeng/aim/app/ws-gateway/internal/router"
 	"github.com/maomeng/aim/app/ws-gateway/internal/session"
+	"github.com/maomeng/aim/app/ws-gateway/internal/streamcache"
 	"github.com/maomeng/aim/pkg/logx"
 	pkgmetrics "github.com/maomeng/aim/pkg/metrics"
 	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
 	message "github.com/maomeng/aim/app/message-service/pb/message"
 	pushpb "github.com/maomeng/aim/pkg/pb/push"
-	pkgtrace "github.com/maomeng/aim/pkg/trace"
 	"github.com/redis/go-redis/v9"
 	"github.com/zeromicro/go-zero/core/discov"
 	"github.com/zeromicro/go-zero/core/prometheus"
+	"github.com/zeromicro/go-zero/core/trace"
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -48,16 +49,11 @@ func main() {
 
 	logger := logx.NewLogger(logx.Config{Level: cfg.Log.Level, Format: cfg.Log.Format, Output: cfg.Log.Output})
 
-	tp, err := pkgtrace.InitTracerProvider(pkgtrace.Config{
+	trace.StartAgent(trace.Config{
 		Name: cfg.Telemetry.Name, Endpoint: cfg.Telemetry.Endpoint,
 		Sampler: cfg.Telemetry.Sampler, Disabled: cfg.Telemetry.Disabled,
 	})
-	if err != nil {
-		logger.Errorf("failed to init tracer: %v", err)
-	}
-	if tp != nil {
-		defer func() { tp.Shutdown(context.Background()) }()
-	}
+	defer trace.StopAgent()
 
 	// Redis
 	rdb := redis.NewClient(&redis.Options{Addr: cfg.Redis.Host, Password: cfg.Redis.Password, DB: cfg.Redis.DB})
@@ -98,14 +94,21 @@ func main() {
 		msgClient = message.NewMessageServiceClient(zrpc.MustNewClient(cfg.MessageService).Conn())
 	}
 
-	wsHandler := handler.NewWSHandler(upgrader, sessionMgr, presenceMgr, pushRouter, rdb, cfg.JWT.Secret, logger, botPlatClient, msgClient)
+	// Stream cache for reconnection replay
+	streamCache := streamcache.New(rdb, streamcache.Config{
+		Enabled:            cfg.StreamCache.Enabled,
+		TTL:                time.Duration(cfg.StreamCache.TTLSeconds) * time.Second,
+		MaxChunksPerStream: cfg.StreamCache.MaxChunksPerStream,
+	})
+
+	wsHandler := handler.NewWSHandler(upgrader, sessionMgr, presenceMgr, pushRouter, rdb, streamCache, cfg.JWT.Secret, logger, botPlatClient, msgClient)
 
 	// Routes
 	router.Register(r, wsHandler, cfg)
 
 	// gRPC server for InternalPushService
 	grpcServer := grpc.NewServer()
-	pushpb.RegisterInternalPushServiceServer(grpcServer, push.NewPushServer(pushRouter))
+	pushpb.RegisterInternalPushServiceServer(grpcServer, push.NewPushServer(pushRouter, streamCache))
 	reflection.Register(grpcServer)
 
 	wsAddr := fmt.Sprintf("%s:%d", cfg.WebSocket.Host, cfg.WebSocket.Port)

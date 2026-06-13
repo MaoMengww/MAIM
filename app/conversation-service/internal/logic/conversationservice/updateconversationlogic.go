@@ -7,10 +7,9 @@ import (
 
 	"github.com/maomeng/aim/app/conversation-service/internal/svc"
 	"github.com/maomeng/aim/app/conversation-service/pb/conversation"
+	pkg_errors "github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 )
 
@@ -36,7 +35,7 @@ func (l *UpdateConversationLogic) UpdateConversation(in *conversation.UpdateConv
 
 	// Only group conversations can be updated
 	if conv.Type != int32(conversation.ConversationType_CONVERSATION_TYPE_GROUP) {
-		return nil, status.Error(codes.PermissionDenied, "only group conversations can be updated")
+		return nil, pkg_errors.New(pkg_errors.CodeForbidden, "only group conversations can be updated")
 	}
 	if err := requireRole(l.ctx, l.svcCtx.Repo, in.ConversationId, in.UserId, adminRole); err != nil {
 		return nil, err

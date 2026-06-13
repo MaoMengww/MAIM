@@ -7,6 +7,7 @@ import (
 	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
 	convpb "github.com/maomeng/aim/app/conversation-service/pb/conversation"
 	"github.com/maomeng/aim/app/signaling-service/internal/model"
+	"github.com/maomeng/aim/pkg/consts"
 )
 
 type MemberRepo struct {
@@ -40,7 +41,7 @@ func (r *MemberRepo) GetConvBotsWithConfig(ctx context.Context, convID int64) ([
 		webhookSecret := ""
 		connMode := ""
 		callbackURL := ""
-		botType := "official"
+		botType := consts.BotTypeOfficial
 		if r.botPlatform != nil {
 			wc, wcErr := r.botPlatform.GetBotWebhookConfig(ctx, &botplatform.GetBotWebhookConfigReq{BotId: b.BotId})
 			if wcErr == nil {
@@ -52,7 +53,7 @@ func (r *MemberRepo) GetConvBotsWithConfig(ctx context.Context, convID int64) ([
 		}
 		bots = append(bots, model.BotInfo{
 			BotID: b.BotId, BotType: botType, ConnMode: connMode,
-			CallbackURL: callbackURL, WebhookSecret: webhookSecret, ConvID: convID, Status: "active",
+			CallbackURL: callbackURL, WebhookSecret: webhookSecret, ConvID: convID, Status: consts.BotStatusActive,
 		})
 	}
 	return bots, nil

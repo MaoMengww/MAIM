@@ -15,7 +15,7 @@ const summarizePrompt = `You are a conversation summarizer. Summarize the follow
 Total messages: %d
 %s
 
-Return ONLY a JSON object (no markdown, no extra text) in this exact format:
+Return ONLY a JSON object in this exact format:
 {
   "key_points": ["要点一", "要点二"],
   "action_items": ["待办事项一", "待办事项二"]

@@ -73,7 +73,7 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 		return nil, err
 	}
 
-		ownerID, err := l.svcCtx.Snowflake.Generate()
+	ownerID, err := l.svcCtx.Snowflake.Generate()
 	if err != nil {
 		return nil, fmt.Errorf("generate owner id failed: %w", err)
 	}

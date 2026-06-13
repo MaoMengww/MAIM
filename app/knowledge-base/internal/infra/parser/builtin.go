@@ -8,18 +8,27 @@ import (
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 )
 
-type BuiltinParser struct{}
+// BuiltinParser handles text-based file formats: txt, md, html, json, xml, csv, yaml, yml.
+// Format-specific conversion happens in convertToText before markdown heading detection.
+type BuiltinParser struct {
+	fileType string
+}
 
-func NewBuiltinParser() *BuiltinParser {
-	return &BuiltinParser{}
+// NewBuiltinParser creates a builtin parser for the given file type.
+// fileType should be the lowercase file extension without the dot (e.g. "html", "json", "csv").
+func NewBuiltinParser(fileType string) *BuiltinParser {
+	return &BuiltinParser{fileType: fileType}
 }
 
 func (p *BuiltinParser) Name() string {
 	return "builtin"
 }
 
+// Parse converts the raw bytes to text according to the file type, then
+// detects markdown heading sections, language, and page structure.
 func (p *BuiltinParser) Parse(ctx context.Context, raw []byte) (*domain.ParsedDocument, error) {
-	text := string(raw)
+	// Step 1: Convert format-specific content to text/markdown
+	text := convertToText(raw, p.fileType)
 
 	doc := &domain.ParsedDocument{
 		RawText: text,
@@ -31,12 +40,13 @@ func (p *BuiltinParser) Parse(ctx context.Context, raw []byte) (*domain.ParsedDo
 		},
 	}
 
+	// Step 2: Detect markdown heading sections
 	lines := strings.Split(text, "\n")
 	var sections []domain.Section
 	var currentSection *domain.Section
 	pos := 0
 
-	for i, line := range lines {
+	for _, line := range lines {
 		lineLen := len(line) + 1
 		if isHeading(line) {
 			if currentSection != nil {
@@ -64,7 +74,6 @@ func (p *BuiltinParser) Parse(ctx context.Context, raw []byte) (*domain.ParsedDo
 			}
 		}
 		pos += lineLen
-		_ = i
 	}
 	if currentSection != nil {
 		currentSection.EndPos = pos
@@ -123,12 +132,9 @@ func isBinary(data []byte) bool {
 			return true
 		}
 	}
-	return len(data) > 0 && bytes.Contains(data[:min(len(data), 512)], []byte{0})
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
+	checkLen := len(data)
+	if checkLen > 512 {
+		checkLen = 512
 	}
-	return b
+	return len(data) > 0 && bytes.Contains(data[:checkLen], []byte{0})
 }

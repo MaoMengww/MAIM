@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
+	"github.com/maomeng/aim/app/knowledge-base/internal/infra/parser"
 	"github.com/maomeng/aim/app/knowledge-base/internal/metrics"
 	"github.com/maomeng/aim/app/knowledge-base/internal/pipeline"
 	pb "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase"
@@ -19,9 +20,7 @@ import (
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/snowflake"
 	"github.com/zeromicro/go-zero/zrpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -212,6 +211,13 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 	if meta == nil {
 		return errors.ErrInvalidParam
 	}
+	fileType := meta.FileType
+	if fileType == "" {
+		fileType = "txt"
+	}
+	if !parser.IsFileTypeSupported(fileType) {
+		return domain.ErrInvalidFileType
+	}
 	kbID := getKBIDFromContext(ctx)
 	if kbID == 0 {
 		return errors.ErrInvalidParam
@@ -228,7 +234,7 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 
 	// Check for duplicate content within the same KB
 	if existing, err := h.DocRepo.GetByHash(ctx, kbID, contentHash); err == nil && existing != nil {
-		return status.Error(codes.AlreadyExists, fmt.Sprintf("文件已存在（文档 #%d: %s）", existing.ID, existing.OriginalFilename))
+		return errors.New(errors.CodeConflict, "file already exists in this knowledge base")
 	}
 
 	minioKey := fmt.Sprintf("knowledge/%d/%s/%s", kbID, contentHash, meta.OriginalFilename)
@@ -236,10 +242,7 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 		return errors.Wrap(errors.CodeIOError, "upload file failed", err)
 	}
 	pipelineOverride := convertPipelineConfig(meta.PipelineOverride)
-	fileType := meta.FileType
-	if fileType == "" {
-		fileType = "txt"
-	}
+	// fileType is already validated above
 	docID, err := h.Snowflake.Generate()
 	if err != nil {
 		return fmt.Errorf("generate doc id failed: %w", err)
@@ -320,21 +323,27 @@ func (h *KnowledgeBaseHandler) WikiBatchUploadDocuments(stream pb.KnowledgeBase_
 		}
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(fileBytes))
 
-			// Skip duplicate content within the same KB
-			if existing, err := h.DocRepo.GetByHash(ctx, kbID, contentHash); err == nil && existing != nil {
-				h.Logger.WithContext(ctx).Infof("batch upload: skipping duplicate file %s (existing doc #%d)", meta.OriginalFilename, existing.ID)
-				continue
-			}
+		// Skip duplicate content within the same KB
+		if existing, err := h.DocRepo.GetByHash(ctx, kbID, contentHash); err == nil && existing != nil {
+			h.Logger.WithContext(ctx).Infof("batch upload: skipping duplicate file %s (existing doc #%d)", meta.OriginalFilename, existing.ID)
+			continue
+		}
+
+		fileType := meta.FileType
+		if fileType == "" {
+			fileType = "txt"
+		}
+		if !parser.IsFileTypeSupported(fileType) {
+			h.Logger.WithContext(ctx).Infof("batch upload: unsupported file type %s for %s", fileType, meta.OriginalFilename)
+			continue
+		}
 
 		minioKey := fmt.Sprintf("knowledge/%d/%s/%s", kbID, contentHash, meta.OriginalFilename)
 		if err := h.FileStore.Put(ctx, minioKey, bytes.NewReader(fileBytes), meta.FileSize, contentType(meta.FileType)); err != nil {
 			h.Logger.WithContext(ctx).Errorf("batch upload: minio put failed for %s: %v", meta.OriginalFilename, err)
 			continue
 		}
-		fileType := meta.FileType
-		if fileType == "" {
-			fileType = "txt"
-		}
+		// fileType is already validated above
 		docID, err := h.Snowflake.Generate()
 		if err != nil {
 			h.Logger.WithContext(ctx).Errorf("generate doc id failed: %v", err)
@@ -602,6 +611,39 @@ func (h *KnowledgeBaseHandler) WikiQuery(ctx context.Context, req *pb.WikiQueryR
 		refs[i] = r
 	}
 	return &pb.WikiQueryRsp{Answer: result.Answer, Refs: refs}, nil
+}
+
+func (h *KnowledgeBaseHandler) WikiGraph(ctx context.Context, req *pb.WikiGraphReq) (*pb.WikiGraphRsp, error) {
+	if h.WikiHandler == nil {
+		return nil, domain.ErrKBNotFound
+	}
+	data, err := h.WikiHandler.GetGraph(ctx, req.KbId)
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return &pb.WikiGraphRsp{}, nil
+	}
+	nodes := make([]*pb.WikiGraphNode, len(data.Nodes))
+	for i, n := range data.Nodes {
+		nodes[i] = &pb.WikiGraphNode{
+			Id:            n.ID,
+			Title:         n.Title,
+			PageType:      n.PageType,
+			Group:         n.Group,
+			Summary:       n.Summary,
+			CitationCount: int32(n.CitationCount),
+		}
+	}
+	edges := make([]*pb.WikiGraphEdge, len(data.Edges))
+	for i, e := range data.Edges {
+		edges[i] = &pb.WikiGraphEdge{
+			Source: e.Source,
+			Target: e.Target,
+			Weight: int32(e.Weight),
+		}
+	}
+	return &pb.WikiGraphRsp{Nodes: nodes, Edges: edges}, nil
 }
 
 // ========== Wiki Pages ==========
@@ -925,7 +967,6 @@ func (h *KnowledgeBaseHandler) ListBoundTargets(ctx context.Context, req *pb.Lis
 	}
 	return &pb.ListBoundTargetsRsp{Items: items}, nil
 }
-
 
 func getCallerID(ctx context.Context) int64 {
 	if md, ok := metadata.FromIncomingContext(ctx); ok {

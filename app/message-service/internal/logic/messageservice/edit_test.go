@@ -6,14 +6,13 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/IBM/sarama/mocks"
 	"github.com/maomeng/aim/app/message-service/internal/config"
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/database"
-	"github.com/maomeng/aim/pkg/kafka"
+	"github.com/maomeng/aim/pkg/snowflake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
@@ -170,17 +169,25 @@ func TestEditMessage_WithinWindow_Success(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE "messages" SET`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), int64(1)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	// Outbox INSERT inside the same transaction (GORM generates 11-arg INSERT)
+	mock.ExpectQuery(`INSERT INTO "msg"."outbox_events"`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
 	mock.ExpectCommit()
 
-	kMock := mocks.NewSyncProducer(t, nil)
-	kMock.ExpectSendMessageAndSucceed()
+	sf, err := snowflake.NewNode(1)
+	require.NoError(t, err)
 
 	svcCtx := &svc.ServiceContext{
-		Config:                config.Config{Message: config.MessageConfig{EditWindowSeconds: 120}},
-		DB:                    db,
-		MessageRepo:           repo.NewMessageRepo(db),
-		MessageEditedProducer: kafka.NewTestProducer(kMock),
+		Config:      config.Config{Message: config.MessageConfig{EditWindowSeconds: 120}},
+		DB:          db,
+		MessageRepo: repo.NewMessageRepo(db),
+		OutboxRepo:  repo.NewOutboxRepo(db),
+		Snowflake:   sf,
 	}
 
 	logic := NewEditMessageLogic(context.Background(), svcCtx)

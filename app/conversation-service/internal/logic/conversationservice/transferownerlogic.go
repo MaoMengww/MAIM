@@ -5,10 +5,9 @@ import (
 
 	"github.com/maomeng/aim/app/conversation-service/internal/svc"
 	"github.com/maomeng/aim/app/conversation-service/pb/conversation"
+	pkg_errors "github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type TransferOwnerLogic struct {
@@ -27,7 +26,7 @@ func (l *TransferOwnerLogic) TransferOwner(in *conversation.TransferOwnerReq) (*
 	}
 	if err := l.svcCtx.Repo.UpdateConversationOwner(l.ctx, in.ConversationId, in.NewOwnerId); err != nil {
 		l.Logger.Errorf("transfer owner failed: %v", err)
-		return nil, status.Error(codes.Internal, "failed to transfer owner")
+		return nil, pkg_errors.Wrap(pkg_errors.CodeInternal, "failed to transfer owner", err)
 	}
 	if err := l.svcCtx.Repo.UpdateMemberRole(l.ctx, in.ConversationId, in.NewOwnerId, ownerRole); err != nil {
 		l.Logger.Errorf("update new owner role failed: conv=%d user=%d err=%v", in.ConversationId, in.NewOwnerId, err)

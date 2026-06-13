@@ -140,19 +140,6 @@ func TestServer_SearchMessages_NoCondition(t *testing.T) {
 	assert.Nil(t, resp)
 }
 
-func TestServer_ForwardMessage_EmptyIDs(t *testing.T) {
-	client, _, cleanup := setupTestServer(t)
-	defer cleanup()
-
-	resp, err := client.ForwardMessage(context.Background(), &message.ForwardMessageReq{
-		MessageIds:           []int64{},
-		TargetConversationId: 200,
-		FromUserId:           10,
-	})
-	assert.Error(t, err)
-	assert.Nil(t, resp)
-}
-
 func TestServer_SendBroadcast_EmptyContent(t *testing.T) {
 	client, _, cleanup := setupTestServer(t)
 	defer cleanup()

@@ -7,11 +7,13 @@ import (
 	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
 	"github.com/maomeng/aim/app/message-service/internal/client"
 	"github.com/maomeng/aim/app/message-service/internal/config"
+	"github.com/maomeng/aim/app/message-service/internal/dispatcher"
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/repo"
+	"github.com/maomeng/aim/migrations/postgres"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/database"
-	"github.com/maomeng/aim/pkg/elasticsearch"
+	"github.com/maomeng/aim/app/message-service/internal/es"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/snowflake"
@@ -28,7 +30,7 @@ type ServiceContext struct {
 	MessageRecalledProducer *kafka.Producer
 	MessageEditedProducer   *kafka.Producer
 	MessageDeletedProducer  *kafka.Producer
-	ESClient                *elasticsearch.Client
+	ESClient                *es.Client
 	Snowflake               *snowflake.Node
 	Logger                  logx.Logger
 	ConvClient              client.ConvClient
@@ -39,7 +41,9 @@ type ServiceContext struct {
 	InboxRepo               *repo.InboxRepo
 	BroadcastRepo           *repo.BroadcastRepo
 	SequenceRepo            *repo.SequenceRepo
-	BotRepo                 *repo.BotRepo
+	BotRepo          *repo.BotRepo
+	OutboxRepo       *repo.OutboxRepo
+	OutboxDispatcher *dispatcher.OutboxDispatcher
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -49,8 +53,11 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		panic(fmt.Sprintf("database init failed: %v", err))
 	}
-	if err := db.AutoMigrate(&model.Message{}, &model.FailedEvent{}); err != nil {
+	if err := db.AutoMigrate(&model.Message{}, &model.Sequence{}, &model.FailedEvent{}, &model.OutboxEvent{}); err != nil {
 		panic(fmt.Sprintf("auto migrate failed: %v", err))
+	}
+	if err := database.RunMigrations(db.DB, postgres.FS); err != nil {
+		panic(fmt.Sprintf("run migrations failed: %v", err))
 	}
 
 	rdb := goredis.NewClient(&goredis.Options{
@@ -61,24 +68,24 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		panic(fmt.Sprintf("redis init failed: %v", err))
 	}
 
-	kpCreated, err := kafka.NewProducer(c.Kafka, "message.created", logger)
+	kpCreated, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageCreated, logger)
 	if err != nil {
 		panic(fmt.Sprintf("kafka message.created producer init failed: %v", err))
 	}
-	kpRecalled, err := kafka.NewProducer(c.Kafka, "message.recalled", logger)
+	kpRecalled, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageRecalled, logger)
 	if err != nil {
 		panic(fmt.Sprintf("kafka message.recalled producer init failed: %v", err))
 	}
-	kpEdited, err := kafka.NewProducer(c.Kafka, "message.edited", logger)
+	kpEdited, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageEdited, logger)
 	if err != nil {
 		panic(fmt.Sprintf("kafka message.edited producer init failed: %v", err))
 	}
-	kpDeleted, err := kafka.NewProducer(c.Kafka, "message.deleted", logger)
+	kpDeleted, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageDeleted, logger)
 	if err != nil {
 		panic(fmt.Sprintf("kafka message.deleted producer init failed: %v", err))
 	}
 
-	esClient, err := elasticsearch.NewClient(c.Elasticsearch)
+	esClient, err := es.NewClient(c.Elasticsearch)
 	if err != nil {
 		panic(fmt.Sprintf("elasticsearch init failed: %v", err))
 	}
@@ -138,6 +145,17 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		InboxRepo:               repo.NewInboxRepo(db),
 		BroadcastRepo:           repo.NewBroadcastRepo(db),
 		SequenceRepo:            repo.NewSequenceRepo(db),
-		BotRepo:                 repo.NewBotRepo(db, botplatform.NewBotPlatformClient(botPlatformConn.Conn())),
+		BotRepo: repo.NewBotRepo(db, botplatform.NewBotPlatformClient(botPlatformConn.Conn())),
+		OutboxRepo: repo.NewOutboxRepo(db),
+		OutboxDispatcher: dispatcher.NewOutboxDispatcher(
+			repo.NewOutboxRepo(db),
+			map[string]*kafka.Producer{
+				consts.KafkaTopicMessageCreated:  kpCreated,
+				consts.KafkaTopicMessageEdited:   kpEdited,
+				consts.KafkaTopicMessageRecalled: kpRecalled,
+				consts.KafkaTopicMessageDeleted:  kpDeleted,
+			},
+			logger,
+		),
 	}
 }

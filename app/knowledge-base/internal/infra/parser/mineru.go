@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -172,23 +173,337 @@ func (p *MinerUCloudParser) Parse(ctx context.Context, raw []byte) (*domain.Pars
 	if p.apiKey == "" {
 		return nil, domain.ErrParserUnsupported
 	}
+	if isBinary(raw) {
+		return nil, domain.ErrParserUnsupported
+	}
 	return p.parseFile(ctx, raw)
 }
 
+// parseFile implements the cloud MinerU Precision API batch file upload flow:
+//  1. POST /api/v4/file-urls/batch → batch_id + signed upload URL
+//  2. PUT file bytes to the signed URL (24h expiry, no Content-Type needed)
+//  3. Poll GET /api/v4/extract-results/batch/{batch_id} until done
+//  4. Download the result zip and extract full.md + images
 func (p *MinerUCloudParser) parseFile(ctx context.Context, raw []byte) (*domain.ParsedDocument, error) {
-	// mineru.net cloud upload + poll flow
-	// 1. POST /api/v4/file-urls/batch to get upload URL
-	// 2. PUT file to upload URL
-	// 3. Poll GET /api/v4/extract-results/batch/{batch_id} for result
-	// 4. Parse result JSON for md_content + images
-	// TODO: implement full flow
+	ext := detectExtension(raw)
+	fileName := "document." + ext
+
+	// Step 1: request a signed upload URL
+	batchID, uploadURL, err := p.requestBatchUpload(ctx, fileName)
+	if err != nil {
+		return nil, fmt.Errorf("mineru batch upload request: %w", err)
+	}
+
+	// Step 2: PUT file to the signed URL
+	if err := p.uploadToSignedURL(ctx, uploadURL, raw); err != nil {
+		return nil, fmt.Errorf("mineru file upload: %w", err)
+	}
+
+	// Step 3: poll for batch result
+	fullZipURL, err := p.pollBatchResult(ctx, batchID)
+	if err != nil {
+		return nil, fmt.Errorf("mineru batch poll: %w", err)
+	}
+
+	// Step 4: download zip and parse
+	return p.downloadAndParseZip(ctx, fullZipURL)
+}
+
+// requestBatchUpload calls POST /api/v4/file-urls/batch and returns the
+// batch_id and the first file's signed upload URL.
+func (p *MinerUCloudParser) requestBatchUpload(ctx context.Context, fileName string) (batchID, uploadURL string, err error) {
+	enableFormula := true
+	enableTable := true
+	reqBody := mineruBatchFileURLRequest{
+		Files: []mineruBatchFile{
+			{Name: fileName},
+		},
+		ModelVersion:  "vlm",
+		EnableFormula: &enableFormula,
+		EnableTable:   &enableTable,
+		Language:      "ch",
+	}
+
+	body, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/file-urls/batch", bytes.NewReader(body))
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("batch request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result mineruBatchFileURLResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", "", fmt.Errorf("decode batch response: %w", err)
+	}
+	if result.Code != 0 {
+		return "", "", fmt.Errorf("mineru batch error code=%d: %s", result.Code, result.Msg)
+	}
+	if len(result.Data.FileURLs) == 0 {
+		return "", "", fmt.Errorf("mineru returned empty file_urls")
+	}
+
+	return result.Data.BatchID, result.Data.FileURLs[0], nil
+}
+
+// uploadToSignedURL PUTs the file content to the pre-signed OSS URL.
+func (p *MinerUCloudParser) uploadToSignedURL(ctx context.Context, url string, data []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	// Per API docs: no Content-Type header needed — OSS auto-detects
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("upload request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("upload returned %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// pollBatchResult polls GET /api/v4/extract-results/batch/{batchID} until
+// the file reaches a terminal state. Returns the full_zip_url on success.
+func (p *MinerUCloudParser) pollBatchResult(ctx context.Context, batchID string) (string, error) {
+	pollURL := p.baseURL + "/extract-results/batch/" + batchID
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+		resp, err := p.client.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("poll request failed: %w", err)
+		}
+
+		var result mineruBatchResultResponse
+		decodeErr := json.NewDecoder(resp.Body).Decode(&result)
+		resp.Body.Close()
+		if decodeErr != nil {
+			return "", fmt.Errorf("decode poll response: %w", decodeErr)
+		}
+		if result.Code != 0 {
+			return "", fmt.Errorf("mineru poll error code=%d: %s", result.Code, result.Msg)
+		}
+		if len(result.Data.ExtractResult) == 0 {
+			return "", fmt.Errorf("mineru poll returned empty extract_result")
+		}
+
+		er := result.Data.ExtractResult[0]
+		switch er.State {
+		case "done":
+			if er.FullZipURL == "" {
+				return "", fmt.Errorf("mineru done but full_zip_url is empty")
+			}
+			return er.FullZipURL, nil
+		case "failed":
+			errMsg := er.ErrMsg
+			if errMsg == "" {
+				errMsg = "mineru cloud parsing failed"
+			}
+			return "", fmt.Errorf("mineru parsing failed: %s", errMsg)
+		case "waiting-file", "pending", "running", "converting":
+			time.Sleep(2 * time.Second)
+		default:
+			return "", fmt.Errorf("mineru unknown state: %s", er.State)
+		}
+	}
+}
+
+// downloadAndParseZip downloads the result zip from full_zip_url and extracts
+// the markdown content and images.
+func (p *MinerUCloudParser) downloadAndParseZip(ctx context.Context, zipURL string) (*domain.ParsedDocument, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, zipURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create download request: %w", err)
+	}
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download zip failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	zipBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read zip body: %w", err)
+	}
+
+	return extractMarkdownFromZip(zipBytes)
+}
+
+// ---- Zip extraction ----
+
+// extractMarkdownFromZip reads a zip archive from memory and returns a
+// ParsedDocument with the full.md content and embedded images.
+func extractMarkdownFromZip(data []byte) (*domain.ParsedDocument, error) {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		// Not a valid zip — try parseResult as fallback (JSON or raw text)
+		return parseResult(data)
+	}
+
+	var mdContent string
+	var images []domain.ImageRef
+	imgIdx := 0
+
+	for _, f := range reader.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		// Extract full.md as the main markdown
+		if f.Name == "full.md" || strings.HasSuffix(f.Name, "/full.md") {
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
+			content, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				continue
+			}
+			mdContent = string(content)
+			continue
+		}
+
+		// Extract images from the images/ directory
+		if strings.HasPrefix(f.Name, "images/") {
+			ext := strings.ToLower(filepath.Ext(f.Name))
+			contentType := mimeByExt(ext)
+			if contentType == "" {
+				continue
+			}
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
+			imgData, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil || len(imgData) == 0 {
+				continue
+			}
+			if isIconImage(imgData) {
+				continue
+			}
+			images = append(images, domain.ImageRef{
+				Index:       imgIdx,
+				RawContent:  imgData,
+				ContentType: contentType,
+				AltText:     filepath.Base(f.Name),
+			})
+			imgIdx++
+		}
+	}
+
+	if mdContent == "" {
+		return nil, fmt.Errorf("mineru zip contains no full.md")
+	}
+
 	return &domain.ParsedDocument{
-		RawText:  string(raw),
+		RawText:  mdContent,
+		Images:   images,
 		Metadata: domain.DocumentMeta{},
 	}, nil
 }
 
-// ---- Result Parsing ----
+// mimeByExt maps common image file extensions to MIME types.
+func mimeByExt(ext string) string {
+	switch ext {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".bmp":
+		return "image/bmp"
+	case ".webp":
+		return "image/webp"
+	case ".tiff", ".tif":
+		return "image/tiff"
+	default:
+		return ""
+	}
+}
+
+// ---- File type detection ----
+
+// detectExtension examines the file header bytes to guess a file extension.
+// This is needed because MinerU's batch upload API requires a filename with
+// the correct extension to determine how to process the file.
+func detectExtension(raw []byte) string {
+	if len(raw) < 4 {
+		return "bin"
+	}
+
+	// PDF: %PDF
+	if string(raw[:4]) == "%PDF" {
+		return "pdf"
+	}
+
+	// PNG: \x89PNG
+	if len(raw) >= 8 && raw[0] == 0x89 && raw[1] == 0x50 && raw[2] == 0x4E && raw[3] == 0x47 {
+		return "png"
+	}
+
+	// JPEG: \xFF\xD8\xFF
+	if raw[0] == 0xFF && raw[1] == 0xD8 && raw[2] == 0xFF {
+		return "jpg"
+	}
+
+	// GIF: GIF8
+	if len(raw) >= 6 && (string(raw[:4]) == "GIF8") {
+		return "gif"
+	}
+
+	// BMP: BM
+	if raw[0] == 'B' && raw[1] == 'M' {
+		return "bmp"
+	}
+
+	// WebP: RIFF....WEBP
+	if len(raw) >= 12 && string(raw[:4]) == "RIFF" && string(raw[8:12]) == "WEBP" {
+		return "webp"
+	}
+
+	// ZIP-based formats (docx, pptx, xlsx): PK\x03\x04
+	if raw[0] == 0x50 && raw[1] == 0x4B && len(raw) >= 4 && raw[2] == 0x03 && raw[3] == 0x04 {
+		// Default to docx for ZIP-based office files
+		return "docx"
+	}
+
+	// TIFF: II*\x00 or MM\x00*
+	if (raw[0] == 0x49 && raw[1] == 0x49 && raw[2] == 0x2A && raw[3] == 0x00) ||
+		(raw[0] == 0x4D && raw[1] == 0x4D && raw[2] == 0x00 && raw[3] == 0x2A) {
+		return "tiff"
+	}
+
+	// Default: treat as PDF (most common document format)
+	return "pdf"
+}
+
+// ---- Result Parsing (shared) ----
 
 // mineruParseResponse mirrors the MinerU API response with markdown and images.
 type mineruParseResponse struct {
@@ -245,7 +560,7 @@ func parseResult(body []byte) (*domain.ParsedDocument, error) {
 		return doc, nil
 	}
 
-	// Fallback: treat as raw text (older API returns zip with text)
+	// Fallback: treat as raw text
 	return &domain.ParsedDocument{
 		RawText:  string(body),
 		Metadata: domain.DocumentMeta{},
@@ -254,13 +569,11 @@ func parseResult(body []byte) (*domain.ParsedDocument, error) {
 
 func decodeImage(b64 string) ([]byte, string) {
 	// data:image/png;base64,...
-	if idx := strings.Index(b64, ","); idx >= 0 {
+	if prefix, b64data, found := strings.Cut(b64, ","); found {
 		// Extract mime type from data URI
-		if parts := strings.SplitN(b64[:idx], ";", 2); len(parts) > 0 {
-			if mimeParts := strings.SplitN(parts[0], ":", 2); len(mimeParts) == 2 {
-				ctype := mimeParts[1]
-				data, err := base64.StdEncoding.DecodeString(b64[idx+1:])
-				if err == nil {
+		if mimePart, _, ok := strings.Cut(prefix, ";"); ok {
+			if _, ctype, ok := strings.Cut(mimePart, ":"); ok {
+				if data, err := base64.StdEncoding.DecodeString(b64data); err == nil {
 					return data, ctype
 				}
 			}
@@ -284,6 +597,8 @@ func isIconImage(data []byte) bool {
 
 // ---- JSON response types ----
 
+// -- Self-hosted API types --
+
 type mineruTaskResponse struct {
 	Code int    `json:"code"`
 	Msg  string `json:"msg"`
@@ -301,4 +616,57 @@ type mineruQueryResponse struct {
 		FullZipURL string `json:"full_zip_url"`
 		ErrMsg     string `json:"err_msg"`
 	} `json:"data"`
+}
+
+// -- Cloud batch API types --
+
+// mineruBatchFileURLRequest is the request body for POST /api/v4/file-urls/batch.
+type mineruBatchFileURLRequest struct {
+	Files         []mineruBatchFile `json:"files"`
+	ModelVersion  string            `json:"model_version,omitempty"`
+	EnableFormula *bool             `json:"enable_formula,omitempty"`
+	EnableTable   *bool             `json:"enable_table,omitempty"`
+	Language      string            `json:"language,omitempty"`
+}
+
+type mineruBatchFile struct {
+	Name       string `json:"name"`
+	DataID     string `json:"data_id,omitempty"`
+	IsOCR      *bool  `json:"is_ocr,omitempty"`
+	PageRanges string `json:"page_ranges,omitempty"`
+}
+
+// mineruBatchFileURLResponse is the response from POST /api/v4/file-urls/batch.
+type mineruBatchFileURLResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		BatchID  string   `json:"batch_id"`
+		FileURLs []string `json:"file_urls"`
+	} `json:"data"`
+}
+
+// mineruBatchResultResponse is the response from GET /api/v4/extract-results/batch/{batch_id}.
+type mineruBatchResultResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		BatchID       string                    `json:"batch_id"`
+		ExtractResult []mineruBatchExtractResult `json:"extract_result"`
+	} `json:"data"`
+}
+
+type mineruBatchExtractResult struct {
+	FileName        string                  `json:"file_name"`
+	State           string                  `json:"state"`
+	FullZipURL      string                  `json:"full_zip_url"`
+	ErrMsg          string                  `json:"err_msg"`
+	DataID          string                  `json:"data_id"`
+	ExtractProgress *mineruExtractProgress  `json:"extract_progress,omitempty"`
+}
+
+type mineruExtractProgress struct {
+	ExtractedPages int    `json:"extracted_pages"`
+	TotalPages     int    `json:"total_pages"`
+	StartTime      string `json:"start_time"`
 }

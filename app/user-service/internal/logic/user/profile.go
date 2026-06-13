@@ -63,10 +63,10 @@ func (l *Logic) GetProfile(ctx context.Context, userID int64) (*userpb.UserInfo,
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			logger.Errorf("method=GetProfile user_id=%d error=user not found", userID)
-			return nil, errors.New(1004, "user not found")
+			return nil, errors.New(errors.CodeNotFound, "user not found")
 		}
 		logger.Errorf("method=GetProfile user_id=%d error=%v", userID, err)
-		return nil, errors.Wrap(1010, "get user failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	logger.Infof("method=GetProfile user_id=%d username=%s", userID, u.Username)
 	return modelToUserInfo(u), nil
@@ -78,10 +78,10 @@ func (l *Logic) UpdateProfile(ctx context.Context, userID int64, req *userpb.Upd
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			logger.Errorf("method=UpdateProfile user_id=%d error=user not found", userID)
-			return nil, errors.New(1004, "user not found")
+			return nil, errors.New(errors.CodeNotFound, "user not found")
 		}
 		logger.Errorf("method=UpdateProfile user_id=%d error=%v", userID, err)
-		return nil, errors.Wrap(1010, "get user failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	if req.Avatar != nil {
 		u.Avatar = *req.Avatar
@@ -102,7 +102,7 @@ func (l *Logic) UpdateProfile(ctx context.Context, userID int64, req *userpb.Upd
 		"birthday": u.Birthday,
 	}); err != nil {
 		logger.Errorf("method=UpdateProfile user_id=%d error=%v", userID, err)
-		return nil, errors.Wrap(1010, "update user failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "update user failed", err)
 	}
 	logger.Infof("method=UpdateProfile user_id=%d", userID)
 	return modelToUserInfo(u), nil
@@ -112,7 +112,7 @@ func (l *Logic) UpdatePassword(ctx context.Context, userID int64, req *userpb.Up
 	logger := l.ctxLogger(ctx)
 
 	if req.OldPassword == "" || req.NewPassword == "" {
-		err := errors.New(1001, "old_password and new_password are required")
+		err := errors.New(errors.CodeInvalidParam, "old_password and new_password are required")
 		logger.Errorf("method=UpdatePassword user_id=%d error=%v", userID, err)
 		return nil, err
 	}
@@ -120,24 +120,24 @@ func (l *Logic) UpdatePassword(ctx context.Context, userID int64, req *userpb.Up
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			logger.Errorf("method=UpdatePassword user_id=%d error=user not found", userID)
-			return nil, errors.New(1004, "user not found")
+			return nil, errors.New(errors.CodeNotFound, "user not found")
 		}
 		logger.Errorf("method=UpdatePassword user_id=%d error=%v", userID, err)
-		return nil, errors.Wrap(1010, "get user failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.OldPassword)); err != nil {
 		logger.Errorf("method=UpdatePassword user_id=%d error=old password is incorrect", userID)
-		return nil, errors.New(1002, "old password is incorrect")
+		return nil, errors.New(errors.CodeUnauthorized, "old password is incorrect")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, errors.Wrap(1006, "hash password failed", err)
+		return nil, errors.Wrap(errors.CodeInternal, "hash password failed", err)
 	}
 	if err := l.userRepo.Update(ctx, userID, map[string]any{
 		"password_hash": string(hash),
 	}); err != nil {
 		logger.Errorf("method=UpdatePassword user_id=%d error=%v", userID, err)
-		return nil, errors.Wrap(1010, "update password failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "update password failed", err)
 	}
 	logger.Infof("method=UpdatePassword user_id=%d", userID)
 	return &commonpb.BaseResponse{Code: 0, Message: "ok"}, nil
@@ -147,18 +147,18 @@ func (l *Logic) BindPhone(ctx context.Context, userID int64, req *userpb.BindPho
 	logger := l.ctxLogger(ctx)
 
 	if req.Phone == "" {
-		err := errors.New(1001, "phone is required")
+		err := errors.New(errors.CodeInvalidParam, "phone is required")
 		logger.Errorf("method=BindPhone user_id=%d error=%v", userID, err)
 		return nil, err
 	}
 	u, err := l.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		logger.Errorf("method=BindPhone user_id=%d error=%v", userID, err)
-		return nil, errors.Wrap(1010, "get user failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	exist, _ := l.userRepo.GetByPhone(ctx, req.Phone)
 	if exist != nil && exist.ID != userID {
-		err := errors.New(1005, "phone already bound")
+		err := errors.New(errors.CodeConflict, "phone already bound")
 		logger.Errorf("method=BindPhone user_id=%d error=%v", userID, err)
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func (l *Logic) BindPhone(ctx context.Context, userID int64, req *userpb.BindPho
 		"phone": req.Phone,
 	}); err != nil {
 		logger.Errorf("method=BindPhone user_id=%d error=%v", userID, err)
-		return nil, errors.Wrap(1010, "bind phone failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "bind phone failed", err)
 	}
 	logger.Infof("method=BindPhone user_id=%d", userID)
 	return &commonpb.BaseResponse{Code: 0, Message: "ok"}, nil
@@ -177,18 +177,18 @@ func (l *Logic) BindEmail(ctx context.Context, userID int64, req *userpb.BindEma
 	logger := l.ctxLogger(ctx)
 
 	if req.Email == "" {
-		err := errors.New(1001, "email is required")
+		err := errors.New(errors.CodeInvalidParam, "email is required")
 		logger.Errorf("method=BindEmail user_id=%d error=%v", userID, err)
 		return nil, err
 	}
 	u, err := l.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		logger.Errorf("method=BindEmail user_id=%d error=%v", userID, err)
-		return nil, errors.Wrap(1010, "get user failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	exist, _ := l.userRepo.GetByEmail(ctx, req.Email)
 	if exist != nil && exist.ID != userID {
-		err := errors.New(1005, "email already bound")
+		err := errors.New(errors.CodeConflict, "email already bound")
 		logger.Errorf("method=BindEmail user_id=%d error=%v", userID, err)
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func (l *Logic) BindEmail(ctx context.Context, userID int64, req *userpb.BindEma
 		"email": req.Email,
 	}); err != nil {
 		logger.Errorf("method=BindEmail user_id=%d error=%v", userID, err)
-		return nil, errors.Wrap(1010, "bind email failed", err)
+		return nil, errors.Wrap(errors.CodeDBError, "bind email failed", err)
 	}
 	logger.Infof("method=BindEmail user_id=%d", userID)
 	return &commonpb.BaseResponse{Code: 0, Message: "ok"}, nil

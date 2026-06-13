@@ -18,8 +18,9 @@ sed -i 's/127\.0\.0\.1:6379/redis:6379/g; s/localhost:6379/redis:6379/g' /app/et
 sed -i 's/127\.0\.0\.1:9092/kafka:9092/g; s/localhost:9092/kafka:9092/g' /app/etc/*.yaml 2>/dev/null || true
 
 # MinIO (internal endpoint only — preserve PublicEndpoint for browser-facing URLs)
-sed -i 's/Endpoint: 127\.0\.0\.1:9000/Endpoint: minio:9000/g; s/Endpoint: localhost:9000/Endpoint: minio:9000/g' /app/etc/*.yaml 2>/dev/null || true
-sed -i 's/PublicEndpoint: minio:9000/PublicEndpoint: localhost:9000/g' /app/etc/*.yaml 2>/dev/null || true
+# Handle both "Endpoint:" (capital E) and "endpoint:" (lowercase e) — YAML keys can be either
+sed -i 's/[Ee]ndpoint: 127\.0\.0\.1:9000/endpoint: minio:9000/g; s/[Ee]ndpoint: localhost:9000/endpoint: minio:9000/g' /app/etc/*.yaml 2>/dev/null || true
+sed -i 's/[Pp]ublicEndpoint: minio:9000/PublicEndpoint: localhost:9000/g' /app/etc/*.yaml 2>/dev/null || true
 
 # Milvus
 sed -i 's/localhost:19530/milvus:19530/g' /app/etc/*.yaml 2>/dev/null || true
