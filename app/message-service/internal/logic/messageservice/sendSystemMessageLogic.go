@@ -2,7 +2,6 @@ package messageservicelogic
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -59,8 +58,18 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 		UpdatedAt:   now,
 	}
 
-	// 生成 seq + 插入消息 + 更新会话元数据（同一 PG 事务）
+	// 生成 seq + 插入消息 + outbox 事件 + 更新会话元数据（同一 PG 事务，原子提交）
 	previewText := extractTextPreview(msg.MsgType, msg.Content)
+	senderName := in.ActorType
+	contentMap := map[string]any{
+		"action":           in.Action,
+		"detail":           in.Detail,
+		"related_user_ids": in.RelatedUserIds,
+		"actor_id":         in.ActorId,
+		"actor_type":       in.ActorType,
+		"payload":          in.Payload,
+	}
+
 	var seq int64
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
 		s, err := l.svcCtx.SequenceRepo.NextSeq(l.ctx, tx, in.ConversationId)
@@ -69,9 +78,37 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 		}
 		seq = s
 		msg.Seq = seq
+
 		if err := tx.Create(msg).Error; err != nil {
 			return err
 		}
+
+		outboxID, err := l.svcCtx.Snowflake.Generate()
+		if err != nil {
+			return err
+		}
+		outboxEvent := &model.OutboxEvent{
+			ID:         outboxID,
+			Topic:      consts.KafkaTopicMessageCreated,
+			Key:        fmt.Sprintf("%d", msgID),
+			MaxRetries: model.DefaultMaxRetries,
+		}
+		if err := outboxEvent.SetPayload(map[string]any{
+			"message_id":  msgID,
+			"conv_id":     in.ConversationId,
+			"sender_id":   in.ActorId,
+			"msg_type":    int64(model.MsgTypeSystem),
+			"content":     contentMap,
+			"seq":         seq,
+			"created_at":  now.Unix(),
+			"sender_name": senderName,
+		}); err != nil {
+			return err
+		}
+		if err := l.svcCtx.OutboxRepo.Insert(l.ctx, tx, outboxEvent); err != nil {
+			return err
+		}
+
 		return tx.Table("conv.conversations").Where("id = ?", in.ConversationId).
 			Updates(map[string]any{
 				"max_seq":              seq,
@@ -85,41 +122,6 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 	}
 
 	metrics.MessagesSentTotal.Inc("7")
-
-	// 异步发送 Kafka 事件
-	senderName := in.ActorType
-	senderID := in.ActorId
-	contentMap := map[string]any{
-		"action":           in.Action,
-		"detail":           in.Detail,
-		"related_user_ids": in.RelatedUserIds,
-		"actor_id":         in.ActorId,
-		"actor_type":       in.ActorType,
-		"payload":          in.Payload,
-	}
-	payload := map[string]any{
-		"message_id":  msgID,
-		"conv_id":     in.ConversationId,
-		"sender_id":   senderID,
-		"msg_type":    int64(model.MsgTypeSystem),
-		"content":     contentMap,
-		"seq":         seq,
-		"created_at":  now.Unix(),
-		"sender_name": senderName,
-	}
-	val, _ := json.Marshal(payload)
-
-	go func() {
-		producer := l.svcCtx.MessageCreatedProducer
-		if err := producer.Send(context.Background(), fmt.Sprintf("%d", msgID), val); err != nil {
-			l.Errorf("kafka async send failed, write to failed_events: msg_id=%d, err=%v", msgID, err)
-			_ = l.svcCtx.DB.WithContext(context.Background()).Create(&model.FailedEvent{
-				Topic:   consts.KafkaTopicMessageCreated,
-				Key:     fmt.Sprintf("%d", msgID),
-				Payload: val,
-			}).Error
-		}
-	}()
 
 	l.Infof("system message sent: msg_id=%d conv_id=%d action=%s", msgID, in.ConversationId, in.Action)
 

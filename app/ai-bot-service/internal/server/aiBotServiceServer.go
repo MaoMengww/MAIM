@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -22,7 +23,6 @@ import (
 	"github.com/maomeng/aim/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type AiBotServiceServer struct {
@@ -216,70 +216,23 @@ func loadBotMcpServers(ctx context.Context, botRepo *repo.BotRepo, botID int64) 
 }
 
 func (s *AiBotServiceServer) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, userID int64, userMsg string, botResponse string) {
-	if userMsg == "" || botResponse == "" {
+	if s.svcCtx.MemoryManager == nil || userMsg == "" || botResponse == "" {
 		return
 	}
-	memRepo := memory.NewPgRepo(s.svcCtx.DB)
+	if bot.MemoryModelID <= 0 {
+		return
+	}
 	llmClient := client.NewLlmGatewayClient(s.svcCtx.LlmGatewayConn)
-	einoChatModel := llmClient.NewEinoChatModel(bot.ModelID, bot.ModelName, bot.OwnerID)
-	extractor := memory.NewExtractor(einoChatModel, memory.ExtractorConfig{
-		Temperature: 0.3,
+	einoChatModel := llmClient.NewEinoChatModel(bot.MemoryModelID, bot.MemoryModelName, bot.OwnerID)
+	extractor := memory.NewExtractor(einoChatModel, memory.ExtractorConfig{Temperature: 0.3})
+	s.svcCtx.MemoryManager.WithExtractor(extractor).RememberAsync(ctx, memory.ExtractInput{
+		BotID:            bot.ID,
+		UserID:           userID,
+		Message:          userMsg,
+		SentAt:           time.Now(),
+		OwnerID:          bot.OwnerID,
+		EmbeddingModelID: bot.MemoryEmbeddingModelID,
+		MemoryModelID:    bot.MemoryModelID,
+		MemoryModelName:  bot.MemoryModelName,
 	})
-	dialog := []memory.Message{
-		{Role: "user", Content: userMsg},
-		{Role: "assistant", Content: botResponse},
-	}
-	mgr := memory.NewManager(s.svcCtx.Logger, memRepo, extractor)
-	mgr.CreateAsync(ctx, bot.ID, userID, dialog)
-}
-
-func (s *AiBotServiceServer) GetUserMemories(ctx context.Context, req *aibot.GetUserMemoriesReq) (*aibot.GetUserMemoriesRsp, error) {
-	memRepo := memory.NewPgRepo(s.svcCtx.DB)
-	limit := int(req.Limit)
-	if limit <= 0 {
-		limit = 20
-	}
-	mems, err := memRepo.FindByUser(ctx, req.BotId, req.UserId, limit)
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "query memories failed", err)
-	}
-
-	items := make([]*aibot.MemoryItem, len(mems))
-	for i, m := range mems {
-		items[i] = &aibot.MemoryItem{
-			Id:         m.ID,
-			Content:    m.Content,
-			MemoryType: m.MemoryType,
-			Category:   m.Category,
-			Importance: m.Importance,
-			CreatedAt:  m.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			FinalScore: m.FinalScore,
-		}
-	}
-	return &aibot.GetUserMemoriesRsp{Items: items}, nil
-}
-
-func (s *AiBotServiceServer) ForgetMemory(ctx context.Context, req *aibot.ForgetMemoryReq) (*emptypb.Empty, error) {
-	memRepo := memory.NewPgRepo(s.svcCtx.DB)
-
-	mem, err := memRepo.FindByID(ctx, req.MemoryId)
-	if err != nil {
-		return nil, errors.New(errors.CodeNotFound, "memory not found")
-	}
-	if mem.BotID != req.BotId || mem.UserID != req.UserId {
-		return nil, errors.New(errors.CodeForbidden, "not the owner of this memory")
-	}
-
-	if err := memRepo.Delete(ctx, req.MemoryId); err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "delete memory failed", err)
-	}
-	return &emptypb.Empty{}, nil
-}
-
-func (s *AiBotServiceServer) ClearUserMemories(ctx context.Context, req *aibot.ClearUserMemoriesReq) (*emptypb.Empty, error) {
-	memRepo := memory.NewPgRepo(s.svcCtx.DB)
-	if err := memRepo.DeleteByUser(ctx, req.BotId, req.UserId); err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "clear memories failed", err)
-	}
-	return &emptypb.Empty{}, nil
 }

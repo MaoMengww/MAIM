@@ -83,33 +83,36 @@ func (l *CreateBotLogic) CreateBot(in *botplatform.CreateBotReq) (*botplatform.B
 	}
 
 	bot := &model.Bot{
-		ID:                     botID,
-		OwnerID:                in.OwnerId,
-		Name:                   in.Name,
-		Avatar:                 in.Avatar,
-		Type:                   botType,
-		Status:                 consts.BotStatusActive,
-		UsePlatformModel:       in.UsePlatformModel,
-		ModelName:              in.ModelName,
-		ModelID:                in.ModelId,
-		BaseURL:                in.BaseUrl,
-		SystemPrompt:           in.SystemPrompt,
-		Persona:                in.Persona,
-		EnableKnowledge:        in.EnableKnowledge,
-		Temperature:            in.Temperature,
-		MaxContextMessages:     int(in.MaxContextMessages),
-		StreamingEnabled:       in.StreamingEnabled,
-		MemoryModelName:        in.MemoryModelName,
-		MemoryModelID:          in.MemoryModelId,
-		MemoryUsePlatformModel: in.MemoryUsePlatformModel,
-		MemoryLimit:            int(in.MemoryLimit),
-		ConnMode:               NormalizeConnMode(in.ConnMode),
-		CallbackURL:            in.CallbackUrl,
-		WebhookSecret:          webhookSecret,
-		SubType:                subType,
-		TemplateID:             in.TemplateId,
-		BotTags:                in.BotTags,
-		ResponseTriggers:       in.ResponseTriggers,
+		ID:                       botID,
+		OwnerID:                  in.OwnerId,
+		Name:                     in.Name,
+		Avatar:                   in.Avatar,
+		Type:                     botType,
+		Status:                   consts.BotStatusActive,
+		UsePlatformModel:         in.UsePlatformModel,
+		ModelName:                in.ModelName,
+		ModelID:                  in.ModelId,
+		BaseURL:                  in.BaseUrl,
+		SystemPrompt:             in.SystemPrompt,
+		Persona:                  in.Persona,
+		EnableKnowledge:          in.EnableKnowledge,
+		Temperature:              in.Temperature,
+		MaxContextMessages:       int(in.MaxContextMessages),
+		MaxContextTokens:         int(in.MaxContextTokens),
+		StreamingEnabled:         in.StreamingEnabled,
+		MemoryModelName:          in.MemoryModelName,
+		MemoryModelID:            in.MemoryModelId,
+		MemoryUsePlatformModel:   in.MemoryUsePlatformModel,
+		MemoryLimit:              int(in.MemoryLimit),
+		MemoryEmbeddingModelName: in.MemoryEmbeddingModelName,
+		MemoryEmbeddingModelID:   in.MemoryEmbeddingModelId,
+		ConnMode:                 NormalizeConnMode(in.ConnMode),
+		CallbackURL:              in.CallbackUrl,
+		WebhookSecret:            webhookSecret,
+		SubType:                  subType,
+		TemplateID:               in.TemplateId,
+		BotTags:                  in.BotTags,
+		ResponseTriggers:         in.ResponseTriggers,
 	}
 
 	if len(bot.ResponseTriggers) == 0 {
@@ -150,6 +153,12 @@ func (l *CreateBotLogic) CreateBot(in *botplatform.CreateBotReq) (*botplatform.B
 		resolvedID, err := l.svcCtx.Repo.ResolveModelID(l.ctx, bot.MemoryModelName)
 		if err == nil && resolvedID > 0 {
 			bot.MemoryModelID = resolvedID
+		}
+	}
+	if bot.MemoryEmbeddingModelID <= 0 && bot.MemoryEmbeddingModelName != "" {
+		resolvedID, err := l.svcCtx.Repo.ResolveModelID(l.ctx, bot.MemoryEmbeddingModelName)
+		if err == nil && resolvedID > 0 {
+			bot.MemoryEmbeddingModelID = resolvedID
 		}
 	}
 

@@ -1,6 +1,6 @@
 import client, { unwrap } from './client';
 import type { CreateBotReq, UpdateBotReq } from '@/types/api';
-import type { APIResponse, Bot, BotMemory, Conversation } from '@/types/model';
+import type { APIResponse, Bot, Conversation } from '@/types/model';
 
 export const botApi = {
   create: (data: CreateBotReq) =>
@@ -33,15 +33,6 @@ export const botApi = {
     return url;
   },
 
-  // Memory
-  getMemory: (botId: string | number) =>
-    client.get<APIResponse<{ items: BotMemory[] }>>(`/bots/${botId}/memory`).then((r) => r.data.data?.items ?? []),
-
-  clearMemory: (botId: string | number) =>
-    client.delete<APIResponse<null>>(`/bots/${botId}/memory`).then(unwrap),
-
-  forgetMemory: (botId: string | number, memoryId: number) =>
-    client.delete<APIResponse<null>>(`/bots/${botId}/memory/${memoryId}`).then(unwrap),
 
   // Bot in conversation
   addToConv: (convId: number, botId: string) =>

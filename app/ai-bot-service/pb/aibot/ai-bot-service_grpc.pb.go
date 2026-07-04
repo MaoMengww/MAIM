@@ -11,7 +11,6 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -20,10 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AiBotService_StreamChat_FullMethodName        = "/aibot.AiBotService/StreamChat"
-	AiBotService_GetUserMemories_FullMethodName   = "/aibot.AiBotService/GetUserMemories"
-	AiBotService_ForgetMemory_FullMethodName      = "/aibot.AiBotService/ForgetMemory"
-	AiBotService_ClearUserMemories_FullMethodName = "/aibot.AiBotService/ClearUserMemories"
+	AiBotService_StreamChat_FullMethodName = "/aibot.AiBotService/StreamChat"
 )
 
 // AiBotServiceClient is the client API for AiBotService service.
@@ -32,10 +28,6 @@ const (
 type AiBotServiceClient interface {
 	// 单聊流式对话
 	StreamChat(ctx context.Context, in *StreamChatReq, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamChatResp], error)
-	// 记忆管理
-	GetUserMemories(ctx context.Context, in *GetUserMemoriesReq, opts ...grpc.CallOption) (*GetUserMemoriesRsp, error)
-	ForgetMemory(ctx context.Context, in *ForgetMemoryReq, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	ClearUserMemories(ctx context.Context, in *ClearUserMemoriesReq, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type aiBotServiceClient struct {
@@ -65,46 +57,12 @@ func (c *aiBotServiceClient) StreamChat(ctx context.Context, in *StreamChatReq, 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AiBotService_StreamChatClient = grpc.ServerStreamingClient[StreamChatResp]
 
-func (c *aiBotServiceClient) GetUserMemories(ctx context.Context, in *GetUserMemoriesReq, opts ...grpc.CallOption) (*GetUserMemoriesRsp, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetUserMemoriesRsp)
-	err := c.cc.Invoke(ctx, AiBotService_GetUserMemories_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *aiBotServiceClient) ForgetMemory(ctx context.Context, in *ForgetMemoryReq, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, AiBotService_ForgetMemory_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *aiBotServiceClient) ClearUserMemories(ctx context.Context, in *ClearUserMemoriesReq, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, AiBotService_ClearUserMemories_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // AiBotServiceServer is the server API for AiBotService service.
 // All implementations must embed UnimplementedAiBotServiceServer
 // for forward compatibility.
 type AiBotServiceServer interface {
 	// 单聊流式对话
 	StreamChat(*StreamChatReq, grpc.ServerStreamingServer[StreamChatResp]) error
-	// 记忆管理
-	GetUserMemories(context.Context, *GetUserMemoriesReq) (*GetUserMemoriesRsp, error)
-	ForgetMemory(context.Context, *ForgetMemoryReq) (*emptypb.Empty, error)
-	ClearUserMemories(context.Context, *ClearUserMemoriesReq) (*emptypb.Empty, error)
 	mustEmbedUnimplementedAiBotServiceServer()
 }
 
@@ -117,15 +75,6 @@ type UnimplementedAiBotServiceServer struct{}
 
 func (UnimplementedAiBotServiceServer) StreamChat(*StreamChatReq, grpc.ServerStreamingServer[StreamChatResp]) error {
 	return status.Error(codes.Unimplemented, "method StreamChat not implemented")
-}
-func (UnimplementedAiBotServiceServer) GetUserMemories(context.Context, *GetUserMemoriesReq) (*GetUserMemoriesRsp, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetUserMemories not implemented")
-}
-func (UnimplementedAiBotServiceServer) ForgetMemory(context.Context, *ForgetMemoryReq) (*emptypb.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "method ForgetMemory not implemented")
-}
-func (UnimplementedAiBotServiceServer) ClearUserMemories(context.Context, *ClearUserMemoriesReq) (*emptypb.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "method ClearUserMemories not implemented")
 }
 func (UnimplementedAiBotServiceServer) mustEmbedUnimplementedAiBotServiceServer() {}
 func (UnimplementedAiBotServiceServer) testEmbeddedByValue()                      {}
@@ -159,80 +108,13 @@ func _AiBotService_StreamChat_Handler(srv interface{}, stream grpc.ServerStream)
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AiBotService_StreamChatServer = grpc.ServerStreamingServer[StreamChatResp]
 
-func _AiBotService_GetUserMemories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetUserMemoriesReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AiBotServiceServer).GetUserMemories(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AiBotService_GetUserMemories_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AiBotServiceServer).GetUserMemories(ctx, req.(*GetUserMemoriesReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AiBotService_ForgetMemory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ForgetMemoryReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AiBotServiceServer).ForgetMemory(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AiBotService_ForgetMemory_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AiBotServiceServer).ForgetMemory(ctx, req.(*ForgetMemoryReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AiBotService_ClearUserMemories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ClearUserMemoriesReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AiBotServiceServer).ClearUserMemories(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AiBotService_ClearUserMemories_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AiBotServiceServer).ClearUserMemories(ctx, req.(*ClearUserMemoriesReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // AiBotService_ServiceDesc is the grpc.ServiceDesc for AiBotService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var AiBotService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "aibot.AiBotService",
 	HandlerType: (*AiBotServiceServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "GetUserMemories",
-			Handler:    _AiBotService_GetUserMemories_Handler,
-		},
-		{
-			MethodName: "ForgetMemory",
-			Handler:    _AiBotService_ForgetMemory_Handler,
-		},
-		{
-			MethodName: "ClearUserMemories",
-			Handler:    _AiBotService_ClearUserMemories_Handler,
-		},
-	},
+	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "StreamChat",

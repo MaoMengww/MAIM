@@ -76,8 +76,6 @@ Gateway (REST) ──gRPC──▶ message-service
                               │ 事务提交成功
                               ▼
                     OutboxDispatcher
-                    (后台轮询 100ms,
-                     FOR UPDATE SKIP LOCKED)
                               │
                               ▼
                     Kafka "message.created"
@@ -186,7 +184,7 @@ app/<service>/
 
 | 层级 | 机制 | 实现方式 |
 |------|------|---------|
-| 发送端 | 客户端幂等 key | `client_msg_id` + Redis `SetNX("msg:idempotent:{client_msg_id}", TTL=7天)`，重复请求直接返回 `ErrDuplicateMessage` |
+| 发送端 | 客户端幂等 key | `client_msg_id` + Redis `SetNX("msg:idempotent:{client_msg_id}", TTL=2小时)`，重复请求直接返回 `ErrDuplicateMessage` |
 | Inbox 写入 | 数据库幂等 | `BatchInsert` 使用 `ON CONFLICT DO NOTHING`，联合主键 `(user_id, conv_id, seq)` 保证即使 Kafka 消息重复消费也不会产生重复 inbox 记录 |
 | Kafka 消费 | 业务层幂等 | InboxWriter 消费前先 `ExistsByMessageID(messageID, convID)` 检查，已存在则跳过。配合 at-least-once 语义 + OutboxDispatcher 最多一次投递，实现 effectively-once |
 
@@ -266,7 +264,7 @@ ai-bot-service 是 AI 能力的核心引擎，基于 **CloudWeGo Eino** 框架�
 
 ```
 Kafka message.created 事件
-  → 去重(Redis SETNX, 7天TTL)
+  → 去重(Redis SETNX, 2小时TTL)
   → 查找 Bot + ConvBot 配置
   → 判断是否应响应(shouldRespond)
   → 构建 MCP 工具列表
@@ -312,15 +310,56 @@ agent, err := react.NewAgent(ctx, &react.AgentConfig{
 
 #### 记忆管理系统
 
-垃圾
+记忆系统实现 AI Bot 的**长期记忆**能力，采用 **Neo4j（图谱/时序）+ Milvus（向量语义 + BM25）** 双存储。LLM 只参与事实提取和用户画像生成，在线读取阶段走确定性检索与排序。
+
+##### 整体流程
+
+```
+用户消息
+  │
+  ├─ 写入路径（异步，不阻塞对话）:
+  │   manager.RememberAsync()
+  │     ├── 1. 保存 Episode（原始消息，Neo4j）
+  │     ├── 2. LLM 抽取结构化事实（SPO 三元组）
+  │     ├── 3. 过滤低质事实（置信度<0.6 / 重要性<0.3 / 寒暄语）
+  │     ├── 4. 谓词路由: HAS_FACT + 可选 Entity→Entity 边
+  │     ├── 5. 向量化 → 写入 Milvus（dense vector + sparse BM25）
+  │     └── 6. 条件触发画像更新（新事实 ≥3 条 & 距上次 ≥5分钟）
+  │
+  └─ 读取路径:
+      BuildContextNode.loadMemories()
+        ├── GetProfile() → O(1) 读取用户画像缓存
+        └── Retrieve() → manager.Search()
+              ├── 1. Milvus HybridSearch
+              │      dense(HNSW/COSINE) + sparse(BM25) → RRF → fact_id
+              ├── 2. Neo4j SearchByIDs
+              │      按 fact_id 回查直接事实，应用 current / historical 时间过滤
+              ├── 3. Neo4j Entity BFS 候选
+              │      fulltext 命中 entry Entity 后，只走显式 Entity→Entity 边（最多3跳）
+              ├── 4. Rank-Based Fusion
+              └── 5. 兜底: direct+graph 都为空时，Neo4j 全文索引 → 全量质量排序
+```
+
+##### 用户画像生成
+
+画像采用**增量更新**策略，避免每次全量重建：
+
+```
+触发条件: 新事实 ≥3 条 AND 距上次更新 ≥5 分钟
+  │
+  ├─ 首次生成: 最近 20 条事实 → LLM 生成画像 (≤300字)
+  │
+  └─ 增量更新:
+        ├── 读取当前画像文本
+        ├── 获取增量新事实 + 已失效事实
+        └── LLM 融合更新（合并新事实 + 移除失效信息）
+```
 
 #### 流式输出
 
 | 通道 | 实现 |
 |------|------|
 | **WebSocket** | 通过 ws-gateway 的 `PushToConv` gRPC 推送流式 chunk |
-
-流式消息类型：`bot.streaming.chunk`、`bot.streaming.tool_call`、`bot.streaming.tool_result`、`bot.streaming.done`
 
 #### MCP 工具集成
 
@@ -340,7 +379,7 @@ MCP (Model Context Protocol) 工具集成流程：
 | RPC | 功能 |
 |-----|------|
 | `SummarizeConversation` | 异步总结对话（提取要点 + 待办事项），结果通过 WebSocket 推送 |
-| `Translate` | 多语言翻译（支持 zh-CN/en-US/ja/ko） |
+| `Translate` | 多语言翻译 |
 | `GenerateReplyCandidates` | 生成 3 条快捷回复建议（每条不超过 15 字） |
 
 ---
@@ -356,7 +395,7 @@ llm-gateway 是所有 LLM 调用的统一入口，提供多 Provider 抽象、�
 - **Generate**: 同步调用 `/chat/completions`
 - **Stream**: SSE 流式调用，支持增量 Tool Call 累积（按 index 聚合 delta）
 - 自动根据 provider 设置默认 BaseURL
-- 完整的 Eino callback 集成（OnStart/OnEnd/OnError）
+- Eino callback 集成
 
 ---
 
@@ -373,8 +412,7 @@ llm-gateway 是所有 LLM 调用的统一入口，提供多 Provider 抽象、�
   │
   ├─ Stage 1: Parse（解析）
   │     ├─ 本地解析器 (builtin): PDF/Markdown/HTML → RawText
-  │     ├─ MinerU 解析器: PDF → 高精度 Markdown + 图片
-  │     └─ VLM 解析器: 图片 → 文字描述转写
+  │     └─ MinerU 解析器: PDF → 高精度 Markdown + 图片
   │
   ├─ Stage 1.5: Image Processing（图片处理）
   │     ├─ 下载 Markdown 内嵌图片 → MinIO
@@ -656,11 +694,11 @@ signaling-service 是消息扇出(fanout)的核心枢纽。
 | 能力域 | 实现 |
 |--------|------|
 | 即时消息 | 文本/图片/文件/语音消息，单聊与群聊，消息状态追踪 |
-| 消息可靠性 | 不重复（幂等key+DB幂等+Kafka幂等）、不丢失（先写DB+failed_events+DLQ+SyncMessages兜底）、不乱序（Redis INCR seq+有序存储+有序查询） |
+| 消息可靠性 | 不重复（幂等key+DB幂等+Kafka幂等）、不丢失（Transactional Outbox：DB+outbox_events状态机+指数退避重试+SyncMessages兜底）、不乱序（PostgreSQL UPSERT seq+有序存储+有序查询） |
 | 消息管理 | 发送/接收/撤回/编辑/引用回复，全文搜索 (ES + IK中文分词) |
 | 社交关系 | 好友增删/分组/备注/黑名单，群创建/邀请/踢出/转让/公告 |
 | AI Bot | @Bot 对话，ReAct Agent 推理，MCP 工具调用，多 Bot 会话协作，流式输出 |
-| 记忆系统 | LLM 自动提取 + Jaccard 去重 + 综合评分淘汰 + 语义搜索 |
+| 记忆系统 | LLM SPO 提取 + 谓词配置表路由 + Entity 间图谱边 + BFS 多跳遍历（距离衰减）+ 增量画像 |
 | 知识库 | 多格式文档上传，RAG 向量检索问答，混合检索 + Reranker 重排序 |
 | Wiki 生成 | AI 自动分析文档生成结构化 Markdown 知识页面，交叉引用 + Issue 追踪 + 版本管理 |
 | MCP 集成 | MCP Server 管理 + 工具发现 + Bot 绑定 + 运行时工具调用 |

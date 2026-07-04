@@ -18,9 +18,9 @@ import (
 	"github.com/maomeng/aim/app/ai-bot-service/internal/server"
 	"github.com/maomeng/aim/app/ai-bot-service/internal/svc"
 	"github.com/maomeng/aim/app/ai-bot-service/pb/aibot"
-	"github.com/maomeng/aim/pkg/consts"
 	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
 	"github.com/maomeng/aim/pkg/configcenter"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
@@ -31,28 +31,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
-
-// memoryStoreAdapter wraps memory.PgRepo to implement graph.MemoryStore.
-type memoryStoreAdapter struct {
-	repo *memory.PgRepo
-}
-
-func (a *memoryStoreAdapter) Retrieve(ctx context.Context, botID, userID int64, query string, limit int) ([]graph.MemoryItem, error) {
-	items, err := a.repo.SearchByUser(ctx, botID, userID, query, limit)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]graph.MemoryItem, len(items))
-	for i, item := range items {
-		result[i] = graph.MemoryItem{
-			ID:         item.ID,
-			Content:    item.Content,
-			Type:       item.MemoryType,
-			Importance: item.Importance,
-		}
-	}
-	return result, nil
-}
 
 var configFile = flag.String("f", "etc/ai-bot-service.yaml", "the config file")
 
@@ -102,17 +80,16 @@ func main() {
 
 	wsClient := client.NewWsGatewayClient(ctx.WsGatewayConn)
 
-	memRepo := memory.NewPgRepo(ctx.DB)
-	memStore := memoryStoreAdapter{repo: memRepo}
+	memStore := memory.NewGraphStoreAdapter(ctx.MemoryManager)
 
 	handler := consumer.NewHandler(
 		logger,
 		repo.NewBotRepo(ctx.DB, botplatform.NewBotPlatformClient(ctx.BotPlatformConn.Conn())),
 		repo.NewConvBotRepo(ctx.DB),
-		ctx.DB,
 		llmClient,
-		nil,       // retriever
-		&memStore, // memoryStore
+		nil,      // retriever
+		memStore, // memoryStore
+		ctx.MemoryManager,
 		msgClient,
 		kbClient,
 		nil, // convClient

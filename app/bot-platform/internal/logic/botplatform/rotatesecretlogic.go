@@ -37,7 +37,7 @@ func (l *RotateSecretLogic) RotateSecret(in *pb.RotateSecretReq) (*pb.RotateSecr
 	}
 
 	updates := map[string]any{
-		"webhook_secret": webhookSecret,
+		"webhook_secret":  webhookSecret,
 		"app_secret_hash": hashSecret(appSecret),
 	}
 	if err := l.svcCtx.Repo.UpdateBot(l.ctx, in.BotId, updates); err != nil {

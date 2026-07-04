@@ -115,9 +115,12 @@ export interface CreateBotReq {
   enable_knowledge?: boolean;
   temperature?: number;
   max_context_messages?: number;
+  max_context_tokens?: number;
   streaming_enabled?: boolean;
   memory_model_name?: string;
   memory_model_id?: number;
+  memory_embedding_model_name?: string;
+  memory_embedding_model_id?: number;
   conn_mode?: string;
   callback_url?: string;
   bot_tags?: string[];
@@ -141,9 +144,12 @@ export interface UpdateBotReq {
   enable_knowledge?: boolean;
   temperature?: number;
   max_context_messages?: number;
+  max_context_tokens?: number;
   streaming_enabled?: boolean;
   memory_model_name?: string;
   memory_model_id?: number;
+  memory_embedding_model_name?: string;
+  memory_embedding_model_id?: number;
   conn_mode?: string;
   callback_url?: string;
   bot_tags?: string[];

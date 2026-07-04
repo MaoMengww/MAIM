@@ -103,14 +103,14 @@ export function ModelManagePage() {
       dataIndex: 'input_price_per_mtok',
       key: 'input_price',
       width: 100,
-      render: (v: number) => v ? `¥${v.toFixed(2)}` : '-',
+      render: (v: any) => v != null && Number(v) > 0 ? `¥${Number(v).toFixed(2)}` : '-',
     },
     {
       title: '输出价格',
       dataIndex: 'output_price_per_mtok',
       key: 'output_price',
       width: 100,
-      render: (v: number) => v ? `¥${v.toFixed(2)}` : '-',
+      render: (v: any) => v != null && Number(v) > 0 ? `¥${Number(v).toFixed(2)}` : '-',
     },
     {
       title: '操作', key: 'actions', width: 120,

@@ -22,21 +22,20 @@ import (
 	"github.com/maomeng/aim/app/ai-bot-service/internal/model"
 	"github.com/maomeng/aim/app/ai-bot-service/internal/repo"
 	"github.com/maomeng/aim/app/ai-bot-service/internal/stream"
-	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/logx"
 )
 
 type Handler struct {
-	logger      logx.Logger
-	botRepo     *repo.BotRepo
-	convBotRepo *repo.ConvBotRepo
-	db          *database.DB
-	llmClient   *client.LlmGatewayClient
-	retriever   component.Retriever
-	memoryStore graph.MemoryStore
-	msgClient   graph.MsgClient
-	kbClient    graph.KbClient
-	convClient  interface {
+	logger        logx.Logger
+	botRepo       *repo.BotRepo
+	convBotRepo   *repo.ConvBotRepo
+	llmClient     *client.LlmGatewayClient
+	retriever     component.Retriever
+	memoryStore   graph.MemoryStore
+	memoryManager *memory.Manager
+	msgClient     graph.MsgClient
+	kbClient      graph.KbClient
+	convClient    interface {
 		GetConversationMembers(ctx context.Context, convID int64) ([]int64, error)
 	}
 	dedup     *Dedup
@@ -48,10 +47,10 @@ func NewHandler(
 	logger logx.Logger,
 	botRepo *repo.BotRepo,
 	convBotRepo *repo.ConvBotRepo,
-	db *database.DB,
 	llmClient *client.LlmGatewayClient,
 	retriever component.Retriever,
 	memoryStore graph.MemoryStore,
+	memoryManager *memory.Manager,
 	msgClient graph.MsgClient,
 	kbClient graph.KbClient,
 	convClient interface {
@@ -66,19 +65,19 @@ func NewHandler(
 		un = userNames[0]
 	}
 	return &Handler{
-		logger:      logger,
-		botRepo:     botRepo,
-		convBotRepo: convBotRepo,
-		db:          db,
-		llmClient:   llmClient,
-		retriever:   retriever,
-		memoryStore: memoryStore,
-		msgClient:   msgClient,
-		kbClient:    kbClient,
-		convClient:  convClient,
-		dedup:       dedup,
-		wsClient:    wsClient,
-		userNames:   un,
+		logger:        logger,
+		botRepo:       botRepo,
+		convBotRepo:   convBotRepo,
+		llmClient:     llmClient,
+		retriever:     retriever,
+		memoryStore:   memoryStore,
+		memoryManager: memoryManager,
+		msgClient:     msgClient,
+		kbClient:      kbClient,
+		convClient:    convClient,
+		dedup:         dedup,
+		wsClient:      wsClient,
+		userNames:     un,
 	}
 }
 
@@ -368,20 +367,24 @@ func (h *Handler) tryDirectGenerate(ctx context.Context, bot *model.Bot, ctxResu
 	return result.Content
 }
 func (h *Handler) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, userID int64, userMsg, botResponse string) {
-	if h.db == nil || userMsg == "" || botResponse == "" {
+	if h.memoryManager == nil || h.llmClient == nil || userMsg == "" || botResponse == "" {
 		return
 	}
-	memRepo := memory.NewPgRepo(h.db)
-	einoChatModel := h.llmClient.NewEinoChatModel(bot.ModelID, bot.ModelName, bot.OwnerID)
-	extractor := memory.NewExtractor(einoChatModel, memory.ExtractorConfig{
-		Temperature: 0.3,
-	})
-	dialog := []memory.Message{
-		{Role: "user", Content: userMsg},
-		{Role: "assistant", Content: botResponse},
+	if bot.MemoryModelID <= 0 {
+		return
 	}
-	mgr := memory.NewManager(h.logger, memRepo, extractor)
-	mgr.CreateAsync(ctx, bot.ID, userID, dialog)
+	einoChatModel := h.llmClient.NewEinoChatModel(bot.MemoryModelID, bot.MemoryModelName, bot.OwnerID)
+	extractor := memory.NewExtractor(einoChatModel, memory.ExtractorConfig{Temperature: 0.3})
+	h.memoryManager.WithExtractor(extractor).RememberAsync(ctx, memory.ExtractInput{
+		BotID:            bot.ID,
+		UserID:           userID,
+		Message:          userMsg,
+		SentAt:           time.Now(),
+		OwnerID:          bot.OwnerID,
+		EmbeddingModelID: bot.MemoryEmbeddingModelID,
+		MemoryModelID:    bot.MemoryModelID,
+		MemoryModelName:  bot.MemoryModelName,
+	})
 }
 
 func buildRawPayload(kbSources []graph.KnowledgeSource, usedTools []string) string {

@@ -43,8 +43,16 @@ export function BotListPage() {
     .filter((m: any) => m.capability === 'chat')
     .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name, owner_id: m.owner_id }));
 
+  const embeddingModelOptions = models
+    .filter((m: any) => m.capability === 'embedding')
+    .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name, owner_id: m.owner_id }));
+
   const modelMap = Object.fromEntries((models as any[])
     .filter((m: any) => m.capability === 'chat')
+    .map((m: any) => [m.id, m.model_name]));
+
+  const embeddingModelMap = Object.fromEntries((models as any[])
+    .filter((m: any) => m.capability === 'embedding')
     .map((m: any) => [m.id, m.model_name]));
 
   const bots = data?.list ?? [];
@@ -99,8 +107,10 @@ export function BotListPage() {
 
       const selectedModelName = vals.model_id ? (modelMap[vals.model_id] || '') : (vals.model_name || '');
       const selectedMemoryModelName = vals.memory_model_id ? (modelMap[vals.memory_model_id] || '') : '';
+      const selectedMemoryEmbeddingModelName = vals.memory_embedding_model_id ? (embeddingModelMap[vals.memory_embedding_model_id] || '') : '';
       if (vals.temperature != null) vals.temperature = Number(vals.temperature);
       if (vals.max_context_messages != null) vals.max_context_messages = Number(vals.max_context_messages);
+      if (vals.max_context_tokens != null) vals.max_context_tokens = Number(vals.max_context_tokens);
       if (selectedType === 'official') {
         Object.assign(basePayload, {
           template_id: vals.template_id,
@@ -108,6 +118,7 @@ export function BotListPage() {
           model_id: vals.model_id,
           use_platform_model: true,
           max_context_messages: vals.max_context_messages ?? 15,
+          max_context_tokens: vals.max_context_tokens ?? 0,
           streaming_enabled: vals.streaming_enabled ?? true,
         });
       } else if (selectedType === 'self_deployed') {
@@ -118,9 +129,12 @@ export function BotListPage() {
           enable_knowledge: vals.enable_knowledge ?? true,
           temperature: vals.temperature ?? 0.7,
           max_context_messages: vals.max_context_messages ?? 15,
+          max_context_tokens: vals.max_context_tokens ?? 0,
           streaming_enabled: vals.streaming_enabled ?? true,
           memory_model_id: vals.memory_model_id,
           memory_model_name: selectedMemoryModelName,
+          memory_embedding_model_id: vals.memory_embedding_model_id,
+          memory_embedding_model_name: selectedMemoryEmbeddingModelName,
         });
       } else if (selectedType === 'third_party') {
         Object.assign(basePayload, {
@@ -299,6 +313,12 @@ export function BotListPage() {
 
                   />
                 </Form.Item>
+                <Form.Item name="max_context_messages" label="最大上下文消息数" initialValue={15}>
+                  <InputNumber min={1} max={100} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="max_context_tokens" label="最大上下文 Token" initialValue={0} extra="0 表示不限制；会在获取消息后按 token 累算，超出的旧消息丢弃">
+                  <InputNumber min={0} max={200000} step={1000} style={{ width: '100%' }} />
+                </Form.Item>
                 <Form.Item name="streaming_enabled" label="启用流式" valuePropName="checked" initialValue={true}>
                   <Switch />
                 </Form.Item>
@@ -341,6 +361,9 @@ export function BotListPage() {
                 <Form.Item name="max_context_messages" label="最大上下文消息数" initialValue={15}>
                   <InputNumber min={1} max={100} style={{ width: '100%' }} />
                 </Form.Item>
+                <Form.Item name="max_context_tokens" label="最大上下文 Token" initialValue={0} extra="0 表示不限制；会在获取消息后按 token 累算，超出的旧消息丢弃">
+                  <InputNumber min={0} max={200000} step={1000} style={{ width: '100%' }} />
+                </Form.Item>
                 <Form.Item name="streaming_enabled" label="启用流式" valuePropName="checked" initialValue={true}>
                   <Switch />
                 </Form.Item>
@@ -367,6 +390,16 @@ export function BotListPage() {
                     placeholder="选择记忆模型"
                     allowClear
                     options={modelOptions}
+                    showSearch
+                    filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())}
+
+                  />
+                </Form.Item>
+                <Form.Item name="memory_embedding_model_id" label="记忆向量模型" extra="不配置则仅做全文/图检索">
+                  <Select
+                    placeholder="选择 embedding 模型"
+                    allowClear
+                    options={embeddingModelOptions}
                     showSearch
                     filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"unicode/utf8"
 )
 
 // KnowledgeSource represents a knowledge base source attached to a bot reply.
@@ -24,7 +25,8 @@ type StreamChunk struct {
 
 // MemoryStore is the memory retrieval interface used by BuildContext.
 type MemoryStore interface {
-	Retrieve(ctx context.Context, botID, userID int64, query string, limit int) ([]MemoryItem, error)
+	Retrieve(ctx context.Context, botID, userID int64, ownerID int64, embeddingModelID int64, query string, limit int) ([]MemoryItem, error)
+	GetProfile(ctx context.Context, botID, userID int64) string
 }
 
 // MemoryItem is a retrieved memory fact.
@@ -59,6 +61,7 @@ type Message struct {
 	Content    string
 	MsgType    int32
 	Seq        int64
+	CreatedAt  int64
 }
 
 // KbDocument is a knowledge base document snippet.
@@ -97,7 +100,7 @@ func FormatMemories(items []MemoryItem) string {
 	if len(items) == 0 {
 		return ""
 	}
-	out := "What I know about you:\\n"
+	out := "What I know about you:\n"
 	for i, m := range items {
 		out += fmt.Sprintf("%d. %s\n", i+1, m.Content)
 	}
@@ -123,13 +126,35 @@ func FormatHistory(msgs []Message) string {
 	}
 	out := "最近的对话:\n"
 	for _, m := range msgs {
-		name := m.SenderName
-		if name == "" {
-			name = fmt.Sprintf("user_%d", m.SenderID)
-		}
-		out += fmt.Sprintf("[%s]: %s\n", name, m.Content)
+		out += fmt.Sprintf("[%s][%s]: %s\n", formatMessageTime(m.CreatedAt), messageSenderName(m), m.Content)
 	}
 	return out
+}
+
+func messageSenderName(m Message) string {
+	if m.SenderName != "" {
+		return m.SenderName
+	}
+	return fmt.Sprintf("user_%d", m.SenderID)
+}
+
+func formatMessageTime(ts int64) string {
+	if ts <= 0 {
+		return "unknown_time"
+	}
+	return time.Unix(ts, 0).Format("2006-01-02 15:04:05")
+}
+
+func estimateTokens(s string) int {
+	if s == "" {
+		return 0
+	}
+	runes := utf8.RuneCountInString(s)
+	tokens := (runes + 1) / 2
+	if tokens == 0 {
+		return 1
+	}
+	return tokens
 }
 
 // WeekdayName returns the weekday name.

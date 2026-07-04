@@ -19,6 +19,7 @@ type Config struct {
 	BotPlatform    zrpc.RpcClientConf     `json:"botPlatform"`
 	UserService    zrpc.RpcClientConf     `json:"userService"`
 	Milvus         MilvusConfig           `json:"milvus"`
+	Memory         MemoryConfig           `json:"memory"`
 	RateLimit      config.RateLimitConfig `json:"rateLimit"`
 }
 
@@ -33,4 +34,19 @@ type MilvusConfig struct {
 	Host     string `json:"host,default=localhost"`
 	Port     int    `json:"port,default=19530"`
 	Database string `json:"database,default=aim"`
+}
+
+type MemoryConfig struct {
+	Neo4j            Neo4jConfig `json:"neo4j"`
+	WorkerID         int64       `json:"workerId,default=8"`
+	EmbeddingDim     int         `json:"embeddingDim,default=1536"`
+	VectorCollection string      `json:"vectorCollection,default=bot_memory_facts_v1"`
+	VectorTopKMult   int         `json:"vectorTopKMult,default=3"`
+}
+
+type Neo4jConfig struct {
+	URI      string `json:"uri,default=bolt://localhost:7687"`
+	Username string `json:"username,default=neo4j"`
+	Password string `json:"password"`
+	Database string `json:"database,default=neo4j"`
 }

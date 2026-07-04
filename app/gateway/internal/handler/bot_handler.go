@@ -222,7 +222,7 @@ func (h *BotHandler) ValidateToken(c *gin.Context) {
 	response.Success(c, resp)
 }
 
-// ========== AI Bot Streaming Chat & Memory ==========
+// ========== AI Bot Streaming Chat ==========
 
 func (h *BotHandler) StreamChat(c *gin.Context) {
 	var req aibot.StreamChatReq
@@ -254,49 +254,6 @@ func (h *BotHandler) StreamChat(c *gin.Context) {
 		c.SSEvent("message", string(data))
 		c.Writer.Flush()
 	}
-}
-
-func (h *BotHandler) GetUserMemories(c *gin.Context) {
-	req := &aibot.GetUserMemoriesReq{
-		BotId:  parseInt64(c.Param("id")),
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
-	}
-	ctx := middleware.WithGRPCMetadata(c)
-	resp, err := h.aiBotClient.GetUserMemories(ctx, req)
-	if err != nil {
-		response.GRPCError(c, err)
-		return
-	}
-	response.Success(c, resp)
-}
-
-func (h *BotHandler) ForgetMemory(c *gin.Context) {
-	req := &aibot.ForgetMemoryReq{
-		BotId:    parseInt64(c.Param("id")),
-		UserId:   c.GetInt64(middleware.CtxKeyUserID),
-		MemoryId: parseInt64(c.Param("memory_id")),
-	}
-	ctx := middleware.WithGRPCMetadata(c)
-	_, err := h.aiBotClient.ForgetMemory(ctx, req)
-	if err != nil {
-		response.GRPCError(c, err)
-		return
-	}
-	response.Success(c, nil)
-}
-
-func (h *BotHandler) ClearUserMemories(c *gin.Context) {
-	req := &aibot.ClearUserMemoriesReq{
-		BotId:  parseInt64(c.Param("id")),
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
-	}
-	ctx := middleware.WithGRPCMetadata(c)
-	_, err := h.aiBotClient.ClearUserMemories(ctx, req)
-	if err != nil {
-		response.GRPCError(c, err)
-		return
-	}
-	response.Success(c, nil)
 }
 
 // Bot in Conversation

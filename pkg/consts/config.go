@@ -14,7 +14,7 @@ const (
 const (
 	JWTDefaultExpireSec  = 3600
 	JWTDefaultRefreshSec = 2592000 // 30 days
-	MsgIdempotentTTL     = 7 * 24 * time.Hour
+	MsgIdempotentTTL     = 2 * time.Hour
 )
 
 // ---- Webhook ----

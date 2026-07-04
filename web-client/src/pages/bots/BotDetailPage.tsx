@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Descriptions, Tag, Button, Space, Input, Switch, InputNumber, Modal, Form, Select, Upload, message, Spin, Divider } from 'antd';
-import { EditOutlined, UploadOutlined, BookOutlined, ApiOutlined, PoweroffOutlined, ToolOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+import { EditOutlined, UploadOutlined, BookOutlined, ApiOutlined, PoweroffOutlined, ToolOutlined, DeleteOutlined } from '@ant-design/icons';
 import { botApi } from '@/services/bot';
 import { mcpApi } from '@/services/mcp';
 import { kbApi } from '@/services/knowledge';
@@ -39,6 +39,10 @@ export function BotDetailPage() {
 
   const modelOptions = (modelsData?.list ?? [])
     .filter((m: any) => m.capability === 'chat')
+    .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name, owner_id: m.owner_id }));
+
+  const embeddingModelOptions = (modelsData?.list ?? [])
+    .filter((m: any) => m.capability === 'embedding')
     .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name, owner_id: m.owner_id }));
 
   const updateMutation = useMutation({
@@ -196,7 +200,8 @@ export function BotDetailPage() {
         <Descriptions.Item label="模型">{bot.model_name || '默认'}</Descriptions.Item>
         <Descriptions.Item label="使用平台模型">{bot.use_platform_model ? '是' : '否'}</Descriptions.Item>
         <Descriptions.Item label="温度">{bot.temperature ?? '-'}</Descriptions.Item>
-        <Descriptions.Item label="最大上下文">{bot.max_context_messages ?? '-'} 条</Descriptions.Item>
+        <Descriptions.Item label="最大上下文消息">{bot.max_context_messages ?? '-'} 条</Descriptions.Item>
+        <Descriptions.Item label="最大上下文 Token">{bot.max_context_tokens && bot.max_context_tokens > 0 ? `${bot.max_context_tokens} tokens` : '不限制'}</Descriptions.Item>
         <Descriptions.Item label="启用流式">{bot.streaming_enabled ? '是' : '否'}</Descriptions.Item>
         <Descriptions.Item label="启用知识库">{bot.enable_knowledge ? '是' : '否'}</Descriptions.Item>
         <Descriptions.Item label="启用网络搜索">
@@ -292,10 +297,6 @@ export function BotDetailPage() {
       {/* ── MCP Tool Bindings ── */}
       <BotMcpSection botId={id as string} />
 
-      {/* ── Memory Management ── */}
-      <Divider orientation="left" style={{ color: 'var(--aim-text-secondary)', fontSize: 13 }}>记忆</Divider>
-      <BotMemorySection botId={id as string} />
-
       {bot.system_prompt && (
         <>
           <Divider orientation="left" style={{ color: 'var(--aim-text-secondary)', fontSize: 13 }}>系统提示词</Divider>
@@ -361,6 +362,7 @@ export function BotDetailPage() {
           // Ensure numeric fields are numbers, not strings
           if (vals.temperature != null) vals.temperature = Number(vals.temperature);
           if (vals.max_context_messages != null) vals.max_context_messages = Number(vals.max_context_messages);
+          if (vals.max_context_tokens != null) vals.max_context_tokens = Number(vals.max_context_tokens);
           if (vals.memory_limit != null) vals.memory_limit = Number(vals.memory_limit);
           vals.capabilities = JSON.stringify(caps);
           updateMutation.mutate(vals);
@@ -409,6 +411,12 @@ export function BotDetailPage() {
                   <Switch />
                 </Form.Item>
               )}
+              <Form.Item name="max_context_messages" label="最大上下文消息数">
+                <InputNumber min={1} max={100} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="max_context_tokens" label="最大上下文 Token" extra="0 表示不限制；会在获取消息后按 token 累算，超出的旧消息丢弃">
+                <InputNumber min={0} max={200000} step={1000} style={{ width: '100%' }} />
+              </Form.Item>
               <Form.Item name="streaming_enabled" label="启用流式" valuePropName="checked">
                 <Switch />
               </Form.Item>
@@ -458,6 +466,9 @@ export function BotDetailPage() {
               <Form.Item name="max_context_messages" label="最大上下文消息数">
                 <InputNumber min={1} max={100} style={{ width: '100%' }} />
               </Form.Item>
+              <Form.Item name="max_context_tokens" label="最大上下文 Token" extra="0 表示不限制；会在获取消息后按 token 累算，超出的旧消息丢弃">
+                <InputNumber min={0} max={200000} step={1000} style={{ width: '100%' }} />
+              </Form.Item>
               <Form.Item name="streaming_enabled" label="启用流式" valuePropName="checked">
                 <Switch />
               </Form.Item>
@@ -486,6 +497,12 @@ export function BotDetailPage() {
               </Form.Item>
               <Form.Item name="memory_model_id" label="记忆模型">
                 <Select placeholder="选择记忆模型" allowClear options={modelOptions} showSearch
+                  filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())}
+
+                />
+              </Form.Item>
+              <Form.Item name="memory_embedding_model_id" label="记忆向量模型" extra="不配置则仅做全文/图检索，不启用语义向量">
+                <Select placeholder="选择 embedding 模型" allowClear options={embeddingModelOptions} showSearch
                   filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())}
 
                 />
@@ -621,187 +638,6 @@ export function BotDetailPage() {
             </Form.Item>
           )}
         </Form>
-      </Modal>
-    </div>
-  );
-}
-
-// ─── Memory Management Section ───
-function BotMemorySection({ botId }: { botId: string }) {
-  const queryClient = useQueryClient();
-  const [memOpen, setMemOpen] = useState(false);
-
-  const { data: memories = [], isLoading } = useQuery({
-    queryKey: ['bot-memories', botId],
-    queryFn: () => botApi.getMemory(botId),
-  });
-
-  const forgetMutation = useMutation({
-    mutationFn: (memoryId: number) => botApi.forgetMemory(botId, memoryId),
-    onSuccess: (_data, memoryId) => {
-      message.success('记忆已删除');
-      queryClient.setQueryData(['bot-memories', botId], (old: any[]) => {
-        if (!old) return old;
-        return old.filter((m: any) => m.id !== memoryId);
-      });
-      queryClient.invalidateQueries({ queryKey: ['bot-memories', botId] });
-    },
-    onError: () => message.error('删除失败'),
-  });
-
-  const clearMutation = useMutation({
-    mutationFn: () => botApi.clearMemory(botId),
-    onSuccess: () => {
-      message.success('记忆已清空');
-      queryClient.setQueryData(['bot-memories', botId], []);
-      queryClient.invalidateQueries({ queryKey: ['bot-memories', botId] });
-    },
-    onError: () => message.error('清空失败'),
-  });
-
-  return (
-    <div style={{ marginBottom: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--aim-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          我的记忆
-        </span>
-        <Space size={8}>
-          {!isLoading && memories.length > 0 && (
-            <span style={{ fontSize: 12, color: 'var(--aim-text-tertiary)' }}>
-              共 {memories.length} 条
-            </span>
-          )}
-          <Button size="small" onClick={() => setMemOpen(true)}>
-            管理记忆
-          </Button>
-        </Space>
-      </div>
-
-      {isLoading ? (
-        <div style={{ textAlign: 'center', padding: 20 }}><Spin /></div>
-      ) : memories.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--aim-text-tertiary)', padding: '8px 0' }}>
-          暂无记忆 — 与 Bot 对话后会自动记录
-        </div>
-      ) : (
-        <div>
-          {memories.slice(0, 5).map((mem) => (
-            <div
-              key={mem.id}
-              style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                padding: '10px 12px', marginBottom: 6, borderRadius: 6,
-                background: 'var(--aim-surface)', border: '1px solid var(--aim-border)',
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Tag color={mem.memory_type === 'episode' ? 'purple' : 'blue'} style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
-                    {mem.memory_type === 'episode' ? '事件' : '事实'}
-                  </Tag>
-                  {mem.category && (
-                    <Tag color="cyan" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
-                      {mem.category}
-                    </Tag>
-                  )}
-                  {mem.importance > 0.7 && (
-                    <Tag color="red" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>重要</Tag>
-                  )}
-                  <Tag color="geekblue" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
-                    {Number(mem.final_score ?? 0).toFixed(2)}
-                  </Tag>
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--aim-text)', lineHeight: 1.5, wordBreak: 'break-word' }}>
-                  {mem.content}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <Modal
-        title="Bot 记忆管理"
-        open={memOpen}
-        onCancel={() => setMemOpen(false)}
-        footer={null}
-        width={560}
-      >
-        {isLoading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
-        ) : memories.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--aim-text-tertiary)' }}>
-            <p>暂无记忆</p>
-            <p style={{ fontSize: 12, marginTop: 4 }}>与 Bot 对话后，Bot 会自动记录相关记忆</p>
-          </div>
-        ) : (
-          <>
-            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 13, color: 'var(--aim-text-secondary)' }}>共 {memories.length} 条记忆</span>
-              <Button
-                size="small"
-                danger
-                loading={clearMutation.isPending}
-                onClick={() => Modal.confirm({
-                  title: '确认清空',
-                  content: '确定要清空所有记忆吗？此操作不可恢复。',
-                  okText: '清空',
-                  okType: 'danger',
-                  cancelText: '取消',
-                  onOk: () => clearMutation.mutate(),
-                })}
-              >
-                清空全部
-              </Button>
-            </div>
-            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-              {memories.map((mem) => (
-                <div
-                  key={mem.id}
-                  style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                    padding: '10px 12px', marginBottom: 8, borderRadius: 6,
-                    background: 'var(--aim-surface)', border: '1px solid var(--aim-border)',
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <Tag color={mem.memory_type === 'episode' ? 'purple' : 'blue'} style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
-                        {mem.memory_type === 'episode' ? '事件' : '事实'}
-                      </Tag>
-                      {mem.category && (
-                        <Tag color="cyan" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
-                          {mem.category}
-                        </Tag>
-                      )}
-                      {mem.importance > 0.7 && (
-                        <Tag color="red" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>重要</Tag>
-                      )}
-                      <Tag color="geekblue" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
-                        {Number(mem.final_score ?? 0).toFixed(2)}
-                      </Tag>
-                      <span style={{ fontSize: 11, color: 'var(--aim-text-tertiary)', marginLeft: 'auto' }}>
-                        {mem.created_at ? new Date(mem.created_at).toLocaleString('zh-CN') : ''}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 13, color: 'var(--aim-text)', lineHeight: 1.5, wordBreak: 'break-word' }}>
-                      {mem.content}
-                    </div>
-                  </div>
-                  <Button
-                    type="text"
-                    size="small"
-                    danger
-                    loading={forgetMutation.isPending}
-                    icon={<DeleteOutlined />}
-                    onClick={() => forgetMutation.mutate(mem.id)}
-                    style={{ marginLeft: 8, flexShrink: 0 }}
-                  />
-                </div>
-              ))}
-            </div>
-          </>
-        )}
       </Modal>
     </div>
   );

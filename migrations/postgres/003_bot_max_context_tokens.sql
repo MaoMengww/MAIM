@@ -1,0 +1,2 @@
+ALTER TABLE bot.bots
+    ADD COLUMN IF NOT EXISTS max_context_tokens INTEGER DEFAULT 0 NOT NULL;

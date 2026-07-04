@@ -132,8 +132,8 @@ func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEven
 	}
 
 	result := make([]*schema.Message, 0, len(msgs))
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
+	totalTokens := 0
+	for _, m := range msgs {
 		if currentMsgID > 0 && m.MsgID == currentMsgID {
 			continue
 		}
@@ -141,10 +141,21 @@ func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEven
 		if m.SenderID == n.bot.ID {
 			role = schema.Assistant
 		}
+		content := fmt.Sprintf("[%s][%s]: %s", formatMessageTime(m.CreatedAt), messageSenderName(m), m.Content)
+		if n.bot.MaxContextTokens > 0 {
+			tokens := estimateTokens(content)
+			if totalTokens+tokens > n.bot.MaxContextTokens {
+				continue
+			}
+			totalTokens += tokens
+		}
 		result = append(result, &schema.Message{
 			Role:    role,
-			Content: m.Content,
+			Content: content,
 		})
+	}
+	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+		result[i], result[j] = result[j], result[i]
 	}
 	return result
 }
@@ -161,11 +172,8 @@ func (n *BuildContextNode) loadKnowledge(ctx context.Context, query string, hist
 	if len(history) > 0 {
 		var b strings.Builder
 		for _, m := range history {
-			role := "用户"
-			if m.Role == schema.Assistant {
-				role = "assistant"
-			}
-			b.WriteString(fmt.Sprintf("[%s]: %s\n", role, m.Content))
+			b.WriteString(m.Content)
+			b.WriteString("\n")
 		}
 		historyText = b.String()
 	}
@@ -226,9 +234,22 @@ func (n *BuildContextNode) loadMemories(ctx context.Context, query string, event
 	if n.memoryStore == nil || event == nil || event.Sender == nil || query == "" {
 		return ""
 	}
-	items, err := n.memoryStore.Retrieve(ctx, n.bot.ID, event.Sender.UserID, query, memoryLimit)
-	if err != nil || len(items) == 0 {
+
+	var parts []string
+
+	// 画像
+	if profile := n.memoryStore.GetProfile(ctx, n.bot.ID, event.Sender.UserID); profile != "" {
+		parts = append(parts, fmt.Sprintf("User Profile:\n%s", profile))
+	}
+
+	// 相关事实
+	items, err := n.memoryStore.Retrieve(ctx, n.bot.ID, event.Sender.UserID, n.bot.OwnerID, n.bot.MemoryEmbeddingModelID, query, memoryLimit)
+	if err == nil && len(items) > 0 {
+		parts = append(parts, FormatMemories(items))
+	}
+
+	if len(parts) == 0 {
 		return ""
 	}
-	return FormatMemories(items)
+	return strings.Join(parts, "\n\n")
 }

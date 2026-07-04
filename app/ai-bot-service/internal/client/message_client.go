@@ -43,11 +43,13 @@ func (c *MessageClient) GetRecentMessages(ctx context.Context, convID, userID in
 	for i, m := range resp.Messages {
 		content := extractText(m)
 		msgs[i] = graph.Message{
-			MsgID:    m.MessageId,
-			SenderID: m.FromUserId,
-			Content:  content,
-			MsgType:  int32(m.Type),
-			Seq:      m.Seq,
+			MsgID:      m.MessageId,
+			SenderID:   m.FromUserId,
+			SenderName: senderName(m),
+			Content:    content,
+			MsgType:    int32(m.Type),
+			Seq:        m.Seq,
+			CreatedAt:  m.CreatedAt,
 		}
 	}
 	return msgs, nil
@@ -94,11 +96,13 @@ func (c *MessageClient) GetAllMessages(ctx context.Context, convID, userID int64
 			msgID := m.MessageId
 			if !existing[msgID] {
 				all = append(all, graph.Message{
-					MsgID:    m.MessageId,
-					SenderID: m.FromUserId,
-					Content:  extractText(m),
-					MsgType:  int32(m.Type),
-					Seq:      m.Seq,
+					MsgID:      m.MessageId,
+					SenderID:   m.FromUserId,
+					SenderName: senderName(m),
+					Content:    extractText(m),
+					MsgType:    int32(m.Type),
+					Seq:        m.Seq,
+					CreatedAt:  m.CreatedAt,
 				})
 				existing[msgID] = true
 			}
@@ -115,6 +119,16 @@ func (c *MessageClient) GetAllMessages(ctx context.Context, convID, userID int64
 }
 
 // extractText pulls plain text from a message's oneof content.
+func senderName(m *msgpb.Message) string {
+	if m == nil {
+		return ""
+	}
+	if c := m.GetBot(); c != nil {
+		return c.GetBotName()
+	}
+	return ""
+}
+
 func extractText(m *msgpb.Message) string {
 	if m == nil {
 		return ""

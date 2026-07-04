@@ -190,11 +190,14 @@ type Bot struct {
 	Temperature        float64 `protobuf:"fixed64,16,opt,name=temperature,proto3" json:"temperature,omitempty"`
 	MaxContextMessages int32   `protobuf:"varint,17,opt,name=max_context_messages,json=maxContextMessages,proto3" json:"max_context_messages,omitempty"`
 	StreamingEnabled   bool    `protobuf:"varint,18,opt,name=streaming_enabled,json=streamingEnabled,proto3" json:"streaming_enabled,omitempty"`
+	MaxContextTokens   int32   `protobuf:"varint,19,opt,name=max_context_tokens,json=maxContextTokens,proto3" json:"max_context_tokens,omitempty"`
 	// Memory config
-	MemoryModelName        string `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
-	MemoryModelId          int64  `protobuf:"varint,22,opt,name=memory_model_id,json=memoryModelId,proto3" json:"memory_model_id,omitempty"`
-	MemoryUsePlatformModel bool   `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
-	MemoryLimit            int32  `protobuf:"varint,23,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"` // 0=default(5)
+	MemoryModelName          string `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
+	MemoryModelId            int64  `protobuf:"varint,22,opt,name=memory_model_id,json=memoryModelId,proto3" json:"memory_model_id,omitempty"`
+	MemoryUsePlatformModel   bool   `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
+	MemoryLimit              int32  `protobuf:"varint,23,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"` // 0=default(5)
+	MemoryEmbeddingModelName string `protobuf:"bytes,24,opt,name=memory_embedding_model_name,json=memoryEmbeddingModelName,proto3" json:"memory_embedding_model_name,omitempty"`
+	MemoryEmbeddingModelId   int64  `protobuf:"varint,25,opt,name=memory_embedding_model_id,json=memoryEmbeddingModelId,proto3" json:"memory_embedding_model_id,omitempty"`
 	// Connection config (third_party)
 	ConnMode         string `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
 	CallbackUrl      string `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
@@ -350,6 +353,13 @@ func (x *Bot) GetStreamingEnabled() bool {
 	return false
 }
 
+func (x *Bot) GetMaxContextTokens() int32 {
+	if x != nil {
+		return x.MaxContextTokens
+	}
+	return 0
+}
+
 func (x *Bot) GetMemoryModelName() string {
 	if x != nil {
 		return x.MemoryModelName
@@ -374,6 +384,20 @@ func (x *Bot) GetMemoryUsePlatformModel() bool {
 func (x *Bot) GetMemoryLimit() int32 {
 	if x != nil {
 		return x.MemoryLimit
+	}
+	return 0
+}
+
+func (x *Bot) GetMemoryEmbeddingModelName() string {
+	if x != nil {
+		return x.MemoryEmbeddingModelName
+	}
+	return ""
+}
+
+func (x *Bot) GetMemoryEmbeddingModelId() int64 {
+	if x != nil {
+		return x.MemoryEmbeddingModelId
 	}
 	return 0
 }
@@ -486,12 +510,15 @@ type CreateBotReq struct {
 	Temperature        float64 `protobuf:"fixed64,17,opt,name=temperature,proto3" json:"temperature,omitempty"`
 	MaxContextMessages int32   `protobuf:"varint,18,opt,name=max_context_messages,json=maxContextMessages,proto3" json:"max_context_messages,omitempty"`
 	StreamingEnabled   bool    `protobuf:"varint,19,opt,name=streaming_enabled,json=streamingEnabled,proto3" json:"streaming_enabled,omitempty"`
+	MaxContextTokens   int32   `protobuf:"varint,25,opt,name=max_context_tokens,json=maxContextTokens,proto3" json:"max_context_tokens,omitempty"`
 	// Memory config
-	MemoryModelName        string `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
-	MemoryModelId          int64  `protobuf:"varint,22,opt,name=memory_model_id,json=memoryModelId,proto3" json:"memory_model_id,omitempty"`
-	MemoryUsePlatformModel bool   `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
-	MemoryApiKey           string `protobuf:"bytes,23,opt,name=memory_api_key,json=memoryApiKey,proto3" json:"memory_api_key,omitempty"` // plaintext, server encrypts
-	MemoryLimit            int32  `protobuf:"varint,24,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"`     // 0=default(5)
+	MemoryModelName          string `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
+	MemoryModelId            int64  `protobuf:"varint,22,opt,name=memory_model_id,json=memoryModelId,proto3" json:"memory_model_id,omitempty"`
+	MemoryUsePlatformModel   bool   `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
+	MemoryApiKey             string `protobuf:"bytes,23,opt,name=memory_api_key,json=memoryApiKey,proto3" json:"memory_api_key,omitempty"` // plaintext, server encrypts
+	MemoryLimit              int32  `protobuf:"varint,24,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"`     // 0=default(5)
+	MemoryEmbeddingModelName string `protobuf:"bytes,26,opt,name=memory_embedding_model_name,json=memoryEmbeddingModelName,proto3" json:"memory_embedding_model_name,omitempty"`
+	MemoryEmbeddingModelId   int64  `protobuf:"varint,27,opt,name=memory_embedding_model_id,json=memoryEmbeddingModelId,proto3" json:"memory_embedding_model_id,omitempty"`
 	// Connection config (third_party)
 	ConnMode         string   `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
 	CallbackUrl      string   `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
@@ -634,6 +661,13 @@ func (x *CreateBotReq) GetStreamingEnabled() bool {
 	return false
 }
 
+func (x *CreateBotReq) GetMaxContextTokens() int32 {
+	if x != nil {
+		return x.MaxContextTokens
+	}
+	return 0
+}
+
 func (x *CreateBotReq) GetMemoryModelName() string {
 	if x != nil {
 		return x.MemoryModelName
@@ -665,6 +699,20 @@ func (x *CreateBotReq) GetMemoryApiKey() string {
 func (x *CreateBotReq) GetMemoryLimit() int32 {
 	if x != nil {
 		return x.MemoryLimit
+	}
+	return 0
+}
+
+func (x *CreateBotReq) GetMemoryEmbeddingModelName() string {
+	if x != nil {
+		return x.MemoryEmbeddingModelName
+	}
+	return ""
+}
+
+func (x *CreateBotReq) GetMemoryEmbeddingModelId() int64 {
+	if x != nil {
+		return x.MemoryEmbeddingModelId
 	}
 	return 0
 }
@@ -733,38 +781,41 @@ func (x *CreateBotReq) GetResponseTriggers() []string {
 }
 
 type UpdateBotReq struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	BotId                  int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	UserId                 int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // caller, must be owner
-	Name                   string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Avatar                 string                 `protobuf:"bytes,4,opt,name=avatar,proto3" json:"avatar,omitempty"`
-	Status                 string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
-	UsePlatformModel       bool                   `protobuf:"varint,10,opt,name=use_platform_model,json=usePlatformModel,proto3" json:"use_platform_model,omitempty"`
-	ModelName              string                 `protobuf:"bytes,11,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
-	BaseUrl                string                 `protobuf:"bytes,12,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
-	ApiKey                 string                 `protobuf:"bytes,13,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
-	SystemPrompt           string                 `protobuf:"bytes,14,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
-	Persona                string                 `protobuf:"bytes,15,opt,name=persona,proto3" json:"persona,omitempty"`
-	EnableKnowledge        bool                   `protobuf:"varint,16,opt,name=enable_knowledge,json=enableKnowledge,proto3" json:"enable_knowledge,omitempty"`
-	Temperature            float64                `protobuf:"fixed64,17,opt,name=temperature,proto3" json:"temperature,omitempty"`
-	MaxContextMessages     int32                  `protobuf:"varint,18,opt,name=max_context_messages,json=maxContextMessages,proto3" json:"max_context_messages,omitempty"`
-	StreamingEnabled       bool                   `protobuf:"varint,19,opt,name=streaming_enabled,json=streamingEnabled,proto3" json:"streaming_enabled,omitempty"`
-	MemoryModelName        string                 `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
-	MemoryModelId          int64                  `protobuf:"varint,22,opt,name=memory_model_id,json=memoryModelId,proto3" json:"memory_model_id,omitempty"`
-	MemoryUsePlatformModel bool                   `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
-	MemoryApiKey           string                 `protobuf:"bytes,23,opt,name=memory_api_key,json=memoryApiKey,proto3" json:"memory_api_key,omitempty"`
-	MemoryLimit            int32                  `protobuf:"varint,24,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"` // 0=default(5)
-	ConnMode               string                 `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
-	CallbackUrl            string                 `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
-	BotTags                []string               `protobuf:"bytes,40,rep,name=bot_tags,json=botTags,proto3" json:"bot_tags,omitempty"`
-	Capabilities           string                 `protobuf:"bytes,41,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
-	Settings               string                 `protobuf:"bytes,42,opt,name=settings,proto3" json:"settings,omitempty"`
-	ModelId                int64                  `protobuf:"varint,43,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	TemplateId             string                 `protobuf:"bytes,44,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
-	SubType                string                 `protobuf:"bytes,45,opt,name=sub_type,json=subType,proto3" json:"sub_type,omitempty"`
-	ResponseTriggers       []string               `protobuf:"bytes,46,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"` // "always" | "mention" | "keyword:xxx"
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	BotId                    int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	UserId                   int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // caller, must be owner
+	Name                     string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Avatar                   string                 `protobuf:"bytes,4,opt,name=avatar,proto3" json:"avatar,omitempty"`
+	Status                   string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	UsePlatformModel         bool                   `protobuf:"varint,10,opt,name=use_platform_model,json=usePlatformModel,proto3" json:"use_platform_model,omitempty"`
+	ModelName                string                 `protobuf:"bytes,11,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
+	BaseUrl                  string                 `protobuf:"bytes,12,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	ApiKey                   string                 `protobuf:"bytes,13,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	SystemPrompt             string                 `protobuf:"bytes,14,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
+	Persona                  string                 `protobuf:"bytes,15,opt,name=persona,proto3" json:"persona,omitempty"`
+	EnableKnowledge          bool                   `protobuf:"varint,16,opt,name=enable_knowledge,json=enableKnowledge,proto3" json:"enable_knowledge,omitempty"`
+	Temperature              float64                `protobuf:"fixed64,17,opt,name=temperature,proto3" json:"temperature,omitempty"`
+	MaxContextMessages       int32                  `protobuf:"varint,18,opt,name=max_context_messages,json=maxContextMessages,proto3" json:"max_context_messages,omitempty"`
+	StreamingEnabled         bool                   `protobuf:"varint,19,opt,name=streaming_enabled,json=streamingEnabled,proto3" json:"streaming_enabled,omitempty"`
+	MaxContextTokens         int32                  `protobuf:"varint,25,opt,name=max_context_tokens,json=maxContextTokens,proto3" json:"max_context_tokens,omitempty"`
+	MemoryModelName          string                 `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
+	MemoryModelId            int64                  `protobuf:"varint,22,opt,name=memory_model_id,json=memoryModelId,proto3" json:"memory_model_id,omitempty"`
+	MemoryUsePlatformModel   bool                   `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
+	MemoryApiKey             string                 `protobuf:"bytes,23,opt,name=memory_api_key,json=memoryApiKey,proto3" json:"memory_api_key,omitempty"`
+	MemoryLimit              int32                  `protobuf:"varint,24,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"` // 0=default(5)
+	MemoryEmbeddingModelName string                 `protobuf:"bytes,26,opt,name=memory_embedding_model_name,json=memoryEmbeddingModelName,proto3" json:"memory_embedding_model_name,omitempty"`
+	MemoryEmbeddingModelId   int64                  `protobuf:"varint,27,opt,name=memory_embedding_model_id,json=memoryEmbeddingModelId,proto3" json:"memory_embedding_model_id,omitempty"`
+	ConnMode                 string                 `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
+	CallbackUrl              string                 `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
+	BotTags                  []string               `protobuf:"bytes,40,rep,name=bot_tags,json=botTags,proto3" json:"bot_tags,omitempty"`
+	Capabilities             string                 `protobuf:"bytes,41,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Settings                 string                 `protobuf:"bytes,42,opt,name=settings,proto3" json:"settings,omitempty"`
+	ModelId                  int64                  `protobuf:"varint,43,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	TemplateId               string                 `protobuf:"bytes,44,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
+	SubType                  string                 `protobuf:"bytes,45,opt,name=sub_type,json=subType,proto3" json:"sub_type,omitempty"`
+	ResponseTriggers         []string               `protobuf:"bytes,46,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"` // "always" | "mention" | "keyword:xxx"
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *UpdateBotReq) Reset() {
@@ -902,6 +953,13 @@ func (x *UpdateBotReq) GetStreamingEnabled() bool {
 	return false
 }
 
+func (x *UpdateBotReq) GetMaxContextTokens() int32 {
+	if x != nil {
+		return x.MaxContextTokens
+	}
+	return 0
+}
+
 func (x *UpdateBotReq) GetMemoryModelName() string {
 	if x != nil {
 		return x.MemoryModelName
@@ -933,6 +991,20 @@ func (x *UpdateBotReq) GetMemoryApiKey() string {
 func (x *UpdateBotReq) GetMemoryLimit() int32 {
 	if x != nil {
 		return x.MemoryLimit
+	}
+	return 0
+}
+
+func (x *UpdateBotReq) GetMemoryEmbeddingModelName() string {
+	if x != nil {
+		return x.MemoryEmbeddingModelName
+	}
+	return ""
+}
+
+func (x *UpdateBotReq) GetMemoryEmbeddingModelId() int64 {
+	if x != nil {
+		return x.MemoryEmbeddingModelId
 	}
 	return 0
 }
@@ -3199,7 +3271,7 @@ var File_bot_platform_bot_platform_proto protoreflect.FileDescriptor
 
 const file_bot_platform_bot_platform_proto_rawDesc = "" +
 	"\n" +
-	"\x1fbot-platform/bot-platform.proto\x12\vbotplatform\x1a\x13common/common.proto\"\xbe\b\n" +
+	"\x1fbot-platform/bot-platform.proto\x12\vbotplatform\x1a\x13common/common.proto\"\xe6\t\n" +
 	"\x03Bot\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
 	"\bowner_id\x18\x02 \x01(\x03R\aownerId\x12\x12\n" +
@@ -3217,11 +3289,14 @@ const file_bot_platform_bot_platform_proto_rawDesc = "" +
 	"\x10enable_knowledge\x18\x0f \x01(\bR\x0fenableKnowledge\x12 \n" +
 	"\vtemperature\x18\x10 \x01(\x01R\vtemperature\x120\n" +
 	"\x14max_context_messages\x18\x11 \x01(\x05R\x12maxContextMessages\x12+\n" +
-	"\x11streaming_enabled\x18\x12 \x01(\bR\x10streamingEnabled\x12*\n" +
+	"\x11streaming_enabled\x18\x12 \x01(\bR\x10streamingEnabled\x12,\n" +
+	"\x12max_context_tokens\x18\x13 \x01(\x05R\x10maxContextTokens\x12*\n" +
 	"\x11memory_model_name\x18\x14 \x01(\tR\x0fmemoryModelName\x12&\n" +
 	"\x0fmemory_model_id\x18\x16 \x01(\x03R\rmemoryModelId\x129\n" +
 	"\x19memory_use_platform_model\x18\x15 \x01(\bR\x16memoryUsePlatformModel\x12!\n" +
-	"\fmemory_limit\x18\x17 \x01(\x05R\vmemoryLimit\x12\x1b\n" +
+	"\fmemory_limit\x18\x17 \x01(\x05R\vmemoryLimit\x12=\n" +
+	"\x1bmemory_embedding_model_name\x18\x18 \x01(\tR\x18memoryEmbeddingModelName\x129\n" +
+	"\x19memory_embedding_model_id\x18\x19 \x01(\x03R\x16memoryEmbeddingModelId\x12\x1b\n" +
 	"\tconn_mode\x18\x1e \x01(\tR\bconnMode\x12!\n" +
 	"\fcallback_url\x18\x1f \x01(\tR\vcallbackUrl\x12,\n" +
 	"\x12has_webhook_secret\x18  \x01(\bR\x10hasWebhookSecret\x12$\n" +
@@ -3237,7 +3312,7 @@ const file_bot_platform_bot_platform_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x182 \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x183 \x01(\x03R\tupdatedAt\"\xcc\a\n" +
+	"updated_at\x183 \x01(\x03R\tupdatedAt\"\xf4\b\n" +
 	"\fCreateBotReq\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\x03R\aownerId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -3254,12 +3329,15 @@ const file_bot_platform_bot_platform_proto_rawDesc = "" +
 	"\x10enable_knowledge\x18\x10 \x01(\bR\x0fenableKnowledge\x12 \n" +
 	"\vtemperature\x18\x11 \x01(\x01R\vtemperature\x120\n" +
 	"\x14max_context_messages\x18\x12 \x01(\x05R\x12maxContextMessages\x12+\n" +
-	"\x11streaming_enabled\x18\x13 \x01(\bR\x10streamingEnabled\x12*\n" +
+	"\x11streaming_enabled\x18\x13 \x01(\bR\x10streamingEnabled\x12,\n" +
+	"\x12max_context_tokens\x18\x19 \x01(\x05R\x10maxContextTokens\x12*\n" +
 	"\x11memory_model_name\x18\x14 \x01(\tR\x0fmemoryModelName\x12&\n" +
 	"\x0fmemory_model_id\x18\x16 \x01(\x03R\rmemoryModelId\x129\n" +
 	"\x19memory_use_platform_model\x18\x15 \x01(\bR\x16memoryUsePlatformModel\x12$\n" +
 	"\x0ememory_api_key\x18\x17 \x01(\tR\fmemoryApiKey\x12!\n" +
-	"\fmemory_limit\x18\x18 \x01(\x05R\vmemoryLimit\x12\x1b\n" +
+	"\fmemory_limit\x18\x18 \x01(\x05R\vmemoryLimit\x12=\n" +
+	"\x1bmemory_embedding_model_name\x18\x1a \x01(\tR\x18memoryEmbeddingModelName\x129\n" +
+	"\x19memory_embedding_model_id\x18\x1b \x01(\x03R\x16memoryEmbeddingModelId\x12\x1b\n" +
 	"\tconn_mode\x18\x1e \x01(\tR\bconnMode\x12!\n" +
 	"\fcallback_url\x18\x1f \x01(\tR\vcallbackUrl\x12\x19\n" +
 	"\bbot_tags\x18( \x03(\tR\abotTags\x12\"\n" +
@@ -3269,7 +3347,7 @@ const file_bot_platform_bot_platform_proto_rawDesc = "" +
 	"\vtemplate_id\x18, \x01(\tR\n" +
 	"templateId\x12\x19\n" +
 	"\bsub_type\x18- \x01(\tR\asubType\x12+\n" +
-	"\x11response_triggers\x18. \x03(\tR\x10responseTriggers\"\xe5\a\n" +
+	"\x11response_triggers\x18. \x03(\tR\x10responseTriggers\"\x8d\t\n" +
 	"\fUpdateBotReq\x12\x15\n" +
 	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
@@ -3287,12 +3365,15 @@ const file_bot_platform_bot_platform_proto_rawDesc = "" +
 	"\x10enable_knowledge\x18\x10 \x01(\bR\x0fenableKnowledge\x12 \n" +
 	"\vtemperature\x18\x11 \x01(\x01R\vtemperature\x120\n" +
 	"\x14max_context_messages\x18\x12 \x01(\x05R\x12maxContextMessages\x12+\n" +
-	"\x11streaming_enabled\x18\x13 \x01(\bR\x10streamingEnabled\x12*\n" +
+	"\x11streaming_enabled\x18\x13 \x01(\bR\x10streamingEnabled\x12,\n" +
+	"\x12max_context_tokens\x18\x19 \x01(\x05R\x10maxContextTokens\x12*\n" +
 	"\x11memory_model_name\x18\x14 \x01(\tR\x0fmemoryModelName\x12&\n" +
 	"\x0fmemory_model_id\x18\x16 \x01(\x03R\rmemoryModelId\x129\n" +
 	"\x19memory_use_platform_model\x18\x15 \x01(\bR\x16memoryUsePlatformModel\x12$\n" +
 	"\x0ememory_api_key\x18\x17 \x01(\tR\fmemoryApiKey\x12!\n" +
-	"\fmemory_limit\x18\x18 \x01(\x05R\vmemoryLimit\x12\x1b\n" +
+	"\fmemory_limit\x18\x18 \x01(\x05R\vmemoryLimit\x12=\n" +
+	"\x1bmemory_embedding_model_name\x18\x1a \x01(\tR\x18memoryEmbeddingModelName\x129\n" +
+	"\x19memory_embedding_model_id\x18\x1b \x01(\x03R\x16memoryEmbeddingModelId\x12\x1b\n" +
 	"\tconn_mode\x18\x1e \x01(\tR\bconnMode\x12!\n" +
 	"\fcallback_url\x18\x1f \x01(\tR\vcallbackUrl\x12\x19\n" +
 	"\bbot_tags\x18( \x03(\tR\abotTags\x12\"\n" +

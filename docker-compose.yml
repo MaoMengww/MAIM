@@ -269,11 +269,15 @@ services:
   # Run once before starting app services:
   #   docker compose --profile init up -d init-etcd-config
   init-etcd-config:
-    image: quay.io/coreos/etcd:v3.5.21
+    # Alpine has /bin/sh. The etcdctl binary is bind-mounted from the host
+    # (copied out of the aim-etcd container), because quay.io/coreos/etcd is
+    # distroless and has no shell to run the init script itself.
+    image: alpine:3.21
     container_name: aim-init-etcd-config
     entrypoint: ["/bin/sh", "/init-etcd-config.sh"]
     volumes:
       - ./deploy/docker/init-etcd-config.sh:/init-etcd-config.sh
+      - /tmp/etcdctl-bin:/usr/local/bin/etcdctl:ro
     depends_on:
       etcd:
         condition: service_healthy
