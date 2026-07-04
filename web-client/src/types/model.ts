@@ -298,11 +298,14 @@ export interface Bot {
   enable_knowledge: boolean;
   temperature: number;
   max_context_messages: number;
+  max_context_tokens: number;
   streaming_enabled: boolean;
   memory_model_name: string;
   memory_model_id: number;
   memory_use_platform_model: boolean;
   memory_limit: number;
+  memory_embedding_model_name: string;
+  memory_embedding_model_id: number;
   conn_mode: string;
   callback_url: string;
   has_webhook_secret: boolean;
@@ -313,16 +316,6 @@ export interface Bot {
   settings: string;
   created_at: number;
   updated_at: number;
-}
-
-export interface BotMemory {
-  id: number;
-  content: string;
-  memory_type: string;   // "fact" | "episode"
-  category: string;
-  importance: number;
-  created_at: string;
-  final_score: number;
 }
 
 // ─── MCP Tool Info ───

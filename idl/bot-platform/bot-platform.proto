@@ -87,12 +87,15 @@ message Bot {
   double temperature = 16;
   int32 max_context_messages = 17;
   bool streaming_enabled = 18;
+  int32 max_context_tokens = 19;
 
   // Memory config
   string memory_model_name = 20;
   int64 memory_model_id = 22;
   bool memory_use_platform_model = 21;
   int32 memory_limit = 23;  // 0=default(5)
+  string memory_embedding_model_name = 24;
+  int64 memory_embedding_model_id = 25;
 
   // Connection config (third_party)
   string conn_mode = 30;
@@ -135,6 +138,7 @@ message CreateBotReq {
   double temperature = 17;
   int32 max_context_messages = 18;
   bool streaming_enabled = 19;
+  int32 max_context_tokens = 25;
 
   // Memory config
   string memory_model_name = 20;
@@ -142,6 +146,8 @@ message CreateBotReq {
   bool memory_use_platform_model = 21;
   string memory_api_key = 23;  // plaintext, server encrypts
   int32 memory_limit = 24;     // 0=default(5)
+  string memory_embedding_model_name = 26;
+  int64 memory_embedding_model_id = 27;
 
   // Connection config (third_party)
   string conn_mode = 30;
@@ -177,12 +183,15 @@ message UpdateBotReq {
   double temperature = 17;
   int32 max_context_messages = 18;
   bool streaming_enabled = 19;
+  int32 max_context_tokens = 25;
 
   string memory_model_name = 20;
   int64 memory_model_id = 22;
   bool memory_use_platform_model = 21;
   string memory_api_key = 23;
   int32 memory_limit = 24;     // 0=default(5)
+  string memory_embedding_model_name = 26;
+  int64 memory_embedding_model_id = 27;
 
   string conn_mode = 30;
   string callback_url = 31;

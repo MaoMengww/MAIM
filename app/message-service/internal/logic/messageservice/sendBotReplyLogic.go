@@ -2,7 +2,6 @@ package messageservicelogic
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -67,7 +66,21 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		UpdatedAt:    now,
 	}
 
-	// 事务：生成 seq + 插入消息 + 更新会话 max_seq
+	// 事务外预取 reply_to（涉及 DB 查询，不放在事务内）
+	replyToMap := map[string]any{}
+	if replyToID := in.GetReplyToId(); replyToID != 0 {
+		replyToMap = buildReplyToMap(l.ctx, l.svcCtx, replyToID)
+	}
+	contentMap := map[string]any{
+		"bot_id":      in.BotId,
+		"bot_name":    botName,
+		"bot_avatar":  botAvatar,
+		"text":        in.Text,
+		"raw_payload": in.RawPayload,
+	}
+	previewText := extractTextPreview(int32(model.MsgTypeBot), model.JSONContent{"text": in.Text})
+
+	// 事务：生成 seq + 插入消息 + outbox 事件 + 更新会话 max_seq（原子提交）
 	var seq int64
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
 		var err error
@@ -80,49 +93,45 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		if err := tx.Create(msg).Error; err != nil {
 			return err
 		}
+
+		outboxID, err := l.svcCtx.Snowflake.Generate()
+		if err != nil {
+			return err
+		}
+		outboxEvent := &model.OutboxEvent{
+			ID:         outboxID,
+			Topic:      consts.KafkaTopicMessageCreated,
+			Key:        fmt.Sprintf("%d", msgID),
+			MaxRetries: model.DefaultMaxRetries,
+		}
+		payload := map[string]any{
+			"message_id":      msgID,
+			"conv_id":         in.ConversationId,
+			"sender_id":       in.BotId,
+			"msg_type":        int64(model.MsgTypeBot),
+			"content":         contentMap,
+			"seq":             seq,
+			"reply_to_msg_id": in.GetReplyToId(),
+			"created_at":      now.Unix(),
+			"sender_name":     botName,
+			"preview_text":    previewText,
+		}
+		if len(replyToMap) > 0 {
+			payload["reply_to"] = replyToMap
+		}
+		if err := outboxEvent.SetPayload(payload); err != nil {
+			return err
+		}
+		if err := l.svcCtx.OutboxRepo.Insert(l.ctx, tx, outboxEvent); err != nil {
+			return err
+		}
+
 		return tx.Table("conv.conversations").Where("id = ?", in.ConversationId).
 			Update("max_seq", seq).Error
 	})
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "insert bot message failed", err)
 	}
-
-	// 异步发送 Kafka 事件
-	contentMap := map[string]any{
-		"bot_id":      in.BotId,
-		"bot_name":    botName,
-		"bot_avatar":  botAvatar,
-		"text":        in.Text,
-		"raw_payload": in.RawPayload,
-	}
-	payload := map[string]any{
-		"message_id":      msgID,
-		"conv_id":         in.ConversationId,
-		"sender_id":       in.BotId,
-		"msg_type":        int64(model.MsgTypeBot),
-		"content":         contentMap,
-		"seq":             seq,
-		"reply_to_msg_id": in.GetReplyToId(),
-		"created_at":      now.Unix(),
-		"sender_name":     botName,
-		"preview_text":    extractTextPreview(int32(model.MsgTypeBot), model.JSONContent{"text": in.Text}),
-	}
-	if replyToID := in.GetReplyToId(); replyToID != 0 {
-		payload["reply_to"] = buildReplyToMap(l.ctx, l.svcCtx, replyToID)
-	}
-	val, _ := json.Marshal(payload)
-
-	go func() {
-		producer := l.svcCtx.MessageCreatedProducer
-		if err := producer.Send(context.Background(), fmt.Sprintf("%d", msgID), val); err != nil {
-			l.Errorf("kafka async send failed, write to failed_events: msg_id=%d, err=%v", msgID, err)
-			_ = l.svcCtx.DB.WithContext(context.Background()).Create(&model.FailedEvent{
-				Topic:   consts.KafkaTopicMessageCreated,
-				Key:     fmt.Sprintf("%d", msgID),
-				Payload: val,
-			}).Error
-		}
-	}()
 
 	l.Infof("bot reply sent: msg_id=%d bot_id=%d", msgID, in.BotId)
 

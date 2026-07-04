@@ -226,7 +226,7 @@ func TestListBots_Normal(t *testing.T) {
 	logic := NewListBotsLogic(context.Background(), svcCtx)
 
 	resp, err := logic.ListBots(&pb.ListBotsReq{
-		OwnerId: 10,
+		OwnerId:    10,
 		Pagination: &pbcommon.Pagination{Page: 1, PageSize: 20},
 	})
 	require.NoError(t, err)
@@ -530,7 +530,7 @@ func TestModelBotToProto_AllFields(t *testing.T) {
 		ConnMode: "ws", WebhookSecret: "wh-secret",
 		CallbackURL: "https://cb.example.com", AppSecretHash: "app-secret-hash",
 		SubType: "ws", TemplateID: "qa",
-		BotTags: []string{"tag1", "tag2"},
+		BotTags:   []string{"tag1", "tag2"},
 		CreatedAt: now, UpdatedAt: now,
 	}
 	pbBot := modelBotToProto(bot)

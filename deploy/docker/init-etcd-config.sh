@@ -40,7 +40,7 @@ put "aim-config-friend.rpc" '{
 }'
 
 # ---- message-service (50053) ----
-put "aim-config-message.rpc" '{
+put "aim-config-message-service" '{
   "database": {"dsn": "postgres://aim:aim123@postgres:5432/aim?sslmode=disable&search_path=msg"},
   "redis": {"addr": "redis:6379"},
   "kafka": {"brokers": ["kafka:9092"]},
@@ -88,11 +88,12 @@ put "aim-config-audit.rpc" '{
 }'
 
 # ---- ai-bot-service (50062) ----
-put "aim-config-ai-bot.rpc" '{
+put "aim-config-ai-bot-service" '{
   "database": {"dsn": "postgres://aim:aim123@postgres:5432/aim?sslmode=disable&search_path=bot,conv"},
   "redis": {"addr": "redis:6379"},
   "kafka": {"brokers": ["kafka:9092"]},
-  "milvus": {"host": "milvus", "port": 19530}
+  "milvus": {"host": "milvus", "port": 19530},
+  "memory": {"neo4j": {"uri": "bolt://neo4j:7687", "username": "neo4j", "password": "password123", "database": "neo4j"}}
 }'
 
 # ---- bot-platform (8085) ----
@@ -108,7 +109,7 @@ put "aim-config-ws-gateway" '{
 }'
 
 # ---- signaling-service (50061) ----
-put "aim-config-signaling-service.rpc" '{
+put "aim-config-signaling-service" '{
   "database": {"dsn": "postgres://aim:aim123@postgres:5432/aim?sslmode=disable&search_path=notify,conv"},
   "redis": {"addr": "redis:6379"},
   "kafka": {"brokers": ["kafka:9092"]}

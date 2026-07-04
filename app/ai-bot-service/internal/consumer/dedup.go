@@ -8,7 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const dedupTTL = 7 * 24 * time.Hour
+const dedupTTL = 2 * time.Hour
 
 // Dedup checks and sets an idempotency key in Redis.
 type Dedup struct {

@@ -14,8 +14,6 @@ var (
 		"Bot reply messages sent", "bot_id")
 	BotToolCallTotal = metrics.NewCounterVec("bot_tool_calls_total",
 		"Bot tool call count", "bot_id", "tool_name")
-	BotMemoryOpsTotal = metrics.NewCounterVec("bot_memory_ops_total",
-		"Bot memory operations", "bot_id", "op")
 	BotLLMTokenTotal = metrics.NewCounterVec("bot_llm_tokens_total",
 		"LLM token consumption by bot", "bot_id", "model", "type")
 )

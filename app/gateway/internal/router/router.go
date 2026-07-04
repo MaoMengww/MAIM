@@ -179,11 +179,8 @@ func New(
 	bots.POST("/:id/token", botH.IssueToken)
 	bots.POST("/token/validate", botH.ValidateToken)
 
-	// AI Bot Streaming Chat & Memory
+	// AI Bot Streaming Chat
 	bots.GET("/:id/chat/stream", botH.StreamChat)
-	bots.GET("/:id/memory", botH.GetUserMemories)
-	bots.DELETE("/:id/memory", botH.ClearUserMemories)
-	bots.DELETE("/:id/memory/:memory_id", botH.ForgetMemory)
 
 	// Global MCP Server Management
 	mcp := protected.Group("/mcp-servers")

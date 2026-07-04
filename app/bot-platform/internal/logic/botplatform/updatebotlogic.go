@@ -53,6 +53,7 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 	switch bot.Type {
 	case consts.BotTypeOfficial:
 		updates["max_context_messages"] = in.MaxContextMessages
+		updates["max_context_tokens"] = in.MaxContextTokens
 		updates["memory_limit"] = in.MemoryLimit
 		// Official bots: only model and (for knowledge template) knowledge toggle
 		if in.ModelName != "" {
@@ -102,6 +103,7 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 		updates["temperature"] = in.Temperature
 		updates["memory_limit"] = in.MemoryLimit
 		updates["max_context_messages"] = in.MaxContextMessages
+		updates["max_context_tokens"] = in.MaxContextTokens
 		updates["streaming_enabled"] = in.StreamingEnabled
 		if in.MemoryModelName != "" {
 			updates["memory_model_name"] = in.MemoryModelName
@@ -117,6 +119,18 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 			if ownerID, err := l.svcCtx.Repo.GetModelOwner(l.ctx, memoryModelID); err == nil {
 				updates["memory_use_platform_model"] = (ownerID == 0)
 			}
+		}
+		if in.MemoryEmbeddingModelName != "" {
+			updates["memory_embedding_model_name"] = in.MemoryEmbeddingModelName
+		}
+		memoryEmbeddingModelID := in.MemoryEmbeddingModelId
+		if in.MemoryEmbeddingModelId <= 0 && in.MemoryEmbeddingModelName != "" {
+			if id, err := l.svcCtx.Repo.ResolveModelID(l.ctx, in.MemoryEmbeddingModelName); err == nil && id > 0 {
+				memoryEmbeddingModelID = id
+			}
+		}
+		if memoryEmbeddingModelID > 0 {
+			updates["memory_embedding_model_id"] = memoryEmbeddingModelID
 		}
 
 	case consts.BotTypeThirdParty:

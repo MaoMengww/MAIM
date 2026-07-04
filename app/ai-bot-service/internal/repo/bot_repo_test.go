@@ -31,7 +31,7 @@ func TestBotRepo_FindByID(t *testing.T) {
 		"id", "owner_id", "name", "avatar", "type",
 		"status", "use_platform_model", "model_name", "base_url",
 		"api_key_encrypted", "system_prompt", "persona", "enable_knowledge",
-		"temperature", "max_context_messages", "streaming_enabled",
+		"temperature", "max_context_messages", "max_context_tokens", "streaming_enabled",
 		"memory_model_name", "memory_use_platform_model", "memory_api_key_encrypted",
 		"conn_mode", "webhook_secret", "callback_url", "app_secret_hash",
 		"bot_tags", "capabilities", "settings", "created_at", "updated_at",
@@ -39,7 +39,7 @@ func TestBotRepo_FindByID(t *testing.T) {
 		1, 100, "test-bot", "", "platform",
 		"active", true, "gpt-4o", "",
 		"", "You are {bot_name}", "friendly", true,
-		0.7, 10, true,
+		0.7, 10, 0, true,
 		"gpt-4o-mini", true, "",
 		"", "", "", "",
 		"[]", "{}", "{}", nil, nil,
@@ -113,5 +113,4 @@ func TestConvBotRepo_FindByBotAndConv_NotFound(t *testing.T) {
 func TestModelStructs(t *testing.T) {
 	var _ = model.Bot{}
 	var _ = model.ConvBot{}
-	var _ = model.Memory{}
 }

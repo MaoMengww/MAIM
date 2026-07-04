@@ -53,7 +53,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		panic(fmt.Sprintf("database init failed: %v", err))
 	}
-	if err := db.AutoMigrate(&model.Message{}, &model.Sequence{}, &model.FailedEvent{}, &model.OutboxEvent{}); err != nil {
+	if err := db.AutoMigrate(&model.Message{}, &model.Sequence{}, &model.OutboxEvent{}); err != nil {
 		panic(fmt.Sprintf("auto migrate failed: %v", err))
 	}
 	if err := database.RunMigrations(db.DB, postgres.FS); err != nil {
