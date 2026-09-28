@@ -91,19 +91,6 @@ type PipelineConfig struct {
 	Parsing   ParsingConfig   `json:"parsing"`
 	Chunking  ChunkingConfig  `json:"chunking"`
 	Retrieval RetrievalConfig `json:"retrieval"`
-	Wiki      WikiConfig      `json:"wiki"`
-}
-
-type WikiConfig struct {
-	Enabled    bool   `json:"enabled"`
-	ModelID    int64  `json:"model_id"`   // model registry ID, 0 = use default
-	ModelName  string `json:"model_name"` // display only
-	AutoLint   bool   `json:"auto_lint"`
-	StaleHours int    `json:"stale_threshold_hours"`
-
-	// 自动维护配置
-	MaintenanceEnabled bool   `json:"maintenance_enabled"` // 是否启用自动维护
-	MaintenanceCron    string `json:"maintenance_cron"`    // cron 表达式，如 "0 3 * * *"（每天 3 点）
 }
 
 type ParsingConfig struct {

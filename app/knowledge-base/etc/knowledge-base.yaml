@@ -71,12 +71,6 @@ MinerU:
   URL: http://localhost:30000
   Timeout: 60
 
-Neo4j:
-  Enabled: true
-  URI: bolt://localhost:7687
-  Username: neo4j
-  Password: password123
-
 Snowflake:
   WorkerId: 3
 

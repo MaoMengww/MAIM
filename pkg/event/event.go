@@ -12,9 +12,6 @@ const (
 	EventTypeKnowledgeFailed    EventType = "knowledge.failed"
 	EventTypeAIThinking         EventType = "ai.thinking"
 	EventTypeAIProcessing       EventType = "ai.processing"
-	EventTypeWikiIngested       EventType = "wiki.ingested"
-	EventTypeWikiIssueFlagged   EventType = "wiki.issue.flagged"
-	EventTypeWikiMaintained     EventType = "wiki.maintained"
 )
 
 type EventLevel string

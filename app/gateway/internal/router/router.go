@@ -221,26 +221,6 @@ func New(
 	kb.POST("/bases/:id/search", kbH.Search)
 	kb.GET("/bases/:id/bindings", kbH.ListKBBindings)
 
-	// Wiki Pages
-	kb.GET("/bases/:id/wiki/index", kbH.WikiReadIndex)
-	kb.GET("/bases/:id/wiki/pages", kbH.WikiListPages)
-	kb.GET("/bases/:id/wiki/pages/*slug", kbH.WikiReadPage)
-	kb.GET("/bases/:id/wiki/search", kbH.WikiSearch)
-	kb.PUT("/bases/:id/wiki/pages/*slug", kbH.WikiUpdatePage)
-	kb.DELETE("/bases/:id/wiki/pages/*slug", kbH.WikiDeletePage)
-	kb.GET("/bases/:id/wiki/issues", kbH.WikiListIssues)
-	kb.POST("/bases/:id/wiki/refresh", kbH.WikiRefresh)
-	kb.POST("/bases/:id/wiki/maintenance", kbH.WikiRunMaintenance)
-	kb.GET("/bases/:id/wiki/graph", kbH.WikiGraph)
-
-	// Wiki — New tools
-	kb.GET("/bases/:id/wiki/source/:docId", kbH.WikiReadSourceDoc)
-	kb.PUT("/bases/:id/wiki/replace-text/:slug", kbH.WikiReplaceText)
-	kb.PUT("/bases/:id/wiki/rename-page/:slug", kbH.WikiRenamePage)
-	kb.POST("/bases/:id/wiki/issues", kbH.WikiFlagIssue)
-	kb.PUT("/bases/:id/wiki/issues/:issueId", kbH.WikiUpdateIssue)
-	kb.POST("/bases/:id/wiki/batch-upload", kbH.WikiBatchUploadDocuments)
-
 	protected.POST("/bots/:id/knowledge", kbH.BindToBot)
 	protected.DELETE("/bots/:id/knowledge/:kid", kbH.UnbindFromBot)
 	protected.GET("/bots/:id/knowledge", kbH.ListBotBindings)

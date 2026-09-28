@@ -66,14 +66,6 @@ func main() {
 		progressPusher = eventpush.New(realtimeevent.NewRealtimeEventServiceClient(realtimeClient.Conn()), "knowledge-base")
 	}
 
-	// Wire pusher for maintenance completion events
-	if ctx.MaintenanceScheduler != nil {
-		ctx.MaintenanceScheduler.WithPusher(progressPusher)
-	}
-	if ctx.WikiMaintain != nil {
-		ctx.WikiMaintain.WithPusher(progressPusher)
-	}
-
 	ingestPipe := &pipeline.IngestPipeline{
 		Parser:           ctx.Parser,
 		Chunker:          ctx.Chunker,
@@ -102,25 +94,6 @@ func main() {
 		}
 	}
 
-	// Wire wiki pipeline progress events
-	ctx.WikiIngestPipe.Progress = func(progressCtx context.Context, docID int64, evt event.RealtimeEvent) {
-		doc, err := ctx.DocRepo.Get(progressCtx, docID)
-		if err != nil {
-			logger.Errorf("get doc for wiki progress event failed: doc=%d err=%v", docID, err)
-			return
-		}
-		kb, err := ctx.KBRepo.Get(progressCtx, doc.KBID)
-		if err != nil {
-			logger.Errorf("get kb for wiki progress event failed: kb=%d err=%v", doc.KBID, err)
-			return
-		}
-		evt.KBID = doc.KBID
-		evt.DocID = doc.ID
-		if err := progressPusher.PushToUser(progressCtx, kb.OwnerID, evt); err != nil {
-			logger.Errorf("push wiki progress event failed: doc=%d err=%v", docID, err)
-		}
-	}
-
 	retrievePipe := &pipeline.RetrievePipeline{
 		KBRepo:           ctx.KBRepo,
 		Embedder:         embed,
@@ -130,58 +103,17 @@ func main() {
 		EmbeddingModelID: 15,
 	}
 
-	wikiH := &handler.WikiHandler{
-		WikiRepo:      ctx.WikiRepo,
-		DocRepo:       ctx.DocRepo,
-		FileStore:     ctx.FileStore,
-		KBRepo:        ctx.KBRepo,
-		Snowflake:     ctx.Snowflake,
-		WikiPipe:      ctx.WikiIngestPipe,
-		WikiSearch:    ctx.WikiSearchPipe,
-		WikiLint:      ctx.WikiLintPipe,
-		WikiMaintain:  ctx.WikiMaintain,
-		WikiAgent:     ctx.WikiAgent,
-		WikiEinoAgent: ctx.WikiEinoAgent,
-		Neo4jStore:    ctx.Neo4jStore,
-		Logger:        logger,
-		LogWriter:     ctx.LogWriter,
-		Pusher:        progressPusher,
-	}
-
 	h := &handler.KnowledgeBaseHandler{
-		KBRepo:               ctx.KBRepo,
-		DocRepo:              ctx.DocRepo,
-		FileStore:            ctx.FileStore,
-		VectorStore:          vecStore,
-		Producer:             ctx.Producer,
-		IngestPipeline:       ingestPipe,
-		RetrievePipe:         retrievePipe,
-		Snowflake:            ctx.Snowflake,
-		Logger:               logger,
-		WikiHandler:          wikiH,
-		LLMGateway:           ctx.LLMGatewayClient,
-		MaintenanceScheduler: ctx.MaintenanceScheduler,
-	}
-
-	// 启动自动维护调度器，加载所有启用了维护的 wiki 知识库
-	if ctx.MaintenanceScheduler != nil {
-		ctx.MaintenanceScheduler.Start()
-		offset := 0
-		limit := 100
-		for {
-			kbs, err := ctx.KBRepo.ListByMode(context.Background(), "wiki", offset, limit)
-			if err != nil || len(kbs) == 0 {
-				break
-			}
-			for i := range kbs {
-				ctx.MaintenanceScheduler.ScheduleKB(&kbs[i])
-			}
-			if len(kbs) < limit {
-				break
-			}
-			offset += limit
-		}
-		logger.Infof("maintenance scheduler started")
+		KBRepo:         ctx.KBRepo,
+		DocRepo:        ctx.DocRepo,
+		FileStore:      ctx.FileStore,
+		VectorStore:    vecStore,
+		Producer:       ctx.Producer,
+		IngestPipeline: ingestPipe,
+		RetrievePipe:   retrievePipe,
+		Snowflake:      ctx.Snowflake,
+		Logger:         logger,
+		LLMGateway:     ctx.LLMGatewayClient,
 	}
 
 	if len(c.Kafka.Brokers) > 0 {
@@ -194,7 +126,6 @@ func main() {
 			DocRepo:            ctx.DocRepo,
 			KBRepo:             ctx.KBRepo,
 			IngestPipe:         ingestPipe,
-			WikiIngestPipe:     ctx.WikiIngestPipe,
 			Logger:             logger,
 			DefaultEmbeddingID: 15,
 		}
@@ -233,9 +164,6 @@ func main() {
 	})
 	s.AddUnaryInterceptors(interceptor.UnaryRequestIDInterceptor(), interceptor.UnaryUserIDInterceptor(), interceptor.UnaryErrorInterceptor())
 	defer s.Stop()
-	if ctx.MaintenanceScheduler != nil {
-		defer ctx.MaintenanceScheduler.Stop()
-	}
 
 	fmt.Printf("Starting knowledge-base rpc server at %s...\n", c.ListenOn)
 	s.Start()

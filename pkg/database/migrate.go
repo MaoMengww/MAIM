@@ -39,7 +39,7 @@ func RunMigrations(db *gorm.DB, src fs.FS) error {
 		if entry.IsDir() || !strings.HasSuffix(name, ".sql") {
 			continue
 		}
-		// Skip rollback scripts (e.g. 002_wiki_dedup.down.sql)
+		// Skip rollback scripts (files ending in .down.sql)
 		if strings.HasSuffix(name, ".down.sql") {
 			continue
 		}

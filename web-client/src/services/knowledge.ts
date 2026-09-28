@@ -1,6 +1,6 @@
 import client, { unwrap } from './client';
 import type { CreateKBReq } from '@/types/api';
-import type { APIResponse, KBRsp, DocumentRsp, ChunkInfo, WikiPageRsp, WikiPageItem, WikiSearchItem, WikiSourceDocRsp, WikiIssueItem, WikiGraphData } from '@/types/model';
+import type { APIResponse, KBRsp, DocumentRsp, ChunkInfo } from '@/types/model';
 
 export const kbApi = {
   create: (data: CreateKBReq) =>
@@ -81,79 +81,4 @@ export const kbApi = {
   listConvBindings: (convId: number) =>
     client.get<APIResponse<{ items: any[] }>>(`/convs/${convId}/knowledge`)
       .then((r) => r.data.data.items ?? []),
-
-  // ─── Wiki ───
-  wikiReadPage: (kbId: number | string, slug: string) =>
-    client.get<APIResponse<WikiPageRsp>>(`/knowledge/bases/${kbId}/wiki/pages/${encodeURIComponent(slug)}`).then(unwrap),
-
-  wikiListPages: (kbId: number | string, params?: { page_type?: string; limit?: number; offset?: number }) =>
-    client.get<APIResponse<{ items: WikiPageItem[]; total: number }>>(`/knowledge/bases/${kbId}/wiki/pages`, { params })
-      .then((r) => ({ list: (r.data as any)?.data?.items ?? [], total: (r.data as any)?.data?.total ?? 0 })),
-
-  wikiSearch: (kbId: number, query: string, limit?: number) =>
-    client.get<APIResponse<WikiSearchItem[]>>(`/knowledge/bases/${kbId}/wiki/search`, { params: { query, limit } })
-      .then(unwrap),
-
-  wikiUpdatePage: (kbId: number, slug: string, data: { title?: string; content?: string; summary?: string; aliases?: string[] }) =>
-    client.put<APIResponse<WikiPageRsp>>(`/knowledge/bases/${kbId}/wiki/pages/${encodeURIComponent(slug)}`, data).then(unwrap),
-
-  wikiDeletePage: (kbId: number | string, slug: string) =>
-    client.delete<APIResponse<null>>(`/knowledge/bases/${kbId}/wiki/pages/${encodeURIComponent(slug)}`).then(unwrap),
-
-  wikiListIssues: (kbId: number, status?: string) =>
-    client.get<APIResponse<{ items: WikiIssueItem[] }>>(`/knowledge/bases/${kbId}/wiki/issues`, { params: { status } }).then(unwrap),
-
-  wikiRefresh: (kbId: number) =>
-    client.post<APIResponse<{ pages_updated: number }>>(`/knowledge/bases/${kbId}/wiki/refresh`).then(unwrap),
-
-  wikiRunMaintenance: (kbId: number) =>
-    client.post<APIResponse<{ pages_created: number; issues_found: number; duration_ms: number }>>(
-      `/knowledge/bases/${kbId}/wiki/maintenance`,
-    ).then(unwrap),
-
-  wikiGraph: (kbId: string) =>
-    client.get<APIResponse<WikiGraphData>>(`/knowledge/bases/${kbId}/wiki/graph`).then(unwrap),
-
-  // ─── Wiki — New ───
-
-  wikiBatchUpload: (kbId: number, files: File[]) => {
-    const fd = new FormData();
-    files.forEach(f => fd.append('files', f));
-    return client.post<APIResponse<{ documents: DocumentRsp[] }>>(
-      `/knowledge/bases/${kbId}/wiki/batch-upload`, fd,
-      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300000 },
-    ).then(unwrap);
-  },
-
-  wikiReadSourceDoc: (kbId: number, docId: number, query?: string) =>
-    client.get<APIResponse<WikiSourceDocRsp>>(
-      `/knowledge/bases/${kbId}/wiki/source/${docId}`, { params: { query } }
-    ).then(unwrap),
-
-  wikiReplaceText: (kbId: number, slug: string, oldText: string, newText: string) =>
-    client.put<APIResponse<WikiPageRsp>>(
-      `/knowledge/bases/${kbId}/wiki/replace-text/${encodeURIComponent(slug)}`,
-      { old_text: oldText, new_text: newText }
-    ).then(unwrap),
-
-  wikiRenamePage: (kbId: number, slug: string, newSlug: string) =>
-    client.put<APIResponse<WikiPageRsp>>(
-      `/knowledge/bases/${kbId}/wiki/rename-page/${encodeURIComponent(slug)}`,
-      { new_slug: newSlug }
-    ).then(unwrap),
-
-  wikiFlagIssue: (kbId: number, slug: string, issueType: string, description: string) =>
-    client.post<APIResponse<{ issue_id: number }>>(
-      `/knowledge/bases/${kbId}/wiki/issues`, { slug, issue_type: issueType, description }
-    ).then(unwrap),
-
-  wikiReadIssue: (kbId: number, params?: { slug?: string; issue_id?: number; status?: string }) =>
-    client.get<APIResponse<WikiIssueItem[]>>(
-      `/knowledge/bases/${kbId}/wiki/issues`, { params }
-    ).then(unwrap),
-
-  wikiUpdateIssue: (kbId: number, issueId: number, status: string) =>
-    client.put<APIResponse<null>>(
-      `/knowledge/bases/${kbId}/wiki/issues/${issueId}`, { status }
-    ).then(unwrap),
 };

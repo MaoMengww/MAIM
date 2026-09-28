@@ -16,7 +16,6 @@ type Config struct {
 	RealtimeEvent RealtimeEventConfig    `json:"realtimeEvent"`
 	MinerU        MinerUConfig           `json:"mineru"`
 	Snowflake     SnowflakeConfig        `json:"snowflake"`
-	Neo4j         Neo4jConfig            `json:"neo4j"`
 	MaxFileSize   int64                  `json:"maxFileSize" default:"10485760"`
 	RetryLimit    int                    `json:"retryLimit" default:"3"`
 	RateLimit     config.RateLimitConfig `json:"rateLimit"`
@@ -37,11 +36,4 @@ type RealtimeEventConfig = zrpc.RpcClientConf
 type MinerUConfig struct {
 	URL     string `json:"url" default:"http://localhost:30000"`
 	Timeout int    `json:"timeout" default:"60"`
-}
-
-type Neo4jConfig struct {
-	URI      string `json:"uri"`
-	Username string `json:"username" default:"neo4j"`
-	Password string `json:"password"`
-	Enabled  bool   `json:"enabled"`
 }

@@ -30,26 +30,6 @@ service KnowledgeBase {
     rpc ListBindings(ListBindingsReq) returns (ListBindingsRsp);
     rpc ListBoundTargets(ListBoundTargetsReq) returns (ListBoundTargetsRsp);
 
-    // ========== Wiki ==========
-    rpc WikiReadIndex(WikiReadIndexReq) returns (WikiPageRsp);
-    rpc WikiReadPage(WikiReadPageReq) returns (WikiPageRsp);
-    rpc WikiListPages(WikiListPagesReq) returns (WikiListPagesRsp);
-    rpc WikiSearch(WikiSearchReq) returns (WikiSearchRsp);
-    rpc WikiUpdatePage(WikiUpdatePageReq) returns (WikiPageRsp);
-    rpc WikiDeletePage(WikiDeletePageReq) returns (google.protobuf.Empty);
-    rpc WikiListIssues(WikiListIssuesReq) returns (WikiListIssuesRsp);
-    rpc WikiRefresh(WikiRefreshReq) returns (WikiRefreshRsp);
-    rpc WikiRunMaintenance(WikiMaintenanceReq) returns (WikiMaintenanceRsp);
-    rpc WikiQuery(WikiQueryReq) returns (WikiQueryRsp);
-	rpc WikiGraph(WikiGraphReq) returns (WikiGraphRsp);
-    rpc WikiBatchUploadDocuments(stream WikiBatchUploadDocumentReq) returns (WikiBatchUploadDocumentRsp);
-    rpc WikiReadSourceDoc(WikiReadSourceDocReq) returns (WikiReadSourceDocRsp);
-    rpc WikiReplaceText(WikiReplaceTextReq) returns (WikiPageRsp);
-    rpc WikiRenamePage(WikiRenamePageReq) returns (WikiPageRsp);
-    rpc WikiReadIssue(WikiReadIssueReq) returns (WikiReadIssueRsp);
-    rpc WikiUpdateIssue(WikiUpdateIssueReq) returns (google.protobuf.Empty);
-    rpc WikiFlagIssue(WikiFlagIssueReq) returns (WikiFlagIssueRsp);
-
     // ========== Document Content & Chunks ==========
     rpc GetDocumentContent(GetDocumentContentReq) returns (GetDocumentContentResp);
     rpc ListChunks(ListChunksReq) returns (ListChunksResp);
@@ -64,7 +44,7 @@ message CreateKBReq {
     string description = 2;
     string embedding_model = 3;     // display only, resolved from embedding_model_id
     PipelineConfig pipeline_config = 4;
-    string mode = 5;                // "rag" | "wiki"
+    string mode = 5;                // "rag"
     int64 embedding_model_id = 6;   // model registry ID
 }
 
@@ -98,7 +78,7 @@ message KBRsp {
     string status = 9;
     int64 created_at = 10;
     int64 updated_at = 11;
-    string mode = 12;               // "rag" | "wiki"
+    string mode = 12;               // "rag"
     int64 embedding_model_id = 13;
 }
 
@@ -112,10 +92,11 @@ message ListKBsRsp {
 // ============================================================
 
 message PipelineConfig {
+    reserved 5;
+
     ParsingConfig parsing = 2;
     ChunkingConfig chunking = 3;
     RetrievalConfig retrieval = 4;
-    WikiConfig wiki = 5;
 }
 
 message ParsingConfig {
@@ -357,252 +338,4 @@ message ChunkInfo {
 message ListChunksResp {
     repeated ChunkInfo chunks = 1;
     int64 total = 2;
-}
-
-// ============================================================
-// Wiki
-// ============================================================
-
-message WikiConfig {
-    bool enabled = 1;
-    int64 model_id = 2;             // model registry ID, 0 = use default
-    string model_name = 5;          // display only
-    bool auto_lint = 3;
-    int32 stale_threshold_hours = 4;
-    bool maintenance_enabled = 6;   // 是否启用自动维护
-    string maintenance_cron = 7;    // cron 表达式，如 "0 3 * * *"
-}
-
-message WikiReadIndexReq { int64 kb_id = 1; }
-message WikiReadPageReq { int64 kb_id = 1; string slug = 2; }
-
-message WikiSourceRef {
-    int64 doc_id = 1;
-    string title = 2;
-}
-
-message WikiPageRsp {
-    int64 id = 1;
-    string slug = 2;
-    string title = 3;
-    string page_type = 4;
-    string content = 5;
-    string summary = 6;
-    repeated string aliases = 7;
-    repeated string out_links = 8;
-    repeated string in_links = 9;
-    int32 version = 10;
-    int64 created_at = 11;
-    int64 updated_at = 12;
-    repeated WikiSourceRef source_refs = 13;
-}
-
-message WikiListPagesReq {
-    int64 kb_id = 1;
-    string page_type = 2;
-    int32 limit = 3;
-    int32 offset = 4;
-}
-
-message WikiListPagesRsp {
-    repeated WikiPageItem items = 1;
-    int32 total = 2;
-}
-
-message WikiPageItem {
-    int64 id = 1;
-    string slug = 2;
-    string title = 3;
-    string page_type = 4;
-    string summary = 5;
-    int32 version = 6;
-    int64 updated_at = 7;
-}
-
-message WikiSearchReq {
-    int64 kb_id = 1;
-    string query = 2;
-    int32 limit = 3;
-}
-
-message WikiSearchRsp {
-    repeated WikiSearchItem items = 1;
-}
-
-message WikiSearchItem {
-    string slug = 1;
-    string title = 2;
-    string page_type = 3;
-    string snippet = 4;
-}
-
-message WikiUpdatePageReq {
-    int64 kb_id = 1;
-    string slug = 2;
-    string title = 3;
-    string content = 4;
-    string summary = 5;
-    repeated string aliases = 6;
-}
-
-message WikiDeletePageReq {
-    int64 kb_id = 1;
-    string slug = 2;
-}
-
-message WikiListIssuesReq {
-    int64 kb_id = 1;
-    string status = 2;
-}
-
-message WikiListIssuesRsp {
-    repeated WikiIssueItem items = 1;
-}
-
-message WikiIssueItem {
-    int64 id = 1;
-    string page_slug = 2;
-    string issue_type = 3;
-    string level = 4;
-    string title = 5;
-    string status = 6;
-    int64 created_at = 7;
-    string description = 8;
-}
-
-message WikiRefreshReq {
-    int64 kb_id = 1;
-}
-
-message WikiRefreshRsp {
-    int32 pages_updated = 1;
-}
-
-message WikiMaintenanceReq {
-    int64 kb_id = 1;
-}
-
-message WikiMaintenanceRsp {
-    int32 pages_created = 1;
-    int32 issues_found = 2;
-    int64 duration_ms = 3;
-}
-
-message WikiQueryReq {
-    string query = 1;
-    repeated int64 wiki_kb_ids = 2;
-    int64 model_id = 3;
-    string model_name = 4;
-    string history = 5;             // conversation history for context
-}
-
-message WikiQueryRsp {
-    string answer = 1;
-    repeated WikiQueryRef refs = 2;
-}
-
-message WikiQueryRef {
-    string slug = 1;
-    string title = 2;
-    string snippet = 3;
-}
-
-message WikiGraphReq {
-    int64 kb_id = 1;
-}
-
-message WikiGraphNode {
-    string id = 1;
-    string title = 2;
-    string page_type = 3;
-    string group = 4;
-    string summary = 5;
-    int32 citation_count = 6;
-}
-
-message WikiGraphEdge {
-    string source = 1;
-    string target = 2;
-    int32 weight = 3;
-}
-
-message WikiGraphRsp {
-    repeated WikiGraphNode nodes = 1;
-    repeated WikiGraphEdge edges = 2;
-}
-
-// --- Batch Upload ---
-message WikiBatchUploadDocumentReq {
-    oneof data {
-        WikiBatchMetaChunk meta = 1;
-        bytes content = 2;
-    }
-}
-message WikiBatchMetaChunk {
-    repeated FileMeta files = 1;
-}
-message FileMeta {
-    string title = 1;
-    string file_type = 2;
-    int64 file_size = 3;
-    string original_filename = 4;
-    PipelineConfig pipeline_override = 5;
-    string metadata = 6;
-}
-message WikiBatchUploadDocumentRsp {
-    repeated DocumentRsp documents = 1;
-}
-
-// --- Wiki Source Doc ---
-message WikiReadSourceDocReq {
-    int64 kb_id = 1;
-    int64 doc_id = 2;
-    string query = 3;
-    int32 start_chunk_index = 4;
-    int32 end_chunk_index = 5;
-}
-message WikiReadSourceDocRsp {
-    int64 doc_id = 1;
-    string title = 2;
-    string content = 3;
-}
-
-// --- Wiki Replace Text ---
-message WikiReplaceTextReq {
-    int64 kb_id = 1;
-    string slug = 2;
-    string old_text = 3;
-    string new_text = 4;
-}
-
-// --- Wiki Rename Page ---
-message WikiRenamePageReq {
-    int64 kb_id = 1;
-    string slug = 2;
-    string new_slug = 3;
-}
-
-// --- Wiki Issues ---
-message WikiReadIssueReq {
-    int64 kb_id = 1;
-    string slug = 2;
-    int64 issue_id = 3;
-}
-message WikiReadIssueRsp {
-    WikiIssueItem issue = 1;
-}
-
-message WikiUpdateIssueReq {
-    int64 issue_id = 1;
-    string status = 2;
-}
-
-message WikiFlagIssueReq {
-    int64 kb_id = 1;
-    string slug = 2;
-    string issue_type = 3;
-    string description = 4;
-}
-message WikiFlagIssueRsp {
-    int64 issue_id = 1;
 }

@@ -9,7 +9,7 @@ import (
 
 // KnowledgeSource represents a knowledge base source attached to a bot reply.
 type KnowledgeSource struct {
-	Type    string `json:"type"` // "rag" or "wiki"
+	Type    string `json:"type"` // "rag"
 	KbName  string `json:"kb_name"`
 	KbID    int64  `json:"kb_id"`
 	Title   string `json:"title"`
@@ -46,7 +46,6 @@ type MsgClient interface {
 // KbClient abstracts gRPC calls to knowledge-base.
 type KbClient interface {
 	Retrieve(ctx context.Context, query string, botID, convID int64, topK int, kbIDs []int64) ([]KbDocument, error)
-	WikiQuery(ctx context.Context, query string, wikiKBIDs []int64, modelID int64, modelName string, history string) (*WikiResult, error)
 	ListBoundKBs(ctx context.Context, botID, convID int64) ([]BoundKB, error)
 }
 
@@ -75,23 +74,10 @@ type KbDocument struct {
 	KbName         string
 }
 
-// WikiResult is the result of a wiki query.
-type WikiResult struct {
-	Answer     string
-	References []WikiReference
-}
-
-// WikiReference is a single wiki page reference.
-type WikiReference struct {
-	Slug    string
-	Title   string
-	Snippet string
-}
-
 // BoundKB represents a knowledge base binding with mode info.
 type BoundKB struct {
 	KBID int64
-	Mode string // "rag" or "wiki"
+	Mode string // "rag"
 	Name string
 }
 

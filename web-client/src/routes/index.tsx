@@ -12,9 +12,6 @@ import { BotDetailPage } from '@/pages/bots/BotDetailPage';
 import { KBListPage } from '@/pages/knowledge/KBListPage';
 import { KBDetailPage } from '@/pages/knowledge/KBDetailPage';
 import { DocDetailPage } from '@/pages/knowledge/DocDetailPage';
-import { WikiPageView } from '@/pages/knowledge/WikiPageView';
-import { WikiGraphPage } from '@/pages/knowledge/WikiGraphPage';
-import { WikiDocDetailPage } from '@/pages/knowledge/WikiDocDetailPage';
 import { SettingsPage, ProfilePage } from '@/pages/settings/SettingsPage';
 import { ModelManagePage } from '@/pages/settings/ModelManagePage';
 import { McpServersPage } from '@/pages/settings/McpServersPage';
@@ -51,9 +48,6 @@ export const routes: RouteObject[] = [
       { path: '/knowledge', element: <KBListPage /> },
       { path: '/knowledge/:id', element: <KBDetailPage /> },
       { path: '/knowledge/:kbId/documents/:docId', element: <DocDetailPage /> },
-      { path: '/knowledge/:kbId/wiki/documents/:docId', element: <WikiDocDetailPage /> },
-      { path: '/knowledge/:kbId/wiki/graph', element: <WikiGraphPage /> },
-      { path: '/knowledge/:kbId/wiki/*', element: <WikiPageView /> },
       { path: '/settings', element: <SettingsPage />, children: [
         { index: true, element: <ProfilePage /> },
         { path: 'models', element: <ModelManagePage /> },

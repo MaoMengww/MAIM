@@ -26,21 +26,16 @@ import (
 
 type KnowledgeBaseHandler struct {
 	pb.UnimplementedKnowledgeBaseServer
-	KBRepo               domain.KBRepo
-	DocRepo              domain.DocumentRepo
-	FileStore            domain.FileStore
-	VectorStore          domain.VectorStore
-	Producer             *kafka.Producer
-	IngestPipeline       *pipeline.IngestPipeline
-	RetrievePipe         *pipeline.RetrievePipeline
-	Snowflake            *snowflake.Node
-	Logger               logx.Logger
-	WikiHandler          *WikiHandler
-	LLMGateway           zrpc.Client
-	MaintenanceScheduler interface {
-		ScheduleKB(kb *domain.KnowledgeBase)
-		UnscheduleKB(kbID int64)
-	}
+	KBRepo         domain.KBRepo
+	DocRepo        domain.DocumentRepo
+	FileStore      domain.FileStore
+	VectorStore    domain.VectorStore
+	Producer       *kafka.Producer
+	IngestPipeline *pipeline.IngestPipeline
+	RetrievePipe   *pipeline.RetrievePipeline
+	Snowflake      *snowflake.Node
+	Logger         logx.Logger
+	LLMGateway     zrpc.Client
 }
 
 type PipelineConfigProvider interface {
@@ -91,9 +86,6 @@ func (h *KnowledgeBaseHandler) CreateKB(ctx context.Context, req *pb.CreateKBReq
 		return nil, errors.Wrap(errors.CodeDBError, "create kb failed", err)
 	}
 	h.Logger.WithContext(ctx).Infof("knowledge base created: kb_id=%d name=%s owner_id=%d", kb.ID, kb.Name, ownerID)
-	if h.MaintenanceScheduler != nil {
-		h.MaintenanceScheduler.ScheduleKB(kb)
-	}
 	return toKBRsp(kb), nil
 }
 
@@ -126,9 +118,6 @@ func (h *KnowledgeBaseHandler) UpdateKB(ctx context.Context, req *pb.UpdateKBReq
 	}
 	if err := h.KBRepo.Update(ctx, kb); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "update kb failed", err)
-	}
-	if h.MaintenanceScheduler != nil {
-		h.MaintenanceScheduler.ScheduleKB(kb)
 	}
 	return toKBRsp(kb), nil
 }
@@ -279,108 +268,6 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 	return stream.SendAndClose(toDocumentRsp(doc))
 }
 
-func (h *KnowledgeBaseHandler) WikiBatchUploadDocuments(stream pb.KnowledgeBase_WikiBatchUploadDocumentsServer) error {
-	ctx := stream.Context()
-	var metas []*pb.FileMeta
-	var fileBuffers [][]byte
-	for {
-		req, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		switch d := req.Data.(type) {
-		case *pb.WikiBatchUploadDocumentReq_Meta:
-			metas = d.Meta.Files
-		case *pb.WikiBatchUploadDocumentReq_Content:
-			buf := make([]byte, len(d.Content))
-			copy(buf, d.Content)
-			fileBuffers = append(fileBuffers, buf)
-		}
-	}
-	if len(metas) == 0 {
-		return errors.ErrInvalidParam
-	}
-	kbID := getKBIDFromContext(ctx)
-	if kbID == 0 {
-		return errors.ErrInvalidParam
-	}
-	callerID := getCallerID(ctx)
-	kb, err := h.KBRepo.Get(ctx, kbID)
-	if err != nil {
-		return domain.ErrKBNotFound
-	}
-	if callerID > 0 && kb.OwnerID != callerID && !isAdmin(ctx) {
-		return domain.ErrForbidden
-	}
-	var docs []*pb.DocumentRsp
-	for i, meta := range metas {
-		var fileBytes []byte
-		if i < len(fileBuffers) {
-			fileBytes = fileBuffers[i]
-		}
-		contentHash := fmt.Sprintf("%x", sha256.Sum256(fileBytes))
-
-		// Skip duplicate content within the same KB
-		if existing, err := h.DocRepo.GetByHash(ctx, kbID, contentHash); err == nil && existing != nil {
-			h.Logger.WithContext(ctx).Infof("batch upload: skipping duplicate file %s (existing doc #%d)", meta.OriginalFilename, existing.ID)
-			continue
-		}
-
-		fileType := meta.FileType
-		if fileType == "" {
-			fileType = "txt"
-		}
-		if !parser.IsFileTypeSupported(fileType) {
-			h.Logger.WithContext(ctx).Infof("batch upload: unsupported file type %s for %s", fileType, meta.OriginalFilename)
-			continue
-		}
-
-		minioKey := fmt.Sprintf("knowledge/%d/%s/%s", kbID, contentHash, meta.OriginalFilename)
-		if err := h.FileStore.Put(ctx, minioKey, bytes.NewReader(fileBytes), meta.FileSize, contentType(meta.FileType)); err != nil {
-			h.Logger.WithContext(ctx).Errorf("batch upload: minio put failed for %s: %v", meta.OriginalFilename, err)
-			continue
-		}
-		// fileType is already validated above
-		docID, err := h.Snowflake.Generate()
-		if err != nil {
-			h.Logger.WithContext(ctx).Errorf("generate doc id failed: %v", err)
-			continue
-		}
-		doc := &domain.Document{
-			ID:               docID,
-			KBID:             kbID,
-			Title:            meta.Title,
-			FileType:         fileType,
-			FileSize:         meta.FileSize,
-			OriginalFilename: meta.OriginalFilename,
-			MinioKey:         minioKey,
-			ContentHash:      contentHash,
-			Status:           domain.DocStatusPending,
-			Metadata:         parseJSONMeta(meta.Metadata),
-		}
-		if err := h.DocRepo.Create(ctx, doc); err != nil {
-			h.Logger.WithContext(ctx).Errorf("batch upload: create doc failed for %s: %v", meta.OriginalFilename, err)
-			continue
-		}
-		eventData, err := json.Marshal(map[string]any{"doc_id": doc.ID})
-		if err != nil {
-			h.Logger.WithContext(ctx).Errorf("batch upload: marshal event failed: %v", err)
-			continue
-		}
-		if err := h.Producer.Send(ctx, fmt.Sprintf("%d", doc.ID), eventData); err != nil {
-			h.Logger.WithContext(ctx).Errorf("batch upload: publish event failed for doc %d: %v", doc.ID, err)
-		}
-		docs = append(docs, toDocumentRsp(doc))
-	}
-	if err := h.KBRepo.UpdateCounts(ctx, kbID); err != nil {
-		h.Logger.WithContext(ctx).Errorf("batch upload: update counts failed: %v", err)
-	}
-	return stream.SendAndClose(&pb.WikiBatchUploadDocumentRsp{Documents: docs})
-}
-
 func (h *KnowledgeBaseHandler) GetDocument(ctx context.Context, req *pb.GetDocumentReq) (*pb.DocumentRsp, error) {
 	doc, err := h.DocRepo.Get(ctx, req.DocId)
 	if err != nil {
@@ -486,10 +373,6 @@ func (h *KnowledgeBaseHandler) DeleteDocument(ctx context.Context, req *pb.Delet
 	if doc.Status != domain.DocStatusReady && doc.Status != domain.DocStatusFailed {
 		return nil, domain.ErrDocumentProcessing
 	}
-	// Clean up wiki source_refs if applicable
-	if h.WikiHandler != nil && kb.Mode == "wiki" {
-		h.WikiHandler.RemoveDocRefs(ctx, doc.KBID, doc.ID)
-	}
 	if doc.MinioKey != "" {
 		_ = h.FileStore.Delete(ctx, doc.MinioKey)
 	}
@@ -588,302 +471,6 @@ func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq
 	}
 	h.Logger.WithContext(ctx).Infof("retrieve: kb_id=%d query_len=%d doc_count=0 (no pipeline)", kbIDs[0], len(req.Query))
 	return &pb.RetrieveRsp{}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiQuery(ctx context.Context, req *pb.WikiQueryReq) (*pb.WikiQueryRsp, error) {
-	if len(req.WikiKbIds) == 0 || h.WikiHandler == nil {
-		return &pb.WikiQueryRsp{}, nil
-	}
-	result, err := h.WikiHandler.WikiQuery(ctx, req.WikiKbIds, req.Query, req.ModelId, req.ModelName, req.History)
-	if err != nil {
-		h.Logger.WithContext(ctx).Errorf("wiki query failed: %v", err)
-		return &pb.WikiQueryRsp{}, nil
-	}
-	refs := make([]*pb.WikiQueryRef, len(result.References))
-	for i, ref := range result.References {
-		r := &pb.WikiQueryRef{Slug: ref}
-		if h.WikiHandler != nil && h.WikiHandler.WikiRepo != nil && ref != "" {
-			if page, pgErr := h.WikiHandler.WikiRepo.GetBySlug(ctx, req.WikiKbIds[0], ref); pgErr == nil {
-				r.Title = page.Title
-				r.Snippet = page.Content
-			}
-		}
-		refs[i] = r
-	}
-	return &pb.WikiQueryRsp{Answer: result.Answer, Refs: refs}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiGraph(ctx context.Context, req *pb.WikiGraphReq) (*pb.WikiGraphRsp, error) {
-	if h.WikiHandler == nil {
-		return nil, domain.ErrKBNotFound
-	}
-	data, err := h.WikiHandler.GetGraph(ctx, req.KbId)
-	if err != nil {
-		return nil, err
-	}
-	if data == nil {
-		return &pb.WikiGraphRsp{}, nil
-	}
-	nodes := make([]*pb.WikiGraphNode, len(data.Nodes))
-	for i, n := range data.Nodes {
-		nodes[i] = &pb.WikiGraphNode{
-			Id:            n.ID,
-			Title:         n.Title,
-			PageType:      n.PageType,
-			Group:         n.Group,
-			Summary:       n.Summary,
-			CitationCount: int32(n.CitationCount),
-		}
-	}
-	edges := make([]*pb.WikiGraphEdge, len(data.Edges))
-	for i, e := range data.Edges {
-		edges[i] = &pb.WikiGraphEdge{
-			Source: e.Source,
-			Target: e.Target,
-			Weight: int32(e.Weight),
-		}
-	}
-	return &pb.WikiGraphRsp{Nodes: nodes, Edges: edges}, nil
-}
-
-// ========== Wiki Pages ==========
-
-func toWikiPageProto(page *wikiPageRsp) *pb.WikiPageRsp {
-	protoRefs := make([]*pb.WikiSourceRef, len(page.SourceRefs))
-	for i, ref := range page.SourceRefs {
-		protoRefs[i] = &pb.WikiSourceRef{
-			DocId: ref.DocID, Title: ref.Title,
-		}
-	}
-	return &pb.WikiPageRsp{
-		Id: page.ID, Slug: page.Slug, Title: page.Title,
-		PageType: page.PageType, Content: page.Content,
-		Summary: page.Summary, Aliases: page.Aliases,
-		OutLinks: page.OutLinks, InLinks: page.InLinks,
-		Version: page.Version, CreatedAt: page.CreatedAt,
-		UpdatedAt: page.UpdatedAt, SourceRefs: protoRefs,
-	}
-}
-
-func (h *KnowledgeBaseHandler) WikiReadIndex(ctx context.Context, req *pb.WikiReadIndexReq) (*pb.WikiPageRsp, error) {
-	if h.WikiHandler == nil {
-		return nil, domain.ErrWikiPageNotFound
-	}
-	page, err := h.WikiHandler.ReadIndex(ctx, req.KbId)
-	if err != nil {
-		return nil, err
-	}
-	return toWikiPageProto(page), nil
-}
-
-func (h *KnowledgeBaseHandler) WikiReadPage(ctx context.Context, req *pb.WikiReadPageReq) (*pb.WikiPageRsp, error) {
-	if h.WikiHandler == nil {
-		return nil, domain.ErrWikiPageNotFound
-	}
-	page, err := h.WikiHandler.ReadPage(ctx, req.KbId, req.Slug)
-	if err != nil {
-		return nil, err
-	}
-	return toWikiPageProto(page), nil
-}
-
-func (h *KnowledgeBaseHandler) WikiListPages(ctx context.Context, req *pb.WikiListPagesReq) (*pb.WikiListPagesRsp, error) {
-	if h.WikiHandler == nil {
-		return &pb.WikiListPagesRsp{}, nil
-	}
-	items, err := h.WikiHandler.ListPages(ctx, req.KbId, req.PageType)
-	if err != nil {
-		return nil, err
-	}
-	total := int32(len(items))
-	pbItems := make([]*pb.WikiPageItem, len(items))
-	for i, item := range items {
-		pbItems[i] = &pb.WikiPageItem{
-			Id: item.ID, Slug: item.Slug, Title: item.Title,
-			PageType: item.PageType, Summary: item.Summary,
-			Version: item.Version, UpdatedAt: item.UpdatedAt,
-		}
-	}
-	if req.Limit > 0 {
-		offset := req.Offset
-		if offset < 0 {
-			offset = 0
-		}
-		end := offset + req.Limit
-		if end > total {
-			end = total
-		}
-		if offset < total {
-			pbItems = pbItems[offset:end]
-		} else {
-			pbItems = nil
-		}
-	}
-	return &pb.WikiListPagesRsp{Items: pbItems, Total: total}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiSearch(ctx context.Context, req *pb.WikiSearchReq) (*pb.WikiSearchRsp, error) {
-	if h.WikiHandler == nil {
-		return &pb.WikiSearchRsp{}, nil
-	}
-	metrics.KbSearchTotal.Inc("wiki")
-	limit := int(req.Limit)
-	if limit <= 0 {
-		limit = 20
-	}
-	items, err := h.WikiHandler.Search(ctx, req.KbId, req.Query, limit)
-	if err != nil {
-		return nil, err
-	}
-	pbItems := make([]*pb.WikiSearchItem, len(items))
-	for i, item := range items {
-		pbItems[i] = &pb.WikiSearchItem{
-			Slug: item.Slug, Title: item.Title,
-			PageType: item.PageType, Snippet: item.Snippet,
-		}
-	}
-	return &pb.WikiSearchRsp{Items: pbItems}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiUpdatePage(ctx context.Context, req *pb.WikiUpdatePageReq) (*pb.WikiPageRsp, error) {
-	if h.WikiHandler == nil {
-		return nil, domain.ErrWikiPageNotFound
-	}
-	page, err := h.WikiHandler.UpdatePage(ctx, req.KbId, req.Slug, req.Title, req.Content, req.Summary, req.Aliases)
-	if err != nil {
-		return nil, err
-	}
-	return toWikiPageProto(page), nil
-}
-
-func (h *KnowledgeBaseHandler) WikiDeletePage(ctx context.Context, req *pb.WikiDeletePageReq) (*emptypb.Empty, error) {
-	if h.WikiHandler == nil {
-		return nil, domain.ErrWikiPageNotFound
-	}
-	if err := h.WikiHandler.DeletePage(ctx, req.KbId, req.Slug); err != nil {
-		return nil, err
-	}
-	return &emptypb.Empty{}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiListIssues(ctx context.Context, req *pb.WikiListIssuesReq) (*pb.WikiListIssuesRsp, error) {
-	if h.WikiHandler == nil {
-		return &pb.WikiListIssuesRsp{}, nil
-	}
-	items, err := h.WikiHandler.ListIssues(ctx, req.KbId, req.Status)
-	if err != nil {
-		return nil, err
-	}
-	pbItems := make([]*pb.WikiIssueItem, len(items))
-	for i, item := range items {
-		pbItems[i] = &pb.WikiIssueItem{
-			Id: item.ID, PageSlug: item.PageSlug,
-			IssueType: item.IssueType, Level: item.Level,
-			Title: item.Title, Status: item.Status,
-			CreatedAt: item.CreatedAt, Description: item.Description,
-		}
-	}
-	return &pb.WikiListIssuesRsp{Items: pbItems}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiReadSourceDoc(ctx context.Context, req *pb.WikiReadSourceDocReq) (*pb.WikiReadSourceDocRsp, error) {
-	if h.WikiHandler == nil {
-		return nil, domain.ErrWikiPageNotFound
-	}
-	resp, err := h.WikiHandler.ReadSourceDoc(ctx, req.KbId, req.DocId, req.Query)
-	if err != nil {
-		return nil, err
-	}
-	return &pb.WikiReadSourceDocRsp{
-		DocId: resp.DocID, Title: resp.Title, Content: resp.Content,
-	}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiReplaceText(ctx context.Context, req *pb.WikiReplaceTextReq) (*pb.WikiPageRsp, error) {
-	if h.WikiHandler == nil {
-		return nil, domain.ErrWikiPageNotFound
-	}
-	page, err := h.WikiHandler.ReplaceText(ctx, req.KbId, req.Slug, req.OldText, req.NewText)
-	if err != nil {
-		return nil, err
-	}
-	return toWikiPageProto(page), nil
-}
-
-func (h *KnowledgeBaseHandler) WikiRenamePage(ctx context.Context, req *pb.WikiRenamePageReq) (*pb.WikiPageRsp, error) {
-	if h.WikiHandler == nil {
-		return nil, domain.ErrWikiPageNotFound
-	}
-	page, err := h.WikiHandler.RenamePage(ctx, req.KbId, req.Slug, req.NewSlug)
-	if err != nil {
-		return nil, err
-	}
-	return toWikiPageProto(page), nil
-}
-
-func (h *KnowledgeBaseHandler) WikiFlagIssue(ctx context.Context, req *pb.WikiFlagIssueReq) (*pb.WikiFlagIssueRsp, error) {
-	if h.WikiHandler == nil {
-		return nil, domain.ErrWikiPageNotFound
-	}
-	id, err := h.WikiHandler.FlagIssue(ctx, req.KbId, req.Slug, req.IssueType, req.Description)
-	if err != nil {
-		return nil, err
-	}
-	return &pb.WikiFlagIssueRsp{IssueId: id}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiReadIssue(ctx context.Context, req *pb.WikiReadIssueReq) (*pb.WikiReadIssueRsp, error) {
-	if h.WikiHandler == nil {
-		return &pb.WikiReadIssueRsp{}, nil
-	}
-	issueID := ""
-	if req.IssueId > 0 {
-		issueID = strconv.FormatInt(req.IssueId, 10)
-	}
-	items, err := h.WikiHandler.ReadIssue(ctx, req.KbId, req.Slug, issueID)
-	if err != nil {
-		return nil, err
-	}
-	if len(items) == 0 {
-		return &pb.WikiReadIssueRsp{}, nil
-	}
-	return &pb.WikiReadIssueRsp{Issue: &pb.WikiIssueItem{
-		Id: items[0].ID, PageSlug: items[0].PageSlug,
-		IssueType: items[0].IssueType, Level: items[0].Level,
-		Title: items[0].Title, Status: items[0].Status,
-		CreatedAt:   items[0].CreatedAt,
-		Description: items[0].Description,
-	}}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiUpdateIssue(ctx context.Context, req *pb.WikiUpdateIssueReq) (*emptypb.Empty, error) {
-	if h.WikiHandler == nil {
-		return &emptypb.Empty{}, nil
-	}
-	if err := h.WikiHandler.UpdateIssue(ctx, req.IssueId, req.Status); err != nil {
-		return nil, err
-	}
-	return &emptypb.Empty{}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiRefresh(ctx context.Context, req *pb.WikiRefreshReq) (*pb.WikiRefreshRsp, error) {
-	if h.WikiHandler == nil {
-		return &pb.WikiRefreshRsp{}, nil
-	}
-	count, err := h.WikiHandler.Refresh(ctx, req.KbId)
-	if err != nil {
-		return nil, err
-	}
-	return &pb.WikiRefreshRsp{PagesUpdated: int32(count)}, nil
-}
-
-func (h *KnowledgeBaseHandler) WikiRunMaintenance(ctx context.Context, req *pb.WikiMaintenanceReq) (*pb.WikiMaintenanceRsp, error) {
-	if h.WikiHandler == nil {
-		return &pb.WikiMaintenanceRsp{}, nil
-	}
-	// Fire async — maintenance completion will push a realtime event to the frontend
-	h.WikiHandler.RunMaintenanceAsync(ctx, req.KbId)
-	return &pb.WikiMaintenanceRsp{}, nil
 }
 
 func (h *KnowledgeBaseHandler) Bind(ctx context.Context, req *pb.BindReq) (*emptypb.Empty, error) {
@@ -1128,19 +715,11 @@ func convertPipelineConfig(pbCfg *pb.PipelineConfig) domain.PipelineConfig {
 			}
 		}
 	}
-	if pbCfg.Wiki != nil {
-		cfg.Wiki = domain.WikiConfig{
-			Enabled:    pbCfg.Wiki.Enabled,
-			ModelID:    pbCfg.Wiki.ModelId,
-			AutoLint:   pbCfg.Wiki.AutoLint,
-			StaleHours: int(pbCfg.Wiki.StaleThresholdHours),
-		}
-	}
 	return cfg
 }
 
 func pipelineConfigToProto(cfg domain.PipelineConfig) *pb.PipelineConfig {
-	if !cfg.Wiki.Enabled && cfg.Chunking.ChunkSize == 0 && !cfg.Chunking.ParentChild.Enabled && cfg.Retrieval.Mode == "" && len(cfg.Parsing.Engines) == 0 {
+	if cfg.Chunking.ChunkSize == 0 && !cfg.Chunking.ParentChild.Enabled && cfg.Retrieval.Mode == "" && len(cfg.Parsing.Engines) == 0 {
 		return nil
 	}
 	pbCfg := &pb.PipelineConfig{}
@@ -1206,14 +785,6 @@ func pipelineConfigToProto(cfg domain.PipelineConfig) *pb.PipelineConfig {
 			}
 		}
 		pbCfg.Retrieval = retPB
-	}
-	if cfg.Wiki.Enabled {
-		pbCfg.Wiki = &pb.WikiConfig{
-			Enabled:             cfg.Wiki.Enabled,
-			ModelId:             cfg.Wiki.ModelID,
-			AutoLint:            cfg.Wiki.AutoLint,
-			StaleThresholdHours: int32(cfg.Wiki.StaleHours),
-		}
 	}
 	return pbCfg
 }

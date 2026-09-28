@@ -261,8 +261,8 @@ export function BotDetailPage() {
                 boundKbs.map((b: any) => (
                   <div key={b.kb_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--aim-border)' }}>
                     <span>
-                      <Tag color={b.mode === 'wiki' ? 'purple' : 'blue'} style={{ marginRight: 6 }}>
-                        {b.mode === 'wiki' ? 'WIKI' : 'RAG'}
+                      <Tag color="blue" style={{ marginRight: 6 }}>
+                        RAG
                       </Tag>
                       {b.kb_name || `知识库 #${b.kb_id}`}
                     </span>
@@ -282,7 +282,7 @@ export function BotDetailPage() {
                 placeholder="选择知识库..."
                 value={selectedKbId}
                 onChange={setSelectedKbId}
-                options={availableKbs.map((kb: any) => ({ value: kb.id, label: `${kb.name} (${kb.mode === 'wiki' ? 'WIKI' : 'RAG'})` }))}
+                options={availableKbs.map((kb: any) => ({ value: kb.id, label: `${kb.name} (RAG)` }))}
                 showSearch
                 filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
               />

@@ -121,7 +121,7 @@ AIM/
 │   ├── llm-gateway/                  # LLM 模型网关 (多厂商路由 + 计费)
 │   ├── bot-platform/                 # Bot 管理平台 (创建/配置/MCP/Webhook)
 │   ├── ai-bot-service/               # AI Bot 执行引擎 (Eino ReAct Agent + 记忆)
-│   ├── knowledge-base/               # RAG 向量检索 + Wiki 自动生成
+│   ├── knowledge-base/               # RAG 向量检索（解析/分块/Embedding/检索）
 │   ├── signaling-service/            # 事件扇出与推送 (Kafka → WS/APNs/FCM/Bot路由)
 │   └── audit-service/                # 审计日志服务
 │
@@ -295,18 +295,15 @@ agent, err := react.NewAgent(ctx, &react.AgentConfig{
 **MessageModifier** 在每次推理前注入四类上下文：
 
 1. **系统提示词**：模板渲染 `{botname}`, `{username}`, `{user_language}`, `{message}` 等变量
-2. **知识库内容**：通过 `KnowledgeResolver` 检索绑定的知识库（RAG 或 Wiki 模式）
+2. **知识库内容**：通过 `KnowledgeResolver` 检索绑定的知识库（RAG 模式）
 3. **用户记忆**：通过 `MemoryStore` 检索用户相关记忆
 4. **历史消息**：从 message-service 获取最近 N 条消息
 
-#### 知识检索双模式
+#### 知识检索
 
-| 模式 | 实现方式 | 适用场景 |
-|------|---------|---------|
-| **RAG 模式** | `kbClient.Retrieve()` 向量检索，返回 top-5 文档片段 | 精确文档片段检索 |
-| **Wiki 模式** | `kbClient.WikiQuery()` ReAct Agent 查询，返回结构化答案 + 引用 | 需要综合推理的知识查询 |
+`kbClient.Retrieve()` 向量检索，返回 top-5 文档片段，用于精确文档片段检索。
 
-两种模式的结果都生成 `KnowledgeSource`（包含 type/kb_name/kb_id/title/content），最终注入到 LLM 上下文中。
+检索结果生成 `KnowledgeSource`（包含 type/kb_name/kb_id/title/content），最终注入到 LLM 上下文中。
 
 #### 记忆管理系统
 
@@ -401,7 +398,7 @@ llm-gateway 是所有 LLM 调用的统一入口，提供多 Provider 抽象、�
 
 ### 知识库服务
 
-知识库支持 **RAG 检索** 和 **Wiki 自动生成** 双模式，满足不同场景的知识管理需求。上传文档后经两条独立管线并行处理。
+知识库支持 **RAG 检索**，满足不同场景的知识管理需求。上传文档后经解析、分块、Embedding 管线处理。
 
 ---
 
@@ -427,7 +424,7 @@ llm-gateway 是所有 LLM 调用的统一入口，提供多 Provider 抽象、�
   │     ├─ 稠密向量: HNSW(COSINE) 索引
   │     └─ 稀疏向量: BM25 → SparseInvertedIndex
   │
-  └─ 完成 → DocStatusReady → 触发 Wiki 管线
+  └─ 完成 → DocStatusReady
 ```
 
 ##### 分块策略详解
@@ -518,134 +515,6 @@ Parent 块（~4096 字符）  ─────── 提供 LLM 上下文窗口
 
 ---
 
-#### Wiki 模式
-
-基于 [karpathy/llm-wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) 理念构建，从解析后的文档中自动提取结构化知识，生成可维护的 Wiki 页面并构建知识图谱。
-
-##### Wiki 页面类型
-
-| 类型 | Slug 前缀 | 说明 | 生成方式 |
-|------|-----------|------|---------|
-| `summary` | `summary/` | 文档标题 + 概览 | 每文档 LLM 摘要 |
-| `entity` | `entity/` | 命名实体（人/系统/协议/产品） | LLM 从文档中提取 |
-| `concept` | `concept/` | 抽象概念（理论/方法/机制） | LLM 从文档中提取 |
-| `synthesis` | `synthesis/` | 跨文档综合论述 | LLM 分析所有文档后生成 |
-| `comparison` | `comparison/` | 实体/概念对比分析 | LLM 发现可比对象后生成 |
-| `index` | `index` | 知识库目录 | 自动维护 |
-| `log` | `log` / `log-YYYY-MM-DD` | 变更日志 | 自动记录 |
-
-##### Wiki Ingest Pipeline
-
-```
-文档上传
-  │
-  ├─ Pass 0: Per-doc Candidate Extraction（并发, semaphore=5）
-  │   ├─ LLM 调用 candidateExtractionPrompt
-  │   ├─ 返回 entities[] + concepts[]
-  │   │   └─ 含 slug / name / description / details / aliases
-  │   └─ 传入 previousSlugs 确保 slug 连续性
-  │
-  ├─ 4.5 Dedup: 跨文档去重管道
-  │   ├─ Layer 1: SQL — FindSimilarPages (pg_trgm)
-  │   │   ├─ similarity(lower(title), lower($query)) > 0.1
-  │   │   ├─ 每 item 返回 Top-20 候选
-  │   │   └─ GIN 索引加速 (idx_wiki_pages_title_trgm)
-  │   │
-  │   ├─ Layer 2: 构建 LLM 输入
-  │   │   └─ 将 <new_items> + <existing_pages> 打包为 LLM 输入
-  │   │
-  │   ├─ Layer 3: LLM 裁决 (WikiDeduplicationPrompt)
-  │   │   ├─ 判断同义/变体/缩写/翻译关系
-  │   │   ├─ 输出 {"merges": {"entity/paxos算法": "entity/paxos"}}
-  │   │   └─ 原则: 同义可合并，同类不同物不合并，父子范畴不合并
-  │   │
-  │   └─ Layer 4: validMerge 校验
-  │       ├─ 目标 slug 必须在 SQL 返回的候选集中（防 LLM 幻觉）
-  │       └─ 类型前缀必须一致 (entity→entity, concept→concept)
-  │
-  ├─ 创建/合并 Wiki 页面（串行）
-  │   ├─ 已存在 → reduceMerge（LLM 合并: SUMMARY + 内容融合）
-  │   ├─ 新页面 → 创建 WikiPage (Snowflake ID)
-  │   └─ in-batch dedup: createdSlugs map 避免同批次重复
-  │
-  ├─ 文档摘要 (summary/doc-{slug})
-  │
-  ├─ 综合论述 (synthesis/) — LLM 分析所有文档生成 0-5 篇
-  │
-  ├─ 对比分析 (comparison/) — LLM 发现可比实体/概念对
-  │
-  ├─ 交叉链接注入 (CrossLinks)
-  │   ├─ 扫描所有页面 title/aliases → 在其他页面中查找匹配
-  │   ├─ 替换为 [[slug]] 双向链接
-  │   └─ 保护区域: 代码块/已有链接/内联代码不替换
-  │
-  ├─ Neo4j 图谱同步
-  │   ├─ 节点: (slug, title, page_type)
-  │   └─ 关系: out_links → 有向边
-  │
-  ├─ 索引页更新 (index) — 按 type 分组列出所有页面
-  │
-  └─ 变更日志 (log) — 满 100 条自动归档
-```
-
-##### 去重管线详解
-
-四层去重管道解决上传多文档后的同名变体重复问题（如"Paxos算法" vs "Paxos 算法" vs "Multi-Paxos"）：
-
-```
-新提取的 items (entities + concepts)
-     │
-     ├─ Layer 1: SQL — FindSimilarPages()
-     │      pg_trgm 三元组相似度搜索
-     │      similarity(lower(title), lower($query))
-     │      阈值 0.1，每 item 返回 Top-20
-     │      使用 GIN 索引加速 (idx_wiki_pages_title_trgm)
-     │
-     ├─ Layer 2: XML 打包
-     │      <new_items> 含所有新提取 entities + concepts
-     │      <existing_pages> 含所有候选页面
-     │
-     ├─ Layer 3: LLM 裁决 (WikiDeduplicationPrompt)
-     │      合并原则:
-     │      合并: 同义变体、缩写↔全称、汉译↔英文、空格差异
-     │      不合并: 同类但不同物、父子范畴、版本变体
-     │      输出: {"merges": {"entity/paxos算法": "entity/paxos", …}}
-     │
-     └─ Layer 4: validMerge() 校验
-            类型前缀一致 (entity/entity, concept/concept)
-            目标 slug 必须在候选集中（防幻觉）
-```
-
-##### reduceMerge（LLM 合并更新）
-
-当新提取 item 命中已有页面时，调用 reduceMerge 增量合并：
-
-```
-LLM 接收:
-  <page_metadata> (slug/title/type)
-  <existing_summary>
-  <existing_page_content>
-  <new_extracted_information>
-
-LLM 输出:
-  SUMMARY: {一句话摘要}
-  {合并后的完整 Markdown 内容}
-```
-
-##### Wiki ReAct Agent
-
-基于 Eino `react.Agent` 的智能 Wiki 查询，配备 12 个 Wiki 工具（read_index, read_page, search, write_page, replace_text, rename_page, delete_page, flag_issue 等）。系统提示词要求：中文回答、必须先搜索再回答、必须引用来源（`[[slug|display name]]`）、发现新知识时自动写入。
-
-##### Wiki Lint
-
-自动检查引用缺失
-
-##### Wiki Maintenance Agent
-
-三步维护 — Ingest 新文档 → ReAct Agent 巡检修复 → 更新 Index 页面。支持定时调度（cron 表达式）。
-
----
-
 ### Bot 管理平台
 
 #### Bot 类型体系
@@ -700,7 +569,6 @@ signaling-service 是消息扇出(fanout)的核心枢纽。
 | AI Bot | @Bot 对话，ReAct Agent 推理，MCP 工具调用，多 Bot 会话协作，流式输出 |
 | 记忆系统 | LLM SPO 提取 + 谓词配置表路由 + Entity 间图谱边 + BFS 多跳遍历（距离衰减）+ 增量画像 |
 | 知识库 | 多格式文档上传，RAG 向量检索问答，混合检索 + Reranker 重排序 |
-| Wiki 生成 | AI 自动分析文档生成结构化 Markdown 知识页面，交叉引用 + Issue 追踪 + 版本管理 |
 | MCP 集成 | MCP Server 管理 + 工具发现 + Bot 绑定 + 运行时工具调用 |
 | 多端同步 | 同账号多设备消息同步，已读状态一致，离线消息补推 |
 | 文件存储 | MinIO Presigned URL，文件/头像/附件统一管理 |
@@ -713,7 +581,6 @@ signaling-service 是消息扇出(fanout)的核心枢纽。
 
 ## 可能开展的活动
 
-1. 为 Wiki融入向量层（当文件变多，索引太大时）
-2. 强大 Bot 记忆层
-3. 实现 Bot 市场与知识库市场
+1. 强大 Bot 记忆层
+2. 实现 Bot 市场与知识库市场
 

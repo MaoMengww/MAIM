@@ -6,21 +6,6 @@ interface IconProps {
   className?: string;
 }
 
-export function WikiIcon({ size = 28, className, style }: IconProps) {
-  return (
-    <svg
-      className={className}
-      aria-hidden="true"
-      style={{ fontSize: size, width: size, height: size, ...style }}
-      viewBox="0 0 1024 1024"
-      fill="currentColor"
-    >
-      <path d="M832 128H320c-52.8 0-96 43.2-96 96v576c0 52.8 43.2 96 96 96h512c52.8 0 96-43.2 96-96V224c0-52.8-43.2-96-96-96zM800 800H352c-17.6 0-32-14.4-32-32s14.4-32 32-32h448v64zM800 672H352c-17.6 0-32-14.4-32-32s14.4-32 32-32h448v64zM800 544H352c-17.6 0-32-14.4-32-32s14.4-32 32-32h448v64zM800 416H352c-17.6 0-32-14.4-32-32s14.4-32 32-32h448v64z" />
-      <path d="M192 768V192c0-35.2 28.8-64 64-64h512V64H224C188.8 64 160 92.8 160 128v640h32z" />
-    </svg>
-  );
-}
-
 export function FolderIcon({ size = 28, className, style }: IconProps) {
   return (
     <svg

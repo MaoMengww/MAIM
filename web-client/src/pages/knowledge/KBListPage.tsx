@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Modal, Form, Input, InputNumber, Select, Switch, Collapse, message, Tag, Empty } from 'antd';
+import { Modal, Form, Input, InputNumber, Select, Switch, Collapse, message, Tag } from 'antd';
 import { modelApi } from '@/services/model';
 import { kbApi } from '@/services/knowledge';
-import { displayProvider, modelOptionLabel } from '@/utils/provider';
-import { WikiIcon, FolderIcon, InfoIcon } from '@/components/common/Icons';
-import { WikiMaintenanceConfig } from './WikiMaintenanceConfig';
+import { modelOptionLabel } from '@/utils/provider';
+import { FolderIcon } from '@/components/common/Icons';
 
 import './KBPage.css';
 
@@ -76,33 +75,13 @@ const EMBED_CHOICES = [
   { value: 'text-embedding-v4', label: 'text-embedding-v4 (千问)' },
 ];
 
-const PAGE_TYPE_LABEL: Record<string, string> = {
-  summary: '概览',
-  entity: '实体',
-  concept: '概念',
-  synthesis: '综述',
-  comparison: '对比',
-  index: '索引',
-  log: '日志',
-};
-
 const FM = { marginBottom: 12 };
-
-function iconLabel(icon: string, text: string) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-      <InfoIcon size={14} style={{ marginRight: 6 }} />
-      {text}
-    </span>
-  );
-}
 
 export function KBListPage() {
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm();
   const [creating, setCreating] = useState(false);
-  const selectedMode = Form.useWatch('mode', form) || 'rag';
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['knowledge-bases'],
@@ -120,10 +99,6 @@ export function KBListPage() {
     .filter((m: any) => m.capability === 'embedding')
     .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
 
-  const chatModelOptions = (modelsData?.list ?? [])
-    .filter((m: any) => m.capability === 'chat')
-    .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
-
   const vlmModelOptions = (modelsData?.list ?? [])
     .filter((m: any) => m.capability === 'vlm')
     .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
@@ -139,68 +114,53 @@ export function KBListPage() {
       const vals = await form.validateFields();
       setCreating(true);
 
-      const mode = vals.mode || 'rag';
       const pipelineConfig: any = {};
 
-      if (mode === 'rag') {
-        if (vals.chunk_size || vals.overlap != null || vals.separators?.length || vals.parent_child_enabled) {
-          pipelineConfig.chunking = {};
-          if (vals.chunk_size) pipelineConfig.chunking.chunk_size = Number(vals.chunk_size);
-          if (vals.overlap != null) pipelineConfig.chunking.overlap = Number(vals.overlap);
-          if (vals.separators?.length) pipelineConfig.chunking.separators = vals.separators;
-          if (vals.parent_child_enabled) {
-            pipelineConfig.chunking.parent_child = { enabled: true };
-            if (vals.parent_size) pipelineConfig.chunking.parent_child.parent_size = Number(vals.parent_size);
-            if (vals.child_size) pipelineConfig.chunking.parent_child.child_size = Number(vals.child_size);
-          }
+      if (vals.chunk_size || vals.overlap != null || vals.separators?.length || vals.parent_child_enabled) {
+        pipelineConfig.chunking = {};
+        if (vals.chunk_size) pipelineConfig.chunking.chunk_size = Number(vals.chunk_size);
+        if (vals.overlap != null) pipelineConfig.chunking.overlap = Number(vals.overlap);
+        if (vals.separators?.length) pipelineConfig.chunking.separators = vals.separators;
+        if (vals.parent_child_enabled) {
+          pipelineConfig.chunking.parent_child = { enabled: true };
+          if (vals.parent_size) pipelineConfig.chunking.parent_child.parent_size = Number(vals.parent_size);
+          if (vals.child_size) pipelineConfig.chunking.parent_child.child_size = Number(vals.child_size);
         }
-        if (vals.parsing_engines?.length) {
-          const parsing: Record<string, any> = { engines: vals.parsing_engines };
-          if (vals.mineru_api_url) {
-            parsing.mineru_precision = { api_url: vals.mineru_api_url, api_token: vals.mineru_api_token || '' };
-          }
-          if (vals.mineru_agent_url) {
-            parsing.mineru_agent = { api_url: vals.mineru_agent_url };
-          }
-          if (vals.vlm_model_id) {
-            parsing.vlm = { model_id: vals.vlm_model_id, enabled: true };
-          }
-          pipelineConfig.parsing = parsing;
-        }
-        pipelineConfig.retrieval = {};
-        if (vals.retrieval_mode) pipelineConfig.retrieval.mode = vals.retrieval_mode;
-        if (vals.top_k) pipelineConfig.retrieval.top_k = Number(vals.top_k);
-        if (vals.candidate_top_k) pipelineConfig.retrieval.candidate_top_k = Number(vals.candidate_top_k);
-        if (vals.score_threshold != null) pipelineConfig.retrieval.score_threshold = Number(vals.score_threshold);
-        if (vals.dense_weight != null) pipelineConfig.retrieval.dense_weight = Number(vals.dense_weight);
-        if (vals.sparse_weight != null) pipelineConfig.retrieval.sparse_weight = Number(vals.sparse_weight);
-        if (vals.rerank_enabled) {
-          pipelineConfig.retrieval.rerank = { enabled: true, model_id: Number(vals.rerank_model) || 0, top_n: Number(vals.rerank_top_n) || 20 };
-        }
-        if (Object.keys(pipelineConfig.retrieval).length === 0) delete pipelineConfig.retrieval;
-        if (Object.keys(pipelineConfig.chunking || {}).length === 0) delete pipelineConfig.chunking;
-      } else {
-        const wikiConfig: Record<string, any> = {
-          enabled: true,
-          model_id: vals.wiki_model_id || 14,
-          model_name: vals.wiki_model_id ? (modelMap[vals.wiki_model_id] || '') : 'qwen-plus',
-          auto_lint: vals.wiki_auto_lint ?? true,
-        };
-        if (vals.maintenance?.maintenance_enabled) {
-          wikiConfig.maintenance_enabled = true;
-          wikiConfig.maintenance_cron = vals.maintenance.maintenance_cron;
-        }
-        pipelineConfig.wiki = wikiConfig;
       }
+      if (vals.parsing_engines?.length) {
+        const parsing: Record<string, any> = { engines: vals.parsing_engines };
+        if (vals.mineru_api_url) {
+          parsing.mineru_precision = { api_url: vals.mineru_api_url, api_token: vals.mineru_api_token || '' };
+        }
+        if (vals.mineru_agent_url) {
+          parsing.mineru_agent = { api_url: vals.mineru_agent_url };
+        }
+        if (vals.vlm_model_id) {
+          parsing.vlm = { model_id: vals.vlm_model_id, enabled: true };
+        }
+        pipelineConfig.parsing = parsing;
+      }
+      pipelineConfig.retrieval = {};
+      if (vals.retrieval_mode) pipelineConfig.retrieval.mode = vals.retrieval_mode;
+      if (vals.top_k) pipelineConfig.retrieval.top_k = Number(vals.top_k);
+      if (vals.candidate_top_k) pipelineConfig.retrieval.candidate_top_k = Number(vals.candidate_top_k);
+      if (vals.score_threshold != null) pipelineConfig.retrieval.score_threshold = Number(vals.score_threshold);
+      if (vals.dense_weight != null) pipelineConfig.retrieval.dense_weight = Number(vals.dense_weight);
+      if (vals.sparse_weight != null) pipelineConfig.retrieval.sparse_weight = Number(vals.sparse_weight);
+      if (vals.rerank_enabled) {
+        pipelineConfig.retrieval.rerank = { enabled: true, model_id: Number(vals.rerank_model) || 0, top_n: Number(vals.rerank_top_n) || 20 };
+      }
+      if (Object.keys(pipelineConfig.retrieval).length === 0) delete pipelineConfig.retrieval;
+      if (Object.keys(pipelineConfig.chunking || {}).length === 0) delete pipelineConfig.chunking;
 
-      const embedModelId = mode === 'rag' ? vals.embedding_model : undefined;
+      const embedModelId = vals.embedding_model;
       const kb = await kbApi.create({
         name: vals.name,
         description: vals.description,
         embedding_model: embedModelId ? (modelMap[embedModelId] || '') : undefined,
         embedding_model_id: embedModelId || 0,
         pipeline_config: Object.keys(pipelineConfig).length > 0 ? pipelineConfig : undefined,
-        mode,
+        mode: 'rag',
       });
       message.success('知识库创建成功');
       setCreateOpen(false);
@@ -232,7 +192,7 @@ export function KBListPage() {
             <FolderIcon size={48} style={{ color: 'var(--aim-text-tertiary)', marginBottom: 16 }} />
             <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--aim-text)', marginBottom: 8 }}>暂无知识库</div>
             <p style={{ fontSize: 13, color: 'var(--aim-text-tertiary)', marginBottom: 24, textAlign: 'center' }}>
-              创建知识库来为 AI Bot 提供专属知识<br />支持文档上传、向量检索、Wiki 自动生成
+              创建知识库来为 AI Bot 提供专属知识<br />支持文档上传、解析与向量检索
             </p>
             <button className="kb-create-btn" onClick={() => setCreateOpen(true)}>
               创建知识库
@@ -250,36 +210,24 @@ export function KBListPage() {
             >
               <div className="kb-card-top">
                 <div className="kb-card-icon">
-                  {kb.mode === 'wiki' ? <WikiIcon size={28} style={{ color: 'var(--aim-primary)' }} /> : <FolderIcon size={28} style={{ color: '#52c41a' }} />}
+                  <FolderIcon size={28} style={{ color: '#52c41a' }} />
                 </div>
                 <div className="kb-card-info">
                   <div className="kb-card-name">
                     {kb.name}
-                    <Tag color={kb.mode === 'wiki' ? 'blue' : 'green'} style={{ marginLeft: 8, fontSize: 11 }}>
-                      {kb.mode === 'wiki' ? 'WIKI' : 'RAG'}
+                    <Tag color="green" style={{ marginLeft: 8, fontSize: 11 }}>
+                      RAG
                     </Tag>
                   </div>
                   {kb.description && <div className="kb-card-desc">{kb.description}</div>}
                 </div>
                 <div className="kb-card-stats">
-                  {kb.mode === 'rag' ? (
-                    <>
-                      <span>{kb.doc_count ?? 0} 文档</span>
-                      <span style={{ marginLeft: 12 }}>{kb.total_chunks ?? 0} 切片</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>{kb.doc_count ?? 0} 文档</span>
-                    </>
-                  )}
+                  <span>{kb.doc_count ?? 0} 文档</span>
+                  <span style={{ marginLeft: 12 }}>{kb.total_chunks ?? 0} 切片</span>
                 </div>
               </div>
               <div className="kb-card-meta">
-                {kb.mode === 'rag' ? (
-                  <span>模型: {kb.embedding_model || '默认'}</span>
-                ) : (
-                  <span>Wiki 模型: {kb.pipeline_config?.wiki?.model_name || '默认'}</span>
-                )}
+                <span>模型: {kb.embedding_model || '默认'}</span>
                 <span style={{ marginLeft: 16 }}>
                   状态: <Tag color={kb.status === 'active' ? 'green' : 'default'} style={{ margin: 0 }}>{kb.status}</Tag>
                 </span>
@@ -310,16 +258,7 @@ export function KBListPage() {
             <Input.TextArea rows={2} placeholder="选填" />
           </Form.Item>
 
-          <Form.Item name="mode" label="类型" initialValue="rag" style={{ marginBottom: 16 }}>
-            <Select
-              options={[
-                { value: 'rag', label: 'RAG 知识库 — 文档向量化 + 语义检索' },
-                { value: 'wiki', label: 'Wiki 知识库 — 文档摘要 + 结构化页面' },
-              ]}
-            />
-          </Form.Item>
-
-          {selectedMode === 'rag' ? renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModelOptions }) : renderWikiConfig({ chatModelOptions })}
+          {renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModelOptions })}
         </Form>
       </Modal>
     </div>
@@ -518,33 +457,3 @@ function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModel
     </>
   );
 }
-
-/* ─── Wiki ─── */
-
-function renderWikiConfig({ chatModelOptions }: { chatModelOptions: any[] }) {
-  return (
-    <>
-      <Form.Item name="wiki_model_id" label="LLM 模型" tooltip="用于 wiki 页面生成的模型" style={FM}>
-        <Select
-          placeholder="gpt-4o"
-          allowClear
-          showSearch
-          options={chatModelOptions}
-          filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())}
-        />
-      </Form.Item>
-      <Form.Item name="wiki_auto_lint" label="自动检查" valuePropName="checked" initialValue={true} style={{ marginBottom: 12 }}>
-          <Switch />
-        </Form.Item>
-      <Form.Item name="maintenance" label="自动维护" style={{ marginBottom: 16 }}>
-        <WikiMaintenanceConfig />
-      </Form.Item>
-      <div style={{ padding: '6px 10px', background: 'var(--aim-surface)', borderRadius: 6, fontSize: 12, color: 'var(--aim-text-secondary)' }}>
-        <InfoIcon size={12} style={{ marginRight: 4 }} />
-        Wiki 知识库创建后自动对上传的文档做摘要、提取实体/概念，生成结构化 wiki 页面。创建后类型不可更改。
-      </div>
-    </>
-  );
-}
-
-export { PAGE_TYPE_LABEL };

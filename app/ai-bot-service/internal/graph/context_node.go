@@ -80,7 +80,7 @@ func (n *BuildContextNode) Invoke(ctx context.Context, event *model.BotEvent) *B
 
 	contextMsgs := make([]*schema.Message, 0, 3)
 	history := n.loadHistory(ctx, event)
-	knowledge, kbSources := n.loadKnowledge(ctx, msgText, history, event)
+	knowledge, kbSources := n.loadKnowledge(ctx, msgText, event)
 	if knowledge != "" {
 		contextMsgs = append(contextMsgs, &schema.Message{Role: schema.Assistant, Content: knowledge})
 	}
@@ -160,7 +160,7 @@ func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEven
 	return result
 }
 
-func (n *BuildContextNode) loadKnowledge(ctx context.Context, query string, history []*schema.Message, event *model.BotEvent) (string, []KnowledgeSource) {
+func (n *BuildContextNode) loadKnowledge(ctx context.Context, query string, event *model.BotEvent) (string, []KnowledgeSource) {
 	if !n.bot.EnableKnowledge || n.resolver == nil || query == "" {
 		return "", nil
 	}
@@ -168,16 +168,7 @@ func (n *BuildContextNode) loadKnowledge(ctx context.Context, query string, hist
 	if event != nil {
 		convID = event.ConvID
 	}
-	historyText := ""
-	if len(history) > 0 {
-		var b strings.Builder
-		for _, m := range history {
-			b.WriteString(m.Content)
-			b.WriteString("\n")
-		}
-		historyText = b.String()
-	}
-	return n.resolver.Query(ctx, query, n.bot.ID, convID, n.bot.ModelID, n.bot.ModelName, historyText)
+	return n.resolver.Query(ctx, query, n.bot.ID, convID)
 }
 
 // renderTemplate replaces {key} placeholders with values.

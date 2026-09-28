@@ -194,22 +194,13 @@ export interface CreateKBReq {
   embedding_model?: string;
   embedding_model_id?: number;
   pipeline_config?: PipelineConfig;
-  mode?: string;           // "rag" | "wiki"
+  mode?: string;           // "rag"
 }
 
 export interface PipelineConfig {
   parsing?: ParsingConfigReq;
   chunking?: ChunkingConfigReq;
   retrieval?: RetrievalConfigReq;
-  wiki?: WikiConfigReq;
-}
-
-export interface WikiConfigReq {
-  enabled?: boolean;
-  model_id?: number;
-  model_name?: string;
-  auto_lint?: boolean;
-  stale_threshold_hours?: number;
 }
 
 export interface ParsingConfigReq {

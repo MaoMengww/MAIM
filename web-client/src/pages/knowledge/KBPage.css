@@ -123,33 +123,33 @@
   color: var(--aim-text-tertiary);
 }
 
-/* Wiki content */
-.wiki-content h1, .wiki-content h2, .wiki-content h3, .wiki-content h4 {
+/* Markdown content */
+.md-content h1, .md-content h2, .md-content h3, .md-content h4 {
   margin-top: 1.5em;
   margin-bottom: 0.5em;
 }
-.wiki-content p {
+.md-content p {
   margin-bottom: 1em;
 }
-.wiki-content table {
+.md-content table {
   border-collapse: collapse;
   width: 100%;
   margin: 1em 0;
 }
-.wiki-content th, .wiki-content td {
+.md-content th, .md-content td {
   border: 1px solid var(--aim-border);
   padding: 8px 12px;
   text-align: left;
 }
-.wiki-content th {
+.md-content th {
   background: var(--aim-surface);
   font-weight: 600;
 }
-.wiki-content ul, .wiki-content ol {
+.md-content ul, .md-content ol {
   padding-left: 20px;
   margin-bottom: 1em;
 }
-.wiki-content figure {
+.md-content figure {
   margin: 1.5em 0;
   padding: 12px;
   background: var(--aim-surface);
@@ -157,12 +157,12 @@
   border-radius: 8px;
   text-align: center;
 }
-.wiki-content figure img {
+.md-content figure img {
   max-width: 100%;
   height: auto;
   border-radius: 4px;
 }
-.wiki-content figure figcaption {
+.md-content figure figcaption {
   margin-top: 8px;
   font-size: 13px;
   color: var(--aim-text-secondary);
@@ -170,7 +170,7 @@
   text-align: left;
   padding: 0 8px;
 }
-.wiki-content blockquote {
+.md-content blockquote {
   border-left: 3px solid var(--aim-pink);
   padding-left: 12px;
   margin: 1em 0;

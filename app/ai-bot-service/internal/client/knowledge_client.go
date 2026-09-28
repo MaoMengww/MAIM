@@ -48,32 +48,6 @@ func (c *KnowledgeClient) Retrieve(ctx context.Context, query string, botID, con
 	return docs, nil
 }
 
-// WikiQuery sends a query to wiki knowledge bases and returns the answer.
-func (c *KnowledgeClient) WikiQuery(ctx context.Context, query string, wikiKBIDs []int64, modelID int64, modelName string, history string) (*graph.WikiResult, error) {
-	resp, err := c.cli.WikiQuery(ctx, &knowledgebase.WikiQueryReq{
-		Query:     query,
-		WikiKbIds: wikiKBIDs,
-		ModelId:   modelID,
-		ModelName: modelName,
-		History:   history,
-	})
-	if err != nil {
-		return nil, err
-	}
-	refs := make([]graph.WikiReference, len(resp.Refs))
-	for i, r := range resp.Refs {
-		refs[i] = graph.WikiReference{
-			Slug:    r.Slug,
-			Title:   r.Title,
-			Snippet: r.Snippet,
-		}
-	}
-	return &graph.WikiResult{
-		Answer:     resp.Answer,
-		References: refs,
-	}, nil
-}
-
 // ListBoundKBs returns all KBs bound to a bot or conversation, with mode info.
 func (c *KnowledgeClient) ListBoundKBs(ctx context.Context, botID, convID int64) ([]graph.BoundKB, error) {
 	var seen = make(map[int64]bool)

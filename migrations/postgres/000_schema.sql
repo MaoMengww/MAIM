@@ -528,44 +528,6 @@ CREATE TABLE IF NOT EXISTS knowledge.knowledge_bindings (
     kb_name     TEXT
 );
 
-CREATE TABLE IF NOT EXISTS knowledge.wiki_pages (
-    id                BIGINT PRIMARY KEY,
-    knowledge_base_id BIGINT NOT NULL,
-    slug              VARCHAR(255) NOT NULL,
-    title             VARCHAR(512) NOT NULL,
-    page_type         VARCHAR(32) NOT NULL,
-    status            VARCHAR(32) DEFAULT 'published' NOT NULL,
-    content           TEXT NOT NULL,
-    summary           TEXT,
-    aliases           JSONB DEFAULT '[]'::JSONB,
-    source_refs       JSONB DEFAULT '[]'::JSONB,
-    chunk_refs        JSONB DEFAULT '[]'::JSONB,
-    in_links          JSONB DEFAULT '[]'::JSONB,
-    out_links         JSONB DEFAULT '[]'::JSONB,
-    page_metadata     JSONB DEFAULT '{}'::JSONB,
-    version           BIGINT DEFAULT 1 NOT NULL,
-    created_at        TIMESTAMPTZ,
-    updated_at        TIMESTAMPTZ,
-    deleted_at        TIMESTAMPTZ
-);
-CREATE SEQUENCE IF NOT EXISTS knowledge.wiki_pages_id_seq;
-ALTER SEQUENCE knowledge.wiki_pages_id_seq OWNED BY knowledge.wiki_pages.id;
-
-CREATE TABLE IF NOT EXISTS knowledge.wiki_page_issues (
-    id                BIGINT PRIMARY KEY,
-    knowledge_base_id BIGINT NOT NULL,
-    page_slug         VARCHAR(255) NOT NULL,
-    issue_type        VARCHAR(64) NOT NULL,
-    level             VARCHAR(16) DEFAULT 'warning' NOT NULL,
-    title             VARCHAR(512) NOT NULL,
-    description       TEXT,
-    status            VARCHAR(16) DEFAULT 'open' NOT NULL,
-    created_at        TIMESTAMPTZ,
-    resolved_at       TIMESTAMPTZ
-);
-CREATE SEQUENCE IF NOT EXISTS knowledge.wiki_page_issues_id_seq;
-ALTER SEQUENCE knowledge.wiki_page_issues_id_seq OWNED BY knowledge.wiki_page_issues.id;
-
 CREATE INDEX IF NOT EXISTS idx_knowledge_bases_owner ON knowledge.knowledge_bases(owner_id);
 CREATE INDEX IF NOT EXISTS idx_documents_kb ON knowledge.documents(kb_id);
 CREATE INDEX IF NOT EXISTS idx_documents_status ON knowledge.documents(status);
@@ -575,11 +537,6 @@ CREATE INDEX IF NOT EXISTS idx_document_chunks_parent_chunk_id ON knowledge.docu
 CREATE INDEX IF NOT EXISTS idx_knowledge_bindings_kb ON knowledge.knowledge_bindings(kb_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_bindings_target ON knowledge.knowledge_bindings(target_type, target_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_bindings_pair ON knowledge.knowledge_bindings(kb_id, target_type, target_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_kb_slug ON knowledge.wiki_pages(knowledge_base_id, slug);
-CREATE INDEX IF NOT EXISTS idx_wiki_pages_deleted_at ON knowledge.wiki_pages(deleted_at);
-CREATE INDEX IF NOT EXISTS idx_wiki_pages_page_type ON knowledge.wiki_pages(page_type);
-CREATE INDEX IF NOT EXISTS idx_wiki_page_issues_knowledge_base_id ON knowledge.wiki_page_issues(knowledge_base_id);
-CREATE INDEX IF NOT EXISTS idx_wiki_page_issues_page_slug ON knowledge.wiki_page_issues(page_slug);
 
 -- =========== llm domain ===========
 

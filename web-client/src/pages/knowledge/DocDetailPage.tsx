@@ -5,7 +5,7 @@ import { Button, Spin, Descriptions, Table, Tag, Modal, message } from 'antd';
 import { kbApi } from '@/services/knowledge';
 import { wsOn } from '@/services/ws';
 import type { ChunkInfo } from '@/types/model';
-import { WikiMarkdown } from './WikiMarkdown';
+import { MarkdownContent } from './MarkdownContent';
 
 export function DocDetailPage() {
   const { kbId, docId } = useParams<{ kbId: string; docId: string }>();
@@ -139,7 +139,7 @@ export function DocDetailPage() {
         expandable={{
           expandedRowRender: (record: ChunkInfo) => (
             <div style={{ maxHeight: 300, overflowY: 'auto', fontSize: 13, padding: '8px 0' }}>
-              <WikiMarkdown content={record.content} pages={[]} kbId={kbId ? Number(kbId) : undefined} onNavigate={() => {}} />
+              <MarkdownContent content={record.content} />
             </div>
           ),
           rowExpandable: () => true,
@@ -158,7 +158,7 @@ export function DocDetailPage() {
         width={800}
       >
         <div style={{ maxHeight: 500, overflowY: 'auto', fontSize: 13, padding: 16 }}>
-          <WikiMarkdown content={contentData?.content || ''} pages={[]} kbId={kbId ? Number(kbId) : undefined} onNavigate={() => {}} />
+          <MarkdownContent content={contentData?.content || ''} />
         </div>
       </Modal>
     </div>

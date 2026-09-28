@@ -208,7 +208,7 @@ export interface BotContent {
 }
 
 export interface KnowledgeSource {
-  type: 'rag' | 'wiki';
+  type: 'rag';
   kb_name: string;
   kb_id: number;
   title: string;
@@ -362,22 +362,13 @@ export interface KBRsp {
   status: string;
   created_at: number;
   updated_at: number;
-  mode: string;        // "rag" | "wiki"
+  mode: string;        // "rag"
 }
 
 export interface PipelineConfig {
   parsing: ParsingConfig;
   chunking: ChunkingConfig;
   retrieval: RetrievalConfig;
-  wiki?: WikiConfig;
-}
-
-export interface WikiConfig {
-  enabled: boolean;
-  model_id: number;
-  model_name?: string;
-  auto_lint: boolean;
-  stale_threshold_hours: number;
 }
 
 export interface ParsingConfig {
@@ -464,82 +455,6 @@ export interface ChunkInfo {
   token_count: number;
   metadata: string;
   created_at: number;
-}
-
-// ─── Wiki ───
-export interface WikiSourceRef {
-  doc_id: number;
-  title: string;
-}
-
-export interface WikiPageRsp {
-  id: number;
-  slug: string;
-  title: string;
-  page_type: string;
-  content: string;
-  summary: string;
-  source_refs?: WikiSourceRef[];
-  aliases: string[];
-  out_links: string[];
-  in_links: string[];
-  version: number;
-  created_at: number;
-  updated_at: number;
-}
-
-export interface WikiPageItem {
-  id: number;
-  slug: string;
-  title: string;
-  page_type: string;
-  summary: string;
-  version: number;
-  updated_at: number;
-}
-
-export interface WikiSearchItem {
-  slug: string;
-  title: string;
-  page_type: string;
-  snippet: string;
-}
-
-export interface WikiGraphNode {
-  id: string;
-  title: string;
-  page_type: string;
-  group: string;
-  summary: string;
-  citation_count: number;
-}
-
-export interface WikiGraphEdge {
-  source: string;
-  target: string;
-  weight: number;
-}
-
-export interface WikiGraphData {
-  nodes: WikiGraphNode[];
-  edges: WikiGraphEdge[];
-}
-
-export interface WikiIssueItem {
-  id: number;
-  page_slug: string;
-  issue_type: string;
-  level: string;
-  title: string;
-  description: string;
-  status: string;
-  created_at: number;
-}
-
-export interface WikiSourceDocRsp {
-  doc_id: number;
-  title: string;
-  content: string;
 }
 
 // ─── Model (LLM) ───
