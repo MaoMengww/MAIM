@@ -133,7 +133,7 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://ws-gateway:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|stage-p3|relationships|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|stage-p3|stage-p4|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance；conversation-unread 为 issue09 独立验收")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -150,6 +150,7 @@ func run(args []string) error {
 	case "all":
 		scenarios = []scenarioSpec{
 			{"relationships", "", ""},
+			{"conversations", *realtimeA, *realtimeA},
 			{"same-instance-a", *realtimeA, *realtimeA},
 			{"same-instance-b", *realtimeB, *realtimeB},
 		}
@@ -158,6 +159,10 @@ func run(args []string) error {
 		}
 	case "stage-p3":
 		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}}
+	case "stage-p4":
+		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}, {"conversation-unread", *realtimeA, *realtimeA}}
+	case "conversations", "conversation-unread":
+		scenarios = []scenarioSpec{{*selected, *realtimeA, *realtimeA}}
 	case "relationships":
 		scenarios = []scenarioSpec{{"relationships", "", ""}}
 	case "same-instance-a":
@@ -167,7 +172,7 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|stage-p3|relationships|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|stage-p3|stage-p4|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance")
 	}
 	for _, scenario := range scenarios {
 		if scenario.name == "relationships" {
@@ -187,9 +192,12 @@ func run(args []string) error {
 	var failures []error
 	for _, scenario := range scenarios {
 		var err error
-		if scenario.name == "relationships" {
+		switch scenario.name {
+		case "relationships":
 			err = d.relationships()
-		} else {
+		case "conversations", "conversation-unread":
+			err = d.conversations(scenario.a, scenario.name == "conversation-unread")
+		default:
 			err = d.scenario(scenario.a, scenario.b)
 		}
 		if err != nil {
@@ -198,6 +206,11 @@ func run(args []string) error {
 			failures = append(failures, failure)
 		} else if scenario.name == "relationships" {
 			fmt.Println("E2E PASS: relationships 请求 → 接受/拒绝/取消 → 双向好友 → 备注/分组 → 删除 → 拉黑/解除")
+		} else if scenario.name == "conversations" || scenario.name == "conversation-unread" {
+			fmt.Printf("E2E PASS: %s 建群 → 邀请/列成员 → 权限 → 群聊 WS → 精确 ID 读取/补拉 → 会话列表 → 已读回执 → 移除后拒绝读取\n", scenario.name)
+			if scenario.name == "conversation-unread" {
+				fmt.Println("E2E PASS: conversation-unread 列表未读数 → mark read 归零 → 已读位点不能回退")
+			}
 		} else {
 			fmt.Printf("E2E PASS: %s 注册 → 登录 → 身份 → 私聊 → 双向 WS 投递\n", scenario.name)
 		}
@@ -446,36 +459,53 @@ func readEvent(conn *websocket.Conn) (event, error) {
 	return evt, nil
 }
 
-func (d *driver) sendAndReceive(sender account, receiver *websocket.Conn, convID decimal, text string, after decimal) (decimal, error) {
+func (d *driver) sendMessage(sender account, convID decimal, text string, after decimal) (sentMessage, error) {
 	var sent sentMessage
 	if err := d.request(http.MethodPost, "/messages/send", sender.token, map[string]any{
 		"conversation_id": convID.String(), "client_msg_id": "e2e_" + text,
 		"content": map[string]string{"text": text},
 	}, &sent); err != nil {
-		return 0, fmt.Errorf("messaging.send 发送方 %s: %w", sender.id, err)
+		return sent, fmt.Errorf("messaging.send 发送方 %s: %w", sender.id, err)
 	}
 	if sent.MessageID <= 0 || sent.Seq <= after || sent.ConvID != convID || sent.SenderID != sender.id || sent.Content.Text != text {
-		return sent.Seq, errors.New("messaging.send: HTTP 确认的 message_id/conv_id/seq/发送方/内容不符合发送请求")
+		return sent, errors.New("messaging.send: HTTP 确认的 message_id/conv_id/seq/发送方/内容不符合发送请求")
 	}
+	return sent, nil
+}
+
+func (d *driver) sendAndReceive(sender account, receiver *websocket.Conn, convID decimal, text string, after decimal) (decimal, error) {
+	sent, err := d.sendMessage(sender, convID, text, after)
+	if err != nil {
+		return sent.Seq, err
+	}
+	return sent.Seq, d.receiveMessage(receiver, sent)
+}
+
+func (d *driver) receiveMessage(receiver *websocket.Conn, sent sentMessage) error {
 	if err := receiver.SetReadDeadline(time.Now().Add(d.timeout)); err != nil {
-		return sent.Seq, errors.New("realtime.delivery: 无法设置消息读取超时")
+		return errors.New("realtime.delivery: 无法设置消息读取超时")
 	}
 	for {
 		evt, err := readEvent(receiver)
 		if err != nil {
-			return sent.Seq, fmt.Errorf("realtime.delivery: HTTP 已确认 conv_id=%s message_id=%s seq=%s，但对方 WS 未收到匹配消息: %w", convID, sent.MessageID, sent.Seq, err)
+			return fmt.Errorf("realtime.delivery: HTTP 已确认 conv_id=%s message_id=%s seq=%s，但对方 WS 未收到匹配消息: %w", sent.ConvID, sent.MessageID, sent.Seq, err)
 		}
 		if evt.Type == "error" {
-			return sent.Seq, errors.New("realtime.delivery: realtime 返回 error 事件")
+			return errors.New("realtime.delivery: realtime 返回 error 事件")
 		}
 		if evt.Type != "message.new" {
 			continue
 		}
 		msg := evt.Message
-		if evt.ConvID != convID || msg.ConvID != convID || msg.MessageID != sent.MessageID || msg.Seq != sent.Seq || msg.SenderID != sender.id || msg.Content.Text != text {
-			return sent.Seq, fmt.Errorf("realtime.contract: message.new 与 HTTP 确认不一致，期望 conv_id=%s message_id=%s seq=%s sender_id=%s", convID, sent.MessageID, sent.Seq, sender.id)
+		// Group membership changes can emit unrelated system messages while the
+		// confirmed text is in flight. Match by exact ID, then check its contract.
+		if msg.MessageID != sent.MessageID {
+			continue
 		}
-		return sent.Seq, nil
+		if evt.ConvID != sent.ConvID || msg.ConvID != sent.ConvID || msg.MessageID != sent.MessageID || msg.Seq != sent.Seq || msg.SenderID != sent.SenderID || msg.Content.Text != sent.Content.Text {
+			return fmt.Errorf("realtime.contract: message.new 与 HTTP 确认不一致，期望 conv_id=%s message_id=%s seq=%s sender_id=%s", sent.ConvID, sent.MessageID, sent.Seq, sent.SenderID)
+		}
+		return nil
 	}
 }
 

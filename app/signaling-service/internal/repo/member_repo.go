@@ -5,22 +5,22 @@ import (
 	"fmt"
 
 	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
-	convpb "github.com/maomeng/aim/app/conversation-service/pb/conversation"
+	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/app/signaling-service/internal/model"
 	"github.com/maomeng/aim/pkg/consts"
 )
 
 type MemberRepo struct {
-	convClient  convpb.ConversationServiceClient
+	convClient  message.MessageServiceClient
 	botPlatform botplatform.BotPlatformClient
 }
 
-func NewMemberRepo(convClient convpb.ConversationServiceClient, botPlatform botplatform.BotPlatformClient) *MemberRepo {
-	return &MemberRepo{convClient: convClient, botPlatform: botPlatform}
+func NewMemberRepo(msgClient message.MessageServiceClient, botPlatform botplatform.BotPlatformClient) *MemberRepo {
+	return &MemberRepo{convClient: msgClient, botPlatform: botPlatform}
 }
 
 func (r *MemberRepo) GetConvMembers(ctx context.Context, convID int64) ([]int64, error) {
-	resp, err := r.convClient.GetMembers(ctx, &convpb.GetMembersReq{ConversationId: convID})
+	resp, err := r.convClient.GetMembers(ctx, &message.GetMembersReq{ConversationId: convID})
 	if err != nil {
 		return nil, fmt.Errorf("get members via gRPC: %w", err)
 	}
@@ -32,7 +32,7 @@ func (r *MemberRepo) GetConvMembers(ctx context.Context, convID int64) ([]int64,
 }
 
 func (r *MemberRepo) GetConvBotsWithConfig(ctx context.Context, convID int64) ([]model.BotInfo, error) {
-	resp, err := r.convClient.ListBots(ctx, &convpb.ListBotsReq{ConversationId: convID})
+	resp, err := r.convClient.ListBots(ctx, &message.ListBotsReq{ConversationId: convID})
 	if err != nil {
 		return nil, fmt.Errorf("list bots via gRPC: %w", err)
 	}

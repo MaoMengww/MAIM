@@ -9,7 +9,6 @@ import (
 // the environment, so no service registry is involved.
 type ServicesConfig struct {
 	UserServiceAddr         string `json:"userServiceAddr"`
-	ConversationServiceAddr string `json:"conversationServiceAddr"`
 	MessageServiceAddr      string `json:"messageServiceAddr"`
 	FileServiceAddr         string `json:"fileServiceAddr"`
 	BotPlatformServiceAddr  string `json:"botPlatformServiceAddr"`

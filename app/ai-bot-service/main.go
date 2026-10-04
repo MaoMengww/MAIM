@@ -62,7 +62,7 @@ func main() {
 			Username string
 		}
 		var users []userInfo
-		if err := db.Table("users").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		if err := db.Table("user.users").Where("id IN ?", ids).Find(&users).Error; err != nil {
 			return nil, err
 		}
 		m := make(map[int64]string, len(users))

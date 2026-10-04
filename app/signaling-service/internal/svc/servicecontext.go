@@ -7,7 +7,7 @@ import (
 
 	"github.com/IBM/sarama"
 	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
-	convpb "github.com/maomeng/aim/app/conversation-service/pb/conversation"
+	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/app/signaling-service/internal/config"
 	"github.com/maomeng/aim/app/signaling-service/internal/consumer"
 	"github.com/maomeng/aim/app/signaling-service/internal/model"
@@ -51,17 +51,16 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		panic(fmt.Sprintf("auto migrate failed: %v", err))
 	}
 
-	convClient := convpb.NewConversationServiceClient(zrpc.MustNewClient(c.ConversationService).Conn())
+	msgClient := message.NewMessageServiceClient(zrpc.MustNewClient(c.MessageService).Conn())
 	botPlatformClient := botplatform.NewBotPlatformClient(zrpc.MustNewClient(c.BotPlatform).Conn())
 	wsClient := zrpc.MustNewClient(c.WsGateway)
 
-	memberRepo := repo.NewMemberRepo(convClient, botPlatformClient)
+	memberRepo := repo.NewMemberRepo(msgClient, botPlatformClient)
 	notifRepo := repo.NewNotificationRepo(gdb)
 	presenceChecker := consumer.NewRedisPresenceChecker(rdb)
 	grpcPusher := consumer.NewGRPCPusher(wsClient)
 	callbackClient := consumer.NewCallbackClient(logger)
-	unreadCache := repo.NewRedisUnreadCache(rdb)
-	convRepoS := repo.NewConvRepo(convClient)
+	convRepoS := repo.NewConvRepo(msgClient)
 	deviceTokenRepo := repo.NewDeviceTokenRepo(gdb)
 
 	// Push service for offline notifications
@@ -88,7 +87,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 	fo := consumer.NewFanout(memberRepo, presenceChecker, grpcPusher, grpcPusher, callbackClient, logger)
 	fo.SetConvRepo(convRepoS)
-	fo.SetUnreadCache(unreadCache)
 	if pushSvc != nil {
 		fo.SetPushService(pushSvc)
 	}

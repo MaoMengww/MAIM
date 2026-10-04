@@ -3,8 +3,8 @@ package logic
 import (
 	"context"
 
-	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
+	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/pb/common"
 
 	"github.com/zeromicro/go-zero/core/logx"

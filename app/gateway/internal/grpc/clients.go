@@ -9,7 +9,6 @@ import (
 
 type Clients struct {
 	User          zrpc.Client
-	Conversation  zrpc.Client
 	Message       zrpc.Client
 	File          zrpc.Client
 	Notification  zrpc.Client
@@ -37,7 +36,6 @@ func NewClients(cfg *config.Config) *Clients {
 
 	return &Clients{
 		User:          newClient("user-service", cfg.Services.UserServiceAddr),
-		Conversation:  newClient("conversation-service", cfg.Services.ConversationServiceAddr),
 		Message:       newClient("message-service", cfg.Services.MessageServiceAddr),
 		File:          newClient("file-service", cfg.Services.FileServiceAddr),
 		Notification:  newClient("signaling-service", cfg.Services.NotificationServiceAddr),
@@ -50,7 +48,7 @@ func NewClients(cfg *config.Config) *Clients {
 
 func (c *Clients) Close() {
 	clients := []zrpc.Client{
-		c.User, c.Conversation, c.Message, c.File, c.Notification, c.BotPlatform, c.KnowledgeBase, c.AIBot, c.LLMGateway,
+		c.User, c.Message, c.File, c.Notification, c.BotPlatform, c.KnowledgeBase, c.AIBot, c.LLMGateway,
 	}
 	for _, cli := range clients {
 		if cli != nil {

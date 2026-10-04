@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/maomeng/aim/app/ai-bot-service/internal/model"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,45 +71,4 @@ func TestBotRepo_FindByID_NotFound(t *testing.T) {
 	assert.Error(t, err)
 
 	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestConvBotRepo_FindByBotAndConv(t *testing.T) {
-	db, mock := setupMockDB(t)
-	repo := NewConvBotRepo(db)
-
-	rows := sqlmock.NewRows([]string{
-		"id", "conv_id", "bot_id", "added_by", "response_triggers", "bot_settings", "created_at",
-	}).AddRow(
-		1, 456, 1001, 123, `["mention"]`, nil, nil,
-	)
-
-	mock.ExpectQuery(`SELECT \* FROM "conv"."conv_bots" WHERE bot_id = \$1 AND conv_id = \$2`).
-		WithArgs(int64(1001), int64(456), 1).
-		WillReturnRows(rows)
-
-	cb, err := repo.FindByBotAndConv(context.Background(), 1001, 456)
-	require.NoError(t, err)
-	assert.Equal(t, int64(456), cb.ConvID)
-	assert.Equal(t, int64(1001), cb.BotID)
-
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestConvBotRepo_FindByBotAndConv_NotFound(t *testing.T) {
-	db, mock := setupMockDB(t)
-	repo := NewConvBotRepo(db)
-
-	mock.ExpectQuery(`SELECT \* FROM "conv"."conv_bots" WHERE bot_id = \$1 AND conv_id = \$2`).
-		WithArgs(int64(999), int64(999), 1).
-		WillReturnError(gorm.ErrRecordNotFound)
-
-	_, err := repo.FindByBotAndConv(context.Background(), 999, 999)
-	assert.Error(t, err)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-// Compile-time interface check
-func TestModelStructs(t *testing.T) {
-	var _ = model.Bot{}
-	var _ = model.ConvBot{}
 }

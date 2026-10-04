@@ -165,7 +165,7 @@ func buildESQuery(in *message.SearchMessagesReq, page, pageSize int, convIDs []i
 }
 
 func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*message.SearchMessagesResp, error) {
-	if l.svcCtx == nil || l.svcCtx.ConvClient == nil || in == nil {
+	if l.svcCtx == nil || in == nil {
 		return nil, errors.New(errors.CodeInternal, "service not initialized")
 	}
 
@@ -181,7 +181,7 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 	}
 
 	if isConvSearch {
-		isMember, err := l.svcCtx.ConvClient.IsMember(l.ctx, in.GetConversationId(), in.GetUserId())
+		isMember, err := l.svcCtx.ConversationRepo.IsMember(l.ctx, in.GetConversationId(), in.GetUserId())
 		if err != nil {
 			return nil, errors.Wrap(errors.CodeRPCError, "check conversation member failed", err)
 		}
@@ -209,7 +209,7 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 
 	var convIDs []int64
 	if !isConvSearch {
-		ids, err := l.svcCtx.ConvClient.ListUserConvIDs(l.ctx, in.GetUserId())
+		ids, err := l.svcCtx.ConversationRepo.ListIDsByUser(l.ctx, in.GetUserId())
 		if err != nil {
 			return nil, errors.Wrap(errors.CodeRPCError, "list user conversations failed", err)
 		}
@@ -261,7 +261,7 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 			}
 		}
 
-		hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.UserClient, l.svcCtx.BotRepo, pbMsgs)
+		hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)
 	}
 
 	totalPages := int32(total / int64(pageSize))

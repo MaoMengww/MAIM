@@ -2,6 +2,7 @@ package messageservicelogic
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -14,8 +15,8 @@ import (
 	"github.com/maomeng/aim/pkg/errors"
 
 	"github.com/zeromicro/go-zero/core/logx"
-	"google.golang.org/grpc/metadata"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type SendMessageLogic struct {
@@ -48,48 +49,15 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 	}
 
 	// 2. 验证调用方身份：从 gRPC metadata 提取 user-id 并与请求中的 from_user_id 比对
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return nil, ErrMetadataMissing
-	}
-	callerIDStrs := md.Get("user-id")
-	if len(callerIDStrs) == 0 {
+	callerID := callerUserID(ctx)
+	if callerID == 0 {
 		return nil, ErrUserIDMissing
-	}
-	callerID, err := strconv.ParseInt(callerIDStrs[0], 10, 64)
-	if err != nil {
-		return nil, ErrInvalidUserID
 	}
 	if callerID != in.FromUserId {
 		return nil, ErrSendAsOtherUser
 	}
 
-	// 3. 统一权限校验 (合并 IsMember+GetMembers+GetMuteStatus 为一个 gRPC 调用)
-	if l.svcCtx.ConvClient == nil {
-		return nil, ErrConversationUnavailable
-	}
-	isMember, isMuted, isMutedAll, muteUntil, convType, otherIDs, err := l.svcCtx.ConvClient.PreCheckSend(ctx, in.ConversationId, in.FromUserId)
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "precheck failed", err)
-	}
-	if !isMember {
-		return nil, ErrNotMember
-	}
-	if isMutedAll || (isMuted && (muteUntil == 0 || time.Now().Unix() < muteUntil)) {
-		return nil, ErrSenderMuted
-	}
-	// 私聊才需要拉黑校验 (群聊拉黑不阻止发消息)
-	if convType == 1 && len(otherIDs) > 0 {
-		blocked, err := l.svcCtx.FriendClient.IsBlockedAny(ctx, in.FromUserId, otherIDs)
-		if err != nil {
-			return nil, ErrBlockCheckFailed
-		}
-		if blocked {
-			return nil, ErrBlockedByMember
-		}
-	}
-
-	// 5. 构造消息
+	// 3. 构造消息；展示资料可以在事务外预取，授权状态不能。
 	msgID, err := l.svcCtx.Snowflake.Generate()
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "generate msg id failed", err)
@@ -111,12 +79,38 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 		UpdatedAt:    now,
 	}
 
-	// 6. 单事务：获取 seq + 写入消息 + outbox 事件 + 更新会话 max_seq
+	// 4. 单事务：锁会话 + 权限校验 + seq + 消息 + outbox + 最新消息
 	senderName := resolveReplySenderName(ctx, l.svcCtx, msg.SenderID, "user")
 
 	var seq int64
 	err = l.svcCtx.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var err error
+		perm, err := l.svcCtx.ConversationRepo.CheckSendPermission(ctx, tx, in.ConversationId, in.FromUserId)
+		if err != nil {
+			return err
+		}
+		if !perm.IsMember {
+			return ErrNotMember
+		}
+		if perm.IsMutedAll || (perm.IsMuted && (perm.MuteUntil == 0 || time.Now().Unix() < perm.MuteUntil)) {
+			return ErrSenderMuted
+		}
+		// 群聊拉黑不阻止发消息；私聊直接使用同一事务读取 user 域。
+		if perm.ConversationType == model.ConvTypePrivate && len(perm.OtherMemberIDs) > 0 {
+			var blocks []struct {
+				UserID int64
+			}
+			if err := tx.Table(`"user".user_blocks`).Select("user_id").
+				Clauses(clause.Locking{Strength: "SHARE"}).
+				Where("(user_id = ? AND blocked_user_id IN ?) OR (user_id IN ? AND blocked_user_id = ?)",
+					in.FromUserId, perm.OtherMemberIDs, perm.OtherMemberIDs, in.FromUserId).
+				Limit(1).Find(&blocks).Error; err != nil {
+				return ErrBlockCheckFailed
+			}
+			if len(blocks) > 0 {
+				return ErrBlockedByMember
+			}
+		}
+
 		seq, err = l.svcCtx.SequenceRepo.NextSeq(ctx, tx, in.ConversationId)
 		if err != nil {
 			return err
@@ -144,11 +138,17 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 			return err
 		}
 
-		// 同步更新会话的最新 seq
-		return tx.Table("conv.conversations").Where("id = ?", in.ConversationId).
-			Update("max_seq", seq).Error
+		// 同一事务内推进会话的最新消息、最大 seq 与 updated_at
+		return l.svcCtx.ConversationRepo.TouchLastMessage(ctx, tx, in.ConversationId, msgID, seq,
+			extractTextPreview(int32(in.Type), contentJSON))
 	})
 	if err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New(errors.CodeNotFound, "conversation not found")
+		}
+		if _, ok := errors.IsBizError(err); ok {
+			return nil, err
+		}
 		return nil, errors.Wrap(errors.CodeInternal, "insert message failed", err)
 	}
 
@@ -246,6 +246,7 @@ func extractSendContent(req *message.SendMessageReq) model.JSONContent {
 	}
 	return nil
 }
+
 // buildMessageCreatedPayload builds the Kafka event payload for a new message.
 func buildMessageCreatedPayload(msg *model.Message, senderName string) map[string]any {
 	return map[string]any{
@@ -261,4 +262,3 @@ func buildMessageCreatedPayload(msg *model.Message, senderName string) map[strin
 		"preview_text":    extractTextPreview(msg.MsgType, msg.Content),
 	}
 }
-

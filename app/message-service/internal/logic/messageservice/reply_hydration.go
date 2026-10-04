@@ -3,7 +3,6 @@ package messageservicelogic
 import (
 	"context"
 
-	"github.com/maomeng/aim/app/message-service/internal/client"
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
@@ -12,7 +11,7 @@ import (
 
 // hydrateReplySummaries populates the ReplyTo field on each proto message
 // that has a non-zero ReplyToId.
-func hydrateReplySummaries(ctx context.Context, msgRepo *repo.MessageRepo, userClient client.UserClient, botRepo *repo.BotRepo, pbMessages []*message.Message) {
+func hydrateReplySummaries(ctx context.Context, msgRepo *repo.MessageRepo, profiles *repo.ProfileRepo, convs *repo.ConversationRepo, pbMessages []*message.Message) {
 	// Collect distinct reply_to_msg_ids
 	replyIDs := make(map[int64]struct{})
 	for _, pbMsg := range pbMessages {
@@ -64,19 +63,13 @@ func hydrateReplySummaries(ctx context.Context, msgRepo *repo.MessageRepo, userC
 
 	userNames := make(map[int64]string)
 	if len(userIDs) > 0 {
-		names, err := userClient.BatchGetUserInfo(ctx, userIDs)
+		names, err := profiles.UserNames(ctx, userIDs)
 		if err == nil {
 			userNames = names
 		}
 	}
 
-	botNames := make(map[int64]string)
-	if len(botIDs) > 0 {
-		names, err := botRepo.BatchGetBotNames(ctx, botIDs)
-		if err == nil {
-			botNames = names
-		}
-	}
+	botNames := botNamesByID(ctx, convs, botIDs)
 
 	senderNames := make(map[int64]string, len(replies))
 	for _, reply := range replies {
@@ -126,19 +119,34 @@ func hydrateReplySummaries(ctx context.Context, msgRepo *repo.MessageRepo, userC
 func resolveReplySenderName(ctx context.Context, svcCtx *svc.ServiceContext, senderID int64, senderType string) string {
 	switch senderType {
 	case "user":
-		names, err := svcCtx.UserClient.BatchGetUserInfo(ctx, []int64{senderID})
+		names, err := svcCtx.ProfileRepo.UserNames(ctx, []int64{senderID})
 		if err == nil && names[senderID] != "" {
 			return names[senderID]
 		}
 		return "用户"
 	case "bot":
-		names, err := svcCtx.BotRepo.BatchGetBotNames(ctx, []int64{senderID})
-		if err == nil && names[senderID] != "" {
-			return names[senderID]
+		if bot, err := svcCtx.ConversationRepo.GetBot(ctx, senderID); err == nil && bot.Name != "" {
+			return bot.Name
 		}
 		return "Bot"
 	}
 	return ""
+}
+
+// botNamesByID resolves bot display names from the bot domain's table (ADR-0007).
+func botNamesByID(ctx context.Context, convs *repo.ConversationRepo, botIDs []int64) map[int64]string {
+	names := make(map[int64]string, len(botIDs))
+	if len(botIDs) == 0 || convs == nil {
+		return names
+	}
+	bots, err := convs.GetBotsByIDs(ctx, botIDs)
+	if err != nil {
+		return names
+	}
+	for _, bot := range bots {
+		names[bot.ID] = bot.Name
+	}
+	return names
 }
 
 func senderTypeFromMsgType(msgType int32) string {

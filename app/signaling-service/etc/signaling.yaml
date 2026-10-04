@@ -21,8 +21,8 @@ Redis:
   DB: 0
   PoolSize: 100
   MinIdleConn: 10
-ConversationService:
-  Target: ${CONVERSATION_SERVICE_ADDR}
+MessageService:
+  Target: ${MESSAGE_SERVICE_ADDR}
 BotPlatform:
   Target: ${BOT_PLATFORM_ADDR}
 WsGateway:

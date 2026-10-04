@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/IBM/sarama"
-	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/app/message-service/internal/es"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/logx"
 	"strings"

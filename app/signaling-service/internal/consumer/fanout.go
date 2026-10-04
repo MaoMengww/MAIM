@@ -32,16 +32,9 @@ type WebhookSender interface {
 	Send(ctx context.Context, callbackURL, webhookSecret string, payload json.RawMessage) error
 }
 
-type UnreadCache interface {
-	GetUnreadCount(ctx context.Context, userID, convID int64) (int32, error)
-	BatchGetUnreadCounts(ctx context.Context, userIDs []int64, convID int64) (map[int64]int32, error)
-	IncrUnreadCount(ctx context.Context, userID, convID int64) (int32, error)
-	ClearUnreadCount(ctx context.Context, userID, convID int64) error
-}
-
+// ConvRepo reads unread counts from the domain that owns them.
 type ConvRepo interface {
-	GetConversation(ctx context.Context, convID int64) (*model.ConvInfo, error)
-	BatchGetReadSeqs(ctx context.Context, userIDs []int64, convID int64) (map[int64]*model.ReadSeq, error)
+	GetUnreadCounts(ctx context.Context, convID int64, userIDs []int64) (map[int64]int32, error)
 }
 
 type PushService interface {
@@ -49,15 +42,14 @@ type PushService interface {
 }
 
 type Fanout struct {
-	memberRepo  *repo.MemberRepo
-	presence    PresenceChecker
-	userPusher  UserPusher
-	botPusher   BotPusher
-	webhook     WebhookSender
-	convRepo    ConvRepo
-	unreadCache UnreadCache
-	logger      logx.Logger
-	pushSvc     PushService
+	memberRepo *repo.MemberRepo
+	presence   PresenceChecker
+	userPusher UserPusher
+	botPusher  BotPusher
+	webhook    WebhookSender
+	convRepo   ConvRepo
+	logger     logx.Logger
+	pushSvc    PushService
 }
 
 func NewFanout(
@@ -70,7 +62,6 @@ func NewFanout(
 }
 
 func (f *Fanout) SetConvRepo(cr ConvRepo)        { f.convRepo = cr }
-func (f *Fanout) SetUnreadCache(uc UnreadCache)  { f.unreadCache = uc }
 func (f *Fanout) SetPushService(svc PushService) { f.pushSvc = svc }
 
 func (f *Fanout) PushMessageNew(ctx context.Context, convID, senderID int64, rawData []byte) error {
@@ -94,15 +85,7 @@ func (f *Fanout) PushMessageNewWithUnread(ctx context.Context, convID, senderID 
 		return nil
 	}
 
-	// Increment unread counts for all receivers
-	unreadCounts := make(map[int64]int32, len(receiverIDs))
-	if f.unreadCache != nil {
-		for _, uid := range receiverIDs {
-			if count, err := f.unreadCache.IncrUnreadCount(ctx, uid, convID); err == nil {
-				unreadCounts[uid] = count
-			}
-		}
-	}
+	unreadCounts := f.unreadCounts(ctx, convID, receiverIDs)
 
 	msgData := convertMessageIDsToStrings(rawData)
 	preview := extractPreview(rawData)
@@ -111,13 +94,16 @@ func (f *Fanout) PushMessageNewWithUnread(ctx context.Context, convID, senderID 
 
 	// Push per-user message with individual unread counts
 	for _, uid := range onlineIDs {
-		wrapped, _ := json.Marshal(map[string]any{
-			"type":         consts.EventMessageNew,
-			"message":      json.RawMessage(msgData),
-			"unread_count": unreadCounts[uid],
-			"preview":      preview,
-			"conv_id":      convIDStr,
-		})
+		envelope := map[string]any{
+			"type":    consts.EventMessageNew,
+			"message": json.RawMessage(msgData),
+			"preview": preview,
+			"conv_id": convIDStr,
+		}
+		if count, ok := unreadCounts[uid]; ok {
+			envelope["unread_count"] = count
+		}
+		wrapped, _ := json.Marshal(envelope)
 		f.userPusher.PushToUsers(ctx, []int64{uid}, wrapped)
 	}
 
@@ -199,13 +185,13 @@ func (f *Fanout) PushReadUpdated(ctx context.Context, convID, readerID, lastRead
 	}
 
 	// Push unread_count to reader (multi-device sync)
-	readerCounts := calculateUnreadFromDB(ctx, f.convRepo, []int64{readerID}, convID)
+	readerCounts := f.unreadCounts(ctx, convID, []int64{readerID})
 	if count, ok := readerCounts[readerID]; ok {
 		f.PushUnreadCount(ctx, readerID, convID, count)
 	}
 
 	// Push unread_count to other online members
-	otherCounts := calculateUnreadFromDB(ctx, f.convRepo, otherIDs, convID)
+	otherCounts := f.unreadCounts(ctx, convID, otherIDs)
 	for _, uid := range onlineOthers {
 		if count, ok := otherCounts[uid]; ok {
 			f.PushUnreadCount(ctx, uid, convID, count)
@@ -472,27 +458,17 @@ func numStr(v any) string {
 	return "0"
 }
 
-func calculateUnreadFromDB(ctx context.Context, convRepo ConvRepo, userIDs []int64, convID int64) map[int64]int32 {
-	result := make(map[int64]int32, len(userIDs))
-	if convRepo == nil {
-		return result
+// unreadCounts asks the domain that owns the read model for canonical unread
+// counts. Failure yields no counts rather than a locally derived guess: a wrong
+// unread number is worse than an omitted one.
+func (f *Fanout) unreadCounts(ctx context.Context, convID int64, userIDs []int64) map[int64]int32 {
+	if f.convRepo == nil || len(userIDs) == 0 {
+		return map[int64]int32{}
 	}
-	conv, err := convRepo.GetConversation(ctx, convID)
+	counts, err := f.convRepo.GetUnreadCounts(ctx, convID, userIDs)
 	if err != nil {
-		return result
+		f.logger.WithContext(ctx).Errorf("unread counts unavailable: conv=%d err=%v", convID, err)
+		return map[int64]int32{}
 	}
-	readSeqs, err := convRepo.BatchGetReadSeqs(ctx, userIDs, convID)
-	if err != nil {
-		return result
-	}
-	for _, uid := range userIDs {
-		lastReadSeq := int64(0)
-		if rs, ok := readSeqs[uid]; ok {
-			lastReadSeq = rs.LastReadSeq
-		}
-		if conv.MaxSeq > lastReadSeq {
-			result[uid] = int32(conv.MaxSeq - lastReadSeq)
-		}
-	}
-	return result
+	return counts
 }

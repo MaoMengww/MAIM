@@ -37,10 +37,7 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 	}
 
 	// member check
-	if l.svcCtx.ConvClient == nil {
-		return nil, ErrConversationUnavailable
-	}
-	isMember, err := l.svcCtx.ConvClient.IsMember(l.ctx, in.ConversationId, in.UserId)
+	isMember, err := l.svcCtx.ConversationRepo.IsMember(l.ctx, in.ConversationId, in.UserId)
 	if err != nil {
 		return nil, ErrMemberCheckFailed
 	}
@@ -89,7 +86,7 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 		}
 		pbMsgs = append(pbMsgs, modelToPbMessage(&m))
 	}
-	hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.UserClient, l.svcCtx.BotRepo, pbMsgs)
+	hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)
 
 	lastSeq := inboxes[len(inboxes)-1].Seq
 

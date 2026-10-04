@@ -1,7 +1,6 @@
 package messageservicelogic
 
 import (
-	"context"
 	"testing"
 
 	"github.com/maomeng/aim/app/message-service/pb/message"
@@ -138,11 +137,4 @@ func TestBroadcastContentJSON_Invalid(t *testing.T) {
 	content := `not valid json`
 	c := broadcastContentJSON(content)
 	assert.Equal(t, "not valid json", c["raw"])
-}
-
-func TestNextSeq_ContextValid(t *testing.T) {
-	// Legacy test: Redis-based nextSeq has been replaced by DB-based SequenceRepo.NextSeq.
-	// Kept to satisfy package reference for compile check only.
-	_ = context.Background()
-	assert.True(t, true)
 }

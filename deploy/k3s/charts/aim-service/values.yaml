@@ -38,7 +38,6 @@ environment:
   ENC_KEY: "Ay+h5wU31Vfy5gITlP1P2cmNtOPkTsnqIupXHqpgutw="
   USER_SERVICE_ADDR: "dns:///aim-user-service:50051"
   MESSAGE_SERVICE_ADDR: "dns:///aim-message-service:50053"
-  CONVERSATION_SERVICE_ADDR: "dns:///aim-conversation-service:50055"
   FILE_SERVICE_ADDR: "dns:///aim-file-service:50054"
   BOT_PLATFORM_ADDR: "dns:///aim-bot-platform:8085"
   KNOWLEDGE_BASE_ADDR: "dns:///aim-knowledge-base:50057"

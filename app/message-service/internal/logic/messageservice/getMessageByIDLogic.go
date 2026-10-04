@@ -31,8 +31,21 @@ func (l *GetMessageByIDLogic) GetMessageByID(in *message.GetMessageByIDReq) (*me
 		return nil, errors.Wrap(errors.CodeNotFound, "message not found", err)
 	}
 
+	// 读取前校验：调用者必须是该消息所属会话的成员
+	callerID := callerUserID(l.ctx)
+	if callerID == 0 {
+		return nil, ErrUserIDMissing
+	}
+	isMember, err := l.svcCtx.ConversationRepo.IsMember(l.ctx, msg.ConvID, callerID)
+	if err != nil {
+		return nil, ErrMemberCheckFailed
+	}
+	if !isMember {
+		return nil, ErrNotMember
+	}
+
 	pbMsg := modelToPbMessage(msg)
-	hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.UserClient, l.svcCtx.BotRepo, []*message.Message{pbMsg})
+	hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, []*message.Message{pbMsg})
 	return &message.GetMessageByIDResp{
 		Message: pbMsg,
 	}, nil

@@ -18,7 +18,6 @@ x-aim-env: &aim-env
   ENC_KEY: ${AIM_ENC_KEY}
   USER_SERVICE_ADDR: dns:///user-service:50051
   MESSAGE_SERVICE_ADDR: dns:///message-service:50053
-  CONVERSATION_SERVICE_ADDR: dns:///conversation-service:50055
   FILE_SERVICE_ADDR: dns:///file-service:50054
   BOT_PLATFORM_ADDR: dns:///bot-platform:8085
   KNOWLEDGE_BASE_ADDR: dns:///knowledge-base:50057
@@ -305,28 +304,6 @@ services:
     environment: *aim-env
     ports:
       - "50053:50053"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      init-kafka-topics:
-        condition: service_completed_successfully
-
-    restart: unless-stopped
-
-
-  conversation-service:
-    build:
-      context: .
-      dockerfile: deploy/docker/Dockerfile
-      args:
-        SERVICE: conversation-service
-    image: aim-conversation-service:latest
-    container_name: aim-conversation-service
-    environment: *aim-env
-    ports:
-      - "50055:50055"
     depends_on:
       postgres:
         condition: service_healthy

@@ -6,23 +6,21 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	convclient "github.com/maomeng/aim/app/conversation-service/client/conversationservice"
-	"github.com/maomeng/aim/app/conversation-service/pb/conversation"
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
-	"github.com/zeromicro/go-zero/zrpc"
+	"github.com/maomeng/aim/app/message-service/pb/message"
 	"google.golang.org/grpc"
 )
 
 type ConversationHandler struct {
-	convClient convclient.ConversationService
+	convClient message.MessageServiceClient
 	fileClient filepb.FileServiceClient
 }
 
-func NewConversationHandler(cli zrpc.Client, fileConn grpc.ClientConnInterface) *ConversationHandler {
+func NewConversationHandler(msgConn grpc.ClientConnInterface, fileConn grpc.ClientConnInterface) *ConversationHandler {
 	return &ConversationHandler{
-		convClient: convclient.NewConversationService(cli),
+		convClient: message.NewMessageServiceClient(msgConn),
 		fileClient: filepb.NewFileServiceClient(fileConn),
 	}
 }
@@ -40,18 +38,18 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 		return
 	}
 
-	req := convclient.CreateConversationReq{
+	req := message.CreateConversationReq{
 		CreatorId: c.GetInt64(middleware.CtxKeyUserID),
 	}
 	switch body.Type {
 	case "single":
-		req.Type = conversation.ConversationType_CONVERSATION_TYPE_PRIVATE
+		req.Type = message.ConversationType_CONVERSATION_TYPE_PRIVATE
 		if body.PeerUserID != "" {
 			v := parseInt64(string(body.PeerUserID))
 			req.PeerUserId = &v
 		}
 	case "group":
-		req.Type = conversation.ConversationType_CONVERSATION_TYPE_GROUP
+		req.Type = message.ConversationType_CONVERSATION_TYPE_GROUP
 		for _, id := range body.MemberIDs {
 			req.MemberIds = append(req.MemberIds, parseInt64(string(id)))
 		}
@@ -73,7 +71,7 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 }
 
 func (h *ConversationHandler) GetConversation(c *gin.Context) {
-	req := &convclient.GetConversationReq{
+	req := &message.GetConversationReq{
 		ConversationId: parseInt64(c.Param("id")),
 		UserId:         c.GetInt64(middleware.CtxKeyUserID),
 	}
@@ -87,7 +85,7 @@ func (h *ConversationHandler) GetConversation(c *gin.Context) {
 }
 
 func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
-	req := &convclient.DeleteConversationReq{ConversationId: parseInt64(c.Param("id"))}
+	req := &message.DeleteConversationReq{ConversationId: parseInt64(c.Param("id"))}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.convClient.DeleteConversation(ctx, req)
 	if err != nil {
@@ -98,7 +96,7 @@ func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
 }
 
 func (h *ConversationHandler) UpdateConversation(c *gin.Context) {
-	var req convclient.UpdateConversationReq
+	var req message.UpdateConversationReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -151,7 +149,7 @@ func (h *ConversationHandler) UploadConvAvatar(c *gin.Context) {
 	// Update conversation avatar with the uploaded file URL
 	if resp.Url != "" {
 		avatar := resp.Url
-		_, err = h.convClient.UpdateConversation(ctx, &conversation.UpdateConversationReq{
+		_, err = h.convClient.UpdateConversation(ctx, &message.UpdateConversationReq{
 			ConversationId: convID,
 			UserId:         userID,
 			Avatar:         &avatar,
@@ -166,7 +164,7 @@ func (h *ConversationHandler) UploadConvAvatar(c *gin.Context) {
 }
 
 func (h *ConversationHandler) ListConversations(c *gin.Context) {
-	req := convclient.ListConversationsReq{
+	req := message.ListConversationsReq{
 		UserId: c.GetInt64(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
@@ -179,7 +177,7 @@ func (h *ConversationHandler) ListConversations(c *gin.Context) {
 }
 
 func (h *ConversationHandler) GetMembers(c *gin.Context) {
-	req := &convclient.GetMembersReq{ConversationId: parseInt64(c.Param("id"))}
+	req := &message.GetMembersReq{ConversationId: parseInt64(c.Param("id"))}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.convClient.GetMembers(ctx, req)
 	if err != nil {
@@ -190,7 +188,7 @@ func (h *ConversationHandler) GetMembers(c *gin.Context) {
 }
 
 func (h *ConversationHandler) AddMembers(c *gin.Context) {
-	var req convclient.AddMembersReq
+	var req message.AddMembersReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -207,7 +205,7 @@ func (h *ConversationHandler) AddMembers(c *gin.Context) {
 }
 
 func (h *ConversationHandler) RemoveMembers(c *gin.Context) {
-	var req convclient.RemoveMembersReq
+	var req message.RemoveMembersReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -224,7 +222,7 @@ func (h *ConversationHandler) RemoveMembers(c *gin.Context) {
 }
 
 func (h *ConversationHandler) UpdateMember(c *gin.Context) {
-	var req convclient.UpdateMemberReq
+	var req message.UpdateMemberReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -243,7 +241,7 @@ func (h *ConversationHandler) UpdateMember(c *gin.Context) {
 }
 
 func (h *ConversationHandler) MuteMember(c *gin.Context) {
-	var req convclient.MuteMemberReq
+	var req message.MuteMemberReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -261,7 +259,7 @@ func (h *ConversationHandler) MuteMember(c *gin.Context) {
 }
 
 func (h *ConversationHandler) UnmuteMember(c *gin.Context) {
-	req := &convclient.UnmuteMemberReq{
+	req := &message.UnmuteMemberReq{
 		ConversationId: parseInt64(c.Param("id")),
 		UserId:         parseInt64(c.Param("uid")),
 		OperatorId:     c.GetInt64(middleware.CtxKeyUserID),
@@ -276,7 +274,7 @@ func (h *ConversationHandler) UnmuteMember(c *gin.Context) {
 }
 
 func (h *ConversationHandler) MuteAll(c *gin.Context) {
-	req := &convclient.MuteAllReq{
+	req := &message.MuteAllReq{
 		ConversationId: parseInt64(c.Param("id")),
 		OperatorId:     c.GetInt64(middleware.CtxKeyUserID),
 	}
@@ -290,7 +288,7 @@ func (h *ConversationHandler) MuteAll(c *gin.Context) {
 }
 
 func (h *ConversationHandler) UnmuteAll(c *gin.Context) {
-	req := &convclient.UnmuteAllReq{
+	req := &message.UnmuteAllReq{
 		ConversationId: parseInt64(c.Param("id")),
 		OperatorId:     c.GetInt64(middleware.CtxKeyUserID),
 	}
@@ -304,7 +302,7 @@ func (h *ConversationHandler) UnmuteAll(c *gin.Context) {
 }
 
 func (h *ConversationHandler) SetAnnouncement(c *gin.Context) {
-	var req convclient.SetAnnouncementReq
+	var req message.SetAnnouncementReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -321,7 +319,7 @@ func (h *ConversationHandler) SetAnnouncement(c *gin.Context) {
 }
 
 func (h *ConversationHandler) DeleteAnnouncement(c *gin.Context) {
-	req := &convclient.DeleteAnnouncementReq{
+	req := &message.DeleteAnnouncementReq{
 		ConversationId: parseInt64(c.Param("id")),
 		OperatorId:     c.GetInt64(middleware.CtxKeyUserID),
 	}
@@ -335,7 +333,7 @@ func (h *ConversationHandler) DeleteAnnouncement(c *gin.Context) {
 }
 
 func (h *ConversationHandler) TransferOwner(c *gin.Context) {
-	var req convclient.TransferOwnerReq
+	var req message.TransferOwnerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -352,7 +350,7 @@ func (h *ConversationHandler) TransferOwner(c *gin.Context) {
 }
 
 func (h *ConversationHandler) UpdateSettings(c *gin.Context) {
-	var req convclient.UpdateSettingsReq
+	var req message.UpdateSettingsReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -368,7 +366,7 @@ func (h *ConversationHandler) UpdateSettings(c *gin.Context) {
 }
 
 func (h *ConversationHandler) GetSettings(c *gin.Context) {
-	req := &convclient.GetSettingsReq{ConversationId: parseInt64(c.Param("id"))}
+	req := &message.GetSettingsReq{ConversationId: parseInt64(c.Param("id"))}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.convClient.GetSettings(ctx, req)
 	if err != nil {
@@ -379,7 +377,7 @@ func (h *ConversationHandler) GetSettings(c *gin.Context) {
 }
 
 func (h *ConversationHandler) MarkAsRead(c *gin.Context) {
-	var req convclient.MarkAsReadReq
+	var req message.MarkAsReadReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -395,7 +393,7 @@ func (h *ConversationHandler) MarkAsRead(c *gin.Context) {
 }
 
 func (h *ConversationHandler) GetReadStatus(c *gin.Context) {
-	req := &convclient.GetReadStatusReq{
+	req := &message.GetReadStatusReq{
 		ConversationId: parseInt64(c.Param("id")),
 		MessageId:      parseInt64(c.Param("message_id")),
 	}

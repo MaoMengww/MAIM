@@ -7,6 +7,7 @@ import (
 
 	"github.com/maomeng/aim/app/message-service/internal/config"
 	"github.com/maomeng/aim/app/message-service/internal/consumer"
+	messageservicelogic "github.com/maomeng/aim/app/message-service/internal/logic/messageservice"
 	messageserviceServer "github.com/maomeng/aim/app/message-service/internal/server/messageservice"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
@@ -29,13 +30,17 @@ func main() {
 	var c config.Config
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
 	ctx := svc.NewServiceContext(c)
+	ctx.SendSystemMessage = func(callCtx context.Context, req *message.SendSystemMessageReq) error {
+		_, err := messageservicelogic.NewSendSystemMessageLogic(callCtx, ctx).SendSystemMessage(req)
+		return err
+	}
 
 	dlqProducer, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageCreatedDLQ, ctx.Logger)
 	if err != nil {
 		ctx.Logger.Errorf("kafka dlq producer init failed: %v", err)
 	}
 
-	inboxWriter := consumer.NewInboxWriter(ctx.InboxRepo, ctx.ConvClient, ctx.Logger, c.Kafka.MaxRetry, dlqProducer)
+	inboxWriter := consumer.NewInboxWriter(ctx.InboxRepo, ctx.ConversationRepo, ctx.Logger, c.Kafka.MaxRetry, dlqProducer)
 	inboxConsumer, err := kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated}, c.Kafka.ConsumerGroup+"-inbox", ctx.Logger)
 	if err != nil {
 		panic(fmt.Sprintf("kafka inbox consumer: %v", err))
@@ -82,7 +87,7 @@ func main() {
 			reflection.Register(grpcServer)
 		}
 	})
-	s.AddUnaryInterceptors(interceptor.UnaryRequestIDInterceptor(), interceptor.UnaryErrorInterceptor())
+	s.AddUnaryInterceptors(interceptor.UnaryRequestIDInterceptor(), interceptor.UnaryUserIDInterceptor(), interceptor.UnaryErrorInterceptor())
 	defer s.Stop()
 
 	fmt.Printf("Starting rpc server at %s...\n", c.ListenOn)

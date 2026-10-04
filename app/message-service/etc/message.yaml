@@ -27,22 +27,15 @@ Message:
   editWindowSeconds: 120
   maxPageSize: 100
 
+Conv:
+  maxMemberCount: 500
+  maxGroupNameLen: 64
+  maxAliasLen: 32
+  maxAnnouncementLen: 1024
+
 Snowflake:
   workerId: 1
 
-ConvService:
-  Target: ${CONVERSATION_SERVICE_ADDR}
-  Middlewares:
-    Breaker: true
-UserService:
-  Target: ${USER_SERVICE_ADDR}
-  Middlewares:
-    Breaker: true
-
-BotPlatform:
-  Target: ${BOT_PLATFORM_ADDR}
-  Middlewares:
-    Breaker: true
 
 Log:
   Level: info

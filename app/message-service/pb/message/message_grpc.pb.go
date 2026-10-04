@@ -20,19 +20,44 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MessageService_SendMessage_FullMethodName       = "/message.MessageService/SendMessage"
-	MessageService_RecallMessage_FullMethodName     = "/message.MessageService/RecallMessage"
-	MessageService_EditMessage_FullMethodName       = "/message.MessageService/EditMessage"
-	MessageService_DeleteMessage_FullMethodName     = "/message.MessageService/DeleteMessage"
-	MessageService_GetMessages_FullMethodName       = "/message.MessageService/GetMessages"
-	MessageService_SyncMessages_FullMethodName      = "/message.MessageService/SyncMessages"
-	MessageService_GetMessageByID_FullMethodName    = "/message.MessageService/GetMessageByID"
-	MessageService_BatchGetMessages_FullMethodName  = "/message.MessageService/BatchGetMessages"
-	MessageService_GetAroundSeq_FullMethodName      = "/message.MessageService/GetAroundSeq"
-	MessageService_SearchMessages_FullMethodName    = "/message.MessageService/SearchMessages"
-	MessageService_SendBroadcast_FullMethodName     = "/message.MessageService/SendBroadcast"
-	MessageService_SendBotReply_FullMethodName      = "/message.MessageService/SendBotReply"
-	MessageService_SendSystemMessage_FullMethodName = "/message.MessageService/SendSystemMessage"
+	MessageService_SendMessage_FullMethodName        = "/message.MessageService/SendMessage"
+	MessageService_RecallMessage_FullMethodName      = "/message.MessageService/RecallMessage"
+	MessageService_EditMessage_FullMethodName        = "/message.MessageService/EditMessage"
+	MessageService_DeleteMessage_FullMethodName      = "/message.MessageService/DeleteMessage"
+	MessageService_GetMessages_FullMethodName        = "/message.MessageService/GetMessages"
+	MessageService_SyncMessages_FullMethodName       = "/message.MessageService/SyncMessages"
+	MessageService_GetMessageByID_FullMethodName     = "/message.MessageService/GetMessageByID"
+	MessageService_BatchGetMessages_FullMethodName   = "/message.MessageService/BatchGetMessages"
+	MessageService_GetAroundSeq_FullMethodName       = "/message.MessageService/GetAroundSeq"
+	MessageService_SearchMessages_FullMethodName     = "/message.MessageService/SearchMessages"
+	MessageService_SendBroadcast_FullMethodName      = "/message.MessageService/SendBroadcast"
+	MessageService_SendBotReply_FullMethodName       = "/message.MessageService/SendBotReply"
+	MessageService_SendSystemMessage_FullMethodName  = "/message.MessageService/SendSystemMessage"
+	MessageService_CreateConversation_FullMethodName = "/message.MessageService/CreateConversation"
+	MessageService_GetConversation_FullMethodName    = "/message.MessageService/GetConversation"
+	MessageService_ListConversations_FullMethodName  = "/message.MessageService/ListConversations"
+	MessageService_UpdateConversation_FullMethodName = "/message.MessageService/UpdateConversation"
+	MessageService_DeleteConversation_FullMethodName = "/message.MessageService/DeleteConversation"
+	MessageService_AddMembers_FullMethodName         = "/message.MessageService/AddMembers"
+	MessageService_RemoveMembers_FullMethodName      = "/message.MessageService/RemoveMembers"
+	MessageService_GetMembers_FullMethodName         = "/message.MessageService/GetMembers"
+	MessageService_UpdateMember_FullMethodName       = "/message.MessageService/UpdateMember"
+	MessageService_MuteAll_FullMethodName            = "/message.MessageService/MuteAll"
+	MessageService_UnmuteAll_FullMethodName          = "/message.MessageService/UnmuteAll"
+	MessageService_MuteMember_FullMethodName         = "/message.MessageService/MuteMember"
+	MessageService_UnmuteMember_FullMethodName       = "/message.MessageService/UnmuteMember"
+	MessageService_SetAnnouncement_FullMethodName    = "/message.MessageService/SetAnnouncement"
+	MessageService_DeleteAnnouncement_FullMethodName = "/message.MessageService/DeleteAnnouncement"
+	MessageService_TransferOwner_FullMethodName      = "/message.MessageService/TransferOwner"
+	MessageService_GetSettings_FullMethodName        = "/message.MessageService/GetSettings"
+	MessageService_UpdateSettings_FullMethodName     = "/message.MessageService/UpdateSettings"
+	MessageService_MarkAsRead_FullMethodName         = "/message.MessageService/MarkAsRead"
+	MessageService_GetReadStatus_FullMethodName      = "/message.MessageService/GetReadStatus"
+	MessageService_GetUnreadCounts_FullMethodName    = "/message.MessageService/GetUnreadCounts"
+	MessageService_AddBot_FullMethodName             = "/message.MessageService/AddBot"
+	MessageService_RemoveBot_FullMethodName          = "/message.MessageService/RemoveBot"
+	MessageService_UpdateBot_FullMethodName          = "/message.MessageService/UpdateBot"
+	MessageService_ListBots_FullMethodName           = "/message.MessageService/ListBots"
 )
 
 // MessageServiceClient is the client API for MessageService service.
@@ -56,6 +81,38 @@ type MessageServiceClient interface {
 	// ========== Bot Reply (called by bot-service) ==========
 	SendBotReply(ctx context.Context, in *SendBotReplyReq, opts ...grpc.CallOption) (*SendBotReplyResp, error)
 	SendSystemMessage(ctx context.Context, in *SendSystemMessageReq, opts ...grpc.CallOption) (*SendMessageResp, error)
+	// ========== Conversation domain ==========
+	// ========== CRUD ==========
+	CreateConversation(ctx context.Context, in *CreateConversationReq, opts ...grpc.CallOption) (*CreateConversationResp, error)
+	GetConversation(ctx context.Context, in *GetConversationReq, opts ...grpc.CallOption) (*GetConversationResp, error)
+	ListConversations(ctx context.Context, in *ListConversationsReq, opts ...grpc.CallOption) (*ListConversationsResp, error)
+	UpdateConversation(ctx context.Context, in *UpdateConversationReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	DeleteConversation(ctx context.Context, in *DeleteConversationReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	// ========== Members ==========
+	AddMembers(ctx context.Context, in *AddMembersReq, opts ...grpc.CallOption) (*AddMembersResp, error)
+	RemoveMembers(ctx context.Context, in *RemoveMembersReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	GetMembers(ctx context.Context, in *GetMembersReq, opts ...grpc.CallOption) (*GetMembersResp, error)
+	UpdateMember(ctx context.Context, in *UpdateMemberReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	// ========== Group Management ==========
+	MuteAll(ctx context.Context, in *MuteAllReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	UnmuteAll(ctx context.Context, in *UnmuteAllReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	MuteMember(ctx context.Context, in *MuteMemberReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	UnmuteMember(ctx context.Context, in *UnmuteMemberReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	SetAnnouncement(ctx context.Context, in *SetAnnouncementReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	DeleteAnnouncement(ctx context.Context, in *DeleteAnnouncementReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	TransferOwner(ctx context.Context, in *TransferOwnerReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	// ========== Settings ==========
+	GetSettings(ctx context.Context, in *GetSettingsReq, opts ...grpc.CallOption) (*GetSettingsResp, error)
+	UpdateSettings(ctx context.Context, in *UpdateSettingsReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	// ========== Read Status ==========
+	MarkAsRead(ctx context.Context, in *MarkAsReadReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	GetReadStatus(ctx context.Context, in *GetReadStatusReq, opts ...grpc.CallOption) (*GetReadStatusResp, error)
+	GetUnreadCounts(ctx context.Context, in *GetUnreadCountsReq, opts ...grpc.CallOption) (*GetUnreadCountsResp, error)
+	// ========== Bot Management ==========
+	AddBot(ctx context.Context, in *AddBotReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	RemoveBot(ctx context.Context, in *RemoveBotReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	UpdateBot(ctx context.Context, in *UpdateBotReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	ListBots(ctx context.Context, in *ListBotsReq, opts ...grpc.CallOption) (*ListBotsResp, error)
 }
 
 type messageServiceClient struct {
@@ -196,6 +253,256 @@ func (c *messageServiceClient) SendSystemMessage(ctx context.Context, in *SendSy
 	return out, nil
 }
 
+func (c *messageServiceClient) CreateConversation(ctx context.Context, in *CreateConversationReq, opts ...grpc.CallOption) (*CreateConversationResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateConversationResp)
+	err := c.cc.Invoke(ctx, MessageService_CreateConversation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) GetConversation(ctx context.Context, in *GetConversationReq, opts ...grpc.CallOption) (*GetConversationResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetConversationResp)
+	err := c.cc.Invoke(ctx, MessageService_GetConversation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) ListConversations(ctx context.Context, in *ListConversationsReq, opts ...grpc.CallOption) (*ListConversationsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListConversationsResp)
+	err := c.cc.Invoke(ctx, MessageService_ListConversations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) UpdateConversation(ctx context.Context, in *UpdateConversationReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_UpdateConversation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) DeleteConversation(ctx context.Context, in *DeleteConversationReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_DeleteConversation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) AddMembers(ctx context.Context, in *AddMembersReq, opts ...grpc.CallOption) (*AddMembersResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddMembersResp)
+	err := c.cc.Invoke(ctx, MessageService_AddMembers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) RemoveMembers(ctx context.Context, in *RemoveMembersReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_RemoveMembers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) GetMembers(ctx context.Context, in *GetMembersReq, opts ...grpc.CallOption) (*GetMembersResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMembersResp)
+	err := c.cc.Invoke(ctx, MessageService_GetMembers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) UpdateMember(ctx context.Context, in *UpdateMemberReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_UpdateMember_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) MuteAll(ctx context.Context, in *MuteAllReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_MuteAll_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) UnmuteAll(ctx context.Context, in *UnmuteAllReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_UnmuteAll_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) MuteMember(ctx context.Context, in *MuteMemberReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_MuteMember_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) UnmuteMember(ctx context.Context, in *UnmuteMemberReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_UnmuteMember_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) SetAnnouncement(ctx context.Context, in *SetAnnouncementReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_SetAnnouncement_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) DeleteAnnouncement(ctx context.Context, in *DeleteAnnouncementReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_DeleteAnnouncement_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) TransferOwner(ctx context.Context, in *TransferOwnerReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_TransferOwner_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) GetSettings(ctx context.Context, in *GetSettingsReq, opts ...grpc.CallOption) (*GetSettingsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSettingsResp)
+	err := c.cc.Invoke(ctx, MessageService_GetSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) UpdateSettings(ctx context.Context, in *UpdateSettingsReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_UpdateSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) MarkAsRead(ctx context.Context, in *MarkAsReadReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_MarkAsRead_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) GetReadStatus(ctx context.Context, in *GetReadStatusReq, opts ...grpc.CallOption) (*GetReadStatusResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetReadStatusResp)
+	err := c.cc.Invoke(ctx, MessageService_GetReadStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) GetUnreadCounts(ctx context.Context, in *GetUnreadCountsReq, opts ...grpc.CallOption) (*GetUnreadCountsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUnreadCountsResp)
+	err := c.cc.Invoke(ctx, MessageService_GetUnreadCounts_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) AddBot(ctx context.Context, in *AddBotReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_AddBot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) RemoveBot(ctx context.Context, in *RemoveBotReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_RemoveBot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) UpdateBot(ctx context.Context, in *UpdateBotReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, MessageService_UpdateBot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) ListBots(ctx context.Context, in *ListBotsReq, opts ...grpc.CallOption) (*ListBotsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListBotsResp)
+	err := c.cc.Invoke(ctx, MessageService_ListBots_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MessageServiceServer is the server API for MessageService service.
 // All implementations must embed UnimplementedMessageServiceServer
 // for forward compatibility.
@@ -217,6 +524,38 @@ type MessageServiceServer interface {
 	// ========== Bot Reply (called by bot-service) ==========
 	SendBotReply(context.Context, *SendBotReplyReq) (*SendBotReplyResp, error)
 	SendSystemMessage(context.Context, *SendSystemMessageReq) (*SendMessageResp, error)
+	// ========== Conversation domain ==========
+	// ========== CRUD ==========
+	CreateConversation(context.Context, *CreateConversationReq) (*CreateConversationResp, error)
+	GetConversation(context.Context, *GetConversationReq) (*GetConversationResp, error)
+	ListConversations(context.Context, *ListConversationsReq) (*ListConversationsResp, error)
+	UpdateConversation(context.Context, *UpdateConversationReq) (*common.BaseResponse, error)
+	DeleteConversation(context.Context, *DeleteConversationReq) (*common.BaseResponse, error)
+	// ========== Members ==========
+	AddMembers(context.Context, *AddMembersReq) (*AddMembersResp, error)
+	RemoveMembers(context.Context, *RemoveMembersReq) (*common.BaseResponse, error)
+	GetMembers(context.Context, *GetMembersReq) (*GetMembersResp, error)
+	UpdateMember(context.Context, *UpdateMemberReq) (*common.BaseResponse, error)
+	// ========== Group Management ==========
+	MuteAll(context.Context, *MuteAllReq) (*common.BaseResponse, error)
+	UnmuteAll(context.Context, *UnmuteAllReq) (*common.BaseResponse, error)
+	MuteMember(context.Context, *MuteMemberReq) (*common.BaseResponse, error)
+	UnmuteMember(context.Context, *UnmuteMemberReq) (*common.BaseResponse, error)
+	SetAnnouncement(context.Context, *SetAnnouncementReq) (*common.BaseResponse, error)
+	DeleteAnnouncement(context.Context, *DeleteAnnouncementReq) (*common.BaseResponse, error)
+	TransferOwner(context.Context, *TransferOwnerReq) (*common.BaseResponse, error)
+	// ========== Settings ==========
+	GetSettings(context.Context, *GetSettingsReq) (*GetSettingsResp, error)
+	UpdateSettings(context.Context, *UpdateSettingsReq) (*common.BaseResponse, error)
+	// ========== Read Status ==========
+	MarkAsRead(context.Context, *MarkAsReadReq) (*common.BaseResponse, error)
+	GetReadStatus(context.Context, *GetReadStatusReq) (*GetReadStatusResp, error)
+	GetUnreadCounts(context.Context, *GetUnreadCountsReq) (*GetUnreadCountsResp, error)
+	// ========== Bot Management ==========
+	AddBot(context.Context, *AddBotReq) (*common.BaseResponse, error)
+	RemoveBot(context.Context, *RemoveBotReq) (*common.BaseResponse, error)
+	UpdateBot(context.Context, *UpdateBotReq) (*common.BaseResponse, error)
+	ListBots(context.Context, *ListBotsReq) (*ListBotsResp, error)
 	mustEmbedUnimplementedMessageServiceServer()
 }
 
@@ -265,6 +604,81 @@ func (UnimplementedMessageServiceServer) SendBotReply(context.Context, *SendBotR
 }
 func (UnimplementedMessageServiceServer) SendSystemMessage(context.Context, *SendSystemMessageReq) (*SendMessageResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method SendSystemMessage not implemented")
+}
+func (UnimplementedMessageServiceServer) CreateConversation(context.Context, *CreateConversationReq) (*CreateConversationResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateConversation not implemented")
+}
+func (UnimplementedMessageServiceServer) GetConversation(context.Context, *GetConversationReq) (*GetConversationResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetConversation not implemented")
+}
+func (UnimplementedMessageServiceServer) ListConversations(context.Context, *ListConversationsReq) (*ListConversationsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListConversations not implemented")
+}
+func (UnimplementedMessageServiceServer) UpdateConversation(context.Context, *UpdateConversationReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateConversation not implemented")
+}
+func (UnimplementedMessageServiceServer) DeleteConversation(context.Context, *DeleteConversationReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteConversation not implemented")
+}
+func (UnimplementedMessageServiceServer) AddMembers(context.Context, *AddMembersReq) (*AddMembersResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method AddMembers not implemented")
+}
+func (UnimplementedMessageServiceServer) RemoveMembers(context.Context, *RemoveMembersReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveMembers not implemented")
+}
+func (UnimplementedMessageServiceServer) GetMembers(context.Context, *GetMembersReq) (*GetMembersResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMembers not implemented")
+}
+func (UnimplementedMessageServiceServer) UpdateMember(context.Context, *UpdateMemberReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateMember not implemented")
+}
+func (UnimplementedMessageServiceServer) MuteAll(context.Context, *MuteAllReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MuteAll not implemented")
+}
+func (UnimplementedMessageServiceServer) UnmuteAll(context.Context, *UnmuteAllReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UnmuteAll not implemented")
+}
+func (UnimplementedMessageServiceServer) MuteMember(context.Context, *MuteMemberReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MuteMember not implemented")
+}
+func (UnimplementedMessageServiceServer) UnmuteMember(context.Context, *UnmuteMemberReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UnmuteMember not implemented")
+}
+func (UnimplementedMessageServiceServer) SetAnnouncement(context.Context, *SetAnnouncementReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetAnnouncement not implemented")
+}
+func (UnimplementedMessageServiceServer) DeleteAnnouncement(context.Context, *DeleteAnnouncementReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteAnnouncement not implemented")
+}
+func (UnimplementedMessageServiceServer) TransferOwner(context.Context, *TransferOwnerReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TransferOwner not implemented")
+}
+func (UnimplementedMessageServiceServer) GetSettings(context.Context, *GetSettingsReq) (*GetSettingsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSettings not implemented")
+}
+func (UnimplementedMessageServiceServer) UpdateSettings(context.Context, *UpdateSettingsReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateSettings not implemented")
+}
+func (UnimplementedMessageServiceServer) MarkAsRead(context.Context, *MarkAsReadReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MarkAsRead not implemented")
+}
+func (UnimplementedMessageServiceServer) GetReadStatus(context.Context, *GetReadStatusReq) (*GetReadStatusResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetReadStatus not implemented")
+}
+func (UnimplementedMessageServiceServer) GetUnreadCounts(context.Context, *GetUnreadCountsReq) (*GetUnreadCountsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUnreadCounts not implemented")
+}
+func (UnimplementedMessageServiceServer) AddBot(context.Context, *AddBotReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AddBot not implemented")
+}
+func (UnimplementedMessageServiceServer) RemoveBot(context.Context, *RemoveBotReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveBot not implemented")
+}
+func (UnimplementedMessageServiceServer) UpdateBot(context.Context, *UpdateBotReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateBot not implemented")
+}
+func (UnimplementedMessageServiceServer) ListBots(context.Context, *ListBotsReq) (*ListBotsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListBots not implemented")
 }
 func (UnimplementedMessageServiceServer) mustEmbedUnimplementedMessageServiceServer() {}
 func (UnimplementedMessageServiceServer) testEmbeddedByValue()                        {}
@@ -521,6 +935,456 @@ func _MessageService_SendSystemMessage_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MessageService_CreateConversation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateConversationReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).CreateConversation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_CreateConversation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).CreateConversation(ctx, req.(*CreateConversationReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_GetConversation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetConversationReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).GetConversation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_GetConversation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).GetConversation(ctx, req.(*GetConversationReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_ListConversations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListConversationsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).ListConversations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_ListConversations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).ListConversations(ctx, req.(*ListConversationsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_UpdateConversation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateConversationReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).UpdateConversation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_UpdateConversation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).UpdateConversation(ctx, req.(*UpdateConversationReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_DeleteConversation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteConversationReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).DeleteConversation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_DeleteConversation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).DeleteConversation(ctx, req.(*DeleteConversationReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_AddMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddMembersReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).AddMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_AddMembers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).AddMembers(ctx, req.(*AddMembersReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_RemoveMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveMembersReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).RemoveMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_RemoveMembers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).RemoveMembers(ctx, req.(*RemoveMembersReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_GetMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMembersReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).GetMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_GetMembers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).GetMembers(ctx, req.(*GetMembersReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_UpdateMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateMemberReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).UpdateMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_UpdateMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).UpdateMember(ctx, req.(*UpdateMemberReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_MuteAll_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MuteAllReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).MuteAll(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_MuteAll_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).MuteAll(ctx, req.(*MuteAllReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_UnmuteAll_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnmuteAllReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).UnmuteAll(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_UnmuteAll_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).UnmuteAll(ctx, req.(*UnmuteAllReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_MuteMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MuteMemberReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).MuteMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_MuteMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).MuteMember(ctx, req.(*MuteMemberReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_UnmuteMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnmuteMemberReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).UnmuteMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_UnmuteMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).UnmuteMember(ctx, req.(*UnmuteMemberReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_SetAnnouncement_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAnnouncementReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).SetAnnouncement(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_SetAnnouncement_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).SetAnnouncement(ctx, req.(*SetAnnouncementReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_DeleteAnnouncement_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAnnouncementReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).DeleteAnnouncement(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_DeleteAnnouncement_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).DeleteAnnouncement(ctx, req.(*DeleteAnnouncementReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_TransferOwner_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TransferOwnerReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).TransferOwner(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_TransferOwner_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).TransferOwner(ctx, req.(*TransferOwnerReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_GetSettings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSettingsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).GetSettings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_GetSettings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).GetSettings(ctx, req.(*GetSettingsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_UpdateSettings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateSettingsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).UpdateSettings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_UpdateSettings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).UpdateSettings(ctx, req.(*UpdateSettingsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_MarkAsRead_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MarkAsReadReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).MarkAsRead(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_MarkAsRead_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).MarkAsRead(ctx, req.(*MarkAsReadReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_GetReadStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetReadStatusReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).GetReadStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_GetReadStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).GetReadStatus(ctx, req.(*GetReadStatusReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_GetUnreadCounts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUnreadCountsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).GetUnreadCounts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_GetUnreadCounts_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).GetUnreadCounts(ctx, req.(*GetUnreadCountsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_AddBot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddBotReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).AddBot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_AddBot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).AddBot(ctx, req.(*AddBotReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_RemoveBot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveBotReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).RemoveBot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_RemoveBot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).RemoveBot(ctx, req.(*RemoveBotReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_UpdateBot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateBotReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).UpdateBot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_UpdateBot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).UpdateBot(ctx, req.(*UpdateBotReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_ListBots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBotsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).ListBots(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_ListBots_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).ListBots(ctx, req.(*ListBotsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MessageService_ServiceDesc is the grpc.ServiceDesc for MessageService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -579,6 +1443,106 @@ var MessageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendSystemMessage",
 			Handler:    _MessageService_SendSystemMessage_Handler,
+		},
+		{
+			MethodName: "CreateConversation",
+			Handler:    _MessageService_CreateConversation_Handler,
+		},
+		{
+			MethodName: "GetConversation",
+			Handler:    _MessageService_GetConversation_Handler,
+		},
+		{
+			MethodName: "ListConversations",
+			Handler:    _MessageService_ListConversations_Handler,
+		},
+		{
+			MethodName: "UpdateConversation",
+			Handler:    _MessageService_UpdateConversation_Handler,
+		},
+		{
+			MethodName: "DeleteConversation",
+			Handler:    _MessageService_DeleteConversation_Handler,
+		},
+		{
+			MethodName: "AddMembers",
+			Handler:    _MessageService_AddMembers_Handler,
+		},
+		{
+			MethodName: "RemoveMembers",
+			Handler:    _MessageService_RemoveMembers_Handler,
+		},
+		{
+			MethodName: "GetMembers",
+			Handler:    _MessageService_GetMembers_Handler,
+		},
+		{
+			MethodName: "UpdateMember",
+			Handler:    _MessageService_UpdateMember_Handler,
+		},
+		{
+			MethodName: "MuteAll",
+			Handler:    _MessageService_MuteAll_Handler,
+		},
+		{
+			MethodName: "UnmuteAll",
+			Handler:    _MessageService_UnmuteAll_Handler,
+		},
+		{
+			MethodName: "MuteMember",
+			Handler:    _MessageService_MuteMember_Handler,
+		},
+		{
+			MethodName: "UnmuteMember",
+			Handler:    _MessageService_UnmuteMember_Handler,
+		},
+		{
+			MethodName: "SetAnnouncement",
+			Handler:    _MessageService_SetAnnouncement_Handler,
+		},
+		{
+			MethodName: "DeleteAnnouncement",
+			Handler:    _MessageService_DeleteAnnouncement_Handler,
+		},
+		{
+			MethodName: "TransferOwner",
+			Handler:    _MessageService_TransferOwner_Handler,
+		},
+		{
+			MethodName: "GetSettings",
+			Handler:    _MessageService_GetSettings_Handler,
+		},
+		{
+			MethodName: "UpdateSettings",
+			Handler:    _MessageService_UpdateSettings_Handler,
+		},
+		{
+			MethodName: "MarkAsRead",
+			Handler:    _MessageService_MarkAsRead_Handler,
+		},
+		{
+			MethodName: "GetReadStatus",
+			Handler:    _MessageService_GetReadStatus_Handler,
+		},
+		{
+			MethodName: "GetUnreadCounts",
+			Handler:    _MessageService_GetUnreadCounts_Handler,
+		},
+		{
+			MethodName: "AddBot",
+			Handler:    _MessageService_AddBot_Handler,
+		},
+		{
+			MethodName: "RemoveBot",
+			Handler:    _MessageService_RemoveBot_Handler,
+		},
+		{
+			MethodName: "UpdateBot",
+			Handler:    _MessageService_UpdateBot_Handler,
+		},
+		{
+			MethodName: "ListBots",
+			Handler:    _MessageService_ListBots_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

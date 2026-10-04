@@ -9,7 +9,6 @@ REGISTRY="${2:-registry.aim.local}"
 SERVICES=(
   user-service
   message-service
-  conversation-service
   file-service
   llm-gateway
   knowledge-base

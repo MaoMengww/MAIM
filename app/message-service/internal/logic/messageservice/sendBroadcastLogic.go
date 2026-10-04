@@ -98,9 +98,9 @@ func (l *SendBroadcastLogic) SendBroadcast(in *message.SendBroadcastReq) (*messa
 func (l *SendBroadcastLogic) resolveTargetUsers(scope string, scopeTargetID int64) ([]int64, error) {
 	switch scope {
 	case "all":
-		return l.svcCtx.UserClient.ListAllIDs(l.ctx)
+		return l.svcCtx.ProfileRepo.AllUserIDs(l.ctx)
 	case "group":
-		return l.svcCtx.ConvClient.GetMembers(l.ctx, scopeTargetID)
+		return l.svcCtx.ConversationRepo.MemberIDs(l.ctx, scopeTargetID)
 	case "user":
 		if scopeTargetID == 0 {
 			return nil, fmt.Errorf("scope_target_id is required for user scope")

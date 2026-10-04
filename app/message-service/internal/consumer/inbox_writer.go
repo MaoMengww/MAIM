@@ -18,7 +18,7 @@ import (
 var errMaxRetries = errors.New("max retries exceeded")
 
 type ConvMemberResolver interface {
-	GetConvMembers(ctx context.Context, convID int64) ([]int64, error)
+	MemberIDs(ctx context.Context, convID int64) ([]int64, error)
 }
 
 type InboxWriter struct {
@@ -88,7 +88,7 @@ func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) err
 		return nil
 	}
 
-	members, err := w.resolver.GetConvMembers(ctx, payload.ConvID)
+	members, err := w.resolver.MemberIDs(ctx, payload.ConvID)
 	if err != nil {
 		logger.Errorf("get conv members failed: conv=%d err=%v", payload.ConvID, err)
 		return err

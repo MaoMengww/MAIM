@@ -62,10 +62,7 @@ func (l *GetMessagesLogic) GetMessages(in *message.GetMessagesReq) (*message.Get
 	}
 
 	// member check
-	if l.svcCtx.ConvClient == nil {
-		return nil, ErrConversationUnavailable
-	}
-	isMember, err := l.svcCtx.ConvClient.IsMember(l.ctx, in.ConversationId, in.UserId)
+	isMember, err := l.svcCtx.ConversationRepo.IsMember(l.ctx, in.ConversationId, in.UserId)
 	if err != nil {
 		return nil, ErrMemberCheckFailed
 	}
@@ -88,7 +85,7 @@ func (l *GetMessagesLogic) GetMessages(in *message.GetMessagesReq) (*message.Get
 	for i := range msgs {
 		pbMsgs = append(pbMsgs, modelToPbMessage(&msgs[i]))
 	}
-	hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.UserClient, l.svcCtx.BotRepo, pbMsgs)
+	hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)
 
 	resp := &message.GetMessagesResp{
 		Messages: pbMsgs,

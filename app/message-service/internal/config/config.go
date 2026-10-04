@@ -12,10 +12,15 @@ type Config struct {
 	Elasticsearch config.ElasticsearchConfig `json:"elasticsearch"`
 	Message       MessageConfig              `json:"message"`
 	Snowflake     SnowflakeConfig            `json:"snowflake"`
-	ConvService   zrpc.RpcClientConf         `json:"convService"`
-	UserService   zrpc.RpcClientConf         `json:"userService"`
-	BotPlatform   zrpc.RpcClientConf         `json:"botPlatform"`
+	Conv          ConvConfig                 `json:"conv"`
 	RateLimit     config.RateLimitConfig     `json:"rateLimit"`
+}
+
+type ConvConfig struct {
+	MaxMemberCount     int `json:"maxMemberCount" default:"500"`
+	MaxGroupNameLen    int `json:"maxGroupNameLen" default:"64"`
+	MaxAliasLen        int `json:"maxAliasLen" default:"32"`
+	MaxAnnouncementLen int `json:"maxAnnouncementLen" default:"1024"`
 }
 
 type MessageConfig struct {
@@ -27,5 +32,3 @@ type MessageConfig struct {
 type SnowflakeConfig struct {
 	WorkerID int64 `json:"workerId" default:"1"`
 }
-
-type ConvServiceConfig = zrpc.RpcClientConf

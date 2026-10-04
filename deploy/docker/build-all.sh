@@ -4,7 +4,7 @@ cd /home/maomeng/project/AIM
 echo "=== Docker Build All Services ==="
 
 services=(
-  user-service conversation-service message-service
+  user-service message-service
   gateway file-service llm-gateway knowledge-base
   ai-bot-service bot-platform ws-gateway signaling-service
 )

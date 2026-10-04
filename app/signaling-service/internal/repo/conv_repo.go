@@ -4,39 +4,32 @@ import (
 	"context"
 	"fmt"
 
-	convpb "github.com/maomeng/aim/app/conversation-service/pb/conversation"
-	"github.com/maomeng/aim/app/signaling-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/pb/message"
 )
 
+// ConvRepo reads the unread read model of the message domain. Unread counts are
+// owned by the message domain; the push layer only asks for the values it must
+// attach to a push envelope, so it never keeps its own unread state.
 type ConvRepo struct {
-	convClient convpb.ConversationServiceClient
+	msgClient message.MessageServiceClient
 }
 
-func NewConvRepo(convClient convpb.ConversationServiceClient) *ConvRepo {
-	return &ConvRepo{convClient: convClient}
+func NewConvRepo(msgClient message.MessageServiceClient) *ConvRepo {
+	return &ConvRepo{msgClient: msgClient}
 }
 
-func (r *ConvRepo) GetConversation(ctx context.Context, convID int64) (*model.ConvInfo, error) {
-	resp, err := r.convClient.GetConversation(ctx, &convpb.GetConversationReq{ConversationId: convID})
+// GetUnreadCounts returns the canonical unread count of each requested user in
+// the conversation as computed by the message domain.
+func (r *ConvRepo) GetUnreadCounts(ctx context.Context, convID int64, userIDs []int64) (map[int64]int32, error) {
+	if len(userIDs) == 0 {
+		return map[int64]int32{}, nil
+	}
+	resp, err := r.msgClient.GetUnreadCounts(ctx, &message.GetUnreadCountsReq{
+		ConversationId: convID,
+		UserIds:        userIDs,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get conversation via gRPC: %w", err)
+		return nil, fmt.Errorf("get unread counts: %w", err)
 	}
-	return &model.ConvInfo{ID: resp.Conversation.Id, MaxSeq: resp.Conversation.MaxSeq}, nil
-}
-
-func (r *ConvRepo) BatchGetReadSeqs(ctx context.Context, userIDs []int64, convID int64) (map[int64]*model.ReadSeq, error) {
-	resp, err := r.convClient.GetReadStatus(ctx, &convpb.GetReadStatusReq{ConversationId: convID})
-	if err != nil {
-		return nil, fmt.Errorf("get read status via gRPC: %w", err)
-	}
-	result := make(map[int64]*model.ReadSeq, len(resp.ReadUsers))
-	for _, u := range resp.ReadUsers {
-		for _, uid := range userIDs {
-			if u.UserId == uid {
-				result[uid] = &model.ReadSeq{UserID: u.UserId, ConvID: convID, LastReadSeq: u.LastReadSeq}
-				break
-			}
-		}
-	}
-	return result, nil
+	return resp.GetCounts(), nil
 }

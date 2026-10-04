@@ -8,10 +8,10 @@ import (
 	"github.com/gin-gonic/gin"
 	aibot "github.com/maomeng/aim/app/ai-bot-service/pb/aibot"
 	"github.com/maomeng/aim/app/bot-platform/pb/botplatform"
-	convpb "github.com/maomeng/aim/app/conversation-service/pb/conversation"
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
+	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/consts"
 	common "github.com/maomeng/aim/pkg/pb/common"
 	"google.golang.org/grpc"
@@ -20,15 +20,15 @@ import (
 
 type BotHandler struct {
 	botClient   botplatform.BotPlatformClient
-	convClient  convpb.ConversationServiceClient
+	convClient  message.MessageServiceClient
 	aiBotClient aibot.AiBotServiceClient
 	fileClient  filepb.FileServiceClient
 }
 
-func NewBotHandler(botConn, convConn, aiBotConn, fileConn grpc.ClientConnInterface) *BotHandler {
+func NewBotHandler(botConn, msgConn, aiBotConn, fileConn grpc.ClientConnInterface) *BotHandler {
 	return &BotHandler{
 		botClient:   botplatform.NewBotPlatformClient(botConn),
-		convClient:  convpb.NewConversationServiceClient(convConn),
+		convClient:  message.NewMessageServiceClient(msgConn),
 		aiBotClient: aibot.NewAiBotServiceClient(aiBotConn),
 		fileClient:  filepb.NewFileServiceClient(fileConn),
 	}
@@ -264,7 +264,7 @@ func (h *BotHandler) AddBotToConv(c *gin.Context) {
 		response.BadRequest(c, "invalid request body")
 		return
 	}
-	var req convpb.AddBotReq
+	var req message.AddBotReq
 	if err := protojson.Unmarshal(raw, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -281,7 +281,7 @@ func (h *BotHandler) AddBotToConv(c *gin.Context) {
 }
 
 func (h *BotHandler) RemoveBotFromConv(c *gin.Context) {
-	req := &convpb.RemoveBotReq{
+	req := &message.RemoveBotReq{
 		ConversationId: parseInt64(c.Param("id")),
 		BotId:          parseInt64(c.Param("bot_id")),
 		OperatorId:     c.GetInt64(middleware.CtxKeyUserID),
@@ -296,7 +296,7 @@ func (h *BotHandler) RemoveBotFromConv(c *gin.Context) {
 }
 
 func (h *BotHandler) UpdateBotInConv(c *gin.Context) {
-	var req convpb.UpdateBotReq
+	var req message.UpdateBotReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -314,7 +314,7 @@ func (h *BotHandler) UpdateBotInConv(c *gin.Context) {
 }
 
 func (h *BotHandler) ListConvBots(c *gin.Context) {
-	req := &convpb.ListBotsReq{
+	req := &message.ListBotsReq{
 		ConversationId: parseInt64(c.Param("id")),
 		UserId:         c.GetInt64(middleware.CtxKeyUserID),
 	}

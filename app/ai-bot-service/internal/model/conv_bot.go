@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// ConvBot mirrors the conv_bots table.
+// ConvBot mirrors the message domain's conv_bots table.
 type ConvBot struct {
 	ID          int64          `gorm:"primaryKey;column:id" json:"id"`
 	ConvID      int64          `gorm:"column:conv_id" json:"conv_id"`
@@ -12,4 +12,4 @@ type ConvBot struct {
 	CreatedAt   time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 }
 
-func (ConvBot) TableName() string { return "conv.conv_bots" }
+func (ConvBot) TableName() string { return "msg.conv_bots" }

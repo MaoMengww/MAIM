@@ -2,6 +2,7 @@ package messageservicelogic
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type SendSystemMessageLogic struct {
@@ -58,7 +60,7 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 		UpdatedAt:   now,
 	}
 
-	// 生成 seq + 插入消息 + outbox 事件 + 更新会话元数据（同一 PG 事务，原子提交）
+	// 锁会话 + seq + 消息 + outbox + 最新消息（同一 PG 事务，原子提交）
 	previewText := extractTextPreview(msg.MsgType, msg.Content)
 	senderName := in.ActorType
 	contentMap := map[string]any{
@@ -72,6 +74,13 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 
 	var seq int64
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+		// 与普通消息/Bot回复保持一致：先锁会话，再分配 seq。
+		var conv model.Conversation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", in.ConversationId).Take(&conv).Error; err != nil {
+			return err
+		}
+
 		s, err := l.svcCtx.SequenceRepo.NextSeq(l.ctx, tx, in.ConversationId)
 		if err != nil {
 			return err
@@ -109,15 +118,16 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 			return err
 		}
 
-		return tx.Table("conv.conversations").Where("id = ?", in.ConversationId).
-			Updates(map[string]any{
-				"max_seq":              seq,
-				"last_message_id":      msgID,
-				"last_message_preview": previewText,
-				"updated_at":           time.Now(),
-			}).Error
+		// 同一事务内推进会话的最新消息、最大 seq 与 updated_at
+		return l.svcCtx.ConversationRepo.TouchLastMessage(l.ctx, tx, in.ConversationId, msgID, seq, previewText)
 	})
 	if err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New(errors.CodeNotFound, "conversation not found")
+		}
+		if _, ok := errors.IsBizError(err); ok {
+			return nil, err
+		}
 		return nil, errors.Wrap(errors.CodeInternal, "insert system message failed", err)
 	}
 

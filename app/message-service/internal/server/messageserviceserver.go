@@ -7,9 +7,9 @@ package server
 import (
 	"context"
 
-	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/app/message-service/internal/logic"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
+	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/pb/common"
 )
 

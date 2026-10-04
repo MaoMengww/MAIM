@@ -97,11 +97,6 @@ releases:
     values:
       - values/{{ .Environment.Name }}/message-service.yaml
 
-  - name: aim-conversation-service
-    chart: ./charts/aim-service
-    values:
-      - values/{{ .Environment.Name }}/conversation-service.yaml
-
   - name: aim-file-service
     chart: ./charts/aim-service
     values:
