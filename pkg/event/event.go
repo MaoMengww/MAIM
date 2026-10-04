@@ -67,14 +67,6 @@ type MessageEditedEvent struct {
 	NewContent map[string]any `json:"new_content"`
 }
 
-// MessageDeletedEvent is produced on message.deleted topic.
-type MessageDeletedEvent struct {
-	MessageID    int64 `json:"message_id"`
-	ConvID       int64 `json:"conv_id"`
-	UserID       int64 `json:"user_id"`
-	DeleteForAll bool  `json:"delete_for_all"`
-}
-
 // ConversationReadUpdatedEvent is produced on conversation.read.updated topic.
 type ConversationReadUpdatedEvent struct {
 	ConvID      int64 `json:"conv_id"`
@@ -90,22 +82,6 @@ type BroadcastCreatedEvent struct {
 	Scope         string `json:"scope"`
 	ScopeTargetID int64  `json:"scope_target_id"`
 	CreatedAt     int64  `json:"created_at"`
-}
-
-// BotAddedToConvEvent is produced on conversation.bot.added topic.
-type BotAddedToConvEvent struct {
-	ConvID  int64  `json:"conv_id"`
-	BotID   int64  `json:"bot_id"`
-	AddedBy int64  `json:"added_by"`
-	BotName string `json:"bot_name"`
-	BotType string `json:"bot_type"`
-}
-
-// BotRemovedFromConvEvent is produced on conversation.bot.removed topic.
-type BotRemovedFromConvEvent struct {
-	ConvID    int64 `json:"conv_id"`
-	BotID     int64 `json:"bot_id"`
-	RemovedBy int64 `json:"removed_by"`
 }
 
 // WebhookPayload is the JSON body sent to third-party webhook callback URLs.

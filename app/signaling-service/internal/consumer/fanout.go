@@ -183,11 +183,6 @@ func (f *Fanout) PushBotAdded(ctx context.Context, botID, convID int64) error {
 	return f.pushToBot(ctx, botID, payload)
 }
 
-func (f *Fanout) PushBotRemoved(ctx context.Context, botID, convID int64) error {
-	payload, _ := json.Marshal(map[string]any{"type": "bot.removed_from_conv", "bot_id": strconv.FormatInt(botID, 10), "conv_id": strconv.FormatInt(convID, 10)})
-	return f.pushToBot(ctx, botID, payload)
-}
-
 func (f *Fanout) PushReadUpdated(ctx context.Context, convID, readerID, lastReadSeq int64) {
 	members, err := f.memberRepo.GetConvMembers(ctx, convID)
 	if err != nil {

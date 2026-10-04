@@ -9,7 +9,6 @@ const (
 	KafkaTopicMessageEdited           = "message.edited"
 	KafkaTopicMessageDeleted          = "message.deleted"
 	KafkaTopicConvBotAdded            = "conversation.bot.added"
-	KafkaTopicConvBotRemoved          = "conversation.bot.removed"
 	KafkaTopicMessageCreatedDLQ       = "message.created.dlq"
 )
 

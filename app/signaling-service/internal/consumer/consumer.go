@@ -32,7 +32,6 @@ func NewConsumer(f *Fanout, dlq DLQProducer, logger logx.Logger) *Consumer {
 	c.topics[consts.KafkaTopicMessageDeleted] = c.handleMessageDeleted
 	c.topics[consts.KafkaTopicConversationReadUpdated] = c.handleConversationReadUpdated
 	c.topics[consts.KafkaTopicConvBotAdded] = c.handleBotAdded
-	c.topics[consts.KafkaTopicConvBotRemoved] = c.handleBotRemoved
 	return c
 }
 
@@ -171,15 +170,4 @@ func (c *Consumer) handleBotAdded(ctx context.Context, raw []byte) error {
 		return err
 	}
 	return c.fanout.PushBotAdded(ctx, evt.BotID, evt.ConvID)
-}
-
-func (c *Consumer) handleBotRemoved(ctx context.Context, raw []byte) error {
-	var evt struct {
-		ConvID int64 `json:"conv_id"`
-		BotID  int64 `json:"bot_id"`
-	}
-	if err := json.Unmarshal(raw, &evt); err != nil {
-		return err
-	}
-	return c.fanout.PushBotRemoved(ctx, evt.BotID, evt.ConvID)
 }
