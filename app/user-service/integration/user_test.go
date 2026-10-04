@@ -8,41 +8,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maomeng/aim/app/user-service/internal/config"
 	"github.com/maomeng/aim/app/user-service/internal/logic/auth"
 	"github.com/maomeng/aim/app/user-service/internal/logic/user"
-	"github.com/maomeng/aim/app/user-service/internal/repo"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
-	pkgconfig "github.com/maomeng/aim/pkg/config"
-	"github.com/maomeng/aim/pkg/jwt"
-	"github.com/maomeng/aim/pkg/snowflake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/zeromicro/go-zero/core/conf"
 )
 
 func newAuthLogic(t *testing.T) (*auth.Logic, *user.Logic, *user.StatusLogic) {
 	t.Helper()
-	var c config.Config
-	pkgconfig.SetLocalDefaults()
-	conf.MustLoad("../etc/user.yaml", &c, conf.UseEnv())
-	c.Telemetry.Endpoint = ""
-
-	db := c.Database
-	rdbCfg := c.Redis
-
-	rdb := newRedisClient(rdbCfg.Host)
-	_db := newDB(db.Driver, db.DSN)
-
-	snowNode, err := snowflake.NewNode(1)
-	require.NoError(t, err)
-	jwtMgr := jwt.NewManager("test-int-key", 3600, 2592000)
-
-	userRepo := repo.NewUserRepo(_db)
-	authRepo := repo.NewAuthRepo(_db, rdb)
-	return auth.New(userRepo, authRepo, snowNode, jwtMgr),
-		user.New(userRepo),
-		user.NewStatusLogic(rdb)
+	ctx := newUserSvcCtx(t)
+	return ctx.AuthLogic, ctx.UserLogic, ctx.StatusLogic
 }
 
 func TestUserRegisterAndLogin(t *testing.T) {

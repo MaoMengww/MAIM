@@ -6,10 +6,10 @@
 
 ## 项目概要
 
-MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型深度融入实时通讯场景。系统由 **12 个 Go 微服务** 构成，涵盖消息引擎、Bot 编排、知识库 RAG 检索、WebSocket 实时推送等完整业务域，通过 **Helmfile + k3s** 声明式部署。
+MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型深度融入实时通讯场景。系统由 **11 个 Go 服务** 构成，涵盖消息引擎、Bot 编排、知识库 RAG 检索、WebSocket 实时推送等完整业务域，通过 **Helmfile + k3s** 声明式部署。
 
 - **定位**：IM 平台 + AI Bot 引擎 + 知识库 RAG，三者一体化
-- **规模**：12 个 Go 微服务，gRPC + Kafka 通信
+- **规模**：11 个 Go 服务，gRPC + Kafka 通信；账号与好友关系同属 user-service
 - **部署**：Docker Compose 或 k3s，平台 DNS 发现，YAML 模板 + 环境变量配置
 
 ---
@@ -33,7 +33,7 @@ MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型�
     │                  微服务层                              │
     │                                                       │
     │  ┌──────────┐ ┌──────────┐ ┌───────────┐            │
-    │  │  user    │ │  friend  │ │  message  │  ...       │
+    │  │  user    │ │   conv   │ │  message  │  ...       │
     │  └──────────┘ └──────────┘ └───────────┘            │
     │                                                       │
     │  ┌──────────┐ ┌──────────┐ ┌───────────┐            │
@@ -110,11 +110,10 @@ Gateway (REST) ──gRPC──▶ message-service
 
 ```
 AIM/
-├── app/                              # 12 个 Go 微服务 (go-zero 统一布局)
+├── app/                              # 11 个 Go 服务 (go-zero 统一布局)
 │   ├── gateway/                      # REST API 网关 (Gin BFF, JWT + 限流)
 │   ├── ws-gateway/                   # WebSocket 实时网关 (长连接 + 在线状态)
-│   ├── user-service/                 # 用户注册/登录/资料管理
-│   ├── friend-service/               # 好友关系管理 (添加/删除/黑名单)
+│   ├── user-service/                 # 账号、资料、好友关系、分组与黑名单
 │   ├── conversation-service/         # 会话与群组管理 (Bot 绑定)
 │   ├── message-service/              # 消息引擎 (收发 + Kafka Consumer)
 │   ├── file-service/                 # 文件管理 (MinIO Presigned URL)
@@ -201,11 +200,12 @@ Compose 的 `init-kafka-topics` 在 broker 就绪后幂等创建活跃 topic，�
 ```bash
 python3 tests/e2e/run.py --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
 ```
 
 每次使用独立 Compose project、网络与数据卷，无宿主端口映射。启动顺序按真实依赖编排（`conversation-service` 先于它的热路径调用方 `message-service`），全部中间件与应用就绪后才施加流量。成功或失败后均清理该 project 的容器与数据卷；`--artifacts` 保留诊断日志。
 
-默认检查 A/A 与 B/B，`--cross-instance` 追加 A/B 双向投递。P1 之后两者的期望不同：Compose 的推送目标 `WS_GATEWAY_ADDR` 只解析到主 `ws-gateway` 实例，因此 A/A（两端都连在推送可达的实例上）是确定性通过的；B/B 与 A/B 需要「按连接定向投递」，属 P6 范围，当前仍然失败——该失败不会被跳过或伪装为通过（README 与工单都保留这一事实）。
+默认检查关系链、A/A 与 B/B，`--cross-instance` 追加 A/B 双向投递；`--scenario` 可选择单个场景，`stage-p3` 检查完整关系链与 A/A，但仍启动含两个长连接实例的全栈。P1 之后两者的期望不同：Compose 的推送目标 `WS_GATEWAY_ADDR` 只解析到主 `ws-gateway` 实例，因此 A/A（两端都连在推送可达的实例上）是确定性通过的；B/B 与 A/B 需要「按连接定向投递」，属 P6 范围，当前仍然失败——默认验收不会跳过或伪装该失败。
 
 ---
 

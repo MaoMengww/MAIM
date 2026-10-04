@@ -17,7 +17,6 @@ x-aim-env: &aim-env
   JWT_SECRET: ${JWT_SECRET:-aim-dev-secret-key}
   ENC_KEY: ${AIM_ENC_KEY}
   USER_SERVICE_ADDR: dns:///user-service:50051
-  FRIEND_SERVICE_ADDR: dns:///friend-service:50052
   MESSAGE_SERVICE_ADDR: dns:///message-service:50053
   CONVERSATION_SERVICE_ADDR: dns:///conversation-service:50055
   FILE_SERVICE_ADDR: dns:///file-service:50054
@@ -288,24 +287,6 @@ services:
     environment: *aim-env
     ports:
       - "50051:50051"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-    restart: unless-stopped
-
-
-  friend-service:
-    build:
-      context: .
-      dockerfile: deploy/docker/Dockerfile
-      args:
-        SERVICE: friend-service
-    image: aim-friend-service:latest
-    container_name: aim-friend-service
-    environment: *aim-env
-    ports:
-      - "50052:50052"
     depends_on:
       postgres:
         condition: service_healthy

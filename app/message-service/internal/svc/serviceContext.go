@@ -8,12 +8,12 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/client"
 	"github.com/maomeng/aim/app/message-service/internal/config"
 	"github.com/maomeng/aim/app/message-service/internal/dispatcher"
+	"github.com/maomeng/aim/app/message-service/internal/es"
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/migrations/postgres"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/database"
-	"github.com/maomeng/aim/app/message-service/internal/es"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/snowflake"
@@ -41,9 +41,9 @@ type ServiceContext struct {
 	InboxRepo               *repo.InboxRepo
 	BroadcastRepo           *repo.BroadcastRepo
 	SequenceRepo            *repo.SequenceRepo
-	BotRepo          *repo.BotRepo
-	OutboxRepo       *repo.OutboxRepo
-	OutboxDispatcher *dispatcher.OutboxDispatcher
+	BotRepo                 *repo.BotRepo
+	OutboxRepo              *repo.OutboxRepo
+	OutboxDispatcher        *dispatcher.OutboxDispatcher
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -122,9 +122,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 
 	convClient := client.NewConvClient(zrpc.MustNewClient(c.ConvService))
-	userClient := client.NewUserClient(zrpc.MustNewClient(c.UserService))
+	userConn := zrpc.MustNewClient(c.UserService)
+	userClient := client.NewUserClient(userConn)
 	botPlatformConn := zrpc.MustNewClient(c.BotPlatform)
-	friendClient := client.NewFriendClient(zrpc.MustNewClient(c.FriendService))
+	friendClient := client.NewFriendClient(userConn)
 
 	return &ServiceContext{
 		Config:                  c,
@@ -145,8 +146,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		InboxRepo:               repo.NewInboxRepo(db),
 		BroadcastRepo:           repo.NewBroadcastRepo(db),
 		SequenceRepo:            repo.NewSequenceRepo(db),
-		BotRepo: repo.NewBotRepo(db, botplatform.NewBotPlatformClient(botPlatformConn.Conn())),
-		OutboxRepo: repo.NewOutboxRepo(db),
+		BotRepo:                 repo.NewBotRepo(db, botplatform.NewBotPlatformClient(botPlatformConn.Conn())),
+		OutboxRepo:              repo.NewOutboxRepo(db),
 		OutboxDispatcher: dispatcher.NewOutboxDispatcher(
 			repo.NewOutboxRepo(db),
 			map[string]*kafka.Producer{

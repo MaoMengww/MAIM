@@ -2269,6 +2269,1658 @@ func (x *GetBalanceResp) GetBalance() float64 {
 	return 0
 }
 
+type SendRequestReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FromUserId    int64                  `protobuf:"varint,1,opt,name=from_user_id,json=fromUserId,proto3" json:"from_user_id,omitempty"`
+	ToUserId      int64                  `protobuf:"varint,2,opt,name=to_user_id,json=toUserId,proto3" json:"to_user_id,omitempty"`
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"` // 验证消息
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendRequestReq) Reset() {
+	*x = SendRequestReq{}
+	mi := &file_user_service_user_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendRequestReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendRequestReq) ProtoMessage() {}
+
+func (x *SendRequestReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendRequestReq.ProtoReflect.Descriptor instead.
+func (*SendRequestReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *SendRequestReq) GetFromUserId() int64 {
+	if x != nil {
+		return x.FromUserId
+	}
+	return 0
+}
+
+func (x *SendRequestReq) GetToUserId() int64 {
+	if x != nil {
+		return x.ToUserId
+	}
+	return 0
+}
+
+func (x *SendRequestReq) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type SendRequestResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     int64                  `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendRequestResp) Reset() {
+	*x = SendRequestResp{}
+	mi := &file_user_service_user_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendRequestResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendRequestResp) ProtoMessage() {}
+
+func (x *SendRequestResp) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendRequestResp.ProtoReflect.Descriptor instead.
+func (*SendRequestResp) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *SendRequestResp) GetRequestId() int64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+type AcceptRequestReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     int64                  `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcceptRequestReq) Reset() {
+	*x = AcceptRequestReq{}
+	mi := &file_user_service_user_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptRequestReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptRequestReq) ProtoMessage() {}
+
+func (x *AcceptRequestReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptRequestReq.ProtoReflect.Descriptor instead.
+func (*AcceptRequestReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *AcceptRequestReq) GetRequestId() int64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+func (x *AcceptRequestReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+type RejectRequestReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     int64                  `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RejectRequestReq) Reset() {
+	*x = RejectRequestReq{}
+	mi := &file_user_service_user_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RejectRequestReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RejectRequestReq) ProtoMessage() {}
+
+func (x *RejectRequestReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RejectRequestReq.ProtoReflect.Descriptor instead.
+func (*RejectRequestReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *RejectRequestReq) GetRequestId() int64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+func (x *RejectRequestReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+type CancelRequestReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     int64                  `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelRequestReq) Reset() {
+	*x = CancelRequestReq{}
+	mi := &file_user_service_user_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelRequestReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelRequestReq) ProtoMessage() {}
+
+func (x *CancelRequestReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelRequestReq.ProtoReflect.Descriptor instead.
+func (*CancelRequestReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *CancelRequestReq) GetRequestId() int64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+func (x *CancelRequestReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+type ListPendingRequestsReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Pagination    *common.Pagination     `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPendingRequestsReq) Reset() {
+	*x = ListPendingRequestsReq{}
+	mi := &file_user_service_user_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPendingRequestsReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPendingRequestsReq) ProtoMessage() {}
+
+func (x *ListPendingRequestsReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPendingRequestsReq.ProtoReflect.Descriptor instead.
+func (*ListPendingRequestsReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *ListPendingRequestsReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *ListPendingRequestsReq) GetPagination() *common.Pagination {
+	if x != nil {
+		return x.Pagination
+	}
+	return nil
+}
+
+type ListSentRequestsReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Pagination    *common.Pagination     `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSentRequestsReq) Reset() {
+	*x = ListSentRequestsReq{}
+	mi := &file_user_service_user_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSentRequestsReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSentRequestsReq) ProtoMessage() {}
+
+func (x *ListSentRequestsReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSentRequestsReq.ProtoReflect.Descriptor instead.
+func (*ListSentRequestsReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ListSentRequestsReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *ListSentRequestsReq) GetPagination() *common.Pagination {
+	if x != nil {
+		return x.Pagination
+	}
+	return nil
+}
+
+type FriendRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     int64                  `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	FromUserId    int64                  `protobuf:"varint,2,opt,name=from_user_id,json=fromUserId,proto3" json:"from_user_id,omitempty"`
+	ToUserId      int64                  `protobuf:"varint,3,opt,name=to_user_id,json=toUserId,proto3" json:"to_user_id,omitempty"`
+	Message       string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"` // pending/accepted/rejected
+	CreatedAt     int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     int64                  `protobuf:"varint,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	FromUsername  string                 `protobuf:"bytes,8,opt,name=from_username,json=fromUsername,proto3" json:"from_username,omitempty"`
+	FromAvatar    string                 `protobuf:"bytes,9,opt,name=from_avatar,json=fromAvatar,proto3" json:"from_avatar,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FriendRequest) Reset() {
+	*x = FriendRequest{}
+	mi := &file_user_service_user_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FriendRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FriendRequest) ProtoMessage() {}
+
+func (x *FriendRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FriendRequest.ProtoReflect.Descriptor instead.
+func (*FriendRequest) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *FriendRequest) GetRequestId() int64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+func (x *FriendRequest) GetFromUserId() int64 {
+	if x != nil {
+		return x.FromUserId
+	}
+	return 0
+}
+
+func (x *FriendRequest) GetToUserId() int64 {
+	if x != nil {
+		return x.ToUserId
+	}
+	return 0
+}
+
+func (x *FriendRequest) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *FriendRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *FriendRequest) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+func (x *FriendRequest) GetUpdatedAt() int64 {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return 0
+}
+
+func (x *FriendRequest) GetFromUsername() string {
+	if x != nil {
+		return x.FromUsername
+	}
+	return ""
+}
+
+func (x *FriendRequest) GetFromAvatar() string {
+	if x != nil {
+		return x.FromAvatar
+	}
+	return ""
+}
+
+type ListRequestsResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Requests      []*FriendRequest       `protobuf:"bytes,1,rep,name=requests,proto3" json:"requests,omitempty"`
+	Pagination    *common.PaginationResp `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRequestsResp) Reset() {
+	*x = ListRequestsResp{}
+	mi := &file_user_service_user_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRequestsResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRequestsResp) ProtoMessage() {}
+
+func (x *ListRequestsResp) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRequestsResp.ProtoReflect.Descriptor instead.
+func (*ListRequestsResp) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *ListRequestsResp) GetRequests() []*FriendRequest {
+	if x != nil {
+		return x.Requests
+	}
+	return nil
+}
+
+func (x *ListRequestsResp) GetPagination() *common.PaginationResp {
+	if x != nil {
+		return x.Pagination
+	}
+	return nil
+}
+
+type ListFriendsReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	GroupId       *int64                 `protobuf:"varint,2,opt,name=group_id,json=groupId,proto3,oneof" json:"group_id,omitempty"` // filter by group, omit for all
+	Pagination    *common.Pagination     `protobuf:"bytes,3,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFriendsReq) Reset() {
+	*x = ListFriendsReq{}
+	mi := &file_user_service_user_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFriendsReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFriendsReq) ProtoMessage() {}
+
+func (x *ListFriendsReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFriendsReq.ProtoReflect.Descriptor instead.
+func (*ListFriendsReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *ListFriendsReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *ListFriendsReq) GetGroupId() int64 {
+	if x != nil && x.GroupId != nil {
+		return *x.GroupId
+	}
+	return 0
+}
+
+func (x *ListFriendsReq) GetPagination() *common.Pagination {
+	if x != nil {
+		return x.Pagination
+	}
+	return nil
+}
+
+type FriendInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Avatar        string                 `protobuf:"bytes,3,opt,name=avatar,proto3" json:"avatar,omitempty"`
+	Remark        string                 `protobuf:"bytes,4,opt,name=remark,proto3" json:"remark,omitempty"`                         // 备注名
+	GroupId       int64                  `protobuf:"varint,5,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`       // 所属分组
+	GroupName     string                 `protobuf:"bytes,6,opt,name=group_name,json=groupName,proto3" json:"group_name,omitempty"`  // 分组名
+	Status        string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`                         // online/offline
+	CreatedAt     int64                  `protobuf:"varint,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"` // 成为好友的时间
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FriendInfo) Reset() {
+	*x = FriendInfo{}
+	mi := &file_user_service_user_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FriendInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FriendInfo) ProtoMessage() {}
+
+func (x *FriendInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FriendInfo.ProtoReflect.Descriptor instead.
+func (*FriendInfo) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *FriendInfo) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *FriendInfo) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *FriendInfo) GetAvatar() string {
+	if x != nil {
+		return x.Avatar
+	}
+	return ""
+}
+
+func (x *FriendInfo) GetRemark() string {
+	if x != nil {
+		return x.Remark
+	}
+	return ""
+}
+
+func (x *FriendInfo) GetGroupId() int64 {
+	if x != nil {
+		return x.GroupId
+	}
+	return 0
+}
+
+func (x *FriendInfo) GetGroupName() string {
+	if x != nil {
+		return x.GroupName
+	}
+	return ""
+}
+
+func (x *FriendInfo) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *FriendInfo) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+type ListFriendsResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Friends       []*FriendInfo          `protobuf:"bytes,1,rep,name=friends,proto3" json:"friends,omitempty"`
+	Pagination    *common.PaginationResp `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFriendsResp) Reset() {
+	*x = ListFriendsResp{}
+	mi := &file_user_service_user_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFriendsResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFriendsResp) ProtoMessage() {}
+
+func (x *ListFriendsResp) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFriendsResp.ProtoReflect.Descriptor instead.
+func (*ListFriendsResp) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *ListFriendsResp) GetFriends() []*FriendInfo {
+	if x != nil {
+		return x.Friends
+	}
+	return nil
+}
+
+func (x *ListFriendsResp) GetPagination() *common.PaginationResp {
+	if x != nil {
+		return x.Pagination
+	}
+	return nil
+}
+
+type DeleteFriendReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FriendId      int64                  `protobuf:"varint,2,opt,name=friend_id,json=friendId,proto3" json:"friend_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteFriendReq) Reset() {
+	*x = DeleteFriendReq{}
+	mi := &file_user_service_user_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteFriendReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteFriendReq) ProtoMessage() {}
+
+func (x *DeleteFriendReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteFriendReq.ProtoReflect.Descriptor instead.
+func (*DeleteFriendReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *DeleteFriendReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *DeleteFriendReq) GetFriendId() int64 {
+	if x != nil {
+		return x.FriendId
+	}
+	return 0
+}
+
+type SetRemarkReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FriendId      int64                  `protobuf:"varint,2,opt,name=friend_id,json=friendId,proto3" json:"friend_id,omitempty"`
+	Remark        string                 `protobuf:"bytes,3,opt,name=remark,proto3" json:"remark,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetRemarkReq) Reset() {
+	*x = SetRemarkReq{}
+	mi := &file_user_service_user_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetRemarkReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetRemarkReq) ProtoMessage() {}
+
+func (x *SetRemarkReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetRemarkReq.ProtoReflect.Descriptor instead.
+func (*SetRemarkReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *SetRemarkReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *SetRemarkReq) GetFriendId() int64 {
+	if x != nil {
+		return x.FriendId
+	}
+	return 0
+}
+
+func (x *SetRemarkReq) GetRemark() string {
+	if x != nil {
+		return x.Remark
+	}
+	return ""
+}
+
+type SetGroupReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FriendId      int64                  `protobuf:"varint,2,opt,name=friend_id,json=friendId,proto3" json:"friend_id,omitempty"`
+	GroupId       int64                  `protobuf:"varint,3,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetGroupReq) Reset() {
+	*x = SetGroupReq{}
+	mi := &file_user_service_user_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetGroupReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetGroupReq) ProtoMessage() {}
+
+func (x *SetGroupReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetGroupReq.ProtoReflect.Descriptor instead.
+func (*SetGroupReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *SetGroupReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *SetGroupReq) GetFriendId() int64 {
+	if x != nil {
+		return x.FriendId
+	}
+	return 0
+}
+
+func (x *SetGroupReq) GetGroupId() int64 {
+	if x != nil {
+		return x.GroupId
+	}
+	return 0
+}
+
+type CreateGroupReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateGroupReq) Reset() {
+	*x = CreateGroupReq{}
+	mi := &file_user_service_user_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateGroupReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateGroupReq) ProtoMessage() {}
+
+func (x *CreateGroupReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateGroupReq.ProtoReflect.Descriptor instead.
+func (*CreateGroupReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *CreateGroupReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *CreateGroupReq) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type CreateGroupResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       int64                  `protobuf:"varint,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateGroupResp) Reset() {
+	*x = CreateGroupResp{}
+	mi := &file_user_service_user_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateGroupResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateGroupResp) ProtoMessage() {}
+
+func (x *CreateGroupResp) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateGroupResp.ProtoReflect.Descriptor instead.
+func (*CreateGroupResp) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *CreateGroupResp) GetGroupId() int64 {
+	if x != nil {
+		return x.GroupId
+	}
+	return 0
+}
+
+type RenameGroupReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       int64                  `protobuf:"varint,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RenameGroupReq) Reset() {
+	*x = RenameGroupReq{}
+	mi := &file_user_service_user_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenameGroupReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenameGroupReq) ProtoMessage() {}
+
+func (x *RenameGroupReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenameGroupReq.ProtoReflect.Descriptor instead.
+func (*RenameGroupReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *RenameGroupReq) GetGroupId() int64 {
+	if x != nil {
+		return x.GroupId
+	}
+	return 0
+}
+
+func (x *RenameGroupReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *RenameGroupReq) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type DeleteGroupReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       int64                  `protobuf:"varint,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteGroupReq) Reset() {
+	*x = DeleteGroupReq{}
+	mi := &file_user_service_user_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteGroupReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteGroupReq) ProtoMessage() {}
+
+func (x *DeleteGroupReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteGroupReq.ProtoReflect.Descriptor instead.
+func (*DeleteGroupReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *DeleteGroupReq) GetGroupId() int64 {
+	if x != nil {
+		return x.GroupId
+	}
+	return 0
+}
+
+func (x *DeleteGroupReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+type ListGroupsReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListGroupsReq) Reset() {
+	*x = ListGroupsReq{}
+	mi := &file_user_service_user_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListGroupsReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListGroupsReq) ProtoMessage() {}
+
+func (x *ListGroupsReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListGroupsReq.ProtoReflect.Descriptor instead.
+func (*ListGroupsReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *ListGroupsReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+type FriendGroup struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	SortOrder     int32                  `protobuf:"varint,3,opt,name=sort_order,json=sortOrder,proto3" json:"sort_order,omitempty"`
+	FriendCount   int32                  `protobuf:"varint,4,opt,name=friend_count,json=friendCount,proto3" json:"friend_count,omitempty"`
+	CreatedAt     int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FriendGroup) Reset() {
+	*x = FriendGroup{}
+	mi := &file_user_service_user_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FriendGroup) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FriendGroup) ProtoMessage() {}
+
+func (x *FriendGroup) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FriendGroup.ProtoReflect.Descriptor instead.
+func (*FriendGroup) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *FriendGroup) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *FriendGroup) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FriendGroup) GetSortOrder() int32 {
+	if x != nil {
+		return x.SortOrder
+	}
+	return 0
+}
+
+func (x *FriendGroup) GetFriendCount() int32 {
+	if x != nil {
+		return x.FriendCount
+	}
+	return 0
+}
+
+func (x *FriendGroup) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+type ListGroupsResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Groups        []*FriendGroup         `protobuf:"bytes,1,rep,name=groups,proto3" json:"groups,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListGroupsResp) Reset() {
+	*x = ListGroupsResp{}
+	mi := &file_user_service_user_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListGroupsResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListGroupsResp) ProtoMessage() {}
+
+func (x *ListGroupsResp) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListGroupsResp.ProtoReflect.Descriptor instead.
+func (*ListGroupsResp) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *ListGroupsResp) GetGroups() []*FriendGroup {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
+type BlockUserReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	BlockedUserId int64                  `protobuf:"varint,2,opt,name=blocked_user_id,json=blockedUserId,proto3" json:"blocked_user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BlockUserReq) Reset() {
+	*x = BlockUserReq{}
+	mi := &file_user_service_user_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BlockUserReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BlockUserReq) ProtoMessage() {}
+
+func (x *BlockUserReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BlockUserReq.ProtoReflect.Descriptor instead.
+func (*BlockUserReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *BlockUserReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *BlockUserReq) GetBlockedUserId() int64 {
+	if x != nil {
+		return x.BlockedUserId
+	}
+	return 0
+}
+
+type UnblockUserReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	BlockedUserId int64                  `protobuf:"varint,2,opt,name=blocked_user_id,json=blockedUserId,proto3" json:"blocked_user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnblockUserReq) Reset() {
+	*x = UnblockUserReq{}
+	mi := &file_user_service_user_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnblockUserReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnblockUserReq) ProtoMessage() {}
+
+func (x *UnblockUserReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnblockUserReq.ProtoReflect.Descriptor instead.
+func (*UnblockUserReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *UnblockUserReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *UnblockUserReq) GetBlockedUserId() int64 {
+	if x != nil {
+		return x.BlockedUserId
+	}
+	return 0
+}
+
+type ListBlacklistReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Pagination    *common.Pagination     `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBlacklistReq) Reset() {
+	*x = ListBlacklistReq{}
+	mi := &file_user_service_user_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBlacklistReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBlacklistReq) ProtoMessage() {}
+
+func (x *ListBlacklistReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBlacklistReq.ProtoReflect.Descriptor instead.
+func (*ListBlacklistReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{61}
+}
+
+func (x *ListBlacklistReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *ListBlacklistReq) GetPagination() *common.Pagination {
+	if x != nil {
+		return x.Pagination
+	}
+	return nil
+}
+
+type BlacklistUser struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Avatar        string                 `protobuf:"bytes,3,opt,name=avatar,proto3" json:"avatar,omitempty"`
+	BlockedAt     int64                  `protobuf:"varint,4,opt,name=blocked_at,json=blockedAt,proto3" json:"blocked_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BlacklistUser) Reset() {
+	*x = BlacklistUser{}
+	mi := &file_user_service_user_proto_msgTypes[62]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BlacklistUser) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BlacklistUser) ProtoMessage() {}
+
+func (x *BlacklistUser) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[62]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BlacklistUser.ProtoReflect.Descriptor instead.
+func (*BlacklistUser) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{62}
+}
+
+func (x *BlacklistUser) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *BlacklistUser) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *BlacklistUser) GetAvatar() string {
+	if x != nil {
+		return x.Avatar
+	}
+	return ""
+}
+
+func (x *BlacklistUser) GetBlockedAt() int64 {
+	if x != nil {
+		return x.BlockedAt
+	}
+	return 0
+}
+
+type ListBlacklistResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Users         []*BlacklistUser       `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	Pagination    *common.PaginationResp `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBlacklistResp) Reset() {
+	*x = ListBlacklistResp{}
+	mi := &file_user_service_user_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBlacklistResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBlacklistResp) ProtoMessage() {}
+
+func (x *ListBlacklistResp) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBlacklistResp.ProtoReflect.Descriptor instead.
+func (*ListBlacklistResp) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{63}
+}
+
+func (x *ListBlacklistResp) GetUsers() []*BlacklistUser {
+	if x != nil {
+		return x.Users
+	}
+	return nil
+}
+
+func (x *ListBlacklistResp) GetPagination() *common.PaginationResp {
+	if x != nil {
+		return x.Pagination
+	}
+	return nil
+}
+
+type IsBlockedReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	TargetUserId  int64                  `protobuf:"varint,2,opt,name=target_user_id,json=targetUserId,proto3" json:"target_user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IsBlockedReq) Reset() {
+	*x = IsBlockedReq{}
+	mi := &file_user_service_user_proto_msgTypes[64]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IsBlockedReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IsBlockedReq) ProtoMessage() {}
+
+func (x *IsBlockedReq) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[64]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IsBlockedReq.ProtoReflect.Descriptor instead.
+func (*IsBlockedReq) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{64}
+}
+
+func (x *IsBlockedReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *IsBlockedReq) GetTargetUserId() int64 {
+	if x != nil {
+		return x.TargetUserId
+	}
+	return 0
+}
+
+type IsBlockedResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IsBlocked     bool                   `protobuf:"varint,1,opt,name=is_blocked,json=isBlocked,proto3" json:"is_blocked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IsBlockedResp) Reset() {
+	*x = IsBlockedResp{}
+	mi := &file_user_service_user_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IsBlockedResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IsBlockedResp) ProtoMessage() {}
+
+func (x *IsBlockedResp) ProtoReflect() protoreflect.Message {
+	mi := &file_user_service_user_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IsBlockedResp.ProtoReflect.Descriptor instead.
+func (*IsBlockedResp) Descriptor() ([]byte, []int) {
+	return file_user_service_user_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *IsBlockedResp) GetIsBlocked() bool {
+	if x != nil {
+		return x.IsBlocked
+	}
+	return false
+}
+
 var File_user_service_user_proto protoreflect.FileDescriptor
 
 const file_user_service_user_proto_rawDesc = "" +
@@ -2457,8 +4109,146 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\rGetBalanceReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\"*\n" +
 	"\x0eGetBalanceResp\x12\x18\n" +
-	"\abalance\x18\x01 \x01(\x01R\abalance2\xb9\n" +
+	"\abalance\x18\x01 \x01(\x01R\abalance\"j\n" +
+	"\x0eSendRequestReq\x12 \n" +
+	"\ffrom_user_id\x18\x01 \x01(\x03R\n" +
+	"fromUserId\x12\x1c\n" +
 	"\n" +
+	"to_user_id\x18\x02 \x01(\x03R\btoUserId\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"0\n" +
+	"\x0fSendRequestResp\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\x03R\trequestId\"J\n" +
+	"\x10AcceptRequestReq\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\x03R\trequestId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\"J\n" +
+	"\x10RejectRequestReq\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\x03R\trequestId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\"J\n" +
+	"\x10CancelRequestReq\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\x03R\trequestId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\"e\n" +
+	"\x16ListPendingRequestsReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x122\n" +
+	"\n" +
+	"pagination\x18\x02 \x01(\v2\x12.common.PaginationR\n" +
+	"pagination\"b\n" +
+	"\x13ListSentRequestsReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x122\n" +
+	"\n" +
+	"pagination\x18\x02 \x01(\v2\x12.common.PaginationR\n" +
+	"pagination\"\xa4\x02\n" +
+	"\rFriendRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\x03R\trequestId\x12 \n" +
+	"\ffrom_user_id\x18\x02 \x01(\x03R\n" +
+	"fromUserId\x12\x1c\n" +
+	"\n" +
+	"to_user_id\x18\x03 \x01(\x03R\btoUserId\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\a \x01(\x03R\tupdatedAt\x12#\n" +
+	"\rfrom_username\x18\b \x01(\tR\ffromUsername\x12\x1f\n" +
+	"\vfrom_avatar\x18\t \x01(\tR\n" +
+	"fromAvatar\"{\n" +
+	"\x10ListRequestsResp\x12/\n" +
+	"\brequests\x18\x01 \x03(\v2\x13.user.FriendRequestR\brequests\x126\n" +
+	"\n" +
+	"pagination\x18\x02 \x01(\v2\x16.common.PaginationRespR\n" +
+	"pagination\"\x8a\x01\n" +
+	"\x0eListFriendsReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1e\n" +
+	"\bgroup_id\x18\x02 \x01(\x03H\x00R\agroupId\x88\x01\x01\x122\n" +
+	"\n" +
+	"pagination\x18\x03 \x01(\v2\x12.common.PaginationR\n" +
+	"paginationB\v\n" +
+	"\t_group_id\"\xe2\x01\n" +
+	"\n" +
+	"FriendInfo\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x16\n" +
+	"\x06avatar\x18\x03 \x01(\tR\x06avatar\x12\x16\n" +
+	"\x06remark\x18\x04 \x01(\tR\x06remark\x12\x19\n" +
+	"\bgroup_id\x18\x05 \x01(\x03R\agroupId\x12\x1d\n" +
+	"\n" +
+	"group_name\x18\x06 \x01(\tR\tgroupName\x12\x16\n" +
+	"\x06status\x18\a \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\b \x01(\x03R\tcreatedAt\"u\n" +
+	"\x0fListFriendsResp\x12*\n" +
+	"\afriends\x18\x01 \x03(\v2\x10.user.FriendInfoR\afriends\x126\n" +
+	"\n" +
+	"pagination\x18\x02 \x01(\v2\x16.common.PaginationRespR\n" +
+	"pagination\"G\n" +
+	"\x0fDeleteFriendReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
+	"\tfriend_id\x18\x02 \x01(\x03R\bfriendId\"\\\n" +
+	"\fSetRemarkReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
+	"\tfriend_id\x18\x02 \x01(\x03R\bfriendId\x12\x16\n" +
+	"\x06remark\x18\x03 \x01(\tR\x06remark\"^\n" +
+	"\vSetGroupReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
+	"\tfriend_id\x18\x02 \x01(\x03R\bfriendId\x12\x19\n" +
+	"\bgroup_id\x18\x03 \x01(\x03R\agroupId\"=\n" +
+	"\x0eCreateGroupReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\",\n" +
+	"\x0fCreateGroupResp\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\x03R\agroupId\"X\n" +
+	"\x0eRenameGroupReq\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\x03R\agroupId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\"D\n" +
+	"\x0eDeleteGroupReq\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\x03R\agroupId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\"(\n" +
+	"\rListGroupsReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\"\x92\x01\n" +
+	"\vFriendGroup\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
+	"\n" +
+	"sort_order\x18\x03 \x01(\x05R\tsortOrder\x12!\n" +
+	"\ffriend_count\x18\x04 \x01(\x05R\vfriendCount\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\x03R\tcreatedAt\";\n" +
+	"\x0eListGroupsResp\x12)\n" +
+	"\x06groups\x18\x01 \x03(\v2\x11.user.FriendGroupR\x06groups\"O\n" +
+	"\fBlockUserReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12&\n" +
+	"\x0fblocked_user_id\x18\x02 \x01(\x03R\rblockedUserId\"Q\n" +
+	"\x0eUnblockUserReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12&\n" +
+	"\x0fblocked_user_id\x18\x02 \x01(\x03R\rblockedUserId\"_\n" +
+	"\x10ListBlacklistReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x122\n" +
+	"\n" +
+	"pagination\x18\x02 \x01(\v2\x12.common.PaginationR\n" +
+	"pagination\"{\n" +
+	"\rBlacklistUser\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x16\n" +
+	"\x06avatar\x18\x03 \x01(\tR\x06avatar\x12\x1d\n" +
+	"\n" +
+	"blocked_at\x18\x04 \x01(\x03R\tblockedAt\"v\n" +
+	"\x11ListBlacklistResp\x12)\n" +
+	"\x05users\x18\x01 \x03(\v2\x13.user.BlacklistUserR\x05users\x126\n" +
+	"\n" +
+	"pagination\x18\x02 \x01(\v2\x16.common.PaginationRespR\n" +
+	"pagination\"M\n" +
+	"\fIsBlockedReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12$\n" +
+	"\x0etarget_user_id\x18\x02 \x01(\x03R\ftargetUserId\".\n" +
+	"\rIsBlockedResp\x12\x1d\n" +
+	"\n" +
+	"is_blocked\x18\x01 \x01(\bR\tisBlocked2\x80\x13\n" +
 	"\vUserService\x121\n" +
 	"\bRegister\x12\x11.user.RegisterReq\x1a\x12.user.RegisterResp\x12(\n" +
 	"\x05Login\x12\x0e.user.LoginReq\x1a\x0f.user.LoginResp\x12/\n" +
@@ -2485,7 +4275,26 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\bRecharge\x12\x11.user.RechargeReq\x1a\x12.user.RechargeResp\x12@\n" +
 	"\rDeductBalance\x12\x16.user.DeductBalanceReq\x1a\x17.user.DeductBalanceResp\x127\n" +
 	"\n" +
-	"GetBalance\x12\x13.user.GetBalanceReq\x1a\x14.user.GetBalanceRespB1Z/github.com/maomeng/aim/app/user-service/pb/userb\x06proto3"
+	"GetBalance\x12\x13.user.GetBalanceReq\x1a\x14.user.GetBalanceResp\x12:\n" +
+	"\vSendRequest\x12\x14.user.SendRequestReq\x1a\x15.user.SendRequestResp\x12=\n" +
+	"\rAcceptRequest\x12\x16.user.AcceptRequestReq\x1a\x14.common.BaseResponse\x12=\n" +
+	"\rRejectRequest\x12\x16.user.RejectRequestReq\x1a\x14.common.BaseResponse\x12=\n" +
+	"\rCancelRequest\x12\x16.user.CancelRequestReq\x1a\x14.common.BaseResponse\x12K\n" +
+	"\x13ListPendingRequests\x12\x1c.user.ListPendingRequestsReq\x1a\x16.user.ListRequestsResp\x12E\n" +
+	"\x10ListSentRequests\x12\x19.user.ListSentRequestsReq\x1a\x16.user.ListRequestsResp\x12:\n" +
+	"\vListFriends\x12\x14.user.ListFriendsReq\x1a\x15.user.ListFriendsResp\x12;\n" +
+	"\fDeleteFriend\x12\x15.user.DeleteFriendReq\x1a\x14.common.BaseResponse\x125\n" +
+	"\tSetRemark\x12\x12.user.SetRemarkReq\x1a\x14.common.BaseResponse\x123\n" +
+	"\bSetGroup\x12\x11.user.SetGroupReq\x1a\x14.common.BaseResponse\x12:\n" +
+	"\vCreateGroup\x12\x14.user.CreateGroupReq\x1a\x15.user.CreateGroupResp\x129\n" +
+	"\vRenameGroup\x12\x14.user.RenameGroupReq\x1a\x14.common.BaseResponse\x129\n" +
+	"\vDeleteGroup\x12\x14.user.DeleteGroupReq\x1a\x14.common.BaseResponse\x127\n" +
+	"\n" +
+	"ListGroups\x12\x13.user.ListGroupsReq\x1a\x14.user.ListGroupsResp\x125\n" +
+	"\tBlockUser\x12\x12.user.BlockUserReq\x1a\x14.common.BaseResponse\x129\n" +
+	"\vUnblockUser\x12\x14.user.UnblockUserReq\x1a\x14.common.BaseResponse\x12@\n" +
+	"\rListBlacklist\x12\x16.user.ListBlacklistReq\x1a\x17.user.ListBlacklistResp\x124\n" +
+	"\tIsBlocked\x12\x12.user.IsBlockedReq\x1a\x13.user.IsBlockedRespB1Z/github.com/maomeng/aim/app/user-service/pb/userb\x06proto3"
 
 var (
 	file_user_service_user_proto_rawDescOnce sync.Once
@@ -2499,49 +4308,78 @@ func file_user_service_user_proto_rawDescGZIP() []byte {
 	return file_user_service_user_proto_rawDescData
 }
 
-var file_user_service_user_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
+var file_user_service_user_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
 var file_user_service_user_proto_goTypes = []any{
-	(*RegisterReq)(nil),           // 0: user.RegisterReq
-	(*RegisterResp)(nil),          // 1: user.RegisterResp
-	(*LoginReq)(nil),              // 2: user.LoginReq
-	(*LoginResp)(nil),             // 3: user.LoginResp
-	(*LogoutReq)(nil),             // 4: user.LogoutReq
-	(*RefreshTokenReq)(nil),       // 5: user.RefreshTokenReq
-	(*RefreshTokenResp)(nil),      // 6: user.RefreshTokenResp
-	(*OAuthLoginReq)(nil),         // 7: user.OAuthLoginReq
-	(*ValidateTokenReq)(nil),      // 8: user.ValidateTokenReq
-	(*ValidateTokenResp)(nil),     // 9: user.ValidateTokenResp
-	(*SessionInfo)(nil),           // 10: user.SessionInfo
-	(*GetSessionsResp)(nil),       // 11: user.GetSessionsResp
-	(*RevokeSessionReq)(nil),      // 12: user.RevokeSessionReq
-	(*TokenPair)(nil),             // 13: user.TokenPair
-	(*UserInfo)(nil),              // 14: user.UserInfo
-	(*UpdateProfileReq)(nil),      // 15: user.UpdateProfileReq
-	(*UpdatePasswordReq)(nil),     // 16: user.UpdatePasswordReq
-	(*BindPhoneReq)(nil),          // 17: user.BindPhoneReq
-	(*BindEmailReq)(nil),          // 18: user.BindEmailReq
-	(*GetUserInfoReq)(nil),        // 19: user.GetUserInfoReq
-	(*BatchGetUserInfoReq)(nil),   // 20: user.BatchGetUserInfoReq
-	(*BatchGetUserInfoResp)(nil),  // 21: user.BatchGetUserInfoResp
-	(*SearchUsersReq)(nil),        // 22: user.SearchUsersReq
-	(*SearchUsersResp)(nil),       // 23: user.SearchUsersResp
-	(*ListAllUserIDsResp)(nil),    // 24: user.ListAllUserIDsResp
-	(*BatchGetStatusReq)(nil),     // 25: user.BatchGetStatusReq
-	(*DeviceInfo)(nil),            // 26: user.DeviceInfo
-	(*UserStatus)(nil),            // 27: user.UserStatus
-	(*BatchGetStatusResp)(nil),    // 28: user.BatchGetStatusResp
-	(*GetSettingsResp)(nil),       // 29: user.GetSettingsResp
-	(*UpdateSettingsReq)(nil),     // 30: user.UpdateSettingsReq
-	(*RechargeReq)(nil),           // 31: user.RechargeReq
-	(*RechargeResp)(nil),          // 32: user.RechargeResp
-	(*DeductBalanceReq)(nil),      // 33: user.DeductBalanceReq
-	(*DeductBalanceResp)(nil),     // 34: user.DeductBalanceResp
-	(*GetBalanceReq)(nil),         // 35: user.GetBalanceReq
-	(*GetBalanceResp)(nil),        // 36: user.GetBalanceResp
-	(*common.Pagination)(nil),     // 37: common.Pagination
-	(*common.PaginationResp)(nil), // 38: common.PaginationResp
-	(*common.Empty)(nil),          // 39: common.Empty
-	(*common.BaseResponse)(nil),   // 40: common.BaseResponse
+	(*RegisterReq)(nil),            // 0: user.RegisterReq
+	(*RegisterResp)(nil),           // 1: user.RegisterResp
+	(*LoginReq)(nil),               // 2: user.LoginReq
+	(*LoginResp)(nil),              // 3: user.LoginResp
+	(*LogoutReq)(nil),              // 4: user.LogoutReq
+	(*RefreshTokenReq)(nil),        // 5: user.RefreshTokenReq
+	(*RefreshTokenResp)(nil),       // 6: user.RefreshTokenResp
+	(*OAuthLoginReq)(nil),          // 7: user.OAuthLoginReq
+	(*ValidateTokenReq)(nil),       // 8: user.ValidateTokenReq
+	(*ValidateTokenResp)(nil),      // 9: user.ValidateTokenResp
+	(*SessionInfo)(nil),            // 10: user.SessionInfo
+	(*GetSessionsResp)(nil),        // 11: user.GetSessionsResp
+	(*RevokeSessionReq)(nil),       // 12: user.RevokeSessionReq
+	(*TokenPair)(nil),              // 13: user.TokenPair
+	(*UserInfo)(nil),               // 14: user.UserInfo
+	(*UpdateProfileReq)(nil),       // 15: user.UpdateProfileReq
+	(*UpdatePasswordReq)(nil),      // 16: user.UpdatePasswordReq
+	(*BindPhoneReq)(nil),           // 17: user.BindPhoneReq
+	(*BindEmailReq)(nil),           // 18: user.BindEmailReq
+	(*GetUserInfoReq)(nil),         // 19: user.GetUserInfoReq
+	(*BatchGetUserInfoReq)(nil),    // 20: user.BatchGetUserInfoReq
+	(*BatchGetUserInfoResp)(nil),   // 21: user.BatchGetUserInfoResp
+	(*SearchUsersReq)(nil),         // 22: user.SearchUsersReq
+	(*SearchUsersResp)(nil),        // 23: user.SearchUsersResp
+	(*ListAllUserIDsResp)(nil),     // 24: user.ListAllUserIDsResp
+	(*BatchGetStatusReq)(nil),      // 25: user.BatchGetStatusReq
+	(*DeviceInfo)(nil),             // 26: user.DeviceInfo
+	(*UserStatus)(nil),             // 27: user.UserStatus
+	(*BatchGetStatusResp)(nil),     // 28: user.BatchGetStatusResp
+	(*GetSettingsResp)(nil),        // 29: user.GetSettingsResp
+	(*UpdateSettingsReq)(nil),      // 30: user.UpdateSettingsReq
+	(*RechargeReq)(nil),            // 31: user.RechargeReq
+	(*RechargeResp)(nil),           // 32: user.RechargeResp
+	(*DeductBalanceReq)(nil),       // 33: user.DeductBalanceReq
+	(*DeductBalanceResp)(nil),      // 34: user.DeductBalanceResp
+	(*GetBalanceReq)(nil),          // 35: user.GetBalanceReq
+	(*GetBalanceResp)(nil),         // 36: user.GetBalanceResp
+	(*SendRequestReq)(nil),         // 37: user.SendRequestReq
+	(*SendRequestResp)(nil),        // 38: user.SendRequestResp
+	(*AcceptRequestReq)(nil),       // 39: user.AcceptRequestReq
+	(*RejectRequestReq)(nil),       // 40: user.RejectRequestReq
+	(*CancelRequestReq)(nil),       // 41: user.CancelRequestReq
+	(*ListPendingRequestsReq)(nil), // 42: user.ListPendingRequestsReq
+	(*ListSentRequestsReq)(nil),    // 43: user.ListSentRequestsReq
+	(*FriendRequest)(nil),          // 44: user.FriendRequest
+	(*ListRequestsResp)(nil),       // 45: user.ListRequestsResp
+	(*ListFriendsReq)(nil),         // 46: user.ListFriendsReq
+	(*FriendInfo)(nil),             // 47: user.FriendInfo
+	(*ListFriendsResp)(nil),        // 48: user.ListFriendsResp
+	(*DeleteFriendReq)(nil),        // 49: user.DeleteFriendReq
+	(*SetRemarkReq)(nil),           // 50: user.SetRemarkReq
+	(*SetGroupReq)(nil),            // 51: user.SetGroupReq
+	(*CreateGroupReq)(nil),         // 52: user.CreateGroupReq
+	(*CreateGroupResp)(nil),        // 53: user.CreateGroupResp
+	(*RenameGroupReq)(nil),         // 54: user.RenameGroupReq
+	(*DeleteGroupReq)(nil),         // 55: user.DeleteGroupReq
+	(*ListGroupsReq)(nil),          // 56: user.ListGroupsReq
+	(*FriendGroup)(nil),            // 57: user.FriendGroup
+	(*ListGroupsResp)(nil),         // 58: user.ListGroupsResp
+	(*BlockUserReq)(nil),           // 59: user.BlockUserReq
+	(*UnblockUserReq)(nil),         // 60: user.UnblockUserReq
+	(*ListBlacklistReq)(nil),       // 61: user.ListBlacklistReq
+	(*BlacklistUser)(nil),          // 62: user.BlacklistUser
+	(*ListBlacklistResp)(nil),      // 63: user.ListBlacklistResp
+	(*IsBlockedReq)(nil),           // 64: user.IsBlockedReq
+	(*IsBlockedResp)(nil),          // 65: user.IsBlockedResp
+	(*common.Pagination)(nil),      // 66: common.Pagination
+	(*common.PaginationResp)(nil),  // 67: common.PaginationResp
+	(*common.Empty)(nil),           // 68: common.Empty
+	(*common.BaseResponse)(nil),    // 69: common.BaseResponse
 }
 var file_user_service_user_proto_depIdxs = []int32{
 	13, // 0: user.RegisterResp.tokens:type_name -> user.TokenPair
@@ -2552,62 +4390,109 @@ var file_user_service_user_proto_depIdxs = []int32{
 	14, // 5: user.RefreshTokenResp.user:type_name -> user.UserInfo
 	10, // 6: user.GetSessionsResp.sessions:type_name -> user.SessionInfo
 	14, // 7: user.BatchGetUserInfoResp.users:type_name -> user.UserInfo
-	37, // 8: user.SearchUsersReq.pagination:type_name -> common.Pagination
+	66, // 8: user.SearchUsersReq.pagination:type_name -> common.Pagination
 	14, // 9: user.SearchUsersResp.users:type_name -> user.UserInfo
-	38, // 10: user.SearchUsersResp.pagination:type_name -> common.PaginationResp
+	67, // 10: user.SearchUsersResp.pagination:type_name -> common.PaginationResp
 	26, // 11: user.UserStatus.devices:type_name -> user.DeviceInfo
 	27, // 12: user.BatchGetStatusResp.statuses:type_name -> user.UserStatus
-	0,  // 13: user.UserService.Register:input_type -> user.RegisterReq
-	2,  // 14: user.UserService.Login:input_type -> user.LoginReq
-	4,  // 15: user.UserService.Logout:input_type -> user.LogoutReq
-	5,  // 16: user.UserService.RefreshToken:input_type -> user.RefreshTokenReq
-	7,  // 17: user.UserService.OAuthLogin:input_type -> user.OAuthLoginReq
-	8,  // 18: user.UserService.ValidateToken:input_type -> user.ValidateTokenReq
-	39, // 19: user.UserService.GetSessions:input_type -> common.Empty
-	12, // 20: user.UserService.RevokeSession:input_type -> user.RevokeSessionReq
-	39, // 21: user.UserService.GetProfile:input_type -> common.Empty
-	15, // 22: user.UserService.UpdateProfile:input_type -> user.UpdateProfileReq
-	16, // 23: user.UserService.UpdatePassword:input_type -> user.UpdatePasswordReq
-	17, // 24: user.UserService.BindPhone:input_type -> user.BindPhoneReq
-	18, // 25: user.UserService.BindEmail:input_type -> user.BindEmailReq
-	19, // 26: user.UserService.GetUserInfo:input_type -> user.GetUserInfoReq
-	20, // 27: user.UserService.BatchGetUserInfo:input_type -> user.BatchGetUserInfoReq
-	22, // 28: user.UserService.SearchUsers:input_type -> user.SearchUsersReq
-	39, // 29: user.UserService.ListAllUserIDs:input_type -> common.Empty
-	25, // 30: user.UserService.BatchGetStatus:input_type -> user.BatchGetStatusReq
-	39, // 31: user.UserService.GetSettings:input_type -> common.Empty
-	30, // 32: user.UserService.UpdateSettings:input_type -> user.UpdateSettingsReq
-	31, // 33: user.UserService.Recharge:input_type -> user.RechargeReq
-	33, // 34: user.UserService.DeductBalance:input_type -> user.DeductBalanceReq
-	35, // 35: user.UserService.GetBalance:input_type -> user.GetBalanceReq
-	1,  // 36: user.UserService.Register:output_type -> user.RegisterResp
-	3,  // 37: user.UserService.Login:output_type -> user.LoginResp
-	40, // 38: user.UserService.Logout:output_type -> common.BaseResponse
-	6,  // 39: user.UserService.RefreshToken:output_type -> user.RefreshTokenResp
-	3,  // 40: user.UserService.OAuthLogin:output_type -> user.LoginResp
-	9,  // 41: user.UserService.ValidateToken:output_type -> user.ValidateTokenResp
-	11, // 42: user.UserService.GetSessions:output_type -> user.GetSessionsResp
-	40, // 43: user.UserService.RevokeSession:output_type -> common.BaseResponse
-	14, // 44: user.UserService.GetProfile:output_type -> user.UserInfo
-	14, // 45: user.UserService.UpdateProfile:output_type -> user.UserInfo
-	40, // 46: user.UserService.UpdatePassword:output_type -> common.BaseResponse
-	40, // 47: user.UserService.BindPhone:output_type -> common.BaseResponse
-	40, // 48: user.UserService.BindEmail:output_type -> common.BaseResponse
-	14, // 49: user.UserService.GetUserInfo:output_type -> user.UserInfo
-	21, // 50: user.UserService.BatchGetUserInfo:output_type -> user.BatchGetUserInfoResp
-	23, // 51: user.UserService.SearchUsers:output_type -> user.SearchUsersResp
-	24, // 52: user.UserService.ListAllUserIDs:output_type -> user.ListAllUserIDsResp
-	28, // 53: user.UserService.BatchGetStatus:output_type -> user.BatchGetStatusResp
-	29, // 54: user.UserService.GetSettings:output_type -> user.GetSettingsResp
-	40, // 55: user.UserService.UpdateSettings:output_type -> common.BaseResponse
-	32, // 56: user.UserService.Recharge:output_type -> user.RechargeResp
-	34, // 57: user.UserService.DeductBalance:output_type -> user.DeductBalanceResp
-	36, // 58: user.UserService.GetBalance:output_type -> user.GetBalanceResp
-	36, // [36:59] is the sub-list for method output_type
-	13, // [13:36] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	66, // 13: user.ListPendingRequestsReq.pagination:type_name -> common.Pagination
+	66, // 14: user.ListSentRequestsReq.pagination:type_name -> common.Pagination
+	44, // 15: user.ListRequestsResp.requests:type_name -> user.FriendRequest
+	67, // 16: user.ListRequestsResp.pagination:type_name -> common.PaginationResp
+	66, // 17: user.ListFriendsReq.pagination:type_name -> common.Pagination
+	47, // 18: user.ListFriendsResp.friends:type_name -> user.FriendInfo
+	67, // 19: user.ListFriendsResp.pagination:type_name -> common.PaginationResp
+	57, // 20: user.ListGroupsResp.groups:type_name -> user.FriendGroup
+	66, // 21: user.ListBlacklistReq.pagination:type_name -> common.Pagination
+	62, // 22: user.ListBlacklistResp.users:type_name -> user.BlacklistUser
+	67, // 23: user.ListBlacklistResp.pagination:type_name -> common.PaginationResp
+	0,  // 24: user.UserService.Register:input_type -> user.RegisterReq
+	2,  // 25: user.UserService.Login:input_type -> user.LoginReq
+	4,  // 26: user.UserService.Logout:input_type -> user.LogoutReq
+	5,  // 27: user.UserService.RefreshToken:input_type -> user.RefreshTokenReq
+	7,  // 28: user.UserService.OAuthLogin:input_type -> user.OAuthLoginReq
+	8,  // 29: user.UserService.ValidateToken:input_type -> user.ValidateTokenReq
+	68, // 30: user.UserService.GetSessions:input_type -> common.Empty
+	12, // 31: user.UserService.RevokeSession:input_type -> user.RevokeSessionReq
+	68, // 32: user.UserService.GetProfile:input_type -> common.Empty
+	15, // 33: user.UserService.UpdateProfile:input_type -> user.UpdateProfileReq
+	16, // 34: user.UserService.UpdatePassword:input_type -> user.UpdatePasswordReq
+	17, // 35: user.UserService.BindPhone:input_type -> user.BindPhoneReq
+	18, // 36: user.UserService.BindEmail:input_type -> user.BindEmailReq
+	19, // 37: user.UserService.GetUserInfo:input_type -> user.GetUserInfoReq
+	20, // 38: user.UserService.BatchGetUserInfo:input_type -> user.BatchGetUserInfoReq
+	22, // 39: user.UserService.SearchUsers:input_type -> user.SearchUsersReq
+	68, // 40: user.UserService.ListAllUserIDs:input_type -> common.Empty
+	25, // 41: user.UserService.BatchGetStatus:input_type -> user.BatchGetStatusReq
+	68, // 42: user.UserService.GetSettings:input_type -> common.Empty
+	30, // 43: user.UserService.UpdateSettings:input_type -> user.UpdateSettingsReq
+	31, // 44: user.UserService.Recharge:input_type -> user.RechargeReq
+	33, // 45: user.UserService.DeductBalance:input_type -> user.DeductBalanceReq
+	35, // 46: user.UserService.GetBalance:input_type -> user.GetBalanceReq
+	37, // 47: user.UserService.SendRequest:input_type -> user.SendRequestReq
+	39, // 48: user.UserService.AcceptRequest:input_type -> user.AcceptRequestReq
+	40, // 49: user.UserService.RejectRequest:input_type -> user.RejectRequestReq
+	41, // 50: user.UserService.CancelRequest:input_type -> user.CancelRequestReq
+	42, // 51: user.UserService.ListPendingRequests:input_type -> user.ListPendingRequestsReq
+	43, // 52: user.UserService.ListSentRequests:input_type -> user.ListSentRequestsReq
+	46, // 53: user.UserService.ListFriends:input_type -> user.ListFriendsReq
+	49, // 54: user.UserService.DeleteFriend:input_type -> user.DeleteFriendReq
+	50, // 55: user.UserService.SetRemark:input_type -> user.SetRemarkReq
+	51, // 56: user.UserService.SetGroup:input_type -> user.SetGroupReq
+	52, // 57: user.UserService.CreateGroup:input_type -> user.CreateGroupReq
+	54, // 58: user.UserService.RenameGroup:input_type -> user.RenameGroupReq
+	55, // 59: user.UserService.DeleteGroup:input_type -> user.DeleteGroupReq
+	56, // 60: user.UserService.ListGroups:input_type -> user.ListGroupsReq
+	59, // 61: user.UserService.BlockUser:input_type -> user.BlockUserReq
+	60, // 62: user.UserService.UnblockUser:input_type -> user.UnblockUserReq
+	61, // 63: user.UserService.ListBlacklist:input_type -> user.ListBlacklistReq
+	64, // 64: user.UserService.IsBlocked:input_type -> user.IsBlockedReq
+	1,  // 65: user.UserService.Register:output_type -> user.RegisterResp
+	3,  // 66: user.UserService.Login:output_type -> user.LoginResp
+	69, // 67: user.UserService.Logout:output_type -> common.BaseResponse
+	6,  // 68: user.UserService.RefreshToken:output_type -> user.RefreshTokenResp
+	3,  // 69: user.UserService.OAuthLogin:output_type -> user.LoginResp
+	9,  // 70: user.UserService.ValidateToken:output_type -> user.ValidateTokenResp
+	11, // 71: user.UserService.GetSessions:output_type -> user.GetSessionsResp
+	69, // 72: user.UserService.RevokeSession:output_type -> common.BaseResponse
+	14, // 73: user.UserService.GetProfile:output_type -> user.UserInfo
+	14, // 74: user.UserService.UpdateProfile:output_type -> user.UserInfo
+	69, // 75: user.UserService.UpdatePassword:output_type -> common.BaseResponse
+	69, // 76: user.UserService.BindPhone:output_type -> common.BaseResponse
+	69, // 77: user.UserService.BindEmail:output_type -> common.BaseResponse
+	14, // 78: user.UserService.GetUserInfo:output_type -> user.UserInfo
+	21, // 79: user.UserService.BatchGetUserInfo:output_type -> user.BatchGetUserInfoResp
+	23, // 80: user.UserService.SearchUsers:output_type -> user.SearchUsersResp
+	24, // 81: user.UserService.ListAllUserIDs:output_type -> user.ListAllUserIDsResp
+	28, // 82: user.UserService.BatchGetStatus:output_type -> user.BatchGetStatusResp
+	29, // 83: user.UserService.GetSettings:output_type -> user.GetSettingsResp
+	69, // 84: user.UserService.UpdateSettings:output_type -> common.BaseResponse
+	32, // 85: user.UserService.Recharge:output_type -> user.RechargeResp
+	34, // 86: user.UserService.DeductBalance:output_type -> user.DeductBalanceResp
+	36, // 87: user.UserService.GetBalance:output_type -> user.GetBalanceResp
+	38, // 88: user.UserService.SendRequest:output_type -> user.SendRequestResp
+	69, // 89: user.UserService.AcceptRequest:output_type -> common.BaseResponse
+	69, // 90: user.UserService.RejectRequest:output_type -> common.BaseResponse
+	69, // 91: user.UserService.CancelRequest:output_type -> common.BaseResponse
+	45, // 92: user.UserService.ListPendingRequests:output_type -> user.ListRequestsResp
+	45, // 93: user.UserService.ListSentRequests:output_type -> user.ListRequestsResp
+	48, // 94: user.UserService.ListFriends:output_type -> user.ListFriendsResp
+	69, // 95: user.UserService.DeleteFriend:output_type -> common.BaseResponse
+	69, // 96: user.UserService.SetRemark:output_type -> common.BaseResponse
+	69, // 97: user.UserService.SetGroup:output_type -> common.BaseResponse
+	53, // 98: user.UserService.CreateGroup:output_type -> user.CreateGroupResp
+	69, // 99: user.UserService.RenameGroup:output_type -> common.BaseResponse
+	69, // 100: user.UserService.DeleteGroup:output_type -> common.BaseResponse
+	58, // 101: user.UserService.ListGroups:output_type -> user.ListGroupsResp
+	69, // 102: user.UserService.BlockUser:output_type -> common.BaseResponse
+	69, // 103: user.UserService.UnblockUser:output_type -> common.BaseResponse
+	63, // 104: user.UserService.ListBlacklist:output_type -> user.ListBlacklistResp
+	65, // 105: user.UserService.IsBlocked:output_type -> user.IsBlockedResp
+	65, // [65:106] is the sub-list for method output_type
+	24, // [24:65] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_user_service_user_proto_init() }
@@ -2617,13 +4502,14 @@ func file_user_service_user_proto_init() {
 	}
 	file_user_service_user_proto_msgTypes[15].OneofWrappers = []any{}
 	file_user_service_user_proto_msgTypes[30].OneofWrappers = []any{}
+	file_user_service_user_proto_msgTypes[46].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_service_user_proto_rawDesc), len(file_user_service_user_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   37,
+			NumMessages:   66,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

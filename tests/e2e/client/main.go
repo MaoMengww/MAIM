@@ -133,6 +133,7 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://ws-gateway:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
+	selected := flags.String("scenario", "all", "选择 all|stage-p3|relationships|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -143,33 +144,60 @@ func run(args []string) error {
 	if _, err := endpoint(*gateway, "http", "https"); err != nil {
 		return fmt.Errorf("配置 gateway: %w", err)
 	}
-	for _, address := range []string{*realtimeA, *realtimeB} {
-		if _, err := endpoint(address, "ws", "wss"); err != nil {
-			return fmt.Errorf("配置 realtime: %w", err)
+	type scenarioSpec struct{ name, a, b string }
+	var scenarios []scenarioSpec
+	switch *selected {
+	case "all":
+		scenarios = []scenarioSpec{
+			{"relationships", "", ""},
+			{"same-instance-a", *realtimeA, *realtimeA},
+			{"same-instance-b", *realtimeB, *realtimeB},
+		}
+		if *cross {
+			scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
+		}
+	case "stage-p3":
+		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}}
+	case "relationships":
+		scenarios = []scenarioSpec{{"relationships", "", ""}}
+	case "same-instance-a":
+		scenarios = []scenarioSpec{{"same-instance-a", *realtimeA, *realtimeA}}
+	case "same-instance-b":
+		scenarios = []scenarioSpec{{"same-instance-b", *realtimeB, *realtimeB}}
+	case "cross-instance":
+		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
+	default:
+		return errors.New("scenario 必须为 all|stage-p3|relationships|same-instance-a|same-instance-b|cross-instance")
+	}
+	for _, scenario := range scenarios {
+		if scenario.name == "relationships" {
+			continue
+		}
+		for _, address := range []string{scenario.a, scenario.b} {
+			if _, err := endpoint(address, "ws", "wss"); err != nil {
+				return fmt.Errorf("配置 realtime 场景 %s: %w", scenario.name, err)
+			}
 		}
 	}
-	if *realtimeA == *realtimeB {
+	if (*selected == "all" || *selected == "cross-instance") && *realtimeA == *realtimeB {
 		return errors.New("realtime A/B 必须使用不同地址，不能将单实例冒充两实例")
 	}
 	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout}
 	defer d.client.CloseIdleConnections()
-	scenarios := []struct {
-		name string
-		a    string
-		b    string
-	}{
-		{"same-instance-a", *realtimeA, *realtimeA},
-		{"same-instance-b", *realtimeB, *realtimeB},
-	}
-	if *cross {
-		scenarios = append(scenarios, struct{ name, a, b string }{"cross-instance", *realtimeA, *realtimeB})
-	}
 	var failures []error
 	for _, scenario := range scenarios {
-		if err := d.scenario(scenario.a, scenario.b); err != nil {
+		var err error
+		if scenario.name == "relationships" {
+			err = d.relationships()
+		} else {
+			err = d.scenario(scenario.a, scenario.b)
+		}
+		if err != nil {
 			failure := fmt.Errorf("场景 %s: %w", scenario.name, err)
 			fmt.Fprintln(os.Stderr, failure)
 			failures = append(failures, failure)
+		} else if scenario.name == "relationships" {
+			fmt.Println("E2E PASS: relationships 请求 → 接受/拒绝/取消 → 双向好友 → 备注/分组 → 删除 → 拉黑/解除")
 		} else {
 			fmt.Printf("E2E PASS: %s 注册 → 登录 → 身份 → 私聊 → 双向 WS 投递\n", scenario.name)
 		}
@@ -195,6 +223,23 @@ func newHTTPClient(timeout time.Duration) *http.Client {
 		Timeout:       timeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
+}
+
+// apiError marks a gateway envelope rejection (non-2xx or business code != 0) as
+// opposed to a transport or contract-JSON failure. The friend handlers report every
+// RPC error as the gateway's internal code, so a business rejection and a service-side
+// RPC failure look identical here; negative steps therefore only claim the operation
+// did not succeed, and reachability comes from the positive call on the same RPC later
+// in the scenario.
+type apiError struct {
+	method string
+	path   string
+	status int
+	code   int
+}
+
+func (e *apiError) Error() string {
+	return fmt.Sprintf("%s %s: HTTP %d，业务 code=%d", e.method, e.path, e.status, e.code)
 }
 
 func (d *driver) request(method, path, token string, input, output any) error {
@@ -230,12 +275,11 @@ func (d *driver) request(method, path, token string, input, output any) error {
 		return fmt.Errorf("%s %s: HTTP %d，响应不是合法契约 JSON", method, path, resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 || envelope.Code == nil || *envelope.Code != 0 {
-		code := "missing"
-		if envelope.Code != nil {
-			code = strconv.Itoa(*envelope.Code)
+		if envelope.Code == nil {
+			return fmt.Errorf("%s %s: HTTP %d，业务 code=missing", method, path, resp.StatusCode)
 		}
 		// Never print response bodies: an auth error may echo credentials.
-		return fmt.Errorf("%s %s: HTTP %d，业务 code=%s", method, path, resp.StatusCode, code)
+		return &apiError{method: method, path: path, status: resp.StatusCode, code: *envelope.Code}
 	}
 	if output != nil {
 		if err := json.Unmarshal(envelope.Data, output); err != nil {

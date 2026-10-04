@@ -12,8 +12,18 @@ import (
 // RunMigrations reads embedded SQL migration files from the given filesystem,
 // applies any that have not yet been recorded in schema_migrations, and records
 // each newly applied migration. All SQL files must use IF NOT EXISTS / IF EXISTS
-// so they are safe to re-run.
+// so they are safe to re-run. Startup callers share a transaction-scoped lock:
+// user-service and message-service may start concurrently against the same DB.
 func RunMigrations(db *gorm.DB, src fs.FS) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(4278605, 1)").Error; err != nil {
+			return fmt.Errorf("lock schema migrations: %w", err)
+		}
+		return runMigrations(tx, src)
+	})
+}
+
+func runMigrations(db *gorm.DB, src fs.FS) error {
 	entries, err := fs.ReadDir(src, ".")
 	if err != nil {
 		return fmt.Errorf("read migration dir: %w", err)
@@ -31,8 +41,10 @@ func RunMigrations(db *gorm.DB, src fs.FS) error {
 	)`).Error; err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
-	// Upgrade column width for databases created before VARCHAR(16) was widened
-	_ = db.Exec(`ALTER TABLE public.schema_migrations ALTER COLUMN version TYPE VARCHAR(255)`).Error
+	// Upgrade column width for databases created before VARCHAR(16) was widened.
+	if err := db.Exec(`ALTER TABLE public.schema_migrations ALTER COLUMN version TYPE VARCHAR(255)`).Error; err != nil {
+		return fmt.Errorf("upgrade schema_migrations: %w", err)
+	}
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -61,17 +73,13 @@ func RunMigrations(db *gorm.DB, src fs.FS) error {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
 
-		// Execute the SQL in a single transaction
-		err = db.Transaction(func(tx *gorm.DB) error {
-			if execErr := tx.Exec(string(content)).Error; execErr != nil {
-				return fmt.Errorf("migration %s: %w", version, execErr)
-			}
-			return tx.Exec(
-				"INSERT INTO public.schema_migrations (version) VALUES (?)", version,
-			).Error
-		})
-		if err != nil {
-			return err
+		if err := db.Exec(string(content)).Error; err != nil {
+			return fmt.Errorf("migration %s: %w", version, err)
+		}
+		if err := db.Exec(
+			"INSERT INTO public.schema_migrations (version) VALUES (?)", version,
+		).Error; err != nil {
+			return fmt.Errorf("record migration %s: %w", version, err)
 		}
 	}
 	return nil

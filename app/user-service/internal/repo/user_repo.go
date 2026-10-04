@@ -129,7 +129,7 @@ func (r *UserRepo) ListAllIDs(ctx context.Context) ([]int64, error) {
 
 func (r *UserRepo) UpdateBalance(ctx context.Context, userID int64, delta float64) (float64, error) {
 	result := r.db.WithContext(ctx).Exec(
-		"UPDATE users SET balance = balance + ? WHERE id = ? AND balance + ? >= 0",
+		`UPDATE "user".users SET balance = balance + ? WHERE id = ? AND balance + ? >= 0`,
 		delta, userID, delta,
 	)
 	if result.Error != nil {

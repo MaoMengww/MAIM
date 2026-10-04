@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 
+	friendlogic "github.com/maomeng/aim/app/user-service/internal/logic/friend"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/logx"
@@ -25,9 +26,10 @@ type UserServer struct {
 }
 
 type UserServerContext struct {
-	AuthLogic   AuthLogic
-	UserLogic   UserLogic
-	StatusLogic StatusLogic
+	AuthLogic     AuthLogic
+	UserLogic     UserLogic
+	StatusLogic   StatusLogic
+	FriendContext *friendlogic.Context
 }
 
 type AuthLogic interface {

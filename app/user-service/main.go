@@ -25,12 +25,14 @@ func main() {
 	var c config.Config
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
 	ctx := svc.NewServiceContext(c)
+	defer ctx.Close()
 
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
 		srv := userServer.NewUserServer(&userServer.UserServerContext{
-			AuthLogic:   ctx.AuthLogic,
-			UserLogic:   ctx.UserLogic,
-			StatusLogic: ctx.StatusLogic,
+			AuthLogic:     ctx.AuthLogic,
+			UserLogic:     ctx.UserLogic,
+			StatusLogic:   ctx.StatusLogic,
+			FriendContext: ctx.FriendContext,
 		}, ctx.Log)
 		user.RegisterUserServiceServer(grpcServer, srv)
 

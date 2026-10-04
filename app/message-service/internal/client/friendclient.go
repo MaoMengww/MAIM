@@ -3,7 +3,7 @@ package client
 import (
 	"context"
 
-	friendpb "github.com/maomeng/aim/app/friend-service/pb/friend"
+	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 
 	"github.com/zeromicro/go-zero/zrpc"
 )
@@ -14,19 +14,19 @@ type FriendClient interface {
 }
 
 type defaultFriendClient struct {
-	cli friendpb.FriendServiceClient
+	cli userpb.UserServiceClient
 }
 
 func NewFriendClient(c zrpc.Client) FriendClient {
 	return &defaultFriendClient{
-		cli: friendpb.NewFriendServiceClient(c.Conn()),
+		cli: userpb.NewUserServiceClient(c.Conn()),
 	}
 }
 
 var _ FriendClient = (*defaultFriendClient)(nil)
 
 func (c *defaultFriendClient) IsBlocked(ctx context.Context, userID, targetUserID int64) (bool, error) {
-	resp, err := c.cli.IsBlocked(ctx, &friendpb.IsBlockedReq{
+	resp, err := c.cli.IsBlocked(ctx, &userpb.IsBlockedReq{
 		UserId:       userID,
 		TargetUserId: targetUserID,
 	})

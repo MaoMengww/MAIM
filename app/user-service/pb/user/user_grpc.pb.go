@@ -20,29 +20,47 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	UserService_Register_FullMethodName         = "/user.UserService/Register"
-	UserService_Login_FullMethodName            = "/user.UserService/Login"
-	UserService_Logout_FullMethodName           = "/user.UserService/Logout"
-	UserService_RefreshToken_FullMethodName     = "/user.UserService/RefreshToken"
-	UserService_OAuthLogin_FullMethodName       = "/user.UserService/OAuthLogin"
-	UserService_ValidateToken_FullMethodName    = "/user.UserService/ValidateToken"
-	UserService_GetSessions_FullMethodName      = "/user.UserService/GetSessions"
-	UserService_RevokeSession_FullMethodName    = "/user.UserService/RevokeSession"
-	UserService_GetProfile_FullMethodName       = "/user.UserService/GetProfile"
-	UserService_UpdateProfile_FullMethodName    = "/user.UserService/UpdateProfile"
-	UserService_UpdatePassword_FullMethodName   = "/user.UserService/UpdatePassword"
-	UserService_BindPhone_FullMethodName        = "/user.UserService/BindPhone"
-	UserService_BindEmail_FullMethodName        = "/user.UserService/BindEmail"
-	UserService_GetUserInfo_FullMethodName      = "/user.UserService/GetUserInfo"
-	UserService_BatchGetUserInfo_FullMethodName = "/user.UserService/BatchGetUserInfo"
-	UserService_SearchUsers_FullMethodName      = "/user.UserService/SearchUsers"
-	UserService_ListAllUserIDs_FullMethodName   = "/user.UserService/ListAllUserIDs"
-	UserService_BatchGetStatus_FullMethodName   = "/user.UserService/BatchGetStatus"
-	UserService_GetSettings_FullMethodName      = "/user.UserService/GetSettings"
-	UserService_UpdateSettings_FullMethodName   = "/user.UserService/UpdateSettings"
-	UserService_Recharge_FullMethodName         = "/user.UserService/Recharge"
-	UserService_DeductBalance_FullMethodName    = "/user.UserService/DeductBalance"
-	UserService_GetBalance_FullMethodName       = "/user.UserService/GetBalance"
+	UserService_Register_FullMethodName            = "/user.UserService/Register"
+	UserService_Login_FullMethodName               = "/user.UserService/Login"
+	UserService_Logout_FullMethodName              = "/user.UserService/Logout"
+	UserService_RefreshToken_FullMethodName        = "/user.UserService/RefreshToken"
+	UserService_OAuthLogin_FullMethodName          = "/user.UserService/OAuthLogin"
+	UserService_ValidateToken_FullMethodName       = "/user.UserService/ValidateToken"
+	UserService_GetSessions_FullMethodName         = "/user.UserService/GetSessions"
+	UserService_RevokeSession_FullMethodName       = "/user.UserService/RevokeSession"
+	UserService_GetProfile_FullMethodName          = "/user.UserService/GetProfile"
+	UserService_UpdateProfile_FullMethodName       = "/user.UserService/UpdateProfile"
+	UserService_UpdatePassword_FullMethodName      = "/user.UserService/UpdatePassword"
+	UserService_BindPhone_FullMethodName           = "/user.UserService/BindPhone"
+	UserService_BindEmail_FullMethodName           = "/user.UserService/BindEmail"
+	UserService_GetUserInfo_FullMethodName         = "/user.UserService/GetUserInfo"
+	UserService_BatchGetUserInfo_FullMethodName    = "/user.UserService/BatchGetUserInfo"
+	UserService_SearchUsers_FullMethodName         = "/user.UserService/SearchUsers"
+	UserService_ListAllUserIDs_FullMethodName      = "/user.UserService/ListAllUserIDs"
+	UserService_BatchGetStatus_FullMethodName      = "/user.UserService/BatchGetStatus"
+	UserService_GetSettings_FullMethodName         = "/user.UserService/GetSettings"
+	UserService_UpdateSettings_FullMethodName      = "/user.UserService/UpdateSettings"
+	UserService_Recharge_FullMethodName            = "/user.UserService/Recharge"
+	UserService_DeductBalance_FullMethodName       = "/user.UserService/DeductBalance"
+	UserService_GetBalance_FullMethodName          = "/user.UserService/GetBalance"
+	UserService_SendRequest_FullMethodName         = "/user.UserService/SendRequest"
+	UserService_AcceptRequest_FullMethodName       = "/user.UserService/AcceptRequest"
+	UserService_RejectRequest_FullMethodName       = "/user.UserService/RejectRequest"
+	UserService_CancelRequest_FullMethodName       = "/user.UserService/CancelRequest"
+	UserService_ListPendingRequests_FullMethodName = "/user.UserService/ListPendingRequests"
+	UserService_ListSentRequests_FullMethodName    = "/user.UserService/ListSentRequests"
+	UserService_ListFriends_FullMethodName         = "/user.UserService/ListFriends"
+	UserService_DeleteFriend_FullMethodName        = "/user.UserService/DeleteFriend"
+	UserService_SetRemark_FullMethodName           = "/user.UserService/SetRemark"
+	UserService_SetGroup_FullMethodName            = "/user.UserService/SetGroup"
+	UserService_CreateGroup_FullMethodName         = "/user.UserService/CreateGroup"
+	UserService_RenameGroup_FullMethodName         = "/user.UserService/RenameGroup"
+	UserService_DeleteGroup_FullMethodName         = "/user.UserService/DeleteGroup"
+	UserService_ListGroups_FullMethodName          = "/user.UserService/ListGroups"
+	UserService_BlockUser_FullMethodName           = "/user.UserService/BlockUser"
+	UserService_UnblockUser_FullMethodName         = "/user.UserService/UnblockUser"
+	UserService_ListBlacklist_FullMethodName       = "/user.UserService/ListBlacklist"
+	UserService_IsBlocked_FullMethodName           = "/user.UserService/IsBlocked"
 )
 
 // UserServiceClient is the client API for UserService service.
@@ -75,6 +93,28 @@ type UserServiceClient interface {
 	Recharge(ctx context.Context, in *RechargeReq, opts ...grpc.CallOption) (*RechargeResp, error)
 	DeductBalance(ctx context.Context, in *DeductBalanceReq, opts ...grpc.CallOption) (*DeductBalanceResp, error)
 	GetBalance(ctx context.Context, in *GetBalanceReq, opts ...grpc.CallOption) (*GetBalanceResp, error)
+	// ========== Friend Requests ==========
+	SendRequest(ctx context.Context, in *SendRequestReq, opts ...grpc.CallOption) (*SendRequestResp, error)
+	AcceptRequest(ctx context.Context, in *AcceptRequestReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	RejectRequest(ctx context.Context, in *RejectRequestReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	CancelRequest(ctx context.Context, in *CancelRequestReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	ListPendingRequests(ctx context.Context, in *ListPendingRequestsReq, opts ...grpc.CallOption) (*ListRequestsResp, error)
+	ListSentRequests(ctx context.Context, in *ListSentRequestsReq, opts ...grpc.CallOption) (*ListRequestsResp, error)
+	// ========== Friend Management ==========
+	ListFriends(ctx context.Context, in *ListFriendsReq, opts ...grpc.CallOption) (*ListFriendsResp, error)
+	DeleteFriend(ctx context.Context, in *DeleteFriendReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	SetRemark(ctx context.Context, in *SetRemarkReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	SetGroup(ctx context.Context, in *SetGroupReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	// ========== Friend Groups ==========
+	CreateGroup(ctx context.Context, in *CreateGroupReq, opts ...grpc.CallOption) (*CreateGroupResp, error)
+	RenameGroup(ctx context.Context, in *RenameGroupReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	DeleteGroup(ctx context.Context, in *DeleteGroupReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	ListGroups(ctx context.Context, in *ListGroupsReq, opts ...grpc.CallOption) (*ListGroupsResp, error)
+	// ========== Blacklist ==========
+	BlockUser(ctx context.Context, in *BlockUserReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	UnblockUser(ctx context.Context, in *UnblockUserReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	ListBlacklist(ctx context.Context, in *ListBlacklistReq, opts ...grpc.CallOption) (*ListBlacklistResp, error)
+	IsBlocked(ctx context.Context, in *IsBlockedReq, opts ...grpc.CallOption) (*IsBlockedResp, error)
 }
 
 type userServiceClient struct {
@@ -315,6 +355,186 @@ func (c *userServiceClient) GetBalance(ctx context.Context, in *GetBalanceReq, o
 	return out, nil
 }
 
+func (c *userServiceClient) SendRequest(ctx context.Context, in *SendRequestReq, opts ...grpc.CallOption) (*SendRequestResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SendRequestResp)
+	err := c.cc.Invoke(ctx, UserService_SendRequest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) AcceptRequest(ctx context.Context, in *AcceptRequestReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, UserService_AcceptRequest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) RejectRequest(ctx context.Context, in *RejectRequestReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, UserService_RejectRequest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) CancelRequest(ctx context.Context, in *CancelRequestReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, UserService_CancelRequest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) ListPendingRequests(ctx context.Context, in *ListPendingRequestsReq, opts ...grpc.CallOption) (*ListRequestsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRequestsResp)
+	err := c.cc.Invoke(ctx, UserService_ListPendingRequests_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) ListSentRequests(ctx context.Context, in *ListSentRequestsReq, opts ...grpc.CallOption) (*ListRequestsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRequestsResp)
+	err := c.cc.Invoke(ctx, UserService_ListSentRequests_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) ListFriends(ctx context.Context, in *ListFriendsReq, opts ...grpc.CallOption) (*ListFriendsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFriendsResp)
+	err := c.cc.Invoke(ctx, UserService_ListFriends_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) DeleteFriend(ctx context.Context, in *DeleteFriendReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, UserService_DeleteFriend_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) SetRemark(ctx context.Context, in *SetRemarkReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, UserService_SetRemark_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) SetGroup(ctx context.Context, in *SetGroupReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, UserService_SetGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) CreateGroup(ctx context.Context, in *CreateGroupReq, opts ...grpc.CallOption) (*CreateGroupResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateGroupResp)
+	err := c.cc.Invoke(ctx, UserService_CreateGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) RenameGroup(ctx context.Context, in *RenameGroupReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, UserService_RenameGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) DeleteGroup(ctx context.Context, in *DeleteGroupReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, UserService_DeleteGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) ListGroups(ctx context.Context, in *ListGroupsReq, opts ...grpc.CallOption) (*ListGroupsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListGroupsResp)
+	err := c.cc.Invoke(ctx, UserService_ListGroups_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) BlockUser(ctx context.Context, in *BlockUserReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, UserService_BlockUser_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) UnblockUser(ctx context.Context, in *UnblockUserReq, opts ...grpc.CallOption) (*common.BaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(common.BaseResponse)
+	err := c.cc.Invoke(ctx, UserService_UnblockUser_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) ListBlacklist(ctx context.Context, in *ListBlacklistReq, opts ...grpc.CallOption) (*ListBlacklistResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListBlacklistResp)
+	err := c.cc.Invoke(ctx, UserService_ListBlacklist_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) IsBlocked(ctx context.Context, in *IsBlockedReq, opts ...grpc.CallOption) (*IsBlockedResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IsBlockedResp)
+	err := c.cc.Invoke(ctx, UserService_IsBlocked_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserServiceServer is the server API for UserService service.
 // All implementations must embed UnimplementedUserServiceServer
 // for forward compatibility.
@@ -345,6 +565,28 @@ type UserServiceServer interface {
 	Recharge(context.Context, *RechargeReq) (*RechargeResp, error)
 	DeductBalance(context.Context, *DeductBalanceReq) (*DeductBalanceResp, error)
 	GetBalance(context.Context, *GetBalanceReq) (*GetBalanceResp, error)
+	// ========== Friend Requests ==========
+	SendRequest(context.Context, *SendRequestReq) (*SendRequestResp, error)
+	AcceptRequest(context.Context, *AcceptRequestReq) (*common.BaseResponse, error)
+	RejectRequest(context.Context, *RejectRequestReq) (*common.BaseResponse, error)
+	CancelRequest(context.Context, *CancelRequestReq) (*common.BaseResponse, error)
+	ListPendingRequests(context.Context, *ListPendingRequestsReq) (*ListRequestsResp, error)
+	ListSentRequests(context.Context, *ListSentRequestsReq) (*ListRequestsResp, error)
+	// ========== Friend Management ==========
+	ListFriends(context.Context, *ListFriendsReq) (*ListFriendsResp, error)
+	DeleteFriend(context.Context, *DeleteFriendReq) (*common.BaseResponse, error)
+	SetRemark(context.Context, *SetRemarkReq) (*common.BaseResponse, error)
+	SetGroup(context.Context, *SetGroupReq) (*common.BaseResponse, error)
+	// ========== Friend Groups ==========
+	CreateGroup(context.Context, *CreateGroupReq) (*CreateGroupResp, error)
+	RenameGroup(context.Context, *RenameGroupReq) (*common.BaseResponse, error)
+	DeleteGroup(context.Context, *DeleteGroupReq) (*common.BaseResponse, error)
+	ListGroups(context.Context, *ListGroupsReq) (*ListGroupsResp, error)
+	// ========== Blacklist ==========
+	BlockUser(context.Context, *BlockUserReq) (*common.BaseResponse, error)
+	UnblockUser(context.Context, *UnblockUserReq) (*common.BaseResponse, error)
+	ListBlacklist(context.Context, *ListBlacklistReq) (*ListBlacklistResp, error)
+	IsBlocked(context.Context, *IsBlockedReq) (*IsBlockedResp, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
 
@@ -423,6 +665,60 @@ func (UnimplementedUserServiceServer) DeductBalance(context.Context, *DeductBala
 }
 func (UnimplementedUserServiceServer) GetBalance(context.Context, *GetBalanceReq) (*GetBalanceResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBalance not implemented")
+}
+func (UnimplementedUserServiceServer) SendRequest(context.Context, *SendRequestReq) (*SendRequestResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method SendRequest not implemented")
+}
+func (UnimplementedUserServiceServer) AcceptRequest(context.Context, *AcceptRequestReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcceptRequest not implemented")
+}
+func (UnimplementedUserServiceServer) RejectRequest(context.Context, *RejectRequestReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RejectRequest not implemented")
+}
+func (UnimplementedUserServiceServer) CancelRequest(context.Context, *CancelRequestReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelRequest not implemented")
+}
+func (UnimplementedUserServiceServer) ListPendingRequests(context.Context, *ListPendingRequestsReq) (*ListRequestsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListPendingRequests not implemented")
+}
+func (UnimplementedUserServiceServer) ListSentRequests(context.Context, *ListSentRequestsReq) (*ListRequestsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSentRequests not implemented")
+}
+func (UnimplementedUserServiceServer) ListFriends(context.Context, *ListFriendsReq) (*ListFriendsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListFriends not implemented")
+}
+func (UnimplementedUserServiceServer) DeleteFriend(context.Context, *DeleteFriendReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteFriend not implemented")
+}
+func (UnimplementedUserServiceServer) SetRemark(context.Context, *SetRemarkReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetRemark not implemented")
+}
+func (UnimplementedUserServiceServer) SetGroup(context.Context, *SetGroupReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetGroup not implemented")
+}
+func (UnimplementedUserServiceServer) CreateGroup(context.Context, *CreateGroupReq) (*CreateGroupResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateGroup not implemented")
+}
+func (UnimplementedUserServiceServer) RenameGroup(context.Context, *RenameGroupReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RenameGroup not implemented")
+}
+func (UnimplementedUserServiceServer) DeleteGroup(context.Context, *DeleteGroupReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteGroup not implemented")
+}
+func (UnimplementedUserServiceServer) ListGroups(context.Context, *ListGroupsReq) (*ListGroupsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListGroups not implemented")
+}
+func (UnimplementedUserServiceServer) BlockUser(context.Context, *BlockUserReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BlockUser not implemented")
+}
+func (UnimplementedUserServiceServer) UnblockUser(context.Context, *UnblockUserReq) (*common.BaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UnblockUser not implemented")
+}
+func (UnimplementedUserServiceServer) ListBlacklist(context.Context, *ListBlacklistReq) (*ListBlacklistResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListBlacklist not implemented")
+}
+func (UnimplementedUserServiceServer) IsBlocked(context.Context, *IsBlockedReq) (*IsBlockedResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method IsBlocked not implemented")
 }
 func (UnimplementedUserServiceServer) mustEmbedUnimplementedUserServiceServer() {}
 func (UnimplementedUserServiceServer) testEmbeddedByValue()                     {}
@@ -859,6 +1155,330 @@ func _UserService_GetBalance_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_SendRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendRequestReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).SendRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_SendRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).SendRequest(ctx, req.(*SendRequestReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_AcceptRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptRequestReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).AcceptRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_AcceptRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).AcceptRequest(ctx, req.(*AcceptRequestReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_RejectRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RejectRequestReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).RejectRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_RejectRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).RejectRequest(ctx, req.(*RejectRequestReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_CancelRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelRequestReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).CancelRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_CancelRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).CancelRequest(ctx, req.(*CancelRequestReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_ListPendingRequests_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPendingRequestsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).ListPendingRequests(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_ListPendingRequests_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).ListPendingRequests(ctx, req.(*ListPendingRequestsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_ListSentRequests_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSentRequestsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).ListSentRequests(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_ListSentRequests_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).ListSentRequests(ctx, req.(*ListSentRequestsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_ListFriends_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFriendsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).ListFriends(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_ListFriends_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).ListFriends(ctx, req.(*ListFriendsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_DeleteFriend_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteFriendReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).DeleteFriend(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_DeleteFriend_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).DeleteFriend(ctx, req.(*DeleteFriendReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_SetRemark_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetRemarkReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).SetRemark(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_SetRemark_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).SetRemark(ctx, req.(*SetRemarkReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_SetGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetGroupReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).SetGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_SetGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).SetGroup(ctx, req.(*SetGroupReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_CreateGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateGroupReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).CreateGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_CreateGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).CreateGroup(ctx, req.(*CreateGroupReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_RenameGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenameGroupReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).RenameGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_RenameGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).RenameGroup(ctx, req.(*RenameGroupReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_DeleteGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteGroupReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).DeleteGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_DeleteGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).DeleteGroup(ctx, req.(*DeleteGroupReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_ListGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListGroupsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).ListGroups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_ListGroups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).ListGroups(ctx, req.(*ListGroupsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_BlockUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BlockUserReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).BlockUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_BlockUser_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).BlockUser(ctx, req.(*BlockUserReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_UnblockUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnblockUserReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).UnblockUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_UnblockUser_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).UnblockUser(ctx, req.(*UnblockUserReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_ListBlacklist_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBlacklistReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).ListBlacklist(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_ListBlacklist_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).ListBlacklist(ctx, req.(*ListBlacklistReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_IsBlocked_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IsBlockedReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).IsBlocked(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_IsBlocked_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).IsBlocked(ctx, req.(*IsBlockedReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserService_ServiceDesc is the grpc.ServiceDesc for UserService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -957,6 +1577,78 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBalance",
 			Handler:    _UserService_GetBalance_Handler,
+		},
+		{
+			MethodName: "SendRequest",
+			Handler:    _UserService_SendRequest_Handler,
+		},
+		{
+			MethodName: "AcceptRequest",
+			Handler:    _UserService_AcceptRequest_Handler,
+		},
+		{
+			MethodName: "RejectRequest",
+			Handler:    _UserService_RejectRequest_Handler,
+		},
+		{
+			MethodName: "CancelRequest",
+			Handler:    _UserService_CancelRequest_Handler,
+		},
+		{
+			MethodName: "ListPendingRequests",
+			Handler:    _UserService_ListPendingRequests_Handler,
+		},
+		{
+			MethodName: "ListSentRequests",
+			Handler:    _UserService_ListSentRequests_Handler,
+		},
+		{
+			MethodName: "ListFriends",
+			Handler:    _UserService_ListFriends_Handler,
+		},
+		{
+			MethodName: "DeleteFriend",
+			Handler:    _UserService_DeleteFriend_Handler,
+		},
+		{
+			MethodName: "SetRemark",
+			Handler:    _UserService_SetRemark_Handler,
+		},
+		{
+			MethodName: "SetGroup",
+			Handler:    _UserService_SetGroup_Handler,
+		},
+		{
+			MethodName: "CreateGroup",
+			Handler:    _UserService_CreateGroup_Handler,
+		},
+		{
+			MethodName: "RenameGroup",
+			Handler:    _UserService_RenameGroup_Handler,
+		},
+		{
+			MethodName: "DeleteGroup",
+			Handler:    _UserService_DeleteGroup_Handler,
+		},
+		{
+			MethodName: "ListGroups",
+			Handler:    _UserService_ListGroups_Handler,
+		},
+		{
+			MethodName: "BlockUser",
+			Handler:    _UserService_BlockUser_Handler,
+		},
+		{
+			MethodName: "UnblockUser",
+			Handler:    _UserService_UnblockUser_Handler,
+		},
+		{
+			MethodName: "ListBlacklist",
+			Handler:    _UserService_ListBlacklist_Handler,
+		},
+		{
+			MethodName: "IsBlocked",
+			Handler:    _UserService_IsBlocked_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

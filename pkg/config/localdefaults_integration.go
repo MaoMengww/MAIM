@@ -26,7 +26,6 @@ var localDefaults = map[string]string{
 	"ELASTICSEARCH_ADDRESSES":   "[http://localhost:9200]",
 	"MINERU_URL":                "http://localhost:30000",
 	"USER_SERVICE_ADDR":         "dns:///localhost:50051",
-	"FRIEND_SERVICE_ADDR":       "dns:///localhost:50052",
 	"MESSAGE_SERVICE_ADDR":      "dns:///localhost:50053",
 	"CONVERSATION_SERVICE_ADDR": "dns:///localhost:50055",
 	"FILE_SERVICE_ADDR":         "dns:///localhost:50054",

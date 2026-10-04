@@ -35,7 +35,7 @@ func New(
 
 	authH := handler.NewAuthHandler(clients.User.Conn())
 	userH := handler.NewUserHandler(clients.User.Conn())
-	friendH := handler.NewFriendHandler(clients.Friend.Conn())
+	friendH := handler.NewFriendHandler(clients.User.Conn())
 	convH := handler.NewConversationHandler(clients.Conversation, clients.File.Conn())
 	msgH := handler.NewMessageHandler(clients.Message, clients.File.Conn())
 	fileH := handler.NewFileHandler(clients.File.Conn(), clients.User.Conn())

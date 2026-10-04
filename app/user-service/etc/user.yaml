@@ -5,6 +5,7 @@ Log:
   Stat: false
 Database:
   Driver: postgres
+  # Models use explicit user.* tables; no public fallback in the search path.
   DSN: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=user
   ReadDSN: ""
   MaxOpenConn: 50

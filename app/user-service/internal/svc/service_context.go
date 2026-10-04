@@ -3,9 +3,11 @@ package svc
 import (
 	"github.com/maomeng/aim/app/user-service/internal/config"
 	authlogic "github.com/maomeng/aim/app/user-service/internal/logic/auth"
+	friendlogic "github.com/maomeng/aim/app/user-service/internal/logic/friend"
 	userlogic "github.com/maomeng/aim/app/user-service/internal/logic/user"
 	"github.com/maomeng/aim/app/user-service/internal/model"
 	"github.com/maomeng/aim/app/user-service/internal/repo"
+	"github.com/maomeng/aim/migrations/postgres"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/logx"
@@ -21,9 +23,10 @@ type ServiceContext struct {
 	Snow   *snowflake.Node
 	Log    logx.Logger
 
-	AuthLogic   *authlogic.Logic
-	UserLogic   *userlogic.Logic
-	StatusLogic *userlogic.StatusLogic
+	AuthLogic     *authlogic.Logic
+	UserLogic     *userlogic.Logic
+	StatusLogic   *userlogic.StatusLogic
+	FriendContext *friendlogic.Context
 }
 
 func NewServiceContext(cfg config.Config) *ServiceContext {
@@ -33,7 +36,12 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 	if err != nil {
 		panic("database init failed: " + err.Error())
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.UserDevice{}); err != nil {
+	if cfg.Database.Driver == "postgres" {
+		if err := database.RunMigrations(db.DB, postgres.FS); err != nil {
+			panic("run migrations failed: " + err.Error())
+		}
+	}
+	if err := db.AutoMigrate(&model.User{}, &model.UserDevice{}, &model.Friend{}, &model.FriendGroup{}, &model.FriendRequest{}, &model.UserBlock{}); err != nil {
 		panic("auto migrate failed: " + err.Error())
 	}
 
@@ -64,17 +72,19 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 
 	userRepo := repo.NewUserRepo(db)
 	authRepo := repo.NewAuthRepo(db, rdb)
+	userLogic := userlogic.New(userRepo, logger)
 
 	return &ServiceContext{
-		Config:      cfg,
-		DB:          db,
-		Redis:       rdb,
-		JWT:         jwtMgr,
-		Snow:        snowNode,
-		Log:         logger,
-		AuthLogic:   authlogic.New(userRepo, authRepo, snowNode, jwtMgr, logger),
-		UserLogic:   userlogic.New(userRepo, logger),
-		StatusLogic: userlogic.NewStatusLogic(rdb),
+		Config:        cfg,
+		DB:            db,
+		Redis:         rdb,
+		JWT:           jwtMgr,
+		Snow:          snowNode,
+		Log:           logger,
+		AuthLogic:     authlogic.New(userRepo, authRepo, snowNode, jwtMgr, logger),
+		UserLogic:     userLogic,
+		StatusLogic:   userlogic.NewStatusLogic(rdb),
+		FriendContext: friendlogic.NewContext(db, snowNode, userLogic),
 	}
 }
 

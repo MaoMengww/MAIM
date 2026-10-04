@@ -9,7 +9,6 @@ JWT:
 
 Services:
   UserServiceAddr: ${USER_SERVICE_ADDR}
-  FriendServiceAddr: ${FRIEND_SERVICE_ADDR}
   ConversationServiceAddr: ${CONVERSATION_SERVICE_ADDR}
   MessageServiceAddr: ${MESSAGE_SERVICE_ADDR}
   FileServiceAddr: ${FILE_SERVICE_ADDR}

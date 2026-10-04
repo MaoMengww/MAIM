@@ -37,7 +37,6 @@ environment:
   JWT_SECRET: "aim-dev-secret-key"
   ENC_KEY: "Ay+h5wU31Vfy5gITlP1P2cmNtOPkTsnqIupXHqpgutw="
   USER_SERVICE_ADDR: "dns:///aim-user-service:50051"
-  FRIEND_SERVICE_ADDR: "dns:///aim-friend-service:50052"
   MESSAGE_SERVICE_ADDR: "dns:///aim-message-service:50053"
   CONVERSATION_SERVICE_ADDR: "dns:///aim-conversation-service:50055"
   FILE_SERVICE_ADDR: "dns:///aim-file-service:50054"

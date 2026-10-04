@@ -92,11 +92,6 @@ releases:
     values:
       - values/{{ .Environment.Name }}/user-service.yaml
 
-  - name: aim-friend-service
-    chart: ./charts/aim-service
-    values:
-      - values/{{ .Environment.Name }}/friend-service.yaml
-
   - name: aim-message-service
     chart: ./charts/aim-service
     values:

@@ -8,7 +8,6 @@ REGISTRY="${2:-registry.aim.local}"
 
 SERVICES=(
   user-service
-  friend-service
   message-service
   conversation-service
   file-service

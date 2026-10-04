@@ -18,7 +18,6 @@ import uuid
 
 APPLICATIONS = {
     "user-service": ("user.yaml", 50051),
-    "friend-service": ("friend.yaml", 50052),
     "message-service": ("message.yaml", 50053),
     "conversation-service": ("conversation.yaml", 50055),
     "file-service": ("file.yaml", 50054),
@@ -234,9 +233,8 @@ class Runner:
                 raise LayerFailure(f"configuration: middleware {name} has no real readiness check")
         # Start the conversation target before its hot-path message client.
         dependencies = {
-            "friend-service": ["user-service"],
             "llm-gateway": ["user-service"],
-            "message-service": ["user-service", "friend-service", "bot-platform", "conversation-service"],
+            "message-service": ["user-service", "bot-platform", "conversation-service"],
             "conversation-service": ["user-service", "bot-platform"],
             "knowledge-base": ["llm-gateway", "ws-gateway", "realtime-b"],
             "signaling-service": ["conversation-service", "bot-platform", "ws-gateway", "realtime-b"],
@@ -294,6 +292,7 @@ class Runner:
                     "-realtime-a", "ws://realtime-a:8081/ws",
                     "-realtime-b", "ws://realtime-b:8081/ws",
                     "-timeout", f"{self.args.timeout:g}s"]
+        scenario.extend(["-scenario", self.args.scenario])
         if self.args.cross_instance:
             scenario.append("-cross-instance")
         # The client's timeout is per interaction, not an overall scene budget.
@@ -356,6 +355,8 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery (known P6 red case)")
+    parser.add_argument("--scenario", choices=("all", "relationships", "stage-p3", "same-instance-a", "same-instance-b", "cross-instance"),
+                        default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")
     parser.add_argument("--build-timeout", type=int, default=1800, help="seconds per build/pull command")

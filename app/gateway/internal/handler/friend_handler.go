@@ -2,19 +2,19 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/maomeng/aim/app/friend-service/pb/friend"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
+	friend "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"google.golang.org/grpc"
 )
 
 type FriendHandler struct {
-	friendClient friend.FriendServiceClient
+	friendClient friend.UserServiceClient
 }
 
 func NewFriendHandler(conn grpc.ClientConnInterface) *FriendHandler {
-	return &FriendHandler{friendClient: friend.NewFriendServiceClient(conn)}
+	return &FriendHandler{friendClient: friend.NewUserServiceClient(conn)}
 }
 
 func (h *FriendHandler) SendRequest(c *gin.Context) {

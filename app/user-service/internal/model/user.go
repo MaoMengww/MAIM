@@ -30,7 +30,7 @@ type User struct {
 	UpdatedAt    time.Time    `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 }
 
-func (User) TableName() string { return "users" }
+func (User) TableName() string { return "user.users" }
 
 type UserDevice struct {
 	ID           int64     `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -44,4 +44,4 @@ type UserDevice struct {
 	CreatedAt    time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 }
 
-func (UserDevice) TableName() string { return "user_devices" }
+func (UserDevice) TableName() string { return "user.user_devices" }

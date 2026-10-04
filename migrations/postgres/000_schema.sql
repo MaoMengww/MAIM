@@ -6,7 +6,6 @@
 CREATE SCHEMA IF NOT EXISTS bot;
 CREATE SCHEMA IF NOT EXISTS conv;
 CREATE SCHEMA IF NOT EXISTS file;
-CREATE SCHEMA IF NOT EXISTS friend;
 CREATE SCHEMA IF NOT EXISTS knowledge;
 CREATE SCHEMA IF NOT EXISTS llm;
 CREATE SCHEMA IF NOT EXISTS msg;
@@ -19,46 +18,7 @@ CREATE TABLE IF NOT EXISTS public.schema_migrations (
     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- =========== public (search_path default) ===========
--- user-service / friend-service AutoMigrate writes here because models
--- have no schema-qualified TableName().
-
-CREATE TABLE IF NOT EXISTS public.users (
-    id            BIGINT PRIMARY KEY,
-    username      VARCHAR(64),
-    password_hash VARCHAR(256),
-    phone         VARCHAR(20),
-    email         VARCHAR(128),
-    avatar        VARCHAR(512),
-    gender        SMALLINT,
-    bio           TEXT,
-    birthday      BIGINT,
-    balance       NUMERIC(12,6) DEFAULT 0,
-    settings      JSONB DEFAULT '{}'::JSONB,
-    created_at    TIMESTAMPTZ,
-    updated_at    TIMESTAMPTZ
-);
-
-CREATE SEQUENCE IF NOT EXISTS public.user_devices_id_seq;
-CREATE TABLE IF NOT EXISTS public.user_devices (
-    id              BIGINT PRIMARY KEY DEFAULT nextval('public.user_devices_id_seq'::regclass),
-    user_id         BIGINT,
-    device_id       VARCHAR(128),
-    platform        VARCHAR(32) DEFAULT 'web',
-    push_token      VARCHAR(512),
-    ip              VARCHAR(64),
-    location        VARCHAR(128),
-    last_active_at  TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ
-);
-ALTER SEQUENCE public.user_devices_id_seq OWNED BY public.user_devices.id;
-
-CREATE SEQUENCE IF NOT EXISTS public.users_id_seq;
-ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
-
-CREATE INDEX IF NOT EXISTS idx_user_devices_user_id ON public.user_devices(user_id);
-
--- =========== "user" domain (from old SQL migration, partially overlapping with public) ===========
+-- =========== user domain (accounts and relationships) ===========
 
 CREATE TABLE IF NOT EXISTS "user".users (
     id            BIGINT PRIMARY KEY,
@@ -76,8 +36,9 @@ CREATE TABLE IF NOT EXISTS "user".users (
     updated_at    TIMESTAMPTZ
 );
 
+CREATE SEQUENCE IF NOT EXISTS "user".user_devices_id_seq;
 CREATE TABLE IF NOT EXISTS "user".user_devices (
-    id              BIGINT PRIMARY KEY,
+    id              BIGINT PRIMARY KEY DEFAULT nextval('"user".user_devices_id_seq'::regclass),
     user_id         BIGINT,
     device_id       VARCHAR(128),
     platform        VARCHAR(32) DEFAULT 'web',
@@ -87,15 +48,16 @@ CREATE TABLE IF NOT EXISTS "user".user_devices (
     last_active_at  TIMESTAMPTZ,
     created_at      TIMESTAMPTZ
 );
-CREATE SEQUENCE IF NOT EXISTS "user".user_devices_id_seq;
 ALTER SEQUENCE "user".user_devices_id_seq OWNED BY "user".user_devices.id;
 
+CREATE SEQUENCE IF NOT EXISTS "user".user_blocks_id_seq;
 CREATE TABLE IF NOT EXISTS "user".user_blocks (
-    id              BIGINT PRIMARY KEY,
+    id              BIGINT PRIMARY KEY DEFAULT nextval('"user".user_blocks_id_seq'::regclass),
     user_id         BIGINT NOT NULL,
     blocked_user_id BIGINT NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER SEQUENCE "user".user_blocks_id_seq OWNED BY "user".user_blocks.id;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON "user".users(username);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone   ON "user".users(phone) WHERE (phone::TEXT <> ''::TEXT);
@@ -396,9 +358,9 @@ ALTER TABLE bot.summary_todos DROP CONSTRAINT IF EXISTS summary_todos_summary_id
 ALTER TABLE bot.summary_todos ADD CONSTRAINT summary_todos_summary_id_fkey
     FOREIGN KEY (summary_id) REFERENCES bot.conv_summaries(id) ON DELETE CASCADE;
 
--- =========== friend domain ===========
+-- Relationships belong to the user domain; no friend/public copies.
 
-CREATE TABLE IF NOT EXISTS friend.friends (
+CREATE TABLE IF NOT EXISTS "user".friends (
     id         BIGINT PRIMARY KEY,
     user_id    BIGINT NOT NULL,
     friend_id  BIGINT NOT NULL,
@@ -407,15 +369,17 @@ CREATE TABLE IF NOT EXISTS friend.friends (
     created_at TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS friend.friend_groups (
-    id         BIGINT PRIMARY KEY,
+CREATE SEQUENCE IF NOT EXISTS "user".friend_groups_id_seq;
+CREATE TABLE IF NOT EXISTS "user".friend_groups (
+    id         BIGINT PRIMARY KEY DEFAULT nextval('"user".friend_groups_id_seq'::regclass),
     user_id    BIGINT NOT NULL,
     name       VARCHAR(64) NOT NULL,
     sort_order INTEGER DEFAULT 0 NOT NULL,
     created_at TIMESTAMPTZ
 );
+ALTER SEQUENCE "user".friend_groups_id_seq OWNED BY "user".friend_groups.id;
 
-CREATE TABLE IF NOT EXISTS friend.friend_requests (
+CREATE TABLE IF NOT EXISTS "user".friend_requests (
     id           BIGINT PRIMARY KEY,
     from_user_id BIGINT NOT NULL,
     to_user_id   BIGINT NOT NULL,
@@ -425,22 +389,13 @@ CREATE TABLE IF NOT EXISTS friend.friend_requests (
     updated_at   TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS friend.user_blocks (
-    id              BIGINT PRIMARY KEY,
-    user_id         BIGINT NOT NULL,
-    blocked_user_id BIGINT NOT NULL,
-    created_at      TIMESTAMPTZ
-);
-CREATE SEQUENCE IF NOT EXISTS friend.user_blocks_id_seq;
-ALTER SEQUENCE friend.user_blocks_id_seq OWNED BY friend.user_blocks.id;
-
-CREATE INDEX IF NOT EXISTS idx_friends_user ON friend.friends(user_id);
-CREATE INDEX IF NOT EXISTS idx_friends_friend ON friend.friends(friend_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_friends_pair ON friend.friends(user_id, friend_id);
-CREATE INDEX IF NOT EXISTS idx_friend_groups_user ON friend.friend_groups(user_id);
-CREATE INDEX IF NOT EXISTS idx_friend_requests_from ON friend.friend_requests(from_user_id);
-CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON friend.friend_requests(to_user_id);
-CREATE INDEX IF NOT EXISTS idx_friend_requests_status ON friend.friend_requests(status);
+CREATE INDEX IF NOT EXISTS idx_friends_user ON "user".friends(user_id);
+CREATE INDEX IF NOT EXISTS idx_friends_friend ON "user".friends(friend_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_friends_pair ON "user".friends(user_id, friend_id);
+CREATE INDEX IF NOT EXISTS idx_friend_groups_user ON "user".friend_groups(user_id);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_from ON "user".friend_requests(from_user_id);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON "user".friend_requests(to_user_id);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_status ON "user".friend_requests(status);
 
 -- =========== file domain ===========
 

@@ -15,7 +15,6 @@ type Config struct {
 	ConvService   zrpc.RpcClientConf         `json:"convService"`
 	UserService   zrpc.RpcClientConf         `json:"userService"`
 	BotPlatform   zrpc.RpcClientConf         `json:"botPlatform"`
-	FriendService zrpc.RpcClientConf         `json:"friendService"`
 	RateLimit     config.RateLimitConfig     `json:"rateLimit"`
 }
 
