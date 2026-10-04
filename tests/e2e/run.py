@@ -223,7 +223,8 @@ class Runner:
             "NEO4J_dbms_memory_heap_initial__size": "256m",
             "NEO4J_dbms_memory_heap_max__size": "512m",
         })
-        self.infrastructure = sorted(set(services) - set(APPLICATIONS) - {"realtime-b", "init-etcd-config"})
+        self.infrastructure = sorted(set(services) - set(APPLICATIONS) -
+                                     {"realtime-b", "init-etcd-config", "init-kafka-topics"})
         for name in self.infrastructure:
             if not services[name].get("healthcheck") or services[name]["healthcheck"].get("disable"):
                 raise LayerFailure(f"configuration: middleware {name} has no real readiness check")
@@ -290,6 +291,9 @@ class Runner:
         self.compose("probe-copy", "cp", "e2e-client:/e2e", str(self.directory / "probe"))
         self.compose("probe-seed", "run", "--rm", "--no-deps", "probe-seed")
         self.wait_for("middleware-readiness", self.infrastructure)
+        self.compose("kafka-topics-init", "up", "--no-build", "--no-deps", "--abort-on-container-exit",
+                     "--exit-code-from", "init-kafka-topics", "init-kafka-topics",
+                     timeout=self.args.readiness_timeout)
         self.compose("etcdctl-copy", "cp", "etcd:/usr/local/bin/etcdctl", str(self.directory / "etcdctl"))
         # Run the unmodified init script as a retained one-shot service, so both
         # its exit status and Compose completed-successfully gate are enforced.
@@ -338,8 +342,9 @@ class Runner:
                                      "{{json .State.Health}}", identifier], timeout=15, required=False)
             except (ValueError, TypeError) as exc:
                 self.emit(f"[diagnostic] cannot decode container states: {exc}")
-        self.compose("diagnostic-logs", "logs", "--no-color", "--timestamps", "--tail", "60",
-                     timeout=30, required=False)
+        for service in sorted(self.model["services"]):
+            self.compose("diagnostic-logs-" + service, "logs", "--no-color", "--timestamps",
+                         "--tail", "60", service, timeout=15, required=False)
 
     def cleanup(self):
         if self.compose_written:

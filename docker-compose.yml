@@ -122,6 +122,16 @@ services:
       retries: 10
 
 
+  init-kafka-topics:
+    image: apache/kafka:3.7.0
+    entrypoint: ["/bin/sh", "/init-kafka-topics.sh"]
+    volumes:
+      - ./deploy/docker/init-kafka-topics.sh:/init-kafka-topics.sh:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+
 
   milvus:
     image: milvusdb/milvus:v2.6.11
@@ -344,6 +354,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      init-kafka-topics:
+        condition: service_completed_successfully
 
     restart: unless-stopped
 
@@ -367,6 +379,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      init-kafka-topics:
+        condition: service_completed_successfully
 
     restart: unless-stopped
 
@@ -438,6 +452,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      init-kafka-topics:
+        condition: service_completed_successfully
 
     restart: unless-stopped
 
@@ -478,6 +494,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      init-kafka-topics:
+        condition: service_completed_successfully
 
     restart: unless-stopped
 
@@ -520,6 +538,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      init-kafka-topics:
+        condition: service_completed_successfully
 
     restart: unless-stopped
 

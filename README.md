@@ -188,6 +188,8 @@ make proto
 
 MinIO 社区版已改为[仅发布源码](https://github.com/minio/minio#source-only-distribution)，Compose 从固定版本源码构建 `aim-minio`，不再拉取不可用的 `minio/minio:latest`。首次构建需要访问 Go module proxy；保留原有 S3 接口、启动参数与真实 `mc ready` 健康检查。
 
+Compose 的 `init-kafka-topics` 在 broker 就绪后幂等创建活跃 topic，消费者服务等待它成功后启动，避免空环境首次启动时消费者因 topic 不存在退出。验收失败时按服务分别保留有界日志，避免 Kafka 等高日志量服务截掉投递诊断。
+
 ```bash
 python3 tests/e2e/run.py --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
