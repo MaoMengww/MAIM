@@ -40,9 +40,19 @@ web-client/dist/
 
 # ==== AI assistants ====
 .claude/
+.agents/
+.codex/
+.zcode/
 .codegraph/
 .reasonix/
 REASONIX.md
+AGENTS.md
+CONTEXT.md
+
+# Agent 产出的文档：issue tracker、spec 与 ADR 只留在工作区，不进入版本库
+.scratch/
+docs/adr/
+docs/agents/
 
 # ==== IDE & OS ====
 .vscode/
@@ -65,6 +75,5 @@ tools/
 .trae/
 .kiro/
 /task/
-CLAUDE.md
 web-client/tsconfig.tsbuildinfo
 github.com/
