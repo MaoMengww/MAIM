@@ -286,7 +286,7 @@ class Runner:
                          timeout=self.args.build_timeout)
         self.compose("pull", "pull", "--ignore-buildable",
                      *self.infrastructure, "init-etcd-config", "probe-seed", timeout=self.args.build_timeout)
-        self.compose("probe-create", "create", "--no-build", "--no-deps", "e2e-client")
+        self.compose("probe-create", "create", "--no-build", "e2e-client")
         self.compose("probe-copy", "cp", "e2e-client:/e2e", str(self.directory / "probe"))
         self.compose("probe-seed", "run", "--rm", "--no-deps", "probe-seed")
         self.wait_for("middleware-readiness", self.infrastructure)
@@ -371,21 +371,30 @@ def main():
         parser.error("readiness/build timeouts must be positive")
     result = 0
     runner = None
-    # TemporaryDirectory is removed even on SIGINT; a project cleanup failure is
+    interrupted_signal = signal.SIGINT
+
+    def interrupt(signum, _frame):
+        nonlocal interrupted_signal
+        interrupted_signal = signum
+        raise KeyboardInterrupt
+
+    previous_term = signal.signal(signal.SIGTERM, interrupt)
+    # TemporaryDirectory is removed even on SIGINT/SIGTERM; a project cleanup failure is
     # reported as failure rather than silently claiming an isolated successful run.
     with tempfile.TemporaryDirectory(prefix="aim-e2e-") as directory:
         try:
             runner = Runner(args, directory)
             runner.run()
         except KeyboardInterrupt:
-            result = 130
+            result = 128 + interrupted_signal
             print("[interrupt] cancelled; collecting diagnostics and removing project", file=sys.stderr)
         except (LayerFailure, OSError, ValueError, KeyError, TypeError) as exc:
             result = 1
             print(f"[failure] {exc}", file=sys.stderr)
         finally:
-            # A second Ctrl-C must not interrupt the teardown itself.
+            # Repeated cancellation must not interrupt the teardown itself.
             previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
             try:
                 if runner:
                     if result:
@@ -400,6 +409,7 @@ def main():
                         print(f"[cleanup-failure] {exc}; project={runner.project}", file=sys.stderr)
             finally:
                 signal.signal(signal.SIGINT, previous)
+                signal.signal(signal.SIGTERM, previous_term)
     return result
 
 

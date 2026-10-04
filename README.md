@@ -186,6 +186,8 @@ make proto
 
 前置条件：Python 3、Docker Engine、支持 `--wait` 的 Docker Compose 插件及 Buildx。验收只通过 gateway REST 与 WebSocket 驱动真实服务，不替换内部 RPC、Kafka 或数据库。
 
+MinIO 社区版已改为[仅发布源码](https://github.com/minio/minio#source-only-distribution)，Compose 从固定版本源码构建 `aim-minio`，不再拉取不可用的 `minio/minio:latest`。首次构建需要访问 Go module proxy；保留原有 S3 接口、启动参数与真实 `mc ready` 健康检查。
+
 ```bash
 python3 tests/e2e/run.py --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts

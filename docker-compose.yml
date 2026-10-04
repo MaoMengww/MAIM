@@ -71,7 +71,10 @@ services:
 
 
   minio:
-    image: minio/minio:latest
+    build:
+      context: ./deploy/docker/minio
+      dockerfile: Dockerfile
+    image: aim-minio:RELEASE.2025-04-22T22-12-26Z
     container_name: aim-minio
     command: server /data --console-address ":9001"
     environment:
