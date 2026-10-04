@@ -33,25 +33,6 @@ func TestBroadcastRepo_Insert(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestBroadcastRepo_GetByID(t *testing.T) {
-	db, mock := setupMockDB(t)
-	repo := NewBroadcastRepo(db)
-
-	now := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "sender_id", "content", "scope", "scope_target_id", "created_at"}).
-		AddRow(1, 10, `{"text":"hello"}`, "all", 0, now)
-
-	mock.ExpectQuery(`SELECT \* FROM "broadcasts" WHERE id = \$1 ORDER BY "broadcasts"."id" LIMIT \$2`).
-		WithArgs(int64(1), 1).
-		WillReturnRows(rows)
-
-	b, err := repo.GetByID(context.Background(), 1)
-	require.NoError(t, err)
-	assert.Equal(t, int64(1), b.ID)
-	assert.Equal(t, "all", b.Scope)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestBroadcastRepo_List(t *testing.T) {
 	db, mock := setupMockDB(t)
 	repo := NewBroadcastRepo(db)

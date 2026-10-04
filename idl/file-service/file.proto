@@ -47,7 +47,7 @@ enum FileAccess {
 // ========== File Info ==========
 
 message FileInfo {
-  string file_id = 1;             // unique file ID (snowflake)
+  int64 file_id = 1;              // unique file ID (snowflake)
   string name = 2;                // original file name
   string key = 3;                 // object storage key/path
   int64 size = 4;                 // file size in bytes
@@ -77,7 +77,7 @@ message GetUploadURLReq {
 }
 
 message GetUploadURLResp {
-  string file_id = 1;             // assigned file ID
+  int64 file_id = 1;              // assigned file ID
   string upload_url = 2;          // presigned PUT URL
   string key = 3;                 // object storage key
   int64 expires_at = 4;           // upload URL expiry timestamp
@@ -86,7 +86,7 @@ message GetUploadURLResp {
 // ========== Confirm Upload ==========
 
 message ConfirmUploadReq {
-  string file_id = 1;
+  int64 file_id = 1;
   int64 uploader_id = 2;
   optional string md5 = 3;        // client-computed MD5 for verification
 }
@@ -98,7 +98,7 @@ message ConfirmUploadResp {
 // ========== Get Download URL ==========
 
 message GetDownloadURLReq {
-  string file_id = 1;
+  int64 file_id = 1;
   int64 user_id = 2;              // for access check
   int32 expires_in = 3;           // URL expiry in seconds (default 3600)
 }
@@ -112,7 +112,7 @@ message GetDownloadURLResp {
 // ========== Get File Info ==========
 
 message GetFileInfoReq {
-  string file_id = 1;
+  int64 file_id = 1;
   int64 user_id = 2;
 }
 
@@ -123,7 +123,7 @@ message GetFileInfoResp {
 // ========== Batch Get File Info ==========
 
 message BatchGetFileInfoReq {
-  repeated string file_ids = 1;
+  repeated int64 file_ids = 1;
   int64 user_id = 2;
 }
 
@@ -135,14 +135,14 @@ message BatchGetFileInfoResp {
 // ========== Delete File ==========
 
 message DeleteFileReq {
-  string file_id = 1;
+  int64 file_id = 1;
   int64 user_id = 2;
 }
 
 // ========== Batch Delete Files ==========
 
 message BatchDeleteFilesReq {
-  repeated string file_ids = 1;
+  repeated int64 file_ids = 1;
   int64 user_id = 2;
 }
 
@@ -161,7 +161,7 @@ message UploadAvatarReq {
 }
 
 message UploadAvatarResp {
-  string file_id = 1;
+  int64 file_id = 1;
   string url = 2;                 // permanent avatar URL
   string thumbnail_url = 3;       // small thumbnail URL
   int32 width = 4;

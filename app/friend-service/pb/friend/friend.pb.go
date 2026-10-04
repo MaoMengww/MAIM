@@ -1837,7 +1837,7 @@ const file_friend_service_friend_proto_rawDesc = "" +
 	"\tBlockUser\x12\x14.friend.BlockUserReq\x1a\x14.common.BaseResponse\x12;\n" +
 	"\vUnblockUser\x12\x16.friend.UnblockUserReq\x1a\x14.common.BaseResponse\x12D\n" +
 	"\rListBlacklist\x12\x18.friend.ListBlacklistReq\x1a\x19.friend.ListBlacklistResp\x128\n" +
-	"\tIsBlocked\x12\x14.friend.IsBlockedReq\x1a\x15.friend.IsBlockedRespB3Z1github.com/maomeng/aim/app/user-service/pb/friendb\x06proto3"
+	"\tIsBlocked\x12\x14.friend.IsBlockedReq\x1a\x15.friend.IsBlockedRespB5Z3github.com/maomeng/aim/app/friend-service/pb/friendb\x06proto3"
 
 var (
 	file_friend_service_friend_proto_rawDescOnce sync.Once

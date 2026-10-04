@@ -41,7 +41,6 @@ type MessageRepoInterface interface {
 type InboxRepoInterface interface {
 	BatchInsert(ctx context.Context, inboxes []model.UserInbox) error
 	MarkDeleted(ctx context.Context, userID, convID, messageID int64) error
-	UpdateReadSeq(ctx context.Context, userID, convID, seq int64) error
 	GetByUserAndConv(ctx context.Context, userID, convID int64, fromSeq int64, limit int32) ([]model.UserInbox, error)
 	GetMaxSeq(ctx context.Context, userID, convID int64) (int64, error)
 	DeleteByUser(ctx context.Context, userID, convID, messageID int64) error

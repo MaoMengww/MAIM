@@ -33,8 +33,6 @@ func NewConsumer(f *Fanout, dlq DLQProducer, logger logx.Logger) *Consumer {
 	c.topics[consts.KafkaTopicConversationReadUpdated] = c.handleConversationReadUpdated
 	c.topics[consts.KafkaTopicConvBotAdded] = c.handleBotAdded
 	c.topics[consts.KafkaTopicConvBotRemoved] = c.handleBotRemoved
-	c.topics[consts.KafkaTopicConvMemberJoined] = c.handleMemberJoined
-	c.topics[consts.KafkaTopicConvMemberLeft] = c.handleMemberLeft
 	return c
 }
 
@@ -129,9 +127,9 @@ func (c *Consumer) handleMessageRecalled(ctx context.Context, raw []byte) error 
 
 func (c *Consumer) handleMessageEdited(ctx context.Context, raw []byte) error {
 	var evt struct {
-		MessageID int64          `json:"message_id"`
-		ConvID    int64          `json:"conv_id"`
-		UserID    int64          `json:"user_id"`
+		MessageID  int64          `json:"message_id"`
+		ConvID     int64          `json:"conv_id"`
+		UserID     int64          `json:"user_id"`
 		NewContent map[string]any `json:"new_content"`
 	}
 	if err := json.Unmarshal(raw, &evt); err != nil {
@@ -165,7 +163,10 @@ func (c *Consumer) handleConversationReadUpdated(ctx context.Context, raw []byte
 }
 
 func (c *Consumer) handleBotAdded(ctx context.Context, raw []byte) error {
-	var evt struct{ ConvID int64 `json:"conv_id"`; BotID int64 `json:"bot_id"` }
+	var evt struct {
+		ConvID int64 `json:"conv_id"`
+		BotID  int64 `json:"bot_id"`
+	}
 	if err := json.Unmarshal(raw, &evt); err != nil {
 		return err
 	}
@@ -173,33 +174,12 @@ func (c *Consumer) handleBotAdded(ctx context.Context, raw []byte) error {
 }
 
 func (c *Consumer) handleBotRemoved(ctx context.Context, raw []byte) error {
-	var evt struct{ ConvID int64 `json:"conv_id"`; BotID int64 `json:"bot_id"` }
+	var evt struct {
+		ConvID int64 `json:"conv_id"`
+		BotID  int64 `json:"bot_id"`
+	}
 	if err := json.Unmarshal(raw, &evt); err != nil {
 		return err
 	}
 	return c.fanout.PushBotRemoved(ctx, evt.BotID, evt.ConvID)
-}
-
-func (c *Consumer) handleMemberJoined(ctx context.Context, raw []byte) error {
-	var evt struct {
-		ConvID  int64   `json:"conv_id"`
-		UserIDs []int64 `json:"user_ids"`
-		JoinedBy int64  `json:"joined_by"`
-	}
-	if err := json.Unmarshal(raw, &evt); err != nil {
-		return err
-	}
-	return c.fanout.PushMemberJoined(ctx, evt.ConvID, evt.UserIDs)
-}
-
-func (c *Consumer) handleMemberLeft(ctx context.Context, raw []byte) error {
-	var evt struct {
-		ConvID    int64   `json:"conv_id"`
-		UserIDs   []int64 `json:"user_ids"`
-		RemovedBy int64   `json:"removed_by"`
-	}
-	if err := json.Unmarshal(raw, &evt); err != nil {
-		return err
-	}
-	return c.fanout.PushMemberLeft(ctx, evt.ConvID, evt.UserIDs)
 }

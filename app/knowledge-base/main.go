@@ -10,7 +10,6 @@ import (
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/config"
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
-	"github.com/maomeng/aim/app/knowledge-base/internal/eventpush"
 	"github.com/maomeng/aim/app/knowledge-base/internal/handler"
 	"github.com/maomeng/aim/app/knowledge-base/internal/infra/embedder"
 	"github.com/maomeng/aim/app/knowledge-base/internal/infra/milvus"
@@ -19,11 +18,9 @@ import (
 	"github.com/maomeng/aim/app/knowledge-base/internal/svc"
 	pb "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase"
 	"github.com/maomeng/aim/pkg/configcenter"
-	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
-	"github.com/maomeng/aim/pkg/pb/realtimeevent"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -60,12 +57,6 @@ func main() {
 		vecStore = vs
 	}
 
-	var progressPusher eventpush.Pusher = eventpush.NoopPusher{}
-	if c.RealtimeEvent.Etcd.Key != "" || c.RealtimeEvent.Target != "" {
-		realtimeClient := zrpc.MustNewClient(c.RealtimeEvent)
-		progressPusher = eventpush.New(realtimeevent.NewRealtimeEventServiceClient(realtimeClient.Conn()), "knowledge-base")
-	}
-
 	ingestPipe := &pipeline.IngestPipeline{
 		Parser:           ctx.Parser,
 		Chunker:          ctx.Chunker,
@@ -79,19 +70,6 @@ func main() {
 		RetryLimit:       c.RetryLimit,
 		MaxFileSize:      c.MaxFileSize,
 		Logger:           logger,
-	}
-
-	ingestPipe.Progress = func(progressCtx context.Context, doc *domain.Document, evt event.RealtimeEvent) {
-		kb, err := ctx.KBRepo.Get(progressCtx, doc.KBID)
-		if err != nil {
-			logger.Errorf("get kb for progress event failed: kb=%d err=%v", doc.KBID, err)
-			return
-		}
-		evt.KBID = doc.KBID
-		evt.DocID = doc.ID
-		if err := progressPusher.PushToUser(progressCtx, kb.OwnerID, evt); err != nil {
-			logger.Errorf("push knowledge progress event failed: doc=%d err=%v", doc.ID, err)
-		}
 	}
 
 	retrievePipe := &pipeline.RetrievePipeline{

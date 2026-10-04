@@ -7,7 +7,6 @@ import (
 	"github.com/maomeng/aim/app/audit-service/internal/config"
 	"github.com/maomeng/aim/app/audit-service/internal/repo"
 	"github.com/maomeng/aim/pkg/database"
-	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/minio"
 	"github.com/maomeng/aim/pkg/snowflake"
@@ -18,7 +17,6 @@ type ServiceContext struct {
 	DB        *database.DB
 	AuditRepo *repo.AuditRepo
 	Snowflake *snowflake.Node
-	KafkaProd *kafka.Producer
 	MinIO     *minio.Client
 	Logger    logx.Logger
 }
@@ -34,14 +32,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	sf, err := snowflake.NewNode(c.Snowflake.WorkerID)
 	if err != nil {
 		panic(fmt.Sprintf("snowflake init failed: %v", err))
-	}
-
-	var kp *kafka.Producer
-	if len(c.Kafka.Brokers) > 0 {
-		kp, err = kafka.NewProducer(c.Kafka, "audit.review.completed", logger)
-		if err != nil {
-			panic(fmt.Sprintf("kafka producer init failed: %v", err))
-		}
 	}
 
 	var minioClient *minio.Client
@@ -65,7 +55,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		DB:        db,
 		AuditRepo: auditRepo,
 		Snowflake: sf,
-		KafkaProd: kp,
 		MinIO:     minioClient,
 		Logger:    logger,
 	}

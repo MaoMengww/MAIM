@@ -26,10 +26,10 @@ type FilePurpose int32
 
 const (
 	FilePurpose_FILE_PURPOSE_UNSPECIFIED FilePurpose = 0
-	FilePurpose_FILE_PURPOSE_MESSAGE     FilePurpose = 1
-	FilePurpose_FILE_PURPOSE_AVATAR      FilePurpose = 2
-	FilePurpose_FILE_PURPOSE_DOCUMENT    FilePurpose = 3
-	FilePurpose_FILE_PURPOSE_MEDIA       FilePurpose = 4
+	FilePurpose_FILE_PURPOSE_MESSAGE     FilePurpose = 1 // message attachment
+	FilePurpose_FILE_PURPOSE_AVATAR      FilePurpose = 2 // user/group avatar
+	FilePurpose_FILE_PURPOSE_DOCUMENT    FilePurpose = 3 // general document
+	FilePurpose_FILE_PURPOSE_MEDIA       FilePurpose = 4 // media gallery
 )
 
 // Enum value maps for FilePurpose.
@@ -81,9 +81,9 @@ type FileAccess int32
 
 const (
 	FileAccess_FILE_ACCESS_UNSPECIFIED  FileAccess = 0
-	FileAccess_FILE_ACCESS_PRIVATE      FileAccess = 1
-	FileAccess_FILE_ACCESS_CONVERSATION FileAccess = 2
-	FileAccess_FILE_ACCESS_PUBLIC       FileAccess = 3
+	FileAccess_FILE_ACCESS_PRIVATE      FileAccess = 1 // only uploader can access
+	FileAccess_FILE_ACCESS_CONVERSATION FileAccess = 2 // conversation members can access
+	FileAccess_FILE_ACCESS_PUBLIC       FileAccess = 3 // anyone with URL can access
 )
 
 // Enum value maps for FileAccess.
@@ -131,20 +131,20 @@ func (FileAccess) EnumDescriptor() ([]byte, []int) {
 
 type FileInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
-	Size          int64                  `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`
+	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"` // unique file ID (snowflake)
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                    // original file name
+	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`                      // object storage key/path
+	Size          int64                  `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`                   // file size in bytes
 	MimeType      string                 `protobuf:"bytes,5,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
-	Ext           string                 `protobuf:"bytes,6,opt,name=ext,proto3" json:"ext,omitempty"`
-	Width         int32                  `protobuf:"varint,7,opt,name=width,proto3" json:"width,omitempty"`
-	Height        int32                  `protobuf:"varint,8,opt,name=height,proto3" json:"height,omitempty"`
-	Duration      int32                  `protobuf:"varint,9,opt,name=duration,proto3" json:"duration,omitempty"`
-	Md5           string                 `protobuf:"bytes,10,opt,name=md5,proto3" json:"md5,omitempty"`
+	Ext           string                 `protobuf:"bytes,6,opt,name=ext,proto3" json:"ext,omitempty"`            // file extension
+	Width         int32                  `protobuf:"varint,7,opt,name=width,proto3" json:"width,omitempty"`       // image/video width (0 if N/A)
+	Height        int32                  `protobuf:"varint,8,opt,name=height,proto3" json:"height,omitempty"`     // image/video height (0 if N/A)
+	Duration      int32                  `protobuf:"varint,9,opt,name=duration,proto3" json:"duration,omitempty"` // video/audio duration in seconds (0 if N/A)
+	Md5           string                 `protobuf:"bytes,10,opt,name=md5,proto3" json:"md5,omitempty"`           // file hash for integrity check
 	Purpose       FilePurpose            `protobuf:"varint,11,opt,name=purpose,proto3,enum=file.FilePurpose" json:"purpose,omitempty"`
 	Access        FileAccess             `protobuf:"varint,12,opt,name=access,proto3,enum=file.FileAccess" json:"access,omitempty"`
-	UploaderId    int64                  `protobuf:"varint,13,opt,name=uploader_id,json=uploaderId,proto3" json:"uploader_id,omitempty"`
-	Bucket        string                 `protobuf:"bytes,14,opt,name=bucket,proto3" json:"bucket,omitempty"`
+	UploaderId    int64                  `protobuf:"varint,13,opt,name=uploader_id,json=uploaderId,proto3" json:"uploader_id,omitempty"` // user who uploaded
+	Bucket        string                 `protobuf:"bytes,14,opt,name=bucket,proto3" json:"bucket,omitempty"`                            // object storage bucket name
 	CreatedAt     int64                  `protobuf:"varint,20,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -287,13 +287,13 @@ func (x *FileInfo) GetCreatedAt() int64 {
 
 type GetUploadURLReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // original file name
 	MimeType      string                 `protobuf:"bytes,2,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
-	Size          int64                  `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	Size          int64                  `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"` // expected file size
 	UploaderId    int64                  `protobuf:"varint,4,opt,name=uploader_id,json=uploaderId,proto3" json:"uploader_id,omitempty"`
 	Purpose       FilePurpose            `protobuf:"varint,5,opt,name=purpose,proto3,enum=file.FilePurpose" json:"purpose,omitempty"`
 	Access        FileAccess             `protobuf:"varint,6,opt,name=access,proto3,enum=file.FileAccess" json:"access,omitempty"`
-	ExpiresIn     int32                  `protobuf:"varint,7,opt,name=expires_in,json=expiresIn,proto3" json:"expires_in,omitempty"`
+	ExpiresIn     int32                  `protobuf:"varint,7,opt,name=expires_in,json=expiresIn,proto3" json:"expires_in,omitempty"` // URL expiry in seconds (default 3600)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -379,10 +379,10 @@ func (x *GetUploadURLReq) GetExpiresIn() int32 {
 
 type GetUploadURLResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
-	UploadUrl     string                 `protobuf:"bytes,2,opt,name=upload_url,json=uploadUrl,proto3" json:"upload_url,omitempty"`
-	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
-	ExpiresAt     int64                  `protobuf:"varint,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`          // assigned file ID
+	UploadUrl     string                 `protobuf:"bytes,2,opt,name=upload_url,json=uploadUrl,proto3" json:"upload_url,omitempty"`  // presigned PUT URL
+	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`                               // object storage key
+	ExpiresAt     int64                  `protobuf:"varint,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"` // upload URL expiry timestamp
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -449,7 +449,7 @@ type ConfirmUploadReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
 	UploaderId    int64                  `protobuf:"varint,2,opt,name=uploader_id,json=uploaderId,proto3" json:"uploader_id,omitempty"`
-	Md5           *string                `protobuf:"bytes,3,opt,name=md5,proto3,oneof" json:"md5,omitempty"`
+	Md5           *string                `protobuf:"bytes,3,opt,name=md5,proto3,oneof" json:"md5,omitempty"` // client-computed MD5 for verification
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -552,8 +552,8 @@ func (x *ConfirmUploadResp) GetFile() *FileInfo {
 type GetDownloadURLReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	ExpiresIn     int32                  `protobuf:"varint,3,opt,name=expires_in,json=expiresIn,proto3" json:"expires_in,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`          // for access check
+	ExpiresIn     int32                  `protobuf:"varint,3,opt,name=expires_in,json=expiresIn,proto3" json:"expires_in,omitempty"` // URL expiry in seconds (default 3600)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -819,7 +819,7 @@ func (x *BatchGetFileInfoReq) GetUserId() int64 {
 
 type BatchGetFileInfoResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Files         []*FileInfo            `protobuf:"bytes,1,rep,name=files,proto3" json:"files,omitempty"`
+	Files         []*FileInfo            `protobuf:"bytes,1,rep,name=files,proto3" json:"files,omitempty"` // file_ids not found are simply omitted from the response
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -966,15 +966,16 @@ func (x *BatchDeleteFilesReq) GetUserId() int64 {
 }
 
 type UploadAvatarReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	MimeType      string                 `protobuf:"bytes,3,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
-	CropX         *int32                 `protobuf:"varint,10,opt,name=crop_x,json=cropX,proto3,oneof" json:"crop_x,omitempty"`
-	CropY         *int32                 `protobuf:"varint,11,opt,name=crop_y,json=cropY,proto3,oneof" json:"crop_y,omitempty"`
-	CropWidth     *int32                 `protobuf:"varint,12,opt,name=crop_width,json=cropWidth,proto3,oneof" json:"crop_width,omitempty"`
-	CropHeight    *int32                 `protobuf:"varint,13,opt,name=crop_height,json=cropHeight,proto3,oneof" json:"crop_height,omitempty"`
-	TargetSize    *int32                 `protobuf:"varint,14,opt,name=target_size,json=targetSize,proto3,oneof" json:"target_size,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Data     []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"` // raw image bytes (server-side upload)
+	UserId   int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	MimeType string                 `protobuf:"bytes,3,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"` // image/jpeg, image/png, image/webp
+	// optional crop params
+	CropX         *int32 `protobuf:"varint,10,opt,name=crop_x,json=cropX,proto3,oneof" json:"crop_x,omitempty"`
+	CropY         *int32 `protobuf:"varint,11,opt,name=crop_y,json=cropY,proto3,oneof" json:"crop_y,omitempty"`
+	CropWidth     *int32 `protobuf:"varint,12,opt,name=crop_width,json=cropWidth,proto3,oneof" json:"crop_width,omitempty"`
+	CropHeight    *int32 `protobuf:"varint,13,opt,name=crop_height,json=cropHeight,proto3,oneof" json:"crop_height,omitempty"`
+	TargetSize    *int32 `protobuf:"varint,14,opt,name=target_size,json=targetSize,proto3,oneof" json:"target_size,omitempty"` // output size (default 256)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1068,8 +1069,8 @@ func (x *UploadAvatarReq) GetTargetSize() int32 {
 type UploadAvatarResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
-	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
-	ThumbnailUrl  string                 `protobuf:"bytes,3,opt,name=thumbnail_url,json=thumbnailUrl,proto3" json:"thumbnail_url,omitempty"`
+	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`                                       // permanent avatar URL
+	ThumbnailUrl  string                 `protobuf:"bytes,3,opt,name=thumbnail_url,json=thumbnailUrl,proto3" json:"thumbnail_url,omitempty"` // small thumbnail URL
 	Width         int32                  `protobuf:"varint,4,opt,name=width,proto3" json:"width,omitempty"`
 	Height        int32                  `protobuf:"varint,5,opt,name=height,proto3" json:"height,omitempty"`
 	unknownFields protoimpl.UnknownFields

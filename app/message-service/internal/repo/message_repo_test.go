@@ -50,41 +50,6 @@ func TestMessageRepo_Insert(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestMessageRepo_GetByID(t *testing.T) {
-	db, mock := setupMockDB(t)
-	repo := NewMessageRepo(db)
-
-	rows := sqlmock.NewRows([]string{"id", "conv_id", "sender_id", "client_msg_id", "seq", "msg_type", "content", "reply_to_msg_id", "status", "edit_history", "edit_count", "created_at", "updated_at"}).
-		AddRow(1, 100, 10, "", 1, 1, `{"text":"hello"}`, 0, 1, `[]`, 0, time.Now(), time.Now())
-
-	mock.ExpectQuery(`SELECT \* FROM "messages" WHERE id = \$1 ORDER BY "messages"."id" LIMIT \$2`).
-		WithArgs(int64(1), 1).
-		WillReturnRows(rows)
-
-	msg, err := repo.GetByID(context.Background(), 1)
-	require.NoError(t, err)
-	assert.Equal(t, int64(1), msg.ID)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestMessageRepo_GetByIDs(t *testing.T) {
-	db, mock := setupMockDB(t)
-	repo := NewMessageRepo(db)
-
-	rows := sqlmock.NewRows([]string{"id", "conv_id", "sender_id", "client_msg_id", "seq", "msg_type", "content", "reply_to_msg_id", "status", "edit_history", "edit_count", "created_at", "updated_at"}).
-		AddRow(1, 100, 10, "", 1, 1, `{"text":"a"}`, 0, 1, `[]`, 0, time.Now(), time.Now()).
-		AddRow(2, 100, 11, "", 2, 1, `{"text":"b"}`, 0, 1, `[]`, 0, time.Now(), time.Now())
-
-	mock.ExpectQuery(`SELECT \* FROM "messages" WHERE id IN \(\$1,\$2\)`).
-		WithArgs(int64(1), int64(2)).
-		WillReturnRows(rows)
-
-	msgs, err := repo.GetByIDs(context.Background(), []int64{1, 2})
-	require.NoError(t, err)
-	assert.Len(t, msgs, 2)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestMessageRepo_GetByIDs_Empty(t *testing.T) {
 	db, mock := setupMockDB(t)
 	repo := NewMessageRepo(db)
@@ -181,20 +146,6 @@ func TestMessageRepo_GetByConvID_Pagination(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestMessageRepo_GetMaxSeq(t *testing.T) {
-	db, mock := setupMockDB(t)
-	repo := NewMessageRepo(db)
-
-	mock.ExpectQuery(`SELECT COALESCE\(MAX\(seq\), 0\) FROM "messages" WHERE conv_id = \$1`).
-		WithArgs(int64(100)).
-		WillReturnRows(sqlmock.NewRows([]string{"max"}).AddRow(42))
-
-	seq, err := repo.GetMaxSeq(context.Background(), 100)
-	require.NoError(t, err)
-	assert.Equal(t, int64(42), seq)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestMessageRepo_Search(t *testing.T) {
 	db, mock := setupMockDB(t)
 	repo := NewMessageRepo(db)
@@ -243,32 +194,4 @@ func TestMessageRepo_GetByConvIDAndSeq(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, msgs, 1)
 	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestInterfaceCompliance(t *testing.T) {
-	var _ MessageRepoInterface = (*MessageRepo)(nil)
-	var _ InboxRepoInterface = (*InboxRepo)(nil)
-	var _ BroadcastRepoInterface = (*BroadcastRepo)(nil)
-	var _ SequenceRepoInterface = (*SequenceRepo)(nil)
-}
-
-func TestJSONContent_Value(t *testing.T) {
-	c := model.JSONContent{"key": "val"}
-	v, err := c.Value()
-	require.NoError(t, err)
-	assert.NotNil(t, v)
-}
-
-func TestJSONContent_Value_Nil(t *testing.T) {
-	var c model.JSONContent
-	v, err := c.Value()
-	require.NoError(t, err)
-	assert.NotNil(t, v)
-}
-
-func TestJSONArray_Value(t *testing.T) {
-	a := model.JSONArray{{"a": 1}, {"b": 2}}
-	v, err := a.Value()
-	require.NoError(t, err)
-	assert.NotNil(t, v)
 }

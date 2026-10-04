@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS public.users (
     updated_at    TIMESTAMPTZ
 );
 
+CREATE SEQUENCE IF NOT EXISTS public.user_devices_id_seq;
 CREATE TABLE IF NOT EXISTS public.user_devices (
     id              BIGINT PRIMARY KEY DEFAULT nextval('public.user_devices_id_seq'::regclass),
     user_id         BIGINT,
@@ -51,7 +52,6 @@ CREATE TABLE IF NOT EXISTS public.user_devices (
     last_active_at  TIMESTAMPTZ,
     created_at      TIMESTAMPTZ
 );
-CREATE SEQUENCE IF NOT EXISTS public.user_devices_id_seq;
 ALTER SEQUENCE public.user_devices_id_seq OWNED BY public.user_devices.id;
 
 CREATE SEQUENCE IF NOT EXISTS public.users_id_seq;
@@ -131,7 +131,6 @@ CREATE TABLE IF NOT EXISTS msg.user_inbox (
     conv_id       BIGINT NOT NULL,
     message_id    BIGINT NOT NULL,
     seq           BIGINT NOT NULL,
-    last_read_seq BIGINT DEFAULT 0 NOT NULL,
     is_deleted    BOOLEAN DEFAULT FALSE NOT NULL,
     created_at    TIMESTAMPTZ DEFAULT NOW() NOT NULL,
     PRIMARY KEY (user_id, conv_id, seq)
@@ -183,7 +182,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_sender ON msg.messages(sender_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created ON msg.messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_conv_seq ON msg.messages(conv_id);
 CREATE INDEX IF NOT EXISTS idx_user_inbox_conv ON msg.user_inbox(user_id, conv_id);
-CREATE INDEX IF NOT EXISTS idx_user_inbox_covering ON msg.user_inbox(user_id, conv_id, seq DESC) INCLUDE (message_id, last_read_seq, created_at) WHERE (is_deleted = FALSE);
+CREATE INDEX IF NOT EXISTS idx_user_inbox_covering ON msg.user_inbox(user_id, conv_id, seq DESC) INCLUDE (message_id, created_at) WHERE (is_deleted = FALSE);
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON msg.outbox_events(status, next_retry_at, created_at);
 
 -- =========== conv domain ===========
@@ -558,6 +557,7 @@ CREATE TABLE IF NOT EXISTS llm.model_registry (
     updated_at            TIMESTAMPTZ
 );
 
+CREATE SEQUENCE IF NOT EXISTS llm.billing_records_id_seq;
 CREATE TABLE IF NOT EXISTS llm.billing_records (
     id            BIGINT PRIMARY KEY DEFAULT nextval('llm.billing_records_id_seq'::regclass),
     bot_id        BIGINT,
@@ -571,7 +571,6 @@ CREATE TABLE IF NOT EXISTS llm.billing_records (
     provider      TEXT,
     created_at    TIMESTAMPTZ
 );
-CREATE SEQUENCE IF NOT EXISTS llm.billing_records_id_seq;
 ALTER SEQUENCE llm.billing_records_id_seq OWNED BY llm.billing_records.id;
 
 CREATE SEQUENCE IF NOT EXISTS public.model_registry_id_seq;
@@ -585,6 +584,7 @@ CREATE INDEX IF NOT EXISTS idx_billing_records_time ON llm.billing_records(creat
 
 -- =========== audit domain ===========
 
+CREATE SEQUENCE IF NOT EXISTS audit.audit_events_id_seq;
 CREATE TABLE IF NOT EXISTS audit.audit_events (
     id              BIGINT PRIMARY KEY DEFAULT nextval('audit.audit_events_id_seq'::regclass),
     event_id        VARCHAR(128) NOT NULL,
@@ -608,7 +608,6 @@ CREATE TABLE IF NOT EXISTS audit.audit_events (
     is_archived     BOOLEAN DEFAULT FALSE NOT NULL,
     created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
-CREATE SEQUENCE IF NOT EXISTS audit.audit_events_id_seq;
 ALTER SEQUENCE audit.audit_events_id_seq OWNED BY audit.audit_events.id;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_events_event_id ON audit.audit_events(event_id);

@@ -30,7 +30,6 @@ const (
 	MessageService_BatchGetMessages_FullMethodName  = "/message.MessageService/BatchGetMessages"
 	MessageService_GetAroundSeq_FullMethodName      = "/message.MessageService/GetAroundSeq"
 	MessageService_SearchMessages_FullMethodName    = "/message.MessageService/SearchMessages"
-	MessageService_ForwardMessage_FullMethodName    = "/message.MessageService/ForwardMessage"
 	MessageService_SendBroadcast_FullMethodName     = "/message.MessageService/SendBroadcast"
 	MessageService_SendBotReply_FullMethodName      = "/message.MessageService/SendBotReply"
 	MessageService_SendSystemMessage_FullMethodName = "/message.MessageService/SendSystemMessage"
@@ -52,8 +51,7 @@ type MessageServiceClient interface {
 	BatchGetMessages(ctx context.Context, in *BatchGetMessagesReq, opts ...grpc.CallOption) (*BatchGetMessagesResp, error)
 	GetAroundSeq(ctx context.Context, in *GetAroundSeqReq, opts ...grpc.CallOption) (*GetMessagesResp, error)
 	SearchMessages(ctx context.Context, in *SearchMessagesReq, opts ...grpc.CallOption) (*SearchMessagesResp, error)
-	// ========== Forward & Broadcast ==========
-	ForwardMessage(ctx context.Context, in *ForwardMessageReq, opts ...grpc.CallOption) (*ForwardMessageResp, error)
+	// ========== Broadcast ==========
 	SendBroadcast(ctx context.Context, in *SendBroadcastReq, opts ...grpc.CallOption) (*SendBroadcastResp, error)
 	// ========== Bot Reply (called by bot-service) ==========
 	SendBotReply(ctx context.Context, in *SendBotReplyReq, opts ...grpc.CallOption) (*SendBotReplyResp, error)
@@ -168,16 +166,6 @@ func (c *messageServiceClient) SearchMessages(ctx context.Context, in *SearchMes
 	return out, nil
 }
 
-func (c *messageServiceClient) ForwardMessage(ctx context.Context, in *ForwardMessageReq, opts ...grpc.CallOption) (*ForwardMessageResp, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ForwardMessageResp)
-	err := c.cc.Invoke(ctx, MessageService_ForwardMessage_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *messageServiceClient) SendBroadcast(ctx context.Context, in *SendBroadcastReq, opts ...grpc.CallOption) (*SendBroadcastResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SendBroadcastResp)
@@ -224,8 +212,7 @@ type MessageServiceServer interface {
 	BatchGetMessages(context.Context, *BatchGetMessagesReq) (*BatchGetMessagesResp, error)
 	GetAroundSeq(context.Context, *GetAroundSeqReq) (*GetMessagesResp, error)
 	SearchMessages(context.Context, *SearchMessagesReq) (*SearchMessagesResp, error)
-	// ========== Forward & Broadcast ==========
-	ForwardMessage(context.Context, *ForwardMessageReq) (*ForwardMessageResp, error)
+	// ========== Broadcast ==========
 	SendBroadcast(context.Context, *SendBroadcastReq) (*SendBroadcastResp, error)
 	// ========== Bot Reply (called by bot-service) ==========
 	SendBotReply(context.Context, *SendBotReplyReq) (*SendBotReplyResp, error)
@@ -269,9 +256,6 @@ func (UnimplementedMessageServiceServer) GetAroundSeq(context.Context, *GetAroun
 }
 func (UnimplementedMessageServiceServer) SearchMessages(context.Context, *SearchMessagesReq) (*SearchMessagesResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method SearchMessages not implemented")
-}
-func (UnimplementedMessageServiceServer) ForwardMessage(context.Context, *ForwardMessageReq) (*ForwardMessageResp, error) {
-	return nil, status.Error(codes.Unimplemented, "method ForwardMessage not implemented")
 }
 func (UnimplementedMessageServiceServer) SendBroadcast(context.Context, *SendBroadcastReq) (*SendBroadcastResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method SendBroadcast not implemented")
@@ -483,24 +467,6 @@ func _MessageService_SearchMessages_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MessageService_ForwardMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ForwardMessageReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MessageServiceServer).ForwardMessage(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MessageService_ForwardMessage_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MessageServiceServer).ForwardMessage(ctx, req.(*ForwardMessageReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MessageService_SendBroadcast_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SendBroadcastReq)
 	if err := dec(in); err != nil {
@@ -601,10 +567,6 @@ var MessageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SearchMessages",
 			Handler:    _MessageService_SearchMessages_Handler,
-		},
-		{
-			MethodName: "ForwardMessage",
-			Handler:    _MessageService_ForwardMessage_Handler,
 		},
 		{
 			MethodName: "SendBroadcast",

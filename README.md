@@ -163,6 +163,36 @@ app/<service>/
 └── main.go                     # 入口：加载配置 → 初始化 ServiceContext → 启动 gRPC server + Kafka consumers
 ```
 
+### Protobuf 生成
+
+唯一入口是仓库根目录的 `make proto`。前置条件：GNU Make、`sed`，以及下列固定版本的工具都在 `PATH` 中（与现有生成代码保持一致）：
+
+- `protoc` **29.4**：从 [Protobuf v29.4 release](https://github.com/protocolbuffers/protobuf/releases/tag/v29.4) 安装对应平台的发行包，保留其 `include/google/protobuf/` 标准协议文件。
+- `protoc-gen-go` **v1.36.11**。
+- `protoc-gen-go-grpc` **v1.6.1**。
+
+安装 Go 插件（需要仓库要求的 Go 工具链）：
+
+```bash
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+export PATH="$(go env GOPATH)/bin:$PATH"
+make proto
+```
+
+入口在生成前检查工具版本，一次生成 `idl/` 及其服务子目录下的全部 `.proto`。输出只由各文件的 `go_package` 与 `go.mod` 的 module 前缀决定：服务协议写入所属 `app/<service>/pb/<package>/`，共享协议写入 `pkg/pb/<package>/`。不要使用 `source_relative` 拼接输出目录，也不要手改 `.pb.go` 或用 `goctl rpc protoc` 重新覆盖现有服务实现、client、配置与业务代码。新增或修改协议后，重复运行同一命令即可。
+
+### 客户端可见面验收
+
+前置条件：Python 3、Docker Engine、支持 `--wait` 的 Docker Compose 插件及 Buildx。验收只通过 gateway REST 与 WebSocket 驱动真实服务，不替换内部 RPC、Kafka 或数据库。
+
+```bash
+python3 tests/e2e/run.py --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
+```
+
+每次使用独立 Compose project、网络与数据卷，无宿主端口映射；启动全部服务及两个长连接实例，等待真实健康检查，再运行注册、登录、创建私聊与双向消息投递。成功或失败后均清理该 project 的容器与数据卷；`--artifacts` 保留诊断日志。默认检查 A/A 与 B/B，`--cross-instance` 追加 A/B 双向投递。当前连接仅由实例内存持有，双副本投递可能失败；该失败不会被跳过或伪装为通过，修复归 P6。
+
 ---
 
 ## 微服务详解
@@ -535,7 +565,7 @@ signaling-service 是消息扇出(fanout)的核心枢纽。
 
 1. **在线推送**：通过 gRPC 调用 ws-gateway 的 `InternalPushService`
 2. **离线推送**：通过 FCM/APNS 发送移动端通知
-3. **Bot 路由**：将消息推送给官方 Bot（Kafka `bot.event.ai`）、自建 Bot（WS）、第三方 Bot（Webhook）
+3. **Bot 路由**：将消息推送给第三方 Bot（WS 或 Webhook）；官方与自部署 Bot 由 ai-bot-service 直接消费 `message.created`
 4. **未读计数**：Redis 缓存递增，推送给在线用户
 5. **已读回执**：消费 `conversation.read.updated` 事件，推送给其他成员
 
@@ -554,7 +584,7 @@ signaling-service 是消息扇出(fanout)的核心枢纽。
 
 | Bot 类型 | 路由方式 |
 |---------|---------|
-| Official / Self-Deployed | Kafka `bot.event.ai` topic → ai-bot-service |
+| Official / Self-Deployed | Kafka `message.created` topic → ai-bot-service |
 | Third-Party (conn_mode=ws) | ws-gateway WebSocket 推送 |
 | Third-Party (conn_mode=webhook) | HTTP Webhook 回调 |
 

@@ -7,18 +7,17 @@ import (
 
 type Config struct {
 	zrpc.RpcServerConf
-	Database      config.DatabaseConfig  `json:"database"`
-	AppRedis      config.RedisConfig     `json:"appRedis"`
-	Milvus        MilvusConfig           `json:"milvus"`
-	Minio         config.MinIOConfig     `json:"minio"`
-	Kafka         config.KafkaConfig     `json:"kafka"`
-	LLMGateway    LLMGatewayConfig       `json:"llmGateway"`
-	RealtimeEvent RealtimeEventConfig    `json:"realtimeEvent"`
-	MinerU        MinerUConfig           `json:"mineru"`
-	Snowflake     SnowflakeConfig        `json:"snowflake"`
-	MaxFileSize   int64                  `json:"maxFileSize" default:"10485760"`
-	RetryLimit    int                    `json:"retryLimit" default:"3"`
-	RateLimit     config.RateLimitConfig `json:"rateLimit"`
+	Database    config.DatabaseConfig  `json:"database"`
+	AppRedis    config.RedisConfig     `json:"appRedis"`
+	Milvus      MilvusConfig           `json:"milvus"`
+	Minio       config.MinIOConfig     `json:"minio"`
+	Kafka       config.KafkaConfig     `json:"kafka"`
+	LLMGateway  LLMGatewayConfig       `json:"llmGateway"`
+	MinerU      MinerUConfig           `json:"mineru"`
+	Snowflake   SnowflakeConfig        `json:"snowflake"`
+	MaxFileSize int64                  `json:"maxFileSize" default:"10485760"`
+	RetryLimit  int                    `json:"retryLimit" default:"3"`
+	RateLimit   config.RateLimitConfig `json:"rateLimit"`
 }
 
 type SnowflakeConfig struct {
@@ -31,7 +30,6 @@ type MilvusConfig struct {
 }
 
 type LLMGatewayConfig = zrpc.RpcClientConf
-type RealtimeEventConfig = zrpc.RpcClientConf
 
 type MinerUConfig struct {
 	URL     string `json:"url" default:"http://localhost:30000"`

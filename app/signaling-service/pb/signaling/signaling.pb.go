@@ -909,7 +909,7 @@ const file_signaling_service_signaling_proto_rawDesc = "" +
 	"\x12DeleteNotification\x12 .signaling.DeleteNotificationReq\x1a!.signaling.DeleteNotificationResp\x12S\n" +
 	"\x10PushNotification\x12\x1e.signaling.PushNotificationReq\x1a\x1f.signaling.PushNotificationResp\x12;\n" +
 	"\bIsOnline\x12\x16.signaling.IsOnlineReq\x1a\x17.signaling.IsOnlineResp\x12J\n" +
-	"\rBatchIsOnline\x12\x1b.signaling.BatchIsOnlineReq\x1a\x1c.signaling.BatchIsOnlineRespB>Z<github.com/maomeng/aim/app/signaling-service-v2/pb/signalingb\x06proto3"
+	"\rBatchIsOnline\x12\x1b.signaling.BatchIsOnlineReq\x1a\x1c.signaling.BatchIsOnlineRespB;Z9github.com/maomeng/aim/app/signaling-service/pb/signalingb\x06proto3"
 
 var (
 	file_signaling_service_signaling_proto_rawDescOnce sync.Once

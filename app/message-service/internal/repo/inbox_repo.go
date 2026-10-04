@@ -31,12 +31,6 @@ func (r *InboxRepo) MarkDeleted(ctx context.Context, userID, convID, messageID i
 		Update("is_deleted", true).Error
 }
 
-func (r *InboxRepo) UpdateReadSeq(ctx context.Context, userID, convID, seq int64) error {
-	return r.db.WithContext(ctx).Model(&model.UserInbox{}).
-		Where("user_id = ? AND conv_id = ?", userID, convID).
-		Update("last_read_seq", seq).Error
-}
-
 func (r *InboxRepo) GetByUserAndConv(ctx context.Context, userID, convID int64, fromSeq int64, limit int32) ([]model.UserInbox, error) {
 	var inboxes []model.UserInbox
 	q := r.db.WithContext(ctx).

@@ -31,19 +31,14 @@ const (
 // AuditServiceClient is the client API for AuditService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-//
-// AuditService records and stores audit events to PostgreSQL.
-// Other services call RecordAudit/BatchRecordAudit to persist audit trails.
-// Query/export/archive are available for operational review.
-// MVP: audit events are stored to DB; content review is async via Kafka consumer.
 type AuditServiceClient interface {
-	// record an audit event to DB (internal RPC, called by other services)
+	// record an audit event (internal RPC, called by other services)
 	RecordAudit(ctx context.Context, in *RecordAuditReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
-	// batch record audit events to DB
+	// batch record audit events
 	BatchRecordAudit(ctx context.Context, in *BatchRecordAuditReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
-	// query audit logs from DB
+	// query audit logs
 	ListAudits(ctx context.Context, in *ListAuditsReq, opts ...grpc.CallOption) (*ListAuditsResp, error)
-	// get single audit event from DB
+	// get single audit event
 	GetAudit(ctx context.Context, in *GetAuditReq, opts ...grpc.CallOption) (*GetAuditResp, error)
 	// export audit logs
 	ExportAudits(ctx context.Context, in *ExportAuditsReq, opts ...grpc.CallOption) (*ExportAuditsResp, error)
@@ -122,19 +117,14 @@ func (c *auditServiceClient) ArchiveAudits(ctx context.Context, in *ArchiveAudit
 // AuditServiceServer is the server API for AuditService service.
 // All implementations must embed UnimplementedAuditServiceServer
 // for forward compatibility.
-//
-// AuditService records and stores audit events to PostgreSQL.
-// Other services call RecordAudit/BatchRecordAudit to persist audit trails.
-// Query/export/archive are available for operational review.
-// MVP: audit events are stored to DB; content review is async via Kafka consumer.
 type AuditServiceServer interface {
-	// record an audit event to DB (internal RPC, called by other services)
+	// record an audit event (internal RPC, called by other services)
 	RecordAudit(context.Context, *RecordAuditReq) (*common.BaseResponse, error)
-	// batch record audit events to DB
+	// batch record audit events
 	BatchRecordAudit(context.Context, *BatchRecordAuditReq) (*common.BaseResponse, error)
-	// query audit logs from DB
+	// query audit logs
 	ListAudits(context.Context, *ListAuditsReq) (*ListAuditsResp, error)
-	// get single audit event from DB
+	// get single audit event
 	GetAudit(context.Context, *GetAuditReq) (*GetAuditResp, error)
 	// export audit logs
 	ExportAudits(context.Context, *ExportAuditsReq) (*ExportAuditsResp, error)

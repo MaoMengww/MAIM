@@ -34,13 +34,21 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type FileServiceClient interface {
+	// presigned URL for direct upload to object storage
 	GetUploadURL(ctx context.Context, in *GetUploadURLReq, opts ...grpc.CallOption) (*GetUploadURLResp, error)
+	// confirm upload completed (client calls after direct upload)
 	ConfirmUpload(ctx context.Context, in *ConfirmUploadReq, opts ...grpc.CallOption) (*ConfirmUploadResp, error)
+	// get presigned download URL
 	GetDownloadURL(ctx context.Context, in *GetDownloadURLReq, opts ...grpc.CallOption) (*GetDownloadURLResp, error)
+	// get file metadata
 	GetFileInfo(ctx context.Context, in *GetFileInfoReq, opts ...grpc.CallOption) (*GetFileInfoResp, error)
+	// batch get file info
 	BatchGetFileInfo(ctx context.Context, in *BatchGetFileInfoReq, opts ...grpc.CallOption) (*BatchGetFileInfoResp, error)
+	// delete file
 	DeleteFile(ctx context.Context, in *DeleteFileReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	// batch delete files
 	BatchDeleteFiles(ctx context.Context, in *BatchDeleteFilesReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
+	// upload avatar (server-side processing: resize/crop)
 	UploadAvatar(ctx context.Context, in *UploadAvatarReq, opts ...grpc.CallOption) (*UploadAvatarResp, error)
 }
 
@@ -136,13 +144,21 @@ func (c *fileServiceClient) UploadAvatar(ctx context.Context, in *UploadAvatarRe
 // All implementations must embed UnimplementedFileServiceServer
 // for forward compatibility.
 type FileServiceServer interface {
+	// presigned URL for direct upload to object storage
 	GetUploadURL(context.Context, *GetUploadURLReq) (*GetUploadURLResp, error)
+	// confirm upload completed (client calls after direct upload)
 	ConfirmUpload(context.Context, *ConfirmUploadReq) (*ConfirmUploadResp, error)
+	// get presigned download URL
 	GetDownloadURL(context.Context, *GetDownloadURLReq) (*GetDownloadURLResp, error)
+	// get file metadata
 	GetFileInfo(context.Context, *GetFileInfoReq) (*GetFileInfoResp, error)
+	// batch get file info
 	BatchGetFileInfo(context.Context, *BatchGetFileInfoReq) (*BatchGetFileInfoResp, error)
+	// delete file
 	DeleteFile(context.Context, *DeleteFileReq) (*common.BaseResponse, error)
+	// batch delete files
 	BatchDeleteFiles(context.Context, *BatchDeleteFilesReq) (*common.BaseResponse, error)
+	// upload avatar (server-side processing: resize/crop)
 	UploadAvatar(context.Context, *UploadAvatarReq) (*UploadAvatarResp, error)
 	mustEmbedUnimplementedFileServiceServer()
 }

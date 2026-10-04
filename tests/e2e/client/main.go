@@ -1,0 +1,512 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
+)
+
+// decimal preserves integer IDs and seq exactly whether the public API sends
+// a JSON string or a JSON number. No message identifier passes through float64.
+type decimal int64
+
+func (d *decimal) UnmarshalJSON(raw []byte) error {
+	value := string(raw)
+	if len(raw) > 0 && raw[0] == '"' {
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return errors.New("标识字段不是合法 JSON 字符串")
+		}
+	}
+	// Heartbeat/presence envelopes explicitly encode an absent conv_id as "".
+	// Required IDs are still checked as positive in their consuming paths.
+	if value == "" {
+		*d = 0
+		return nil
+	}
+	n, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return errors.New("标识字段不是精确的 int64 十进制整数")
+	}
+	*d = decimal(n)
+	return nil
+}
+
+func (d decimal) String() string { return strconv.FormatInt(int64(d), 10) }
+
+type identity struct {
+	ID       decimal `json:"id"`
+	Username string  `json:"username"`
+}
+
+type authResult struct {
+	UserID decimal  `json:"user_id"`
+	User   identity `json:"user"`
+	Tokens struct {
+		AccessToken string `json:"access_token"`
+	} `json:"tokens"`
+}
+
+type account struct {
+	id       decimal
+	username string
+	device   string
+	token    string
+}
+
+type sentMessage struct {
+	MessageID decimal `json:"message_id"`
+	ConvID    decimal `json:"conv_id"`
+	SenderID  decimal `json:"from_user_id"`
+	Seq       decimal `json:"seq"`
+	Content   struct {
+		Text string `json:"text"`
+	} `json:"content"`
+}
+
+type event struct {
+	Type    string  `json:"type"`
+	ConvID  decimal `json:"conv_id"`
+	Message struct {
+		MessageID decimal `json:"message_id"`
+		ConvID    decimal `json:"conv_id"`
+		SenderID  decimal `json:"sender_id"`
+		Seq       decimal `json:"seq"`
+		Content   struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"message"`
+}
+
+type driver struct {
+	gateway string
+	client  *http.Client
+	timeout time.Duration
+}
+
+func main() {
+	if err := execute(os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "E2E FAIL: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func execute(args []string) error {
+	if len(args) == 0 {
+		return errors.New("用法: /e2e run [flags] | /e2e probe -kind http|grpc -address URL|host:port [-timeout 3s]")
+	}
+	switch args[0] {
+	case "probe":
+		return probe(args[1:])
+	case "run":
+		return run(args[1:])
+	default:
+		return errors.New("未知子命令；支持 run 和 probe")
+	}
+}
+
+func options(name string) *flag.FlagSet {
+	return flag.NewFlagSet(name, flag.ContinueOnError)
+}
+
+func run(args []string) error {
+	flags := options("run")
+	gateway := flags.String("gateway", "http://gateway:8080", "gateway HTTP 根地址")
+	realtimeA := flags.String("realtime-a", "ws://ws-gateway:8081/ws", "realtime A WebSocket 地址")
+	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
+	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
+	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *timeout <= 0 {
+		return errors.New("run 不接受位置参数，timeout 必须大于零")
+	}
+	if _, err := endpoint(*gateway, "http", "https"); err != nil {
+		return fmt.Errorf("配置 gateway: %w", err)
+	}
+	for _, address := range []string{*realtimeA, *realtimeB} {
+		if _, err := endpoint(address, "ws", "wss"); err != nil {
+			return fmt.Errorf("配置 realtime: %w", err)
+		}
+	}
+	if *realtimeA == *realtimeB {
+		return errors.New("realtime A/B 必须使用不同地址，不能将单实例冒充两实例")
+	}
+	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout}
+	defer d.client.CloseIdleConnections()
+	scenarios := []struct {
+		name string
+		a    string
+		b    string
+	}{
+		{"same-instance-a", *realtimeA, *realtimeA},
+		{"same-instance-b", *realtimeB, *realtimeB},
+	}
+	if *cross {
+		scenarios = append(scenarios, struct{ name, a, b string }{"cross-instance", *realtimeA, *realtimeB})
+	}
+	var failures []error
+	for _, scenario := range scenarios {
+		if err := d.scenario(scenario.a, scenario.b); err != nil {
+			failure := fmt.Errorf("场景 %s: %w", scenario.name, err)
+			fmt.Fprintln(os.Stderr, failure)
+			failures = append(failures, failure)
+		} else {
+			fmt.Printf("E2E PASS: %s 注册 → 登录 → 身份 → 私聊 → 双向 WS 投递\n", scenario.name)
+		}
+	}
+	return errors.Join(failures...)
+}
+
+func endpoint(address string, schemes ...string) (*url.URL, error) {
+	u, err := url.Parse(address)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return nil, errors.New("地址必须有 host，不得包含凭据、query 或 fragment")
+	}
+	for _, scheme := range schemes {
+		if u.Scheme == scheme {
+			return u, nil
+		}
+	}
+	return nil, errors.New("地址协议不受支持")
+}
+
+func newHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout:       timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
+func (d *driver) request(method, path, token string, input, output any) error {
+	var body io.Reader
+	if input != nil {
+		raw, err := json.Marshal(input)
+		if err != nil {
+			return errors.New("无法编码请求 JSON")
+		}
+		body = bytes.NewReader(raw)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, method, d.gateway+"/api/v1"+path, body)
+	if err != nil {
+		return errors.New("无法创建 HTTP 请求")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s %s: %s", method, path, transportFailure(err))
+	}
+	defer resp.Body.Close()
+	var envelope struct {
+		Code *int            `json:"code"`
+		Data json.RawMessage `json:"data"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(resp.Body, 1<<20))
+	if err := decoder.Decode(&envelope); err != nil {
+		return fmt.Errorf("%s %s: HTTP %d，响应不是合法契约 JSON", method, path, resp.StatusCode)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || envelope.Code == nil || *envelope.Code != 0 {
+		code := "missing"
+		if envelope.Code != nil {
+			code = strconv.Itoa(*envelope.Code)
+		}
+		// Never print response bodies: an auth error may echo credentials.
+		return fmt.Errorf("%s %s: HTTP %d，业务 code=%s", method, path, resp.StatusCode, code)
+	}
+	if output != nil {
+		if err := json.Unmarshal(envelope.Data, output); err != nil {
+			return fmt.Errorf("%s %s: data 与公开契约不匹配（保留精确整数）", method, path)
+		}
+	}
+	return nil
+}
+
+func randomSuffix() (string, error) {
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", errors.New("随机账号生成失败")
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+func (d *driver) register(label, suffix string) (account, error) {
+	a := account{username: "e2e_" + suffix + "_" + label, device: "e2e_" + suffix + "_" + label}
+	passwordSuffix, err := randomSuffix()
+	if err != nil {
+		return a, err
+	}
+	password := "E2e!" + passwordSuffix
+	var registered authResult
+	if err := d.request(http.MethodPost, "/auth/register", "", map[string]string{
+		"username": a.username, "password": password, "device_id": a.device, "platform": "web",
+	}, &registered); err != nil {
+		return a, fmt.Errorf("gateway.registration: %w", err)
+	}
+	if registered.UserID <= 0 || registered.User.ID != registered.UserID || registered.User.Username != a.username {
+		return a, errors.New("gateway.registration: 注册返回的用户身份不匹配")
+	}
+	var loggedIn authResult
+	if err := d.request(http.MethodPost, "/auth/login", "", map[string]string{
+		"account": a.username, "password": password, "device_id": a.device, "platform": "web",
+	}, &loggedIn); err != nil {
+		return a, fmt.Errorf("gateway.login: %w", err)
+	}
+	if loggedIn.UserID != registered.UserID || loggedIn.User.ID != registered.UserID || loggedIn.User.Username != a.username || loggedIn.Tokens.AccessToken == "" {
+		return a, errors.New("gateway.login: 登录用户身份或 access_token 无效")
+	}
+	a.id, a.token = loggedIn.UserID, loggedIn.Tokens.AccessToken
+	var current identity
+	if err := d.request(http.MethodGet, "/users/me", a.token, nil, &current); err != nil {
+		return a, fmt.Errorf("gateway.identity: %w", err)
+	}
+	if current.ID != a.id || current.Username != a.username {
+		return a, errors.New("gateway.identity: 当前用户与注册、登录身份不一致")
+	}
+	return a, nil
+}
+
+func (d *driver) scenario(addressA, addressB string) error {
+	suffix, err := randomSuffix()
+	if err != nil {
+		return err
+	}
+	a, err := d.register("a", suffix)
+	if err != nil {
+		return err
+	}
+	b, err := d.register("b", suffix)
+	if err != nil {
+		return err
+	}
+	if a.id == b.id {
+		return errors.New("gateway.identity: 不同账号返回相同 user_id")
+	}
+	// Private conversations and sends require membership, not friendship.
+	var conv struct {
+		ID decimal `json:"conversation_id"`
+	}
+	if err := d.request(http.MethodPost, "/convs", a.token, map[string]any{
+		"type": "single", "peer_user_id": b.id.String(),
+	}, &conv); err != nil {
+		return fmt.Errorf("messaging.conversation: %w", err)
+	}
+	if conv.ID <= 0 {
+		return errors.New("messaging.conversation: 没有有效 conversation_id")
+	}
+	connA, err := d.connect(addressA, a)
+	if err != nil {
+		return fmt.Errorf("realtime.connect 用户 A: %w", err)
+	}
+	defer connA.Close()
+	connB, err := d.connect(addressB, b)
+	if err != nil {
+		return fmt.Errorf("realtime.connect 用户 B: %w", err)
+	}
+	defer connB.Close()
+	// An application-level pong is emitted only after registration and OnConnect,
+	// so a successful HTTP upgrade alone cannot race message delivery.
+	for i, conn := range []*websocket.Conn{connA, connB} {
+		if err := d.ready(conn); err != nil {
+			return fmt.Errorf("realtime.ready 用户 %d: %w", i+1, err)
+		}
+	}
+	forward, forwardErr := d.sendAndReceive(a, connB, conv.ID, suffix+"_a_to_b", 0)
+	_, backwardErr := d.sendAndReceive(b, connA, conv.ID, suffix+"_b_to_a", forward)
+	return errors.Join(forwardErr, backwardErr)
+}
+
+func (d *driver) connect(address string, a account) (*websocket.Conn, error) {
+	u, err := endpoint(address, "ws", "wss")
+	if err != nil {
+		return nil, err
+	}
+	query := u.Query()
+	query.Set("token", a.token)
+	query.Set("device_id", a.device)
+	query.Set("platform", "web")
+	u.RawQuery = query.Encode()
+	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
+	defer cancel()
+	dialer := websocket.Dialer{HandshakeTimeout: d.timeout}
+	conn, response, err := dialer.DialContext(ctx, u.String(), nil)
+	if response != nil && response.Body != nil {
+		response.Body.Close()
+	}
+	if err != nil {
+		if response != nil {
+			return nil, fmt.Errorf("WebSocket 握手 HTTP %d", response.StatusCode)
+		}
+		return nil, fmt.Errorf("WebSocket 握手: %s", transportFailure(err))
+	}
+	conn.SetReadLimit(1 << 20)
+	return conn, nil
+}
+
+func (d *driver) ready(conn *websocket.Conn) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(d.timeout)); err != nil {
+		return errors.New("无法设置 ping 写超时")
+	}
+	if err := conn.WriteJSON(map[string]string{"type": "ping"}); err != nil {
+		return fmt.Errorf("应用 ping 发送失败: %s", transportFailure(err))
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(d.timeout)); err != nil {
+		return errors.New("无法设置 pong 读超时")
+	}
+	for {
+		evt, err := readEvent(conn)
+		if err != nil {
+			return fmt.Errorf("等待应用 pong: %w", err)
+		}
+		if evt.Type == "pong" {
+			return nil
+		}
+		if evt.Type == "error" {
+			return errors.New("ping 后 realtime 返回 error 事件")
+		}
+	}
+}
+
+func readEvent(conn *websocket.Conn) (event, error) {
+	var evt event
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		return evt, fmt.Errorf("WS 读取失败: %s", transportFailure(err))
+	}
+	if err := json.Unmarshal(raw, &evt); err != nil {
+		return evt, errors.New("WS 事件与公开 JSON 契约不匹配（保留精确整数）")
+	}
+	return evt, nil
+}
+
+func (d *driver) sendAndReceive(sender account, receiver *websocket.Conn, convID decimal, text string, after decimal) (decimal, error) {
+	var sent sentMessage
+	if err := d.request(http.MethodPost, "/messages/send", sender.token, map[string]any{
+		"conversation_id": convID.String(), "client_msg_id": "e2e_" + text,
+		"content": map[string]string{"text": text},
+	}, &sent); err != nil {
+		return 0, fmt.Errorf("messaging.send 发送方 %s: %w", sender.id, err)
+	}
+	if sent.MessageID <= 0 || sent.Seq <= after || sent.ConvID != convID || sent.SenderID != sender.id || sent.Content.Text != text {
+		return sent.Seq, errors.New("messaging.send: HTTP 确认的 message_id/conv_id/seq/发送方/内容不符合发送请求")
+	}
+	if err := receiver.SetReadDeadline(time.Now().Add(d.timeout)); err != nil {
+		return sent.Seq, errors.New("realtime.delivery: 无法设置消息读取超时")
+	}
+	for {
+		evt, err := readEvent(receiver)
+		if err != nil {
+			return sent.Seq, fmt.Errorf("realtime.delivery: HTTP 已确认 conv_id=%s message_id=%s seq=%s，但对方 WS 未收到匹配消息: %w", convID, sent.MessageID, sent.Seq, err)
+		}
+		if evt.Type == "error" {
+			return sent.Seq, errors.New("realtime.delivery: realtime 返回 error 事件")
+		}
+		if evt.Type != "message.new" {
+			continue
+		}
+		msg := evt.Message
+		if evt.ConvID != convID || msg.ConvID != convID || msg.MessageID != sent.MessageID || msg.Seq != sent.Seq || msg.SenderID != sender.id || msg.Content.Text != text {
+			return sent.Seq, fmt.Errorf("realtime.contract: message.new 与 HTTP 确认不一致，期望 conv_id=%s message_id=%s seq=%s sender_id=%s", convID, sent.MessageID, sent.Seq, sender.id)
+		}
+		return sent.Seq, nil
+	}
+}
+
+// Error strings from HTTP or WS dialers may contain a URL with a token. Only
+// classify them; never print their text, WS close reasons, or server bodies.
+func transportFailure(err error) string {
+	var timeout net.Error
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		return "连接/读取超时"
+	}
+	var closed *websocket.CloseError
+	if errors.As(err, &closed) {
+		return fmt.Sprintf("连接已关闭（WS code=%d）", closed.Code)
+	}
+	return "网络 I/O 失败"
+}
+
+func probe(args []string) error {
+	flags := options("probe")
+	kind := flags.String("kind", "", "http 或 grpc")
+	address := flags.String("address", "", "HTTP URL 或 host:port")
+	timeout := flags.Duration("timeout", 3*time.Second, "健康检查超时时间")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *timeout <= 0 || *address == "" {
+		return errors.New("readiness: 必须指定 address，timeout 必须大于零，不接受位置参数")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	switch *kind {
+	case "http":
+		location := *address
+		if !strings.Contains(location, "://") {
+			location = "http://" + location + "/health"
+		}
+		u, err := endpoint(location, "http", "https")
+		if err != nil {
+			return fmt.Errorf("readiness.http: %w", err)
+		}
+		if u.Path == "" {
+			u.Path = "/health"
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			return errors.New("readiness.http: 请求地址无效")
+		}
+		client := newHTTPClient(*timeout)
+		defer client.CloseIdleConnections()
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("readiness.http: %s", transportFailure(err))
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("readiness.http: HTTP %d，期望 200", resp.StatusCode)
+		}
+	case "grpc":
+		if _, _, err := net.SplitHostPort(*address); err != nil {
+			return errors.New("readiness.grpc: address 必须是 host:port")
+		}
+		conn, err := grpc.NewClient(*address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return errors.New("readiness.grpc: 无法创建标准 health 客户端")
+		}
+		defer conn.Close()
+		resp, err := healthpb.NewHealthClient(conn).Check(ctx, &healthpb.HealthCheckRequest{})
+		if err != nil {
+			return fmt.Errorf("readiness.grpc: 标准 health Check 失败（RPC code=%s）", status.Code(err))
+		}
+		if resp.Status != healthpb.HealthCheckResponse_SERVING {
+			return fmt.Errorf("readiness.grpc: 标准 health 状态 %s，不是 SERVING", resp.Status)
+		}
+	default:
+		return errors.New("readiness: kind 必须是 http 或 grpc")
+	}
+	return nil
+}

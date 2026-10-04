@@ -30,13 +30,12 @@ func (Message) TableName() string {
 }
 
 type UserInbox struct {
-	UserID      int64     `gorm:"primaryKey;column:user_id" json:"user_id"`
-	ConvID      int64     `gorm:"primaryKey;column:conv_id" json:"conv_id"`
-	MessageID   int64     `gorm:"column:message_id" json:"message_id"`
-	Seq         int64     `gorm:"primaryKey;column:seq" json:"seq"`
-	LastReadSeq int64     `gorm:"column:last_read_seq" json:"last_read_seq"`
-	IsDeleted   bool      `gorm:"column:is_deleted" json:"is_deleted"`
-	CreatedAt   time.Time `gorm:"column:created_at" json:"created_at"`
+	UserID    int64     `gorm:"primaryKey;column:user_id" json:"user_id"`
+	ConvID    int64     `gorm:"primaryKey;column:conv_id" json:"conv_id"`
+	MessageID int64     `gorm:"column:message_id" json:"message_id"`
+	Seq       int64     `gorm:"primaryKey;column:seq" json:"seq"`
+	IsDeleted bool      `gorm:"column:is_deleted" json:"is_deleted"`
+	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
 }
 
 func (UserInbox) TableName() string {

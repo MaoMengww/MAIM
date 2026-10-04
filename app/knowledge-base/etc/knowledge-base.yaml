@@ -61,11 +61,6 @@ LLMGateway:
     Key: llm-gateway.rpc
   Timeout: 600000
 
-RealtimeEvent:
-  Etcd:
-    Hosts:
-      - 127.0.0.1:2379
-    Key: ws-gateway.rpc
 
 MinerU:
   URL: http://localhost:30000

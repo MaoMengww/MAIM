@@ -4,7 +4,7 @@ package friend;
 
 import "common/common.proto";
 
-option go_package = "github.com/maomeng/aim/app/user-service/pb/friend";
+option go_package = "github.com/maomeng/aim/app/friend-service/pb/friend";
 
 service FriendService {
   // ========== Friend Requests ==========

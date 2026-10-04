@@ -13,7 +13,6 @@ import (
 	"github.com/maomeng/aim/app/signaling-service/internal/model"
 	"github.com/maomeng/aim/app/signaling-service/internal/push"
 	"github.com/maomeng/aim/app/signaling-service/internal/repo"
-	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/redis/go-redis/v9"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -60,7 +59,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	notifRepo := repo.NewNotificationRepo(gdb)
 	presenceChecker := consumer.NewRedisPresenceChecker(rdb)
 	grpcPusher := consumer.NewGRPCPusher(wsClient)
-	botProducer := newBotProducer(c.Kafka.Brokers)
 	callbackClient := consumer.NewCallbackClient(logger)
 	unreadCache := repo.NewRedisUnreadCache(rdb)
 	convRepoS := repo.NewConvRepo(convClient)
@@ -88,7 +86,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		}
 	}
 
-	fo := consumer.NewFanout(memberRepo, presenceChecker, grpcPusher, grpcPusher, botProducer, callbackClient, logger)
+	fo := consumer.NewFanout(memberRepo, presenceChecker, grpcPusher, grpcPusher, callbackClient, logger)
 	fo.SetConvRepo(convRepoS)
 	fo.SetUnreadCache(unreadCache)
 	if pushSvc != nil {
@@ -131,17 +129,6 @@ func (ctx *ServiceContext) StartKafkaConsumer(kafkaCtx context.Context) {
 	}()
 }
 
-func newBotProducer(brokers []string) *botKafkaAdapter {
-	cfg := sarama.NewConfig()
-	cfg.Producer.RequiredAcks = sarama.WaitForLocal
-	cfg.Producer.Return.Successes = true
-	p, err := sarama.NewSyncProducer(brokers, cfg)
-	if err != nil {
-		return &botKafkaAdapter{}
-	}
-	return &botKafkaAdapter{producer: p}
-}
-
 func newDLQProducer(brokers []string) *dlqAdapter {
 	cfg := sarama.NewConfig()
 	cfg.Producer.RequiredAcks = sarama.WaitForLocal
@@ -151,20 +138,6 @@ func newDLQProducer(brokers []string) *dlqAdapter {
 		return &dlqAdapter{}
 	}
 	return &dlqAdapter{producer: p}
-}
-
-type botKafkaAdapter struct {
-	producer sarama.SyncProducer
-}
-
-func (a *botKafkaAdapter) Send(_ context.Context, key string, value []byte) error {
-	if a.producer == nil {
-		return nil
-	}
-	_, _, err := a.producer.SendMessage(&sarama.ProducerMessage{
-		Topic: consts.KafkaTopicBotEventAI, Key: sarama.StringEncoder(key), Value: sarama.ByteEncoder(value),
-	})
-	return err
 }
 
 type dlqAdapter struct {

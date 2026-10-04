@@ -10,8 +10,6 @@ const (
 	EventTypeKnowledgeEmbedding EventType = "knowledge.embedding"
 	EventTypeKnowledgeReady     EventType = "knowledge.ready"
 	EventTypeKnowledgeFailed    EventType = "knowledge.failed"
-	EventTypeAIThinking         EventType = "ai.thinking"
-	EventTypeAIProcessing       EventType = "ai.processing"
 )
 
 type EventLevel string
@@ -41,8 +39,7 @@ func MarshalRealtimeEvent(evt RealtimeEvent) ([]byte, error) {
 	return json.Marshal(evt)
 }
 
-// All consumers (inbox-writer, ws-gateway/signaling, bot-service, audit-service)
-// MUST use this struct for deserialization.
+// MessageCreatedEvent is shared by the inbox writer and AI handler.
 type MessageCreatedEvent struct {
 	MessageID    int64          `json:"message_id"`
 	ConvID       int64          `json:"conv_id"`
@@ -109,20 +106,6 @@ type BotRemovedFromConvEvent struct {
 	ConvID    int64 `json:"conv_id"`
 	BotID     int64 `json:"bot_id"`
 	RemovedBy int64 `json:"removed_by"`
-}
-
-// MemberJoinedEvent is produced on conversation.member.joined topic.
-type MemberJoinedEvent struct {
-	ConvID   int64   `json:"conv_id"`
-	UserIDs  []int64 `json:"user_ids"`
-	JoinedBy int64   `json:"joined_by"`
-}
-
-// MemberLeftEvent is produced on conversation.member.left topic.
-type MemberLeftEvent struct {
-	ConvID    int64   `json:"conv_id"`
-	UserIDs   []int64 `json:"user_ids"`
-	RemovedBy int64   `json:"removed_by"`
 }
 
 // WebhookPayload is the JSON body sent to third-party webhook callback URLs.

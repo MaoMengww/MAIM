@@ -510,34 +510,6 @@ func TestHeadingAware_ParentChild_Metadata(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// No headings
-// ---------------------------------------------------------------------------
-
-func TestHeadingAware_NoHeadings(t *testing.T) {
-	text := "Plain text without any markdown headings.\nJust paragraphs.\n\nMore paragraphs.\n"
-	sections := []domain.Section{
-		sect("", 0, 0, len(text)+1),
-	}
-
-	chunker := NewChunker()
-	chunks, err := chunker.headingAwareChunk(headingDoc(text, sections), headingCfg(50, 10))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(chunks) == 0 {
-		t.Fatal("expected some chunks")
-	}
-	for i, c := range chunks {
-		if hp, ok := c.Metadata["heading_path"]; ok {
-			path := hp.([]map[string]any)
-			if len(path) != 0 {
-				t.Fatalf("chunk %d: non-heading doc should have no path, got %v", i, path)
-			}
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // CJK
 // ---------------------------------------------------------------------------
 

@@ -10,9 +10,6 @@ const (
 	KafkaTopicMessageDeleted          = "message.deleted"
 	KafkaTopicConvBotAdded            = "conversation.bot.added"
 	KafkaTopicConvBotRemoved          = "conversation.bot.removed"
-	KafkaTopicBotEventAI              = "bot.event.ai"
-	KafkaTopicConvMemberJoined        = "conversation.member.joined"
-	KafkaTopicConvMemberLeft          = "conversation.member.left"
 	KafkaTopicMessageCreatedDLQ       = "message.created.dlq"
 )
 

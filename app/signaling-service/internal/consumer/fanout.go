@@ -28,10 +28,6 @@ type BotPusher interface {
 	PushToBot(ctx context.Context, botID int64, message json.RawMessage) error
 }
 
-type BotKafkaProducer interface {
-	Send(ctx context.Context, key string, value []byte) error
-}
-
 type WebhookSender interface {
 	Send(ctx context.Context, callbackURL, webhookSecret string, payload json.RawMessage) error
 }
@@ -57,7 +53,6 @@ type Fanout struct {
 	presence    PresenceChecker
 	userPusher  UserPusher
 	botPusher   BotPusher
-	botProducer BotKafkaProducer
 	webhook     WebhookSender
 	convRepo    ConvRepo
 	unreadCache UnreadCache
@@ -68,15 +63,15 @@ type Fanout struct {
 func NewFanout(
 	memberRepo *repo.MemberRepo, presence PresenceChecker,
 	userPusher UserPusher, botPusher BotPusher,
-	botProducer BotKafkaProducer, webhook WebhookSender, logger logx.Logger,
+	webhook WebhookSender, logger logx.Logger,
 ) *Fanout {
 	return &Fanout{memberRepo: memberRepo, presence: presence, userPusher: userPusher,
-		botPusher: botPusher, botProducer: botProducer, webhook: webhook, logger: logger}
+		botPusher: botPusher, webhook: webhook, logger: logger}
 }
 
-func (f *Fanout) SetConvRepo(cr ConvRepo)          { f.convRepo = cr }
-func (f *Fanout) SetUnreadCache(uc UnreadCache)     { f.unreadCache = uc }
-func (f *Fanout) SetPushService(svc PushService)    { f.pushSvc = svc }
+func (f *Fanout) SetConvRepo(cr ConvRepo)        { f.convRepo = cr }
+func (f *Fanout) SetUnreadCache(uc UnreadCache)  { f.unreadCache = uc }
+func (f *Fanout) SetPushService(svc PushService) { f.pushSvc = svc }
 
 func (f *Fanout) PushMessageNew(ctx context.Context, convID, senderID int64, rawData []byte) error {
 	msgData := convertMessageIDsToStrings(rawData)
@@ -193,16 +188,6 @@ func (f *Fanout) PushBotRemoved(ctx context.Context, botID, convID int64) error 
 	return f.pushToBot(ctx, botID, payload)
 }
 
-func (f *Fanout) PushMemberJoined(ctx context.Context, convID int64, userIDs []int64) error {
-	payload, _ := json.Marshal(map[string]any{"type": consts.KafkaTopicConvMemberJoined, "conv_id": strconv.FormatInt(convID, 10), "user_ids": userIDs})
-	return f.pushEventToBots(ctx, convID, "member.joined", payload)
-}
-
-func (f *Fanout) PushMemberLeft(ctx context.Context, convID int64, userIDs []int64) error {
-	payload, _ := json.Marshal(map[string]any{"type": consts.KafkaTopicConvMemberLeft, "conv_id": strconv.FormatInt(convID, 10), "user_ids": userIDs})
-	return f.pushEventToBots(ctx, convID, "member.left", payload)
-}
-
 func (f *Fanout) PushReadUpdated(ctx context.Context, convID, readerID, lastReadSeq int64) {
 	members, err := f.memberRepo.GetConvMembers(ctx, convID)
 	if err != nil {
@@ -285,12 +270,6 @@ func (f *Fanout) pushEventToBots(ctx context.Context, convID int64, _ string, pa
 
 func (f *Fanout) routeBot(ctx context.Context, bot model.BotInfo, rawData json.RawMessage) {
 	switch bot.BotType {
-	case consts.BotTypeOfficial, consts.BotTypeSelfDeployed:
-		event, _ := json.Marshal(map[string]any{
-			"event_type": "message.created", "bot_id": strconv.FormatInt(bot.BotID, 10),
-			"conv_id": strconv.FormatInt(bot.ConvID, 10), "payload": json.RawMessage(rawData),
-		})
-		f.botProducer.Send(ctx, "", event)
 	case consts.BotTypeThirdParty:
 		wrapped := formatExternalBotMessage(rawData, bot.BotID, bot.ConvID)
 		if bot.ConnMode == "ws" {
