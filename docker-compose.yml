@@ -1,3 +1,33 @@
+x-aim-env: &aim-env
+  POSTGRES_DSN_BASE: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  REDIS_ADDR: redis:6379
+  KAFKA_BROKERS: '[kafka:9092]'
+  ELASTICSEARCH_ADDRESSES: '[http://elasticsearch:9200]'
+  MINIO_ENDPOINT: minio:9000
+  MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-localhost:9000}
+  MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+  MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  MILVUS_HOST: milvus
+  MILVUS_PORT: '19530'
+  NEO4J_URI: bolt://neo4j:7687
+  NEO4J_USER: neo4j
+  NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+  OTEL_ENDPOINT: otel-collector:4317
+  MINERU_URL: ${MINERU_URL:-http://host.docker.internal:30000}
+  JWT_SECRET: ${JWT_SECRET:-aim-dev-secret-key}
+  ENC_KEY: ${AIM_ENC_KEY}
+  USER_SERVICE_ADDR: dns:///user-service:50051
+  FRIEND_SERVICE_ADDR: dns:///friend-service:50052
+  MESSAGE_SERVICE_ADDR: dns:///message-service:50053
+  CONVERSATION_SERVICE_ADDR: dns:///conversation-service:50055
+  FILE_SERVICE_ADDR: dns:///file-service:50054
+  BOT_PLATFORM_ADDR: dns:///bot-platform:8085
+  KNOWLEDGE_BASE_ADDR: dns:///knowledge-base:50057
+  LLM_GATEWAY_ADDR: dns:///llm-gateway:50056
+  SIGNALING_SERVICE_ADDR: dns:///signaling-service:50061
+  AI_BOT_SERVICE_ADDR: dns:///ai-bot-service:50062
+  WS_GATEWAY_ADDR: dns:///ws-gateway:50060
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -35,39 +65,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-
-
-  etcd:
-    image: quay.io/coreos/etcd:v3.5.21
-    container_name: aim-etcd
-    command: etcd --data-dir /etcd-data --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://etcd:2379
-    ports:
-      - "2379:2379"
-    volumes:
-      - etcd_data:/etcd-data
-    healthcheck:
-      test: ["CMD", "etcdctl", "endpoint", "health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-
-
-  etcdkeeper:
-    image: evildecay/etcdkeeper:latest
-    container_name: aim-etcd-keeper
-    environment:
-      HOST: 0.0.0.0
-      PORT: "8080"
-      ETCD_HOSTS: http://etcd:2379
-    ports:
-      - "8090:8080"
-    depends_on:
-      etcd:
-        condition: service_healthy
-
-    restart: unless-stopped
 
 
   minio:
@@ -140,7 +137,10 @@ services:
     security_opt:
       - seccomp:unconfined
     environment:
-      ETCD_ENDPOINTS: etcd:2379
+      DEPLOY_MODE: STANDALONE
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
       MINIO_ADDRESS: minio:9000
       MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
@@ -149,9 +149,8 @@ services:
       - "9091:9091"
     volumes:
       - milvus_data:/var/lib/milvus
+      - ./deploy/docker/embedEtcd.yaml:/milvus/configs/embedEtcd.yaml:ro
     depends_on:
-      etcd:
-        condition: service_healthy
       minio:
         condition: service_healthy
 
@@ -278,27 +277,6 @@ services:
   # Application services
   # ────────────────────────────────────────────────────────
 
-  # Seed etcd config center with remote overrides.
-  # Run once before starting app services:
-  #   docker compose --profile init up -d init-etcd-config
-  init-etcd-config:
-    # Alpine has /bin/sh. The etcdctl binary is bind-mounted from the host
-    # (copied out of the aim-etcd container), because quay.io/coreos/etcd is
-    # distroless and has no shell to run the init script itself.
-    image: alpine:3.21
-    container_name: aim-init-etcd-config
-    entrypoint: ["/bin/sh", "/init-etcd-config.sh"]
-    volumes:
-      - ./deploy/docker/init-etcd-config.sh:/init-etcd-config.sh
-      - /tmp/etcdctl-bin:/usr/local/bin/etcdctl:ro
-    depends_on:
-      etcd:
-        condition: service_healthy
-
-    profiles:
-      - init
-
-
   user-service:
     build:
       context: .
@@ -307,11 +285,10 @@ services:
         SERVICE: user-service
     image: aim-user-service:latest
     container_name: aim-user-service
+    environment: *aim-env
     ports:
       - "50051:50051"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
 
@@ -326,11 +303,10 @@ services:
         SERVICE: friend-service
     image: aim-friend-service:latest
     container_name: aim-friend-service
+    environment: *aim-env
     ports:
       - "50052:50052"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
 
@@ -345,11 +321,10 @@ services:
         SERVICE: message-service
     image: aim-message-service:latest
     container_name: aim-message-service
+    environment: *aim-env
     ports:
       - "50053:50053"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
       kafka:
@@ -368,11 +343,10 @@ services:
         SERVICE: conversation-service
     image: aim-conversation-service:latest
     container_name: aim-conversation-service
+    environment: *aim-env
     ports:
       - "50055:50055"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -393,11 +367,10 @@ services:
         SERVICE: file-service
     image: aim-file-service:latest
     container_name: aim-file-service
+    environment: *aim-env
     ports:
       - "50054:50054"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
       minio:
@@ -415,12 +388,10 @@ services:
     image: aim-llm-gateway:latest
     container_name: aim-llm-gateway
     environment:
-      encKey: ${AIM_ENC_KEY}
+      <<: *aim-env
     ports:
       - "50056:50056"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
 
@@ -435,11 +406,10 @@ services:
         SERVICE: knowledge-base
     image: aim-knowledge-base:latest
     container_name: aim-knowledge-base
+    environment: *aim-env
     ports:
       - "50057:50057"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -466,11 +436,10 @@ services:
         SERVICE: bot-platform
     image: aim-bot-platform:latest
     container_name: aim-bot-platform
+    environment: *aim-env
     ports:
       - "8085:8085"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
 
@@ -485,11 +454,10 @@ services:
         SERVICE: audit-service
     image: aim-audit-service:latest
     container_name: aim-audit-service
+    environment: *aim-env
     ports:
       - "50059:50059"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
       kafka:
@@ -508,11 +476,10 @@ services:
         SERVICE: ai-bot-service
     image: aim-ai-bot-service:latest
     container_name: aim-ai-bot-service
+    environment: *aim-env
     ports:
       - "50062:50062"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
 
@@ -527,11 +494,10 @@ services:
         SERVICE: signaling-service
     image: aim-signaling-service:latest
     container_name: aim-signaling-service
+    environment: *aim-env
     ports:
       - "50061:50061"
     depends_on:
-      etcd:
-        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -552,12 +518,11 @@ services:
         SERVICE: ws-gateway
     image: aim-ws-gateway:latest
     container_name: aim-ws-gateway
+    environment: *aim-env
     ports:
       - "50060:50060"
       - "8081:8081"
     depends_on:
-      etcd:
-        condition: service_healthy
       redis:
         condition: service_healthy
 
@@ -572,11 +537,10 @@ services:
         SERVICE: gateway
     image: aim-gateway:latest
     container_name: aim-gateway
+    environment: *aim-env
     ports:
       - "8080:8080"
     depends_on:
-      etcd:
-        condition: service_healthy
       redis:
         condition: service_healthy
 
@@ -586,7 +550,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  etcd_data:
   minio_data:
   es_data:
   kafka_data:

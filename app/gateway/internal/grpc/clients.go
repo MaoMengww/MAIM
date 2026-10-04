@@ -4,7 +4,6 @@ import (
 	"log"
 
 	"github.com/maomeng/aim/app/gateway/internal/config"
-	"github.com/zeromicro/go-zero/core/discov"
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
@@ -22,41 +21,32 @@ type Clients struct {
 }
 
 func NewClients(cfg *config.Config) *Clients {
-	etcdHosts := cfg.Etcd.Hosts
-	if len(etcdHosts) == 0 {
-		etcdHosts = []string{"localhost:2379"}
-	}
-
-	newClient := func(serviceKey string) zrpc.Client {
-		conf := zrpc.RpcClientConf{
-			Etcd: discov.EtcdConf{
-				Hosts: etcdHosts,
-				Key:   serviceKey,
-			},
+	newClient := func(name, target string) zrpc.Client {
+		c, err := zrpc.NewClient(zrpc.RpcClientConf{
+			Target:   target,
 			NonBlock: true,
 			Timeout:  30000,
 			Middlewares: zrpc.ClientMiddlewaresConf{
 				Breaker: true,
 			},
-		}
-		c, err := zrpc.NewClient(conf)
+		})
 		if err != nil {
-			log.Printf("grpc client: %s unavailable (%v), using lazy connect", serviceKey, err)
+			log.Printf("grpc client: %s unavailable (%v), using lazy connect", name, err)
 		}
 		return c
 	}
 
 	return &Clients{
-		User:          newClient(cfg.Services.UserServiceKey),
-		Friend:        newClient(cfg.Services.FriendServiceKey),
-		Conversation:  newClient(cfg.Services.ConversationServiceKey),
-		Message:       newClient(cfg.Services.MessageServiceKey),
-		File:          newClient(cfg.Services.FileServiceKey),
-		Notification:  newClient(cfg.Services.NotificationServiceKey),
-		BotPlatform:   newClient(cfg.Services.BotPlatformServiceKey),
-		KnowledgeBase: newClient(cfg.Services.KnowledgeServiceKey),
-		AIBot:         newClient(cfg.Services.AIBotServiceKey),
-		LLMGateway:    newClient(cfg.Services.LLMGatewayServiceKey),
+		User:          newClient("user-service", cfg.Services.UserServiceAddr),
+		Friend:        newClient("friend-service", cfg.Services.FriendServiceAddr),
+		Conversation:  newClient("conversation-service", cfg.Services.ConversationServiceAddr),
+		Message:       newClient("message-service", cfg.Services.MessageServiceAddr),
+		File:          newClient("file-service", cfg.Services.FileServiceAddr),
+		Notification:  newClient("signaling-service", cfg.Services.NotificationServiceAddr),
+		BotPlatform:   newClient("bot-platform", cfg.Services.BotPlatformServiceAddr),
+		KnowledgeBase: newClient("knowledge-base", cfg.Services.KnowledgeServiceAddr),
+		AIBot:         newClient("ai-bot-service", cfg.Services.AIBotServiceAddr),
+		LLMGateway:    newClient("llm-gateway", cfg.Services.LLMGatewayServiceAddr),
 	}
 }
 

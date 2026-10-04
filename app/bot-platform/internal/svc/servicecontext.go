@@ -55,7 +55,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	botJWT := pkgjwt.NewManager(c.JWT.Secret, c.JWT.ExpireSec, c.JWT.RefreshSec)
 
 	var msgClient msgpb.MessageServiceClient
-	if len(c.MessageService.Etcd.Hosts) > 0 || c.MessageService.Target != "" {
+	if c.MessageService.Target != "" {
 		msgClient = msgpb.NewMessageServiceClient(zrpc.MustNewClient(c.MessageService).Conn())
 	}
 

@@ -3,26 +3,18 @@ ListenOn: 0.0.0.0:8085
 Mode: dev
 
 Database:
-  DSN: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=bot
+  DSN: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=bot
   MaxOpenConn: 50
   MaxIdleConn: 10
   MaxLifetime: 3600
 
 JWT:
-  Secret: aim-bot-jwt-secret
+  Secret: ${JWT_SECRET}
   ExpireSec: 86400
 
 messageService:
-  Etcd:
-    Hosts:
-      - 127.0.0.1:2379
-    Key: message.rpc
+  Target: ${MESSAGE_SERVICE_ADDR}
   NonBlock: true
-
-Etcd:
-  Hosts:
-    - 127.0.0.1:2379
-  Key: bot-platform.rpc
 
 Log:
   Stat: false
@@ -36,6 +28,6 @@ RateLimit:
 
 Telemetry:
   Name: bot-platform.rpc
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 1.0
   Batcher: otlpgrpc

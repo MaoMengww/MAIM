@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maomeng/aim/app/conversation-service/internal/config"
+	serviceconfig "github.com/maomeng/aim/app/conversation-service/internal/config"
 	"github.com/maomeng/aim/app/conversation-service/internal/logic/conversationservice"
 	"github.com/maomeng/aim/app/conversation-service/internal/svc"
 	convpb "github.com/maomeng/aim/app/conversation-service/pb/conversation"
+	"github.com/maomeng/aim/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zeromicro/go-zero/core/conf"
@@ -19,8 +20,9 @@ import (
 
 func newConvSvcCtx(t *testing.T) *svc.ServiceContext {
 	t.Helper()
-	var c config.Config
-	conf.MustLoad("../etc/conversation.yaml", &c)
+	var c serviceconfig.Config
+	config.SetLocalDefaults()
+	conf.MustLoad("../etc/conversation.yaml", &c, conf.UseEnv())
 	c.Telemetry.Endpoint = ""
 
 	return svc.NewServiceContext(c)

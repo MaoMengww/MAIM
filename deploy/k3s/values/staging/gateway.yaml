@@ -1,6 +1,7 @@
 replicaCount: 1
 service:
   type: ClusterIP
+  headless: false
   grpcPort: 8080
   httpPort: null
   metricsPort: 9091

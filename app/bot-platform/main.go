@@ -8,7 +8,6 @@ import (
 	"github.com/maomeng/aim/app/bot-platform/internal/server"
 	"github.com/maomeng/aim/app/bot-platform/internal/svc"
 	"github.com/maomeng/aim/app/bot-platform/pb/botplatform"
-	"github.com/maomeng/aim/pkg/configcenter"
 	"github.com/maomeng/aim/pkg/interceptor"
 
 	"github.com/zeromicro/go-zero/core/conf"
@@ -24,8 +23,7 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
-	configcenter.InitConfigCenter(c.Name, c.Etcd.Hosts, &c)
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 
 	svcCtx := svc.NewServiceContext(c)
 

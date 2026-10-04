@@ -8,7 +8,6 @@ import (
 	"github.com/maomeng/aim/app/llm-gateway/internal/handler"
 	"github.com/maomeng/aim/app/llm-gateway/internal/svc"
 	pb "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
-	"github.com/maomeng/aim/pkg/configcenter"
 	"github.com/maomeng/aim/pkg/interceptor"
 
 	"github.com/zeromicro/go-zero/core/conf"
@@ -24,8 +23,7 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
-	configcenter.InitConfigCenter(c.Name, c.Etcd.Hosts, &c)
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 	ctx := svc.NewServiceContext(c)
 	defer ctx.Close()
 

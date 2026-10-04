@@ -10,7 +10,6 @@ import (
 	messageserviceServer "github.com/maomeng/aim/app/message-service/internal/server/messageservice"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/configcenter"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/kafka"
@@ -28,8 +27,7 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
-	configcenter.InitConfigCenter(c.Name, c.Etcd.Hosts, &c)
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 	ctx := svc.NewServiceContext(c)
 
 	dlqProducer, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageCreatedDLQ, ctx.Logger)

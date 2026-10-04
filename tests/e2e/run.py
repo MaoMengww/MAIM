@@ -31,7 +31,7 @@ APPLICATIONS = {
     "ws-gateway": ("ws-gateway.yaml", 8081),
     "gateway": ("gateway.yaml", 8080),
 }
-OPTIONAL = {"etcdkeeper", "prometheus", "kibana", "grafana"}
+OPTIONAL = {"prometheus", "kibana", "grafana"}
 CREDENTIALS = {
     "POSTGRES_USER": "aim",
     "POSTGRES_PASSWORD": "aim123",
@@ -39,6 +39,7 @@ CREDENTIALS = {
     "MINIO_ROOT_USER": "minioadmin",
     "MINIO_ROOT_PASSWORD": "minioadmin123",
     "NEO4J_PASSWORD": "password123",
+    "JWT_SECRET": "aim-dev-secret-key",
     "AIM_ENC_KEY": "Ay+h5wU31Vfy5gITlP1P2cmNtOPkTsnqIupXHqpgutw=",
 }
 TAIL_BYTES = 64 * 1024
@@ -188,8 +189,7 @@ class Runner:
                 health["retries"] = math.ceil(self.args.readiness_timeout / 5)
             for volume in service.get("volumes", []):
                 if volume.get("type") == "bind" and not Path(volume["source"]).exists():
-                    if name != "init-etcd-config":
-                        raise LayerFailure(f"configuration: missing bind source for {name}: {volume['source']}")
+                    raise LayerFailure(f"configuration: missing bind source for {name}: {volume['source']}")
         # config expands resource names from its project name. Explicitly remove
         # those names so every volume/network belongs to this unique project.
         for section in ("volumes", "networks"):
@@ -202,7 +202,7 @@ class Runner:
             if not (self.repo / "app" / name / "etc" / filename).is_file():
                 raise LayerFailure(f"configuration: {name} config {filename} does not exist")
             service = services[name]
-            service["command"] = ["/app/service", "-f", "/app/etc/" + filename]
+            service["command"] = ["-f", "/app/etc/" + filename]
             service["hostname"] = name
             service.setdefault("volumes", []).append(copy.deepcopy(probe_mount))
             kind = "http" if name in {"gateway", "ws-gateway"} else "grpc"
@@ -211,6 +211,11 @@ class Runner:
         services["realtime-b"] = copy.deepcopy(services["ws-gateway"])
         services["realtime-b"].pop("build", None)
         services["realtime-b"]["hostname"] = "realtime-b"
+        # A and B must stay separately addressable: signaling pushes by the
+        # shared discovery name ws-gateway, so B must not answer to it here.
+        networks_a = services["ws-gateway"].setdefault("networks", {})
+        networks_a["default"] = networks_a.get("default") or {}
+        networks_a["default"].setdefault("aliases", []).append("realtime-a")
         for name, address in (("otel-collector", "http://127.0.0.1:13133/"),
                               ("jaeger", "http://127.0.0.1:14269/")):
             services[name].setdefault("volumes", []).append(copy.deepcopy(probe_mount))
@@ -224,16 +229,16 @@ class Runner:
             "NEO4J_dbms_memory_heap_max__size": "512m",
         })
         self.infrastructure = sorted(set(services) - set(APPLICATIONS) -
-                                     {"realtime-b", "init-etcd-config", "init-kafka-topics"})
+                                     {"realtime-b", "init-kafka-topics"})
         for name in self.infrastructure:
             if not services[name].get("healthcheck") or services[name]["healthcheck"].get("disable"):
                 raise LayerFailure(f"configuration: middleware {name} has no real readiness check")
-        # Order blocking RPC dials without replacing the production RPC/config code.
+        # Start the conversation target before its hot-path message client.
         dependencies = {
             "friend-service": ["user-service"],
             "llm-gateway": ["user-service"],
-            "message-service": ["user-service", "friend-service", "bot-platform"],
-            "conversation-service": ["user-service", "message-service", "bot-platform"],
+            "message-service": ["user-service", "friend-service", "bot-platform", "conversation-service"],
+            "conversation-service": ["user-service", "bot-platform"],
             "knowledge-base": ["llm-gateway", "ws-gateway", "realtime-b"],
             "signaling-service": ["conversation-service", "bot-platform", "ws-gateway", "realtime-b"],
             "ai-bot-service": ["llm-gateway", "message-service", "knowledge-base", "ws-gateway",
@@ -245,15 +250,6 @@ class Runner:
             needs = service.setdefault("depends_on", {})
             for dependency in self.infrastructure + dependencies.get(name, []):
                 needs[dependency] = {"condition": "service_healthy"}
-            needs["init-etcd-config"] = {"condition": "service_completed_successfully"}
-        init = services["init-etcd-config"]
-        init["profiles"] = ["harness"]
-        init["volumes"] = [
-            {"type": "bind", "source": str(self.repo / "deploy/docker/init-etcd-config.sh"),
-             "target": "/init-etcd-config.sh", "read_only": True},
-            {"type": "bind", "source": str(self.directory / "etcdctl"),
-             "target": "/usr/local/bin/etcdctl", "read_only": True},
-        ]
         services["e2e-client"] = {
             "build": {"context": str(self.repo), "dockerfile": "tests/e2e/Dockerfile"},
             "image": f"{self.project}-client:e2e", "pull_policy": "never",
@@ -286,7 +282,7 @@ class Runner:
             self.compose("build-" + name, "build", name,
                          timeout=self.args.build_timeout)
         self.compose("pull", "pull", "--ignore-buildable",
-                     *self.infrastructure, "init-etcd-config", "probe-seed", timeout=self.args.build_timeout)
+                     *self.infrastructure, "probe-seed", timeout=self.args.build_timeout)
         self.compose("probe-create", "create", "--no-build", "e2e-client")
         self.compose("probe-copy", "cp", "e2e-client:/e2e", str(self.directory / "probe"))
         self.compose("probe-seed", "run", "--rm", "--no-deps", "probe-seed")
@@ -294,15 +290,9 @@ class Runner:
         self.compose("kafka-topics-init", "up", "--no-build", "--no-deps", "--abort-on-container-exit",
                      "--exit-code-from", "init-kafka-topics", "init-kafka-topics",
                      timeout=self.args.readiness_timeout)
-        self.compose("etcdctl-copy", "cp", "etcd:/usr/local/bin/etcdctl", str(self.directory / "etcdctl"))
-        # Run the unmodified init script as a retained one-shot service, so both
-        # its exit status and Compose completed-successfully gate are enforced.
-        self.compose("configuration-init", "up", "--no-build", "--no-deps", "--abort-on-container-exit",
-                     "--exit-code-from", "init-etcd-config", "init-etcd-config",
-                     timeout=self.args.readiness_timeout)
         self.wait_for("application-readiness", sorted(APPLICATIONS) + ["realtime-b"])
         scenario = ["run", "-gateway", "http://gateway:8080",
-                    "-realtime-a", "ws://ws-gateway:8081/ws",
+                    "-realtime-a", "ws://realtime-a:8081/ws",
                     "-realtime-b", "ws://realtime-b:8081/ws",
                     "-timeout", f"{self.args.timeout:g}s"]
         if self.args.cross_instance:

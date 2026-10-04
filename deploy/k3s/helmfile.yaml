@@ -11,7 +11,7 @@ repositories:
   - name: neo4j
     url: https://helm.neo4j.com
   - name: milvus
-    url: https://milvus-io.github.io/milvus-helm
+    url: https://zilliztech.github.io/milvus-helm
 
 environments:
   staging:
@@ -32,11 +32,6 @@ releases:
     chart: bitnami/redis
     values:
       - infrastructure/redis-values.yaml
-
-  - name: etcd
-    chart: bitnami/etcd
-    values:
-      - infrastructure/etcd-values.yaml
 
   - name: kafka
     chart: bitnami/kafka
@@ -60,6 +55,7 @@ releases:
 
   - name: milvus
     chart: milvus/milvus
+    version: 4.2.58
     values:
       - infrastructure/milvus-values.yaml
 

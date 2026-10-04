@@ -1,27 +1,22 @@
 Name: audit.rpc
 ListenOn: 0.0.0.0:50059
-Etcd:
-  Hosts:
-  - 127.0.0.1:2379
-  Key: audit.rpc
 
 Database:
   Driver: postgres
-  DSN: postgres://aim:aim123@127.0.0.1:5432/aim?sslmode=disable&search_path=audit
+  DSN: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=audit
   MaxOpenConn: 50
   MaxIdleConn: 10
   MaxLifetime: 3600
 
 Kafka:
-  Brokers:
-  - 127.0.0.1:9092
+  Brokers: ${KAFKA_BROKERS}
   ConsumerGroup: audit-service
   Version: 2.8.0
 
 MinIO:
-  Endpoint: 127.0.0.1:9000
-  AccessKey: minioadmin
-  SecretKey: minioadmin123
+  Endpoint: ${MINIO_ENDPOINT}
+  AccessKey: ${MINIO_ACCESS_KEY}
+  SecretKey: ${MINIO_SECRET_KEY}
   UseSSL: false
   Bucket: aim
 
@@ -45,7 +40,7 @@ RateLimit:
 
 Telemetry:
   Name: audit.rpc
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 1.0
   Batcher: otlpgrpc
 

@@ -12,6 +12,7 @@ import (
 	"github.com/maomeng/aim/app/friend-service/internal/logic"
 	"github.com/maomeng/aim/app/friend-service/internal/svc"
 	friendpb "github.com/maomeng/aim/app/friend-service/pb/friend"
+	pkgconfig "github.com/maomeng/aim/pkg/config"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,8 @@ import (
 func newFriendSvcCtx(t *testing.T) *svc.ServiceContext {
 	t.Helper()
 	var c config.Config
-	conf.MustLoad("../etc/friend.yaml", &c)
+	pkgconfig.SetLocalDefaults()
+	conf.MustLoad("../etc/friend.yaml", &c, conf.UseEnv())
 	c.Telemetry.Endpoint = ""
 
 	return svc.NewServiceContext(c)

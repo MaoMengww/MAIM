@@ -39,7 +39,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 
 	if c.EncKey == "" {
-		panic("encKey not found in config (etcd remote config)")
+		panic("encKey not found in local configuration")
 	}
 	encKey, err := base64.StdEncoding.DecodeString(c.EncKey)
 	if err != nil {

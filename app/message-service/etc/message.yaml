@@ -1,33 +1,26 @@
 Name: message-service
 ListenOn: 0.0.0.0:50053
 
-Etcd:
-  Hosts:
-  - 127.0.0.1:2379
-  Key: message.rpc
-
 Database:
   driver: postgres
-  dsn: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=msg
+  dsn: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=msg
   maxOpenConn: 200
   maxIdleConn: 200
   maxLifetime: 3600
 
 Redis:
-  Host: localhost:6379
+  Host: ${REDIS_ADDR}
   Type: node
   Pass: ""
   Key: message.rpc
 
 Kafka:
-  brokers:
-  - localhost:9092
+  brokers: ${KAFKA_BROKERS}
   consumerGroup: message-inbox-writer
   maxRetry: 3
 
 Elasticsearch:
-  addresses:
-  - http://localhost:9200
+  addresses: ${ELASTICSEARCH_ADDRESSES}
 
 Message:
   recallWindowSeconds: 120
@@ -38,33 +31,21 @@ Snowflake:
   workerId: 1
 
 ConvService:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: conversation.rpc
+  Target: ${CONVERSATION_SERVICE_ADDR}
   Middlewares:
     Breaker: true
 UserService:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: user.rpc
+  Target: ${USER_SERVICE_ADDR}
   Middlewares:
     Breaker: true
 
 BotPlatform:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: bot-platform.rpc
+  Target: ${BOT_PLATFORM_ADDR}
   Middlewares:
     Breaker: true
 
 FriendService:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: friend.rpc
+  Target: ${FRIEND_SERVICE_ADDR}
   Middlewares:
     Breaker: true
 
@@ -84,7 +65,7 @@ RateLimit:
 
 Telemetry:
   Name: message.rpc
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 0
   Batcher: otlpgrpc
 

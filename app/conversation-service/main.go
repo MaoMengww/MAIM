@@ -5,12 +5,11 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/maomeng/aim/app/conversation-service/internal/consumer"
 	"github.com/maomeng/aim/app/conversation-service/internal/config"
+	"github.com/maomeng/aim/app/conversation-service/internal/consumer"
 	conversationserviceServer "github.com/maomeng/aim/app/conversation-service/internal/server"
 	"github.com/maomeng/aim/app/conversation-service/internal/svc"
 	"github.com/maomeng/aim/app/conversation-service/pb/conversation"
-	"github.com/maomeng/aim/pkg/configcenter"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/kafka"
@@ -28,8 +27,7 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
-	configcenter.InitConfigCenter(c.Name, c.Etcd.Hosts, &c)
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 	ctx := svc.NewServiceContext(c)
 
 	// Start Kafka consumer for message.created events

@@ -10,7 +10,7 @@ import (
 	"github.com/maomeng/aim/app/audit-service/internal/logic"
 	"github.com/maomeng/aim/app/audit-service/internal/svc"
 	auditpb "github.com/maomeng/aim/app/audit-service/pb/audit"
-	"github.com/maomeng/aim/pkg/configcenter"
+	pkgconfig "github.com/maomeng/aim/pkg/config"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,14 +20,11 @@ import (
 func newAuditSvcCtx(t *testing.T) *svc.ServiceContext {
 	t.Helper()
 	var c config.Config
-	conf.MustLoad("../etc/audit.yaml", &c)
+	pkgconfig.SetLocalDefaults()
+	conf.MustLoad("../etc/audit.yaml", &c, conf.UseEnv())
 	c.Telemetry.Endpoint = ""
 	c.Kafka.Brokers = nil
 	c.MinIO.Endpoint = ""
-
-	if raw := etcdRawConfig("audit.rpc"); raw != nil {
-		configcenter.MergeRemote(&c, raw)
-	}
 
 	return svc.NewServiceContext(c)
 }

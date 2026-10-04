@@ -38,7 +38,6 @@ deploy_infra() {
   echo "Waiting for infrastructure..."
   kubectl wait --for=condition=available --timeout=120s deployment/aim-postgres 2>/dev/null || true
   kubectl wait --for=condition=available --timeout=120s deployment/aim-redis 2>/dev/null || true
-  kubectl wait --for=condition=available --timeout=120s deployment/aim-etcd 2>/dev/null || true
   kubectl wait --for=condition=available --timeout=120s deployment/aim-kafka 2>/dev/null || true
   kubectl wait --for=condition=available --timeout=120s deployment/aim-minio 2>/dev/null || true
   kubectl wait --for=condition=available --timeout=120s deployment/aim-elasticsearch 2>/dev/null || true
@@ -56,13 +55,6 @@ init_db() {
   echo "Migrations complete"
 }
 
-init_etcd() {
-  echo "=== Initializing etcd config center ==="
-  kubectl delete job init-etcd-config 2>/dev/null || true
-  kubectl create -f "$K3S_ROOT/jobs/init-etcd.yaml"
-  kubectl wait --for=condition=complete --timeout=60s job/init-etcd-config 2>/dev/null || true
-  echo "etcd config initialized"
-}
 
 deploy_services() {
   echo "=== Deploying all services ==="
@@ -105,7 +97,6 @@ case "$ACTION" in
     deploy_infra
     sleep 5
     init_db
-    init_etcd
     deploy_services
     deploy_ingress
     start_forwards
@@ -116,7 +107,6 @@ case "$ACTION" in
     deploy_infra
     sleep 5
     init_db
-    init_etcd
     deploy_services
     deploy_ingress
     start_forwards

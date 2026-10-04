@@ -4,5 +4,3 @@ service:
   metricsPort: 9101
 config:
   name: llm-gateway
-  extraEnv:
-    encKey: "Ay+h5wU31Vfy5gITlP1P2cmNtOPkTsnqIupXHqpgutw="

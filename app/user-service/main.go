@@ -8,7 +8,6 @@ import (
 	"github.com/maomeng/aim/app/user-service/internal/svc"
 	"github.com/maomeng/aim/app/user-service/pb/user"
 	userServer "github.com/maomeng/aim/app/user-service/server"
-	"github.com/maomeng/aim/pkg/configcenter"
 	"github.com/maomeng/aim/pkg/interceptor"
 
 	"github.com/zeromicro/go-zero/core/conf"
@@ -24,8 +23,7 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
-	configcenter.InitConfigCenter(c.Name, c.Etcd.Hosts, &c)
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 	ctx := svc.NewServiceContext(c)
 
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {

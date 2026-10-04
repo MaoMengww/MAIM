@@ -1,99 +1,57 @@
 package config
 
 import (
-	"os"
-
 	"github.com/maomeng/aim/pkg/config"
-	"gopkg.in/yaml.v3"
 )
 
+// ServicesConfig holds the gRPC targets of every backend the gateway dials.
+// Targets are full gRPC targets (e.g. dns:///user-service:50051) supplied by
+// the environment, so no service registry is involved.
 type ServicesConfig struct {
-	UserServiceKey         string `json:"userServiceKey"         yaml:"UserServiceKey"         default:"user.rpc"`
-	FriendServiceKey       string `json:"friendServiceKey"       yaml:"FriendServiceKey"       default:"friend.rpc"`
-	ConversationServiceKey string `json:"conversationServiceKey" yaml:"ConversationServiceKey" default:"conversation.rpc"`
-	MessageServiceKey      string `json:"messageServiceKey"      yaml:"MessageServiceKey"      default:"message.rpc"`
-	FileServiceKey         string `json:"fileServiceKey"         yaml:"FileServiceKey"         default:"file.rpc"`
-	BotPlatformServiceKey  string `json:"botPlatformServiceKey"  yaml:"BotPlatformServiceKey"  default:"bot-platform.rpc"`
-	KnowledgeServiceKey    string `json:"knowledgeServiceKey"    yaml:"KnowledgeServiceKey"    default:"knowledge.rpc"`
-	NotificationServiceKey string `json:"notificationServiceKey" yaml:"NotificationServiceKey" default:"ws-gateway"`
-	AuditServiceKey        string `json:"auditServiceKey"        yaml:"AuditServiceKey"        default:"audit.rpc"`
-	AIBotServiceKey        string `json:"aiBotServiceKey"        yaml:"AIBotServiceKey"        default:"ai-bot.rpc"`
-	LLMGatewayServiceKey   string `json:"llmGatewayServiceKey"   yaml:"LLMGatewayServiceKey"   default:"llm-gateway.rpc"`
+	UserServiceAddr         string `json:"userServiceAddr"`
+	FriendServiceAddr       string `json:"friendServiceAddr"`
+	ConversationServiceAddr string `json:"conversationServiceAddr"`
+	MessageServiceAddr      string `json:"messageServiceAddr"`
+	FileServiceAddr         string `json:"fileServiceAddr"`
+	BotPlatformServiceAddr  string `json:"botPlatformServiceAddr"`
+	KnowledgeServiceAddr    string `json:"knowledgeServiceAddr"`
+	NotificationServiceAddr string `json:"notificationServiceAddr"`
+	AIBotServiceAddr        string `json:"aiBotServiceAddr"`
+	LLMGatewayServiceAddr   string `json:"llmGatewayServiceAddr"`
 }
 
 type RateLimitConfig struct {
-	Enabled           bool `json:"enabled"            yaml:"Enabled"            default:"true"`
-	RequestsPerSecond int  `json:"requestsPerSecond"  yaml:"RequestsPerSecond"  default:"100"`
-	MessagePerSecond  int  `json:"messagePerSecond"   yaml:"MessagePerSecond"   default:"10"`
+	Enabled           bool `json:"enabled,default=true"`
+	RequestsPerSecond int  `json:"requestsPerSecond,default=100"`
+	MessagePerSecond  int  `json:"messagePerSecond,default=10"`
 }
 
 type TimeoutConfig struct {
-	DefaultMs int `json:"defaultMs" yaml:"DefaultMs" default:"3000"`
-	BotMs     int `json:"botMs"     yaml:"BotMs"     default:"60000"`
+	DefaultMs int `json:"defaultMs,default=3000"`
+	BotMs     int `json:"botMs,default=60000"`
 }
 
 type MetricsConfig struct {
-	Port int `json:"port" yaml:"Port" default:"9091"`
+	Port int `json:"port,default=9091"`
 }
 
 type TelemetryConfig struct {
-	Name     string  `json:"name,omitempty"     yaml:"Name"`
-	Endpoint string  `json:"endpoint,omitempty" yaml:"Endpoint"`
-	Sampler  float64 `json:"sampler,omitempty"  yaml:"Sampler"`
-	Disabled bool    `json:"disabled,omitempty" yaml:"Disabled"`
+	Name     string  `json:"name,optional"`
+	Endpoint string  `json:"endpoint,optional"`
+	Sampler  float64 `json:"sampler,optional"`
+	Disabled bool    `json:"disabled,optional"`
 }
 
 type Config struct {
-	Name      string                `json:"name,omitempty"      yaml:"Name"`
-	Host      string                `json:"host,omitempty"      yaml:"Host"    default:"0.0.0.0"`
-	Port      int                   `json:"port,omitempty"      yaml:"Port"    default:"8080"`
-	JWT       config.JWTConfig      `json:"jwt"                 yaml:"JWT"`
-	Etcd      config.EtcdConfig     `json:"etcd"                yaml:"Etcd"`
-	Database  config.DatabaseConfig `json:"database"            yaml:"Database"`
-	Services  ServicesConfig        `json:"services"            yaml:"Services"`
-	RateLimit RateLimitConfig       `json:"rateLimit"           yaml:"RateLimit"`
-	Timeout   TimeoutConfig         `json:"timeout"             yaml:"Timeout"`
-	Redis     config.RedisConfig    `json:"redis"               yaml:"Redis"`
-	Metrics   MetricsConfig         `json:"metrics"             yaml:"Metrics"`
-	Log       config.LogConfig      `json:"log"                 yaml:"Log"`
-	Telemetry TelemetryConfig       `json:"telemetry"           yaml:"Telemetry"`
-	EncKey    string                `json:"encKey"              yaml:"EncKey"`
-}
-
-func defaultConfig() Config {
-	return Config{
-		Host: "0.0.0.0",
-		Port: 8080,
-		RateLimit: RateLimitConfig{
-			Enabled:           true,
-			RequestsPerSecond: 100,
-			MessagePerSecond:  10,
-		},
-		Timeout: TimeoutConfig{
-			DefaultMs: 3000,
-			BotMs:     60000,
-		},
-		Metrics: MetricsConfig{
-			Port: 9091,
-		},
-		Log: config.LogConfig{
-			Level:  "info",
-			Format: "json",
-			Output: "stdout",
-		},
-	}
-}
-
-func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg := defaultConfig()
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-
-	return &cfg, nil
+	Name      string             `json:"name,optional"`
+	Host      string             `json:"host,default=0.0.0.0"`
+	Port      int                `json:"port,default=8080"`
+	JWT       config.JWTConfig   `json:"jwt"`
+	Services  ServicesConfig     `json:"services"`
+	RateLimit RateLimitConfig    `json:"rateLimit"`
+	Timeout   TimeoutConfig      `json:"timeout"`
+	Redis     config.RedisConfig `json:"redis"`
+	Metrics   MetricsConfig      `json:"metrics"`
+	Log       config.LogConfig   `json:"log"`
+	Telemetry TelemetryConfig    `json:"telemetry"`
 }

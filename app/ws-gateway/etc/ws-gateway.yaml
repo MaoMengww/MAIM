@@ -3,11 +3,6 @@ ListenOn: 0.0.0.0:50060
 Host: 0.0.0.0
 Port: 50060
 
-Etcd:
-  Hosts:
-    - 127.0.0.1:2379
-  Key: ws-gateway.rpc
-
 WebSocket:
   Host: 0.0.0.0
   Port: 8081
@@ -17,26 +12,20 @@ WebSocket:
   MaxConn: 10000
 
 JWT:
-  Secret: aim-dev-secret-key
+  Secret: ${JWT_SECRET}
   ExpireSec: 7200
   RefreshSec: 604800
 
 BotPlatform:
-  Etcd:
-    Hosts:
-      - 127.0.0.1:2379
-    Key: bot-platform.rpc
+  Target: ${BOT_PLATFORM_ADDR}
   NonBlock: true
 
 MessageService:
-  Etcd:
-    Hosts:
-      - 127.0.0.1:2379
-    Key: message.rpc
+  Target: ${MESSAGE_SERVICE_ADDR}
   NonBlock: true
 
 Redis:
-  Host: localhost:6379
+  Host: ${REDIS_ADDR}
   Password: ""
   DB: 0
   PoolSize: 100
@@ -51,7 +40,7 @@ Log:
 
 Telemetry:
   Name: ws-gateway
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 1.0
 
 StreamCache:

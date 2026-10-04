@@ -59,19 +59,19 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 
 	var botPlatformRpc botplatform.BotPlatformClient
-	if c.BotPlatform.Etcd.Hosts != nil || c.BotPlatform.Endpoints != nil {
+	if c.BotPlatform.Target != "" {
 		botPlatformRpc = botplatform.NewBotPlatformClient(zrpc.MustNewClient(c.BotPlatform).Conn())
 		logger.Infof("bot-platform rpc client initialized")
 	}
 
 	var messageRpc messagepb.MessageServiceClient
-	if c.MessageService.Etcd.Hosts != nil || c.MessageService.Endpoints != nil {
+	if c.MessageService.Target != "" {
 		messageRpc = messagepb.NewMessageServiceClient(zrpc.MustNewClient(c.MessageService).Conn())
 		logger.Infof("message-service rpc client initialized")
 	}
 
 	var userClient *client.UserClient
-	if c.UserService.Etcd.Hosts != nil || c.UserService.Endpoints != nil {
+	if c.UserService.Target != "" {
 		userClient = client.NewUserClient(zrpc.MustNewClient(c.UserService))
 		logger.Infof("user-service rpc client initialized")
 	}

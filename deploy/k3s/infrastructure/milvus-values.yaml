@@ -1,25 +1,44 @@
-# Milvus Standalone - milvus/milvus
+# Milvus standalone; metadata belongs to this release, never AIM's registry.
+cluster:
+  enabled: false
+fullnameOverride: aim-milvus
+image:
+  all:
+    tag: v2.6.11
 standalone:
+  extraEnv:
+    - name: DEPLOY_MODE
+      value: STANDALONE
   persistence:
-    size: 20Gi
-    storageClass: local-path
-minio:
-  persistence:
-    size: 20Gi
-    storageClass: local-path
+    enabled: true
+    persistentVolumeClaim:
+      size: 20Gi
+      storageClass: local-path
 etcd:
-  persistence:
-    size: 5Gi
-    storageClass: local-path
+  enabled: false
 externalEtcd:
-  enabled: true
-  endpoints:
-    - "aim-etcd.default.svc.cluster.local:2379"
+  enabled: false
+pulsar:
+  enabled: false
+pulsarv3:
+  enabled: false
+kafka:
+  enabled: false
+minio:
+  enabled: false
 externalS3:
   enabled: true
-  host: "aim-minio.default.svc.cluster.local"
+  host: aim-minio
   port: 9000
   accessKey: minioadmin
   secretKey: minioadmin123
   bucketName: aim-milvus
   useSSL: false
+extraConfigFiles:
+  user.yaml: |
+    etcd:
+      use:
+        embed: true
+      data:
+        dir: /var/lib/milvus/etcd
+      endpoints: localhost:2379

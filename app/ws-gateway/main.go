@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	message "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/app/ws-gateway/internal/config"
 	"github.com/maomeng/aim/app/ws-gateway/internal/handler"
 	"github.com/maomeng/aim/app/ws-gateway/internal/middleware"
@@ -23,11 +24,9 @@ import (
 	"github.com/maomeng/aim/app/ws-gateway/internal/streamcache"
 	"github.com/maomeng/aim/pkg/logx"
 	pkgmetrics "github.com/maomeng/aim/pkg/metrics"
-	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
-	message "github.com/maomeng/aim/app/message-service/pb/message"
 	pushpb "github.com/maomeng/aim/pkg/pb/push"
 	"github.com/redis/go-redis/v9"
-	"github.com/zeromicro/go-zero/core/discov"
+	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/prometheus"
 	"github.com/zeromicro/go-zero/core/trace"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -40,10 +39,8 @@ var configFile = flag.String("f", "etc/ws-gateway.yaml", "config file")
 func main() {
 	flag.Parse()
 
-	cfg, err := config.Load(*configFile)
-	if err != nil {
-		panic(fmt.Sprintf("config load failed: %v", err))
-	}
+	var cfg config.Config
+	conf.MustLoad(*configFile, &cfg, conf.UseEnv())
 
 	prometheus.Enable()
 
@@ -84,13 +81,13 @@ func main() {
 	}
 	// Bot platform gRPC client (for bot token validation on /ws/bot)
 	var botPlatClient botplatform.BotPlatformClient
-	if len(cfg.BotPlatform.Etcd.Hosts) > 0 || cfg.BotPlatform.Target != "" {
+	if cfg.BotPlatform.Target != "" {
 		botPlatClient = botplatform.NewBotPlatformClient(zrpc.MustNewClient(cfg.BotPlatform).Conn())
 	}
 
 	// Message service gRPC client (for bot WS reply via message.send)
 	var msgClient message.MessageServiceClient
-	if len(cfg.MessageService.Etcd.Hosts) > 0 || cfg.MessageService.Target != "" {
+	if cfg.MessageService.Target != "" {
 		msgClient = message.NewMessageServiceClient(zrpc.MustNewClient(cfg.MessageService).Conn())
 	}
 
@@ -104,14 +101,14 @@ func main() {
 	wsHandler := handler.NewWSHandler(upgrader, sessionMgr, presenceMgr, pushRouter, rdb, streamCache, cfg.JWT.Secret, logger, botPlatClient, msgClient)
 
 	// Routes
-	router.Register(r, wsHandler, cfg)
+	router.Register(r, wsHandler, &cfg)
 
 	// gRPC server for InternalPushService
 	grpcServer := grpc.NewServer()
 	pushpb.RegisterInternalPushServiceServer(grpcServer, push.NewPushServer(pushRouter, streamCache))
 	reflection.Register(grpcServer)
 
-	wsAddr := fmt.Sprintf("%s:%d", cfg.WebSocket.Host, cfg.WebSocket.Port)
+	wsAddr := net.JoinHostPort(cfg.WebSocket.Host, strconv.Itoa(cfg.WebSocket.Port))
 	go func() {
 		logger.Infof("ws-gateway-v2 HTTP/WS listening on %s", wsAddr)
 		if err := r.Run(wsAddr); err != nil {
@@ -119,17 +116,7 @@ func main() {
 		}
 	}()
 
-	grpcAddr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	// For etcd registration, resolve actual hostname so other containers can reach us.
-	// In K8s/k3s, prefer K8S_SERVICE_NAME env var because pod hostname is not DNS-resolvable.
-	registerAddr := grpcAddr
-	if cfg.Host == "0.0.0.0" {
-		if svcName := os.Getenv("K8S_SERVICE_NAME"); svcName != "" {
-			registerAddr = fmt.Sprintf("%s:%d", svcName, cfg.Port)
-		} else if h, err := os.Hostname(); err == nil {
-			registerAddr = fmt.Sprintf("%s:%d", h, cfg.Port)
-		}
-	}
+	grpcAddr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	go func() {
 		lis, err := net.Listen("tcp", grpcAddr)
 		if err != nil {
@@ -144,22 +131,10 @@ func main() {
 
 	// Metrics
 	go func() {
-		metricsAddr := fmt.Sprintf("0.0.0.0:%d", cfg.Metrics.Port)
+		metricsAddr := net.JoinHostPort("0.0.0.0", strconv.Itoa(cfg.Metrics.Port))
 		http.Handle("/metrics", pkgmetrics.Handler())
 		http.ListenAndServe(metricsAddr, nil)
 	}()
-
-	// Etcd registration
-	var pub *discov.Publisher
-	if cfg.Etcd.Key != "" && len(cfg.Etcd.Hosts) > 0 {
-		pub = discov.NewPublisher(cfg.Etcd.Hosts, cfg.Etcd.Key, registerAddr)
-		go func() {
-			if err := pub.KeepAlive(); err != nil {
-				logger.Errorf("etcd publisher keepalive: %v", err)
-			}
-		}()
-		logger.Infof("etcd service published: key=%s addr=%s", cfg.Etcd.Key, registerAddr)
-	}
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)

@@ -1,8 +1,0 @@
-# etcd - bitnami/etcd
-replicaCount: 1
-auth:
-  rbac:
-    create: false
-persistence:
-  size: 2Gi
-  storageClass: local-path

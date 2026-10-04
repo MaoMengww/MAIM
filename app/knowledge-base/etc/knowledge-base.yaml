@@ -1,10 +1,6 @@
 Name: knowledge-base.rpc
 ListenOn: 0.0.0.0:50057
 Timeout: 600000
-Etcd:
-  Hosts:
-  - 127.0.0.1:2379
-  Key: knowledge-base.rpc
 
 Log:
   Level: info
@@ -19,7 +15,7 @@ RateLimit:
 
 Telemetry:
   Name: knowledge-base.rpc
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 1.0
   Batcher: otlpgrpc
 
@@ -29,41 +25,37 @@ Prometheus:
 
 Database:
   Driver: postgres
-  DSN: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=knowledge
+  DSN: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=knowledge
 
 AppRedis:
-  Host: localhost:6379
+  Host: ${REDIS_ADDR}
   Type: node
   Pass: ""
   Key: knowledge-base.rpc
 
 Milvus:
-  Address: localhost:19530
+  Address: ${MILVUS_HOST}:${MILVUS_PORT}
   DBName: default
 
 Minio:
-  Endpoint: localhost:9000
-  AccessKey: minioadmin
-  SecretKey: minioadmin123
+  Endpoint: ${MINIO_ENDPOINT}
+  AccessKey: ${MINIO_ACCESS_KEY}
+  SecretKey: ${MINIO_SECRET_KEY}
   UseSSL: false
   Bucket: aim
 
 Kafka:
-  Brokers:
-  - localhost:9092
+  Brokers: ${KAFKA_BROKERS}
   ConsumerGroup: knowledge-base
   Version: 2.8.0
 
 LLMGateway:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: llm-gateway.rpc
+  Target: ${LLM_GATEWAY_ADDR}
   Timeout: 600000
 
 
 MinerU:
-  URL: http://localhost:30000
+  URL: ${MINERU_URL}
   Timeout: 60
 
 Snowflake:

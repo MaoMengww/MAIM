@@ -13,6 +13,7 @@ import (
 	"github.com/maomeng/aim/app/user-service/internal/logic/user"
 	"github.com/maomeng/aim/app/user-service/internal/repo"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
+	pkgconfig "github.com/maomeng/aim/pkg/config"
 	"github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/snowflake"
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,8 @@ import (
 func newAuthLogic(t *testing.T) (*auth.Logic, *user.Logic, *user.StatusLogic) {
 	t.Helper()
 	var c config.Config
-	conf.MustLoad("../etc/user.yaml", &c)
+	pkgconfig.SetLocalDefaults()
+	conf.MustLoad("../etc/user.yaml", &c, conf.UseEnv())
 	c.Telemetry.Endpoint = ""
 
 	db := c.Database

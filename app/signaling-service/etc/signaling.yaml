@@ -1,46 +1,32 @@
 Name: signaling-service
 Mode: dev
 ListenOn: 0.0.0.0:50061
-Etcd:
-  Hosts:
-    - 127.0.0.1:2379
-  Key: signaling-service.rpc
 Kafka:
-  Brokers:
-    - localhost:9092
+  Brokers: ${KAFKA_BROKERS}
   ConsumerGroup: signaling-service
   Version: "2.8.0"
   MaxRetry: 3
 Database:
-  DSN: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=notify
+  DSN: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=notify
   Driver: postgres
   MaxOpenConn: 100
   MaxIdleConn: 10
   MaxLifetime: 3600
 Redis:
-  Host: localhost:6379
+  Host: ${REDIS_ADDR}
   Type: node
   Pass: ""
   Key: signaling-service.rpc
-  Addr: localhost:6379
+  Addr: ${REDIS_ADDR}
   DB: 0
   PoolSize: 100
   MinIdleConn: 10
 ConversationService:
-  Etcd:
-    Hosts:
-      - 127.0.0.1:2379
-    Key: conversation.rpc
+  Target: ${CONVERSATION_SERVICE_ADDR}
 BotPlatform:
-  Etcd:
-    Hosts:
-      - 127.0.0.1:2379
-    Key: bot-platform.rpc
+  Target: ${BOT_PLATFORM_ADDR}
 WsGateway:
-  Etcd:
-    Hosts:
-      - 127.0.0.1:2379
-    Key: ws-gateway.rpc
+  Target: ${WS_GATEWAY_ADDR}
   NonBlock: true
 Log:
   Level: info

@@ -1,89 +1,50 @@
 package config
 
 import (
-	"os"
-
 	"github.com/maomeng/aim/pkg/config"
 	"github.com/zeromicro/go-zero/zrpc"
-	"gopkg.in/yaml.v3"
 )
 
 type (
 	Config struct {
-		Name           string             `yaml:"Name"`
-		Host           string             `yaml:"Host"`
-		Port           int                `yaml:"Port"`
-		ListenOn       string             `yaml:"ListenOn"`
-		Etcd           EtcdConfig         `yaml:"Etcd"`
-		WebSocket      WebSocketConfig    `yaml:"WebSocket"`
-		JWT            config.JWTConfig   `yaml:"JWT"`
-		Redis          config.RedisConfig `yaml:"Redis"`
-		BotPlatform    zrpc.RpcClientConf `yaml:"BotPlatform"`
-		MessageService zrpc.RpcClientConf `yaml:"MessageService"`
-		Metrics        MetricsConfig      `yaml:"Metrics"`
-		Log            config.LogConfig   `yaml:"Log"`
-		Telemetry      TelemetryConfig    `yaml:"Telemetry"`
-		StreamCache    StreamCacheConfig  `yaml:"StreamCache"`
-	}
-
-	EtcdConfig struct {
-		Hosts []string `yaml:"Hosts"`
-		Key   string   `yaml:"Key"`
+		Name           string             `json:"Name"`
+		Host           string             `json:"Host"`
+		Port           int                `json:"Port"`
+		ListenOn       string             `json:"ListenOn"`
+		WebSocket      WebSocketConfig    `json:"WebSocket"`
+		JWT            config.JWTConfig   `json:"JWT"`
+		Redis          config.RedisConfig `json:"Redis"`
+		BotPlatform    zrpc.RpcClientConf `json:"BotPlatform"`
+		MessageService zrpc.RpcClientConf `json:"MessageService"`
+		Metrics        MetricsConfig      `json:"Metrics"`
+		Log            config.LogConfig   `json:"Log"`
+		Telemetry      TelemetryConfig    `json:"Telemetry"`
+		StreamCache    StreamCacheConfig  `json:"StreamCache"`
 	}
 
 	WebSocketConfig struct {
-		Host              string `yaml:"Host"`
-		Port              int    `yaml:"Port"`
-		ReadBufferSize    int    `yaml:"ReadBufferSize"`
-		WriteBufferSize   int    `yaml:"WriteBufferSize"`
-		HeartbeatInterval int    `yaml:"HeartbeatInterval"`
-		MaxConn           int    `yaml:"MaxConn"`
+		Host              string `json:"Host"`
+		Port              int    `json:"Port"`
+		ReadBufferSize    int    `json:"ReadBufferSize"`
+		WriteBufferSize   int    `json:"WriteBufferSize"`
+		HeartbeatInterval int    `json:"HeartbeatInterval"`
+		MaxConn           int    `json:"MaxConn"`
 	}
 
 	MetricsConfig struct {
-		Port int `yaml:"Port"`
+		Port int `json:"Port"`
 	}
 
 	TelemetryConfig struct {
-		Name     string  `yaml:"Name"`
-		Endpoint string  `yaml:"Endpoint"`
-		Sampler  float64 `yaml:"Sampler"`
-		Disabled bool    `yaml:"Disabled"`
+		Name     string  `json:"Name"`
+		Endpoint string  `json:"Endpoint"`
+		Sampler  float64 `json:"Sampler"`
+		Disabled bool    `json:"Disabled,optional"`
 	}
 
 	StreamCacheConfig struct {
-		Enabled            bool `yaml:"Enabled"`
-		TTLSeconds         int  `yaml:"TTLSeconds"`
-		MaxChunksPerStream int  `yaml:"MaxChunksPerStream"`
+		Enabled            bool `json:"Enabled"`
+		TTLSeconds         int  `json:"TTLSeconds"`
+		MaxChunksPerStream int  `json:"MaxChunksPerStream"`
 	}
 )
-
-func defaultConfig() Config {
-	return Config{
-		Host:     "0.0.0.0",
-		Port:     50060,
-		ListenOn: "0.0.0.0:50060",
-		WebSocket: WebSocketConfig{
-			Host: "0.0.0.0", Port: 8081, ReadBufferSize: 4096, WriteBufferSize: 4096,
-			HeartbeatInterval: 30, MaxConn: 10000,
-		},
-		Log: config.LogConfig{Level: "info", Format: "json", Output: "stdout"},
-		StreamCache: StreamCacheConfig{
-			Enabled:            true,
-			TTLSeconds:         60,
-			MaxChunksPerStream: 500,
-		},
-	}
-}
-
-func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	cfg := defaultConfig()
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}

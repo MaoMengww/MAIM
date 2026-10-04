@@ -10,7 +10,7 @@ MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型�
 
 - **定位**：IM 平台 + AI Bot 引擎 + 知识库 RAG，三者一体化
 - **规模**：13 个 Go 微服务，gRPC + Kafka 通信
-- **部署**：docker或者k3s集群，Helmfile 统一编排 12 个基础设施 + 13 个应用服务
+- **部署**：Docker Compose 或 k3s，平台 DNS 发现，YAML 模板 + 环境变量配置
 
 ---
 
@@ -42,8 +42,8 @@ MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型�
     └──────┬──────────────│──▲───────────┬────────────────┘
            │              │  │           │
     ┌──────▼──────┐ ┌─────▼──│──┐ ┌──────▼──────────────┐
-    │    etcd     │ │   Kafka   │ │  signaling-service  │
-    │ 服务发现/配置 │ │  事件总线  │ │  推送调度/在线状态    │
+    │ 平台 DNS    │ │   Kafka   │ │ signaling-service   │
+    │ 服务发现    │ │  事件总线 │ │ 推送调度/在线状态     │
     └─────────────┘ └───────────┘ └─────────┬────────────┘
                                            │
     ┌───────────────────────────────────────▼────────────┐
@@ -131,7 +131,6 @@ AIM/
 │   │   ├── helmfile.yaml             # 集群级 Helmfile (基础设施 + 应用服务)
 │   │   ├── charts/aim-service/       # 通用服务 Helm Chart
 │   │   ├── infrastructure/           # 基础设施 Helm Values
-│   │   ├── jobs/                     # 一次性 Job (etcd 配置初始化)
 │   │   ├── values/staging/           # 按环境的服务配置
 │   │   └── scripts/                  # 一键构建/部署脚本
 │   └── monitoring/                   # Grafana 仪表盘 + Prometheus 告警规则
@@ -162,6 +161,16 @@ app/<service>/
 ├── pb/<service>/               # Protobuf 生成的 Go 代码
 └── main.go                     # 入口：加载配置 → 初始化 ServiceContext → 启动 gRPC server + Kafka consumers
 ```
+
+### 配置与服务发现
+
+每个服务只保留 `app/<service>/etc/` 的一份 YAML 模板；入口统一通过 `conf.MustLoad(..., conf.UseEnv())` 加载。Compose 的 `x-aim-env` 与 Helm Chart 的 `environment` 提供部署环境，模板不再由启动脚本或 `sed` 改写。
+
+- 本地直接启动：参考 `.env.example` 设置环境变量，再执行 `go run ./app/<service> -f app/<service>/etc/<filename>.yaml`；文件名以各服务 `etc/` 为准。
+- Compose：准备 `.env` 中的 Postgres、MinIO、Neo4j、`JWT_SECRET` 与 `AIM_ENC_KEY`，执行 `docker compose up -d --build`。`AIM_ENC_KEY` 必须是 base64 编码的 32 字节密钥。改变环境变量后用 `docker compose up -d --force-recreate <service>` 重建容器，不支持热更新。
+- k3s：在环境 values 中覆盖 Chart 的 `environment`，通过 Helmfile 更新；环境变量改变 Pod template 后触发滚动更新。后端 RPC Service 为 Headless，`dns:///aim-<service>:<port>` 返回各副本地址；gateway 保持普通 ClusterIP。
+- `KAFKA_BROKERS` 与 `ELASTICSEARCH_ADDRESSES` 是 YAML 列表值，例如 `[kafka:9092]`。部署示例中的凭据只用于开发，生产部署必须覆盖。
+- Milvus standalone 使用内嵌 etcd，将元数据保存在自身持久卷 `/var/lib/milvus/etcd`；没有共享 etcd 容器、初始化任务或 AIM 配置中心。它不是可以改用 DNS 替代的服务发现数据。
 
 ### Protobuf 生成
 
@@ -195,7 +204,9 @@ python3 tests/e2e/run.py --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
 ```
 
-每次使用独立 Compose project、网络与数据卷，无宿主端口映射；启动全部服务及两个长连接实例，等待真实健康检查，再运行注册、登录、创建私聊与双向消息投递。成功或失败后均清理该 project 的容器与数据卷；`--artifacts` 保留诊断日志。默认检查 A/A 与 B/B，`--cross-instance` 追加 A/B 双向投递。当前连接仅由实例内存持有，双副本投递可能失败；该失败不会被跳过或伪装为通过，修复归 P6。
+每次使用独立 Compose project、网络与数据卷，无宿主端口映射。启动顺序按真实依赖编排（`conversation-service` 先于它的热路径调用方 `message-service`），全部中间件与应用就绪后才施加流量。成功或失败后均清理该 project 的容器与数据卷；`--artifacts` 保留诊断日志。
+
+默认检查 A/A 与 B/B，`--cross-instance` 追加 A/B 双向投递。P1 之后两者的期望不同：Compose 的推送目标 `WS_GATEWAY_ADDR` 只解析到主 `ws-gateway` 实例，因此 A/A（两端都连在推送可达的实例上）是确定性通过的；B/B 与 A/B 需要「按连接定向投递」，属 P6 范围，当前仍然失败——该失败不会被跳过或伪装为通过（README 与工单都保留这一事实）。
 
 ---
 
@@ -607,7 +618,7 @@ signaling-service 是消息扇出(fanout)的核心枢纽。
 | 多端同步 | 同账号多设备消息同步，已读状态一致，离线消息补推 |
 | 文件存储 | MinIO Presigned URL，文件/头像/附件统一管理 |
 | 离线推送 | 在线 WebSocket 实时推送 + 离线 FCM/APNs 通知 |
-| 服务治理 | 超时控制、限流、熔断、重试，etcd 配置热更新 |
+| 服务治理 | 超时控制、限流、熔断、重试，YAML + 环境变量配置 |
 | 可观测性 | Jaeger 分布式追踪、Prometheus 监控、Grafana 仪表盘、EFK 日志 |
 | 部署运维 | k3s 集群，Helmfile 声明式，一键部署脚本 |
 

@@ -3,28 +3,21 @@ Host: 0.0.0.0
 Port: 8080
 
 JWT:
-  Secret: aim-dev-secret-key
+  Secret: ${JWT_SECRET}
   ExpireSec: 3600
   RefreshSec: 2592000
 
-Etcd:
-  Hosts:
-    - 127.0.0.1:2379
-  DialTimeout: 5
-  TTL: 10
-
 Services:
-  UserServiceKey:        user.rpc
-  FriendServiceKey:      friend.rpc
-  ConversationServiceKey: conversation.rpc
-  MessageServiceKey:     message.rpc
-  FileServiceKey:        file.rpc
-  BotPlatformServiceKey:  bot-platform.rpc
-  KnowledgeServiceKey:   knowledge-base.rpc
-  NotificationServiceKey: signaling-service.rpc
-  AuditServiceKey:       audit.rpc
-  AIBotServiceKey:       ai-bot.rpc
-  LLMGatewayServiceKey:  llm-gateway.rpc
+  UserServiceAddr: ${USER_SERVICE_ADDR}
+  FriendServiceAddr: ${FRIEND_SERVICE_ADDR}
+  ConversationServiceAddr: ${CONVERSATION_SERVICE_ADDR}
+  MessageServiceAddr: ${MESSAGE_SERVICE_ADDR}
+  FileServiceAddr: ${FILE_SERVICE_ADDR}
+  BotPlatformServiceAddr: ${BOT_PLATFORM_ADDR}
+  KnowledgeServiceAddr: ${KNOWLEDGE_BASE_ADDR}
+  NotificationServiceAddr: ${SIGNALING_SERVICE_ADDR}
+  AIBotServiceAddr: ${AI_BOT_SERVICE_ADDR}
+  LLMGatewayServiceAddr: ${LLM_GATEWAY_ADDR}
 
 RateLimit:
   Enabled: false
@@ -36,7 +29,7 @@ Timeout:
   BotMs: 60000
 
 Redis:
-  Host: localhost:6379
+  Host: ${REDIS_ADDR}
   Password: ""
   DB: 0
   PoolSize: 100
@@ -50,5 +43,5 @@ Log:
 
 Telemetry:
   Name: gateway
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 1.0

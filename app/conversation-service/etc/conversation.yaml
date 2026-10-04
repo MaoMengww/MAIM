@@ -1,16 +1,12 @@
 Name: conversation.rpc
 ListenOn: 0.0.0.0:50055
-Etcd:
-  Hosts:
-  - 127.0.0.1:2379
-  Key: conversation.rpc
 Database:
   Driver: postgres
-  DSN: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=conv
+  DSN: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=conv
   MaxOpenConn: 100
   MaxIdleConn: 100
 Redis:
-  Host: localhost:6379
+  Host: ${REDIS_ADDR}
   Type: node
   Pass: ""
   Key: conversation.rpc
@@ -18,8 +14,7 @@ Snowflake:
   WorkerId: 2
 Kafka:
   consumerGroup: conv-msg-consumer
-  brokers:
-  - localhost:9092
+  brokers: ${KAFKA_BROKERS}
   maxRetry: 3
 Conv:
   MaxMemberCount: 500
@@ -27,24 +22,15 @@ Conv:
   MaxAliasLen: 32
   MaxAnnouncementLen: 1024
 MessageService:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: message.rpc
+  Target: ${MESSAGE_SERVICE_ADDR}
 
 BotPlatform:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: bot-platform.rpc
+  Target: ${BOT_PLATFORM_ADDR}
   Middlewares:
     Breaker: true
 
 UserService:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: user.rpc
+  Target: ${USER_SERVICE_ADDR}
   Middlewares:
     Breaker: true
 
@@ -64,7 +50,7 @@ RateLimit:
 
 Telemetry:
   Name: conversation.rpc
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 0
   Batcher: otlpgrpc
 

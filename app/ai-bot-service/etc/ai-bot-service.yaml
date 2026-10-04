@@ -1,27 +1,21 @@
 Name: ai-bot-service
 ListenOn: 0.0.0.0:50062
 
-Etcd:
-  Hosts:
-  - 127.0.0.1:2379
-  Key: ai-bot.rpc
-
 Database:
   driver: postgres
-  dsn: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=bot
+  dsn: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=bot
   maxOpenConn: 50
   maxIdleConn: 10
   maxLifetime: 3600
 
 Redis:
-  Host: localhost:6379
+  Host: ${REDIS_ADDR}
   Type: node
   Pass: ""
   Key: ai-bot.rpc
 
 Kafka:
-  brokers:
-  - localhost:9092
+  brokers: ${KAFKA_BROKERS}
   consumerGroup: ai-bot-service
   maxRetry: 3
 
@@ -32,8 +26,8 @@ Bot:
   requestTimeout: 120s
 
 Milvus:
-  host: localhost
-  port: 19530
+  host: ${MILVUS_HOST}
+  port: ${MILVUS_PORT}
   database: aim
 
 Memory:
@@ -42,51 +36,33 @@ Memory:
   vectorCollection: bot_memory_facts_v1
   vectorTopKMult: 4
   Neo4j:
-    uri: bolt://localhost:7687
-    username: neo4j
-    password: aim123
+    uri: ${NEO4J_URI}
+    username: ${NEO4J_USER}
+    password: ${NEO4J_PASSWORD}
     database: neo4j
 
 LlmGateway:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: llm-gateway.rpc
+  Target: ${LLM_GATEWAY_ADDR}
   Timeout: 600000
 
 MessageService:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: message.rpc
+  Target: ${MESSAGE_SERVICE_ADDR}
   Timeout: 30000
 
 KnowledgeBase:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: knowledge-base.rpc
+  Target: ${KNOWLEDGE_BASE_ADDR}
   Timeout: 600000
 
 WsGateway:
-  Etcd:
-    Hosts:
-      - 127.0.0.1:2379
-    Key: ws-gateway.rpc
+  Target: ${WS_GATEWAY_ADDR}
   Timeout: 10000
 
 BotPlatform:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: bot-platform.rpc
+  Target: ${BOT_PLATFORM_ADDR}
   Timeout: 10000
 
 UserService:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: user.rpc
+  Target: ${USER_SERVICE_ADDR}
   Timeout: 10000
 
 Log:
@@ -103,7 +79,7 @@ RateLimit:
 
 Telemetry:
   Name: ai-bot.rpc
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 1.0
   Batcher: otlpgrpc
 

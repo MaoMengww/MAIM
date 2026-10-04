@@ -1,20 +1,13 @@
 Name: friend.rpc
 ListenOn: 0.0.0.0:50052
-Etcd:
-  Hosts:
-  - 127.0.0.1:2379
-  Key: friend.rpc
 Database:
   driver: postgres
-  dsn: postgres://aim:aim123@127.0.0.1:5432/aim?sslmode=disable&search_path=friend
+  dsn: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=friend
   maxOpenConn: 100
   maxIdleConn: 100
   maxLifetime: 3600
 UserRPC:
-  Etcd:
-    Hosts:
-    - 127.0.0.1:2379
-    Key: user.rpc
+  Target: ${USER_SERVICE_ADDR}
 
 Log:
   Level: info
@@ -31,7 +24,7 @@ RateLimit:
 
 Telemetry:
   Name: friend.rpc
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 0
   Batcher: otlpgrpc
 

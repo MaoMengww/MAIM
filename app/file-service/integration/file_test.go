@@ -13,7 +13,7 @@ import (
 	"github.com/maomeng/aim/app/file-service/internal/logic"
 	"github.com/maomeng/aim/app/file-service/internal/svc"
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
-	"github.com/maomeng/aim/pkg/configcenter"
+	pkgconfig "github.com/maomeng/aim/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zeromicro/go-zero/core/conf"
@@ -22,12 +22,9 @@ import (
 func newFileSvcCtx(t *testing.T) *svc.ServiceContext {
 	t.Helper()
 	var c config.Config
-	conf.MustLoad("../etc/file.yaml", &c)
+	pkgconfig.SetLocalDefaults()
+	conf.MustLoad("../etc/file.yaml", &c, conf.UseEnv())
 	c.Telemetry.Endpoint = ""
-
-	if raw := etcdRawConfig("file.rpc"); raw != nil {
-		configcenter.MergeRemote(&c, raw)
-	}
 
 	return svc.NewServiceContext(c)
 }

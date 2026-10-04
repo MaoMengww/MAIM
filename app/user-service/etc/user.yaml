@@ -1,25 +1,21 @@
 Name: user.rpc
 ListenOn: 0.0.0.0:50051
-Etcd:
-  Hosts:
-  - 127.0.0.1:2379
-  Key: user.rpc
 Log:
   Level: info
   Stat: false
 Database:
   Driver: postgres
-  DSN: postgres://aim:aim123@localhost:5432/aim?sslmode=disable&search_path=user
+  DSN: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=user
   ReadDSN: ""
   MaxOpenConn: 50
   MaxIdleConn: 10
   MaxLifetime: 3600
 AppRedis:
-  Host: localhost:6379
+  Host: ${REDIS_ADDR}
   Pass: ""
   ClusterMode: false
 JWT:
-  Secret: aim-dev-secret-key
+  Secret: ${JWT_SECRET}
   ExpireSec: 3600
   RefreshSec: 2592000
 CpuThreshold: 900
@@ -31,7 +27,7 @@ RateLimit:
 
 Telemetry:
   Name: user.rpc
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 0
   Batcher: otlpgrpc
 Prometheus:

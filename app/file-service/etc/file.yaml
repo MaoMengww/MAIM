@@ -1,19 +1,16 @@
 Name: file.rpc
 ListenOn: 0.0.0.0:50054
-Etcd:
-  Hosts:
-  - 127.0.0.1:2379
-  Key: file.rpc
 Database:
   driver: postgres
-  dsn: postgres://aim:aim123@127.0.0.1:5432/aim?sslmode=disable&search_path=file
+  dsn: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=file
   maxOpenConn: 100
   maxIdleConn: 10
   maxLifetime: 3600
 MinIO:
-  endpoint: localhost:9000
-  accessKey: minioadmin
-  secretKey: minioadmin123
+  endpoint: ${MINIO_ENDPOINT}
+  publicEndpoint: ${MINIO_PUBLIC_ENDPOINT}
+  accessKey: ${MINIO_ACCESS_KEY}
+  secretKey: ${MINIO_SECRET_KEY}
   useSSL: false
   bucket: aim
 
@@ -30,7 +27,7 @@ RateLimit:
 
 Telemetry:
   Name: file.rpc
-  Endpoint: localhost:4317
+  Endpoint: ${OTEL_ENDPOINT}
   Sampler: 1.0
   Batcher: otlpgrpc
 

@@ -18,12 +18,10 @@ FROM alpine:3.21
 RUN apk add --no-cache tzdata ca-certificates
 
 COPY --from=builder /build/service /app/service
-COPY deploy/docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh /app/service
+RUN chmod +x /app/service
 
 ARG SERVICE
 COPY app/${SERVICE}/etc/ /app/etc/
 
 WORKDIR /app
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["/app/service"]
+ENTRYPOINT ["/app/service"]

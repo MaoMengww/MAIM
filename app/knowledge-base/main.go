@@ -17,7 +17,6 @@ import (
 	"github.com/maomeng/aim/app/knowledge-base/internal/pipeline"
 	"github.com/maomeng/aim/app/knowledge-base/internal/svc"
 	pb "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase"
-	"github.com/maomeng/aim/pkg/configcenter"
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
@@ -34,8 +33,7 @@ func main() {
 	flag.Parse()
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
-	configcenter.InitConfigCenter(c.Name, c.Etcd.Hosts, &c)
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
 	ctx := svc.NewServiceContext(c)
 	logger := logx.DefaultLogger()
 
@@ -44,7 +42,7 @@ func main() {
 		vecStore domain.VectorStore
 		rank     domain.Reranker
 	)
-	if c.LLMGateway.Etcd.Key != "" || c.LLMGateway.Target != "" {
+	if c.LLMGateway.Target != "" {
 		embed = embedder.NewLLMGatewayEmbedder(ctx.LLMGatewayClient)
 		rank = reranker.NewLLMGatewayReranker(ctx.LLMGatewayClient)
 	}

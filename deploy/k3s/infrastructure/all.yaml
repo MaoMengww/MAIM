@@ -68,44 +68,6 @@ spec:
   selector: {app: aim-redis}
   ports: [{port: 6379}]
 
-# etcd
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata: {name: etcd-pvc}
-spec:
-  accessModes: [ReadWriteOnce]
-  storageClassName: local-path
-  resources: {requests: {storage: 2Gi}}
----
-apiVersion: apps/v1
-kind: Deployment
-metadata: {name: aim-etcd}
-spec:
-  replicas: 1
-  selector: {matchLabels: {app: aim-etcd}}
-  template:
-    metadata: {labels: {app: aim-etcd}}
-    spec:
-      containers:
-        - name: etcd
-          image: quay.io/coreos/etcd:v3.5.21
-          command: [etcd]
-          args:
-            - --data-dir=/data
-            - --listen-client-urls=http://0.0.0.0:2379
-            - --advertise-client-urls=http://aim-etcd:2379
-          ports: [{containerPort: 2379}]
-          volumeMounts: [{name: data, mountPath: /data}]
-      volumes: [{name: data, persistentVolumeClaim: {claimName: etcd-pvc}}]
----
-apiVersion: v1
-kind: Service
-metadata: {name: aim-etcd}
-spec:
-  selector: {app: aim-etcd}
-  ports: [{port: 2379}]
-
 # Kafka (KRaft mode)
 ---
 apiVersion: apps/v1
@@ -241,13 +203,15 @@ spec:
     spec:
       containers:
         - name: milvus
-          image: milvusdb/milvus:v2.5.4
+          image: milvusdb/milvus:v2.6.11
           command: [milvus, run, standalone]
           ports:
             - {containerPort: 19530}
             - {containerPort: 9091}
           env:
-            - {name: ETCD_ENDPOINTS, value: "aim-etcd:2379"}
+            - {name: DEPLOY_MODE, value: "STANDALONE"}
+            - {name: ETCD_USE_EMBED, value: "true"}
+            - {name: ETCD_DATA_DIR, value: "/var/lib/milvus/etcd"}
             - {name: MINIO_ADDRESS, value: "aim-minio:9000"}
             - {name: MINIO_ACCESS_KEY_ID, value: "minioadmin"}
             - {name: MINIO_SECRET_ACCESS_KEY, value: "minioadmin123"}
