@@ -127,11 +127,6 @@ releases:
     values:
       - values/{{ .Environment.Name }}/bot-platform.yaml
 
-  - name: aim-audit-service
-    chart: ./charts/aim-service
-    values:
-      - values/{{ .Environment.Name }}/audit-service.yaml
-
   - name: aim-ai-bot-service
     chart: ./charts/aim-service
     values:

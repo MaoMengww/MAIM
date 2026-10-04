@@ -6,10 +6,10 @@
 
 ## 项目概要
 
-MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型深度融入实时通讯场景。系统由 **13 个 Go 微服务** 构成，涵盖消息引擎、Bot 编排、知识库 RAG 检索、WebSocket 实时推送等完整业务域，通过 **Helmfile + k3s** 声明式部署。
+MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型深度融入实时通讯场景。系统由 **12 个 Go 微服务** 构成，涵盖消息引擎、Bot 编排、知识库 RAG 检索、WebSocket 实时推送等完整业务域，通过 **Helmfile + k3s** 声明式部署。
 
 - **定位**：IM 平台 + AI Bot 引擎 + 知识库 RAG，三者一体化
-- **规模**：13 个 Go 微服务，gRPC + Kafka 通信
+- **规模**：12 个 Go 微服务，gRPC + Kafka 通信
 - **部署**：Docker Compose 或 k3s，平台 DNS 发现，YAML 模板 + 环境变量配置
 
 ---
@@ -110,7 +110,7 @@ Gateway (REST) ──gRPC──▶ message-service
 
 ```
 AIM/
-├── app/                              # 13 个 Go 微服务 (go-zero 统一布局)
+├── app/                              # 12 个 Go 微服务 (go-zero 统一布局)
 │   ├── gateway/                      # REST API 网关 (Gin BFF, JWT + 限流)
 │   ├── ws-gateway/                   # WebSocket 实时网关 (长连接 + 在线状态)
 │   ├── user-service/                 # 用户注册/登录/资料管理
@@ -122,8 +122,7 @@ AIM/
 │   ├── bot-platform/                 # Bot 管理平台 (创建/配置/MCP/Webhook)
 │   ├── ai-bot-service/               # AI Bot 执行引擎 (Eino ReAct Agent + 记忆)
 │   ├── knowledge-base/               # RAG 向量检索（解析/分块/Embedding/检索）
-│   ├── signaling-service/            # 事件扇出与推送 (Kafka → WS/APNs/FCM/Bot路由)
-│   └── audit-service/                # 审计日志服务
+│   └── signaling-service/            # 事件扇出与推送 (Kafka → WS/APNs/FCM/Bot路由)
 │
 ├── deploy/
 │   ├── docker/                       # Dockerfile (多阶段构建) + 入口脚本

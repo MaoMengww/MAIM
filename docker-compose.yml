@@ -446,27 +446,6 @@ services:
     restart: unless-stopped
 
 
-  audit-service:
-    build:
-      context: .
-      dockerfile: deploy/docker/Dockerfile
-      args:
-        SERVICE: audit-service
-    image: aim-audit-service:latest
-    container_name: aim-audit-service
-    environment: *aim-env
-    ports:
-      - "50059:50059"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      init-kafka-topics:
-        condition: service_completed_successfully
-
-    restart: unless-stopped
-
 
   ai-bot-service:
     build:

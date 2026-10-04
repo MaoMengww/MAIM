@@ -38,7 +38,6 @@ const (
 
 const (
 	NotifTypeSystem = 1
-	NotifTypeAudit  = 2
 	NotifTypeBot    = 3
 )
 

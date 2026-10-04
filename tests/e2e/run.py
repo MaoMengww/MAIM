@@ -25,7 +25,6 @@ APPLICATIONS = {
     "llm-gateway": ("llm-gateway.yaml", 50056),
     "knowledge-base": ("knowledge-base.yaml", 50057),
     "bot-platform": ("bot-platform.yaml", 8085),
-    "audit-service": ("audit.yaml", 50059),
     "ai-bot-service": ("ai-bot-service.yaml", 50062),
     "signaling-service": ("signaling.yaml", 50061),
     "ws-gateway": ("ws-gateway.yaml", 8081),

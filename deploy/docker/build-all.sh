@@ -7,7 +7,6 @@ services=(
   user-service friend-service conversation-service message-service
   gateway file-service llm-gateway knowledge-base
   ai-bot-service bot-platform ws-gateway signaling-service
-  audit-service
 )
 
 total=${#services[@]}

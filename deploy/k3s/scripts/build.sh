@@ -15,7 +15,6 @@ SERVICES=(
   llm-gateway
   knowledge-base
   bot-platform
-  audit-service
   ai-bot-service
   signaling-service
   ws-gateway

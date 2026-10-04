@@ -10,7 +10,7 @@ K3S_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROJECT_ROOT="$(cd "$K3S_ROOT/.." && pwd)"
 
 SERVICES=(user-service friend-service message-service conversation-service file-service
-           llm-gateway knowledge-base bot-platform audit-service ai-bot-service
+           llm-gateway knowledge-base bot-platform ai-bot-service
            signaling-service ws-gateway gateway)
 
 build_images() {

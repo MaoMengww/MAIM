@@ -3,7 +3,6 @@
 -- For new migrations, add sequentially numbered files (001_xxx.sql, 002_xxx.sql, …).
 
 -- =========== Schemas ===========
-CREATE SCHEMA IF NOT EXISTS audit;
 CREATE SCHEMA IF NOT EXISTS bot;
 CREATE SCHEMA IF NOT EXISTS conv;
 CREATE SCHEMA IF NOT EXISTS file;
@@ -581,39 +580,6 @@ CREATE INDEX IF NOT EXISTS idx_model_registry_owner ON llm.model_registry(owner_
 CREATE INDEX IF NOT EXISTS idx_billing_records_bot ON llm.billing_records(bot_id);
 CREATE INDEX IF NOT EXISTS idx_billing_records_owner ON llm.billing_records(owner_id);
 CREATE INDEX IF NOT EXISTS idx_billing_records_time ON llm.billing_records(created_at);
-
--- =========== audit domain ===========
-
-CREATE SEQUENCE IF NOT EXISTS audit.audit_events_id_seq;
-CREATE TABLE IF NOT EXISTS audit.audit_events (
-    id              BIGINT PRIMARY KEY DEFAULT nextval('audit.audit_events_id_seq'::regclass),
-    event_id        VARCHAR(128) NOT NULL,
-    action          INTEGER NOT NULL,
-    result          INTEGER NOT NULL,
-    risk            INTEGER NOT NULL,
-    user_id         BIGINT NOT NULL,
-    device_id       VARCHAR(256) DEFAULT '' NOT NULL,
-    ip_address      VARCHAR(64) DEFAULT '' NOT NULL,
-    user_agent      TEXT DEFAULT '' NOT NULL,
-    resource_type   VARCHAR(64) DEFAULT '' NOT NULL,
-    resource_id     VARCHAR(128) DEFAULT '' NOT NULL,
-    detail          JSONB DEFAULT '{}'::JSONB NOT NULL,
-    error_message   TEXT DEFAULT '' NOT NULL,
-    trace_id        VARCHAR(128) DEFAULT '' NOT NULL,
-    span_id         VARCHAR(128) DEFAULT '' NOT NULL,
-    service_name    VARCHAR(128) DEFAULT '' NOT NULL,
-    service_version VARCHAR(32) DEFAULT '' NOT NULL,
-    review_status   SMALLINT DEFAULT 0 NOT NULL,
-    review_result   JSONB DEFAULT '{}'::JSONB NOT NULL,
-    is_archived     BOOLEAN DEFAULT FALSE NOT NULL,
-    created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
-ALTER SEQUENCE audit.audit_events_id_seq OWNED BY audit.audit_events.id;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_events_event_id ON audit.audit_events(event_id);
-CREATE INDEX IF NOT EXISTS idx_audit_events_user_id ON audit.audit_events(user_id);
-CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit.audit_events(created_at);
-CREATE INDEX IF NOT EXISTS idx_audit_events_action ON audit.audit_events(action);
 
 -- =========== notify domain ===========
 
