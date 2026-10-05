@@ -2,10 +2,12 @@ package conversationservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/consts"
@@ -28,40 +30,32 @@ func (l *AddMembersLogic) AddMembers(in *conversation.AddMembersReq) (*conversat
 		return nil, err
 	}
 	memberRole := int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)
-	var added, failed []int64
+	members := make([]model.ConversationMember, 0, len(in.UserIds))
 
 	for _, uid := range in.UserIds {
-		isMember, err := l.svcCtx.ConversationRepo.IsMember(l.ctx, in.ConversationId, uid)
-		if err != nil {
-			l.Logger.Errorf("check member failed: conv=%d, uid=%d, err=%v", in.ConversationId, uid, err)
-		}
-		if isMember {
-			failed = append(failed, uid)
-			continue
-		}
 		memberID, err := l.svcCtx.Snowflake.Generate()
 		if err != nil {
 			return nil, fmt.Errorf("generate member id failed: %w", err)
 		}
-		m := model.ConversationMember{
+		members = append(members, model.ConversationMember{
 			ID:         memberID,
 			ConvID:     in.ConversationId,
 			UserID:     uid,
 			MemberType: model.MemberTypeUser,
 			Role:       memberRole,
 			JoinedAt:   now,
-		}
-		if err := l.svcCtx.ConversationRepo.AddMember(l.ctx, &m); err != nil {
-			failed = append(failed, uid)
-			continue
-		}
-		added = append(added, uid)
+		})
+	}
+
+	added, failed, err := l.svcCtx.ConversationRepo.AddMembersWithinLimit(l.ctx, in.ConversationId, members, l.svcCtx.Config.Conv.MaxMemberCount)
+	if errors.Is(err, repo.ErrMemberLimitReached) {
+		return nil, ErrConvMaxMembers
+	}
+	if err != nil {
+		return nil, fmt.Errorf("add members failed: %w", err)
 	}
 
 	if len(added) > 0 {
-		if err := l.svcCtx.ConversationRepo.IncrementMemberCount(l.ctx, in.ConversationId, len(added)); err != nil {
-			l.Logger.Errorf("increment member count failed: conv=%d, delta=%d, err=%v", in.ConversationId, len(added), err)
-		}
 		emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, consts.ConvActionMemberJoined, "成员加入了群聊", added)
 	}
 

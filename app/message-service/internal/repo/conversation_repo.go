@@ -12,6 +12,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+var ErrMemberLimitReached = errors.New("conversation member limit reached")
+
 // ConversationStore is the conversation aggregate's persistence contract. It is
 // implemented by ConversationRepo and consumed by the conversation logic; the
 // message hot path uses the same type directly in-process.
@@ -30,6 +32,7 @@ type ConversationStore interface {
 	IncrementMemberCount(ctx context.Context, id int64, delta int) error
 	AddMember(ctx context.Context, member *model.ConversationMember) error
 	AddMembersBatch(ctx context.Context, members []model.ConversationMember) error
+	AddMembersWithinLimit(ctx context.Context, convID int64, members []model.ConversationMember, maxMembers int) (added, failed []int64, err error)
 	RemoveMember(ctx context.Context, convID, userID int64) error
 	GetMember(ctx context.Context, convID, userID int64) (*model.ConversationMember, error)
 	GetMembers(ctx context.Context, convID int64, offset, limit int) ([]model.ConversationMember, error)
@@ -227,6 +230,58 @@ func (r *ConversationRepo) AddMembersBatch(ctx context.Context, members []model.
 		return nil
 	}
 	return r.DB.WithContext(ctx).Create(&members).Error
+}
+
+// AddMembersWithinLimit serializes additions on the conversation row and commits
+// the entire new-member batch together with its member count. Existing members,
+// including bots, count toward capacity; repeated IDs do not consume new slots.
+// The candidate slice is compacted in place.
+func (r *ConversationRepo) AddMembersWithinLimit(ctx context.Context, convID int64, members []model.ConversationMember, maxMembers int) (added, failed []int64, err error) {
+	if len(members) == 0 {
+		return nil, nil, nil
+	}
+	err = r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var conv model.Conversation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", convID).Take(&conv).Error; err != nil {
+			return err
+		}
+
+		// Read the membership rows, not the denormalized count: other existing
+		// membership paths can leave that count behind (notably bot additions).
+		var currentIDs []int64
+		if err := tx.Model(&model.ConversationMember{}).Where("conv_id = ?", convID).Pluck("user_id", &currentIDs).Error; err != nil {
+			return err
+		}
+		seen := make(map[int64]struct{}, len(currentIDs))
+		for _, uid := range currentIDs {
+			seen[uid] = struct{}{}
+		}
+		pending := members[:0]
+		for _, member := range members {
+			if _, exists := seen[member.UserID]; exists {
+				failed = append(failed, member.UserID)
+				continue
+			}
+			seen[member.UserID] = struct{}{}
+			pending = append(pending, member)
+			added = append(added, member.UserID)
+		}
+		if len(pending) == 0 {
+			return nil
+		}
+		if len(currentIDs)+len(pending) > maxMembers {
+			return ErrMemberLimitReached
+		}
+		if err := tx.Create(&pending).Error; err != nil {
+			return err
+		}
+		return tx.Model(&model.Conversation{}).Where("id = ?", convID).
+			Update("member_count", gorm.Expr("member_count + ?", len(pending))).Error
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return added, failed, nil
 }
 
 func (r *ConversationRepo) RemoveMember(ctx context.Context, convID, userID int64) error {
