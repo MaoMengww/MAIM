@@ -13,16 +13,6 @@ const (
 	ConvTypeGroup   int32 = 2
 )
 
-type Bot struct {
-	ID     int64  `gorm:"primaryKey;column:id"`
-	Name   string `gorm:"column:name"`
-	Avatar string `gorm:"column:avatar"`
-}
-
-func (Bot) TableName() string {
-	return "bot.bots"
-}
-
 type Conversation struct {
 	ID                 int64     `gorm:"primaryKey;column:id"`
 	Type               int32     `gorm:"column:type"`

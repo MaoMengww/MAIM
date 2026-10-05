@@ -1,0 +1,8 @@
+replicaCount: 1
+args: ["-f", "/app/etc/bot.yaml", "-role", "control"]
+service:
+  grpcPort: 50058
+  metricsPort: 9109
+config:
+  name: bot-service
+  configFilename: bot

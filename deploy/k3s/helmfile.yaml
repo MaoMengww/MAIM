@@ -112,15 +112,20 @@ releases:
     values:
       - values/{{ .Environment.Name }}/knowledge-base.yaml
 
-  - name: aim-bot-platform
+  - name: aim-knowledge-ingest
     chart: ./charts/aim-service
     values:
-      - values/{{ .Environment.Name }}/bot-platform.yaml
+      - values/{{ .Environment.Name }}/knowledge-ingest.yaml
 
-  - name: aim-ai-bot-service
+  - name: aim-bot-service
     chart: ./charts/aim-service
     values:
-      - values/{{ .Environment.Name }}/ai-bot-service.yaml
+      - values/{{ .Environment.Name }}/bot-service.yaml
+
+  - name: aim-bot-runtime
+    chart: ./charts/aim-service
+    values:
+      - values/{{ .Environment.Name }}/bot-runtime.yaml
 
   - name: aim-signaling-service
     chart: ./charts/aim-service

@@ -23,8 +23,8 @@ Redis:
   MinIdleConn: 10
 MessageService:
   Target: ${MESSAGE_SERVICE_ADDR}
-BotPlatform:
-  Target: ${BOT_PLATFORM_ADDR}
+BotService:
+  Target: ${BOT_SERVICE_ADDR}
 WsGateway:
   Target: ${WS_GATEWAY_ADDR}
   NonBlock: true

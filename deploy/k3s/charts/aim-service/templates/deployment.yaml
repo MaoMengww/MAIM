@@ -17,12 +17,18 @@ spec:
     spec:
       containers:
         - name: {{ include "aim-service.fullname" . }}
-          image: "{{ .Values.image.repository }}/aim-{{ .Values.config.name }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}/aim-{{ .Values.image.name | default .Values.config.name }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
+            {{- if gt (int .Values.service.grpcPort) 0 }}
             - containerPort: {{ .Values.service.grpcPort }}
               name: grpc
               protocol: TCP
+            {{- end }}
             {{- if .Values.service.httpPort }}
             - containerPort: {{ .Values.service.httpPort }}
               name: http
@@ -45,15 +51,34 @@ spec:
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
+            {{- range $k, $v := .Values.config.secretEnv }}
+            - name: {{ $k }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $v.name }}
+                  key: {{ $v.key }}
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:
+            {{- if .Values.probes.httpPort }}
+            httpGet:
+              path: {{ .Values.probes.httpPath | default "/health" }}
+              port: {{ .Values.probes.httpPort }}
+            {{- else }}
             tcpSocket:
               port: grpc
+            {{- end }}
             initialDelaySeconds: 10
             periodSeconds: 15
           readinessProbe:
+            {{- if .Values.probes.httpPort }}
+            httpGet:
+              path: {{ .Values.probes.httpPath | default "/health" }}
+              port: {{ .Values.probes.httpPort }}
+            {{- else }}
             tcpSocket:
               port: grpc
+            {{- end }}
             initialDelaySeconds: 5
             periodSeconds: 10

@@ -11,10 +11,9 @@ type ServicesConfig struct {
 	UserServiceAddr         string `json:"userServiceAddr"`
 	MessageServiceAddr      string `json:"messageServiceAddr"`
 	FileServiceAddr         string `json:"fileServiceAddr"`
-	BotPlatformServiceAddr  string `json:"botPlatformServiceAddr"`
+	BotServiceAddr          string `json:"botServiceAddr"`
 	KnowledgeServiceAddr    string `json:"knowledgeServiceAddr"`
 	NotificationServiceAddr string `json:"notificationServiceAddr"`
-	AIBotServiceAddr        string `json:"aiBotServiceAddr"`
 	LLMGatewayServiceAddr   string `json:"llmGatewayServiceAddr"`
 }
 

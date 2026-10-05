@@ -33,6 +33,9 @@ type storedMessage struct {
 	Text      struct {
 		Text string `json:"text"`
 	} `json:"text"`
+	Bot *struct {
+		Text string `json:"text"`
+	} `json:"bot"`
 }
 
 // conversations exercises only real authenticated HTTP and WebSocket surfaces.
@@ -314,7 +317,11 @@ func (d *driver) conversationMessage(step string, caller account, expected sentM
 }
 
 func checkStoredMessage(step string, actual storedMessage, expected sentMessage) error {
-	if actual.MessageID != expected.MessageID || actual.ConvID != expected.ConvID || actual.SenderID != expected.SenderID || actual.Seq != expected.Seq || actual.Text.Text != expected.Content.Text {
+	text := actual.Text.Text
+	if actual.Bot != nil {
+		text = actual.Bot.Text
+	}
+	if actual.MessageID != expected.MessageID || actual.ConvID != expected.ConvID || actual.SenderID != expected.SenderID || actual.Seq != expected.Seq || text != expected.Content.Text {
 		return fmt.Errorf("conversations.%s: 持久化消息与 HTTP 确认不一致，期望 message_id=%s conv_id=%s seq=%s sender_id=%s", step, expected.MessageID, expected.ConvID, expected.Seq, expected.SenderID)
 	}
 	return nil

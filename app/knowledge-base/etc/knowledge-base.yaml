@@ -13,6 +13,13 @@ RateLimit:
   RequestsPerSecond: 100
   Concurrency: 10
 
+Ingest:
+  RequestsPerSecond: ${INGEST_REQUESTS_PER_SECOND}
+  Concurrency: ${INGEST_CONCURRENCY}
+  HealthPort: 9092
+  MetricsPort: 9118
+  EmbeddingToken: ${INGEST_EMBEDDING_TOKEN}
+
 Telemetry:
   Name: knowledge-base.rpc
   Endpoint: ${OTEL_ENDPOINT}
@@ -46,7 +53,7 @@ Minio:
 
 Kafka:
   Brokers: ${KAFKA_BROKERS}
-  ConsumerGroup: knowledge-base
+  ConsumerGroup: knowledge-ingest
   Version: 2.8.0
 
 LLMGateway:

@@ -3,6 +3,7 @@ package infra
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
@@ -17,9 +18,11 @@ import (
 // Concurrency limiting ("IncrConcurrency"/"DecrConcurrency") keeps the original
 // Redis INCR/DECR approach because go-zero does not provide this out of the box.
 type RateLimiter struct {
-	rpmLimiter        *limit.PeriodLimit
-	rdb               *redis.Redis
+	rpmLimiter         *limit.PeriodLimit
+	rdb                *redis.Redis
 	defaultConcurrency int
+	namespace          string
+	strict             bool
 }
 
 // NewRateLimiter creates a RateLimiter backed by go-zero's Redis client.
@@ -31,10 +34,19 @@ func NewRateLimiter(redisHost, redisPass string, defaultRPM, defaultConcurrency 
 		Pass: redisPass,
 	})
 	return &RateLimiter{
-		rpmLimiter:        limit.NewPeriodLimit(60, defaultRPM, rds, "llm:rate:rpm:"),
-		rdb:               rds,
+		rpmLimiter:         limit.NewPeriodLimit(60, defaultRPM, rds, "llm:rate:rpm:"),
+		rdb:                rds,
 		defaultConcurrency: defaultConcurrency,
 	}
+}
+
+// NewEmbeddingRateLimiter reserves one fixed workload budget across replicas.
+// Unlike the historical chat limiter, embedding quotas fail closed on Redis errors.
+func NewEmbeddingRateLimiter(redisHost, redisPass string, rpm, concurrency int, workload string) *RateLimiter {
+	rl := NewRateLimiter(redisHost, redisPass, rpm, concurrency)
+	rl.namespace = "embed:" + workload + ":"
+	rl.strict = true
+	return rl
 }
 
 // Allow checks whether the caller is within the RPM budget for the given model.
@@ -44,11 +56,15 @@ func NewRateLimiter(redisHost, redisPass string, defaultRPM, defaultConcurrency 
 // Returns CodeTooManyRequests when the quota is exceeded. On Redis errors the
 // request is allowed through (fail-open) to avoid blocking all traffic.
 func (rl *RateLimiter) Allow(ctx context.Context, model string) error {
+	model = rl.namespace + model
 	if rl.rdb == nil {
 		return nil
 	}
 	code, err := rl.rpmLimiter.TakeCtx(ctx, model)
 	if err != nil {
+		if rl.strict {
+			return errors.Wrap(errors.CodeInternal, "embedding quota unavailable", err)
+		}
 		// Redis error is not critical for rate limiting on its own;
 		// fail-open: allow the request through to avoid blocking all traffic.
 		return nil
@@ -62,16 +78,24 @@ func (rl *RateLimiter) Allow(ctx context.Context, model string) error {
 // IncrConcurrency increments the concurrency counter for the given model.
 // Returns CodeTooManyRequests if the concurrency limit is exceeded.
 func (rl *RateLimiter) IncrConcurrency(ctx context.Context, model string) error {
+	model = rl.namespace + model
 	if rl.rdb == nil {
 		return nil
 	}
 	key := fmt.Sprintf(consts.CacheKeyLLMConcurrency, model)
 	result, err := rl.rdb.IncrCtx(ctx, key)
 	if err != nil {
+		if rl.strict {
+			return errors.Wrap(errors.CodeInternal, "embedding concurrency quota unavailable", err)
+		}
 		return nil
 	}
 	if int(result) > rl.defaultConcurrency {
-		rl.rdb.DecrCtx(ctx, key)
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if _, err := rl.rdb.DecrCtx(releaseCtx, key); err != nil && rl.strict {
+			return errors.Wrap(errors.CodeInternal, "embedding concurrency rollback failed", err)
+		}
 		return errors.New(errors.CodeTooManyRequests, fmt.Sprintf("concurrency limit exceeded for model %s", model))
 	}
 	return nil
@@ -79,6 +103,7 @@ func (rl *RateLimiter) IncrConcurrency(ctx context.Context, model string) error 
 
 // DecrConcurrency decrements the concurrency counter for the given model.
 func (rl *RateLimiter) DecrConcurrency(ctx context.Context, model string) error {
+	model = rl.namespace + model
 	if rl.rdb == nil {
 		return nil
 	}

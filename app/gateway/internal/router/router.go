@@ -2,6 +2,7 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
+	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/app/gateway/internal/config"
 	"github.com/maomeng/aim/app/gateway/internal/grpc"
 	"github.com/maomeng/aim/app/gateway/internal/handler"
@@ -41,9 +42,10 @@ func New(
 	fileH := handler.NewFileHandler(clients.File.Conn(), clients.User.Conn())
 	broadcastH := handler.NewBroadcastHandler(clients.Message)
 	notifH := handler.NewNotificationHandler(clients.Notification.Conn())
-	botH := handler.NewBotHandler(clients.BotPlatform.Conn(), clients.Message.Conn(), clients.AIBot.Conn(), clients.File.Conn())
+	botClient := botpb.NewBotServiceClient(clients.BotService.Conn())
+	botH := handler.NewBotHandler(botClient, clients.Message.Conn(), clients.File.Conn())
 	kbH := handler.NewKnowledgeHandler(clients.KnowledgeBase.Conn())
-	convToolH := handler.NewConversationToolHandler(clients.AIBot.Conn())
+	convToolH := handler.NewConversationToolHandler(botClient)
 	var modelH *handler.ModelHandler
 	if clients.LLMGateway != nil {
 		modelH = handler.NewModelHandler(clients.LLMGateway.Conn())

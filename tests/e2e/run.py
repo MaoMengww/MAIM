@@ -16,17 +16,21 @@ import tempfile
 import uuid
 
 
+# name -> the workload behind a compose service. directory/config are relative to
+# the repo; role is appended to the service command so one image can host two
+# independently scalable roles (bot control/runtime, RAG online/ingest).
 APPLICATIONS = {
-    "user-service": ("user.yaml", 50051),
-    "message-service": ("message.yaml", 50053),
-    "file-service": ("file.yaml", 50054),
-    "llm-gateway": ("llm-gateway.yaml", 50056),
-    "knowledge-base": ("knowledge-base.yaml", 50057),
-    "bot-platform": ("bot-platform.yaml", 8085),
-    "ai-bot-service": ("ai-bot-service.yaml", 50062),
-    "signaling-service": ("signaling.yaml", 50061),
-    "ws-gateway": ("ws-gateway.yaml", 8081),
-    "gateway": ("gateway.yaml", 8080),
+    "user-service": ("user-service", "user.yaml", "grpc", 50051, []),
+    "message-service": ("message-service", "message.yaml", "grpc", 50053, []),
+    "file-service": ("file-service", "file.yaml", "grpc", 50054, []),
+    "llm-gateway": ("llm-gateway", "llm-gateway.yaml", "grpc", 50056, []),
+    "knowledge-base": ("knowledge-base", "knowledge-base.yaml", "grpc", 50057, []),
+    "knowledge-ingest": ("knowledge-base", "knowledge-base.yaml", "http", 9092, ["-role", "ingest"]),
+    "bot-service": ("bot-service", "bot.yaml", "grpc", 50058, ["-role", "control"]),
+    "bot-runtime": ("bot-service", "bot.yaml", "grpc", 50058, ["-role", "runtime"]),
+    "signaling-service": ("signaling-service", "signaling.yaml", "grpc", 50061, []),
+    "ws-gateway": ("ws-gateway", "ws-gateway.yaml", "http", 8081, []),
+    "gateway": ("gateway", "gateway.yaml", "http", 8080, []),
 }
 OPTIONAL = {"prometheus", "kibana", "grafana"}
 CREDENTIALS = {
@@ -38,6 +42,7 @@ CREDENTIALS = {
     "NEO4J_PASSWORD": "password123",
     "JWT_SECRET": "aim-dev-secret-key",
     "AIM_ENC_KEY": "Ay+h5wU31Vfy5gITlP1P2cmNtOPkTsnqIupXHqpgutw=",
+    "INGEST_EMBEDDING_TOKEN": "e2e-isolated-ingest-budget-token",
 }
 TAIL_BYTES = 64 * 1024
 
@@ -195,15 +200,15 @@ class Runner:
                 resource.pop("external", None)
         model.setdefault("volumes", {})["e2e_probe"] = {}
         probe_mount = {"type": "volume", "source": "e2e_probe", "target": "/e2e", "read_only": True}
-        for name, (filename, port) in APPLICATIONS.items():
-            if not (self.repo / "app" / name / "etc" / filename).is_file():
-                raise LayerFailure(f"configuration: {name} config {filename} does not exist")
+        for name, (directory, filename, kind, port, role) in APPLICATIONS.items():
+            if not (self.repo / "app" / directory / "etc" / filename).is_file():
+                raise LayerFailure(f"configuration: {name} config app/{directory}/etc/{filename} does not exist")
             service = services[name]
-            service["command"] = ["-f", "/app/etc/" + filename]
+            service["command"] = ["-f", "/app/etc/" + filename] + list(role)
             service["hostname"] = name
             service.setdefault("volumes", []).append(copy.deepcopy(probe_mount))
-            kind = "http" if name in {"gateway", "ws-gateway"} else "grpc"
-            address = f"http://127.0.0.1:{port}/health" if kind == "http" else f"127.0.0.1:{port}"
+            address = (f"http://127.0.0.1:{port}/health" if kind == "http"
+                       else f"127.0.0.1:{port}")
             service["healthcheck"] = self.health(kind, address)
         services["realtime-b"] = copy.deepcopy(services["ws-gateway"])
         services["realtime-b"].pop("build", None)
@@ -218,6 +223,16 @@ class Runner:
             services[name].setdefault("volumes", []).append(copy.deepcopy(probe_mount))
             services[name]["healthcheck"] = self.health("http", address)
         services["otel-collector"]["depends_on"]["jaeger"]["condition"] = "service_healthy"
+        # External-provider fixture: a real HTTP/SSE server standing in for the
+        # OpenAI-compatible and MCP endpoints AIM would otherwise call. AIM services
+        # and middleware stay real; only the third-party provider is simulated.
+        services["e2e-provider"] = {
+            "build": {"context": str(self.repo), "dockerfile": "tests/e2e/provider/Dockerfile"},
+            "image": f"{self.project}-provider:e2e", "pull_policy": "never",
+            "profiles": ["harness"], "hostname": "e2e-provider",
+        }
+        services["e2e-provider"].setdefault("volumes", []).append(copy.deepcopy(probe_mount))
+        services["e2e-provider"]["healthcheck"] = self.health("http", "http://127.0.0.1:8099/health")
         # Keep real middleware, using bounded Java heaps on developer/CI machines.
         services["kafka"]["environment"]["KAFKA_HEAP_OPTS"] = "-Xmx512m -Xms256m"
         services["neo4j"]["environment"].update({
@@ -232,11 +247,11 @@ class Runner:
                 raise LayerFailure(f"configuration: middleware {name} has no real readiness check")
         dependencies = {
             "llm-gateway": ["user-service"],
-            "message-service": ["user-service", "bot-platform"],
+            "message-service": ["user-service", "bot-service"],
             "knowledge-base": ["llm-gateway", "ws-gateway", "realtime-b"],
-            "signaling-service": ["message-service", "bot-platform", "ws-gateway", "realtime-b"],
-            "ai-bot-service": ["llm-gateway", "message-service", "knowledge-base", "ws-gateway",
-                               "realtime-b", "bot-platform", "user-service"],
+            "signaling-service": ["message-service", "bot-service", "ws-gateway", "realtime-b"],
+            "bot-runtime": ["llm-gateway", "message-service", "knowledge-base", "bot-service",
+                            "user-service"],
             "gateway": sorted(set(APPLICATIONS) - {"gateway"}) + ["realtime-b"],
         }
         for name in list(APPLICATIONS) + ["realtime-b"]:
@@ -288,13 +303,15 @@ class Runner:
         scenario = ["run", "-gateway", "http://gateway:8080",
                     "-realtime-a", "ws://realtime-a:8081/ws",
                     "-realtime-b", "ws://realtime-b:8081/ws",
-                    "-timeout", f"{self.args.timeout:g}s"]
+                    "-timeout", f"{self.args.timeout:g}s",
+                    "-provider", "http://e2e-provider:8099",
+                    "-ingest-timeout", "10m", "-query-deadline", "5s"]
         scenario.extend(["-scenario", self.args.scenario])
         if self.args.cross_instance:
             scenario.append("-cross-instance")
         # The client's timeout is per interaction, not an overall scene budget.
         self.compose("acceptance", "run", "--rm", "--no-deps", "e2e-client", *scenario,
-                     timeout=max(120, self.args.timeout * 100))
+                     timeout=max(180, self.args.timeout * 100))
         self.emit("[acceptance] PASS")
 
     def wait_for(self, layer, services):
@@ -352,7 +369,7 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery (known P6 red case)")
-    parser.add_argument("--scenario", choices=("all", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "same-instance-a", "same-instance-b", "cross-instance"),
+    parser.add_argument("--scenario", choices=("all", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "knowledge-ingest", "stage-p5"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")

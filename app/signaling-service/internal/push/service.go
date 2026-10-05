@@ -53,9 +53,9 @@ func (s *Service) UnregisterDevice(ctx context.Context, userID int64, deviceID s
 
 func BuildPushData(convID int64, senderName, preview string) map[string]string {
 	return map[string]string{
-		"conv_id":     strconv.FormatInt(convID, 10),
-		"sender_name": senderName,
-		"preview":     preview,
+		"conv_id":      strconv.FormatInt(convID, 10),
+		"sender_name":  senderName,
+		"preview":      preview,
 		"click_action": "OPEN_CONV",
 	}
 }

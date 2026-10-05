@@ -14,7 +14,7 @@ type (
 		WebSocket      WebSocketConfig    `json:"WebSocket"`
 		JWT            config.JWTConfig   `json:"JWT"`
 		Redis          config.RedisConfig `json:"Redis"`
-		BotPlatform    zrpc.RpcClientConf `json:"BotPlatform"`
+		BotService     zrpc.RpcClientConf `json:"BotService"`
 		MessageService zrpc.RpcClientConf `json:"MessageService"`
 		Metrics        MetricsConfig      `json:"Metrics"`
 		Log            config.LogConfig   `json:"Log"`

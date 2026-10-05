@@ -10,7 +10,6 @@ import (
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/logx"
-	"github.com/maomeng/aim/pkg/snowflake"
 	"gorm.io/gorm"
 )
 
@@ -88,10 +87,6 @@ func (m *mockDocRepo) CountChunksByDocID(ctx context.Context, docID int64) (int6
 
 func TestIngestPipelineEmitsProgressEvents(t *testing.T) {
 	doc := &domain.Document{ID: 100, KBID: 200, MinioKey: "doc.txt"}
-	node, err := snowflake.NewNode(1)
-	if err != nil {
-		t.Fatalf("new snowflake node: %v", err)
-	}
 	var got []event.RealtimeEvent
 	pipe := &IngestPipeline{
 		Parser:      mockParser{},
@@ -100,7 +95,7 @@ func TestIngestPipelineEmitsProgressEvents(t *testing.T) {
 		FileStore:   mockFileStore{},
 		DocRepo:     &mockDocRepo{},
 		KBRepo:      &mockKBRepo{},
-		Snowflake:   node,
+		NextChunkID: func(context.Context) (int64, error) { return 1, nil },
 		RetryLimit:  0,
 		Logger:      logx.DefaultLogger(),
 		Progress: func(ctx context.Context, doc *domain.Document, evt event.RealtimeEvent) {
@@ -108,7 +103,7 @@ func TestIngestPipelineEmitsProgressEvents(t *testing.T) {
 		},
 	}
 
-	err = pipe.Run(context.Background(), doc, domain.PipelineConfig{}, 0, 0)
+	err := pipe.Run(t.Context(), doc, domain.PipelineConfig{}, 0, 0)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

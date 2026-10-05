@@ -85,7 +85,10 @@ func (h *ConversationHandler) GetConversation(c *gin.Context) {
 }
 
 func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
-	req := &message.DeleteConversationReq{ConversationId: parseInt64(c.Param("id"))}
+	req := &message.DeleteConversationReq{
+		ConversationId: parseInt64(c.Param("id")),
+		UserId:         c.GetInt64(middleware.CtxKeyUserID),
+	}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.convClient.DeleteConversation(ctx, req)
 	if err != nil {
@@ -404,49 +407,4 @@ func (h *ConversationHandler) GetReadStatus(c *gin.Context) {
 		return
 	}
 	response.Success(c, resp)
-}
-
-// Bot stubs - to be fully connected to bot-platform gRPC
-func (h *ConversationHandler) CreateBot(c *gin.Context) {
-	response.NotImplemented(c)
-}
-
-func (h *ConversationHandler) ListBots(c *gin.Context) {
-	response.NotImplemented(c)
-}
-
-func (h *ConversationHandler) GetBot(c *gin.Context) {
-	response.NotImplemented(c)
-}
-
-func (h *ConversationHandler) UpdateBot(c *gin.Context) {
-	response.NotImplemented(c)
-}
-
-func (h *ConversationHandler) DeleteBot(c *gin.Context) {
-	response.NotImplemented(c)
-}
-
-func (h *ConversationHandler) RotateSecret(c *gin.Context) {
-	response.NotImplemented(c)
-}
-
-func (h *ConversationHandler) AddBot(c *gin.Context) {
-	response.NotImplemented(c)
-}
-
-func (h *ConversationHandler) RemoveBot(c *gin.Context) {
-	response.NotImplemented(c)
-}
-
-func (h *ConversationHandler) UpdateBotInConv(c *gin.Context) {
-	response.NotImplemented(c)
-}
-
-func (h *ConversationHandler) ListConvBots(c *gin.Context) {
-	response.NotImplemented(c)
-}
-
-func (h *ConversationHandler) Webhook(c *gin.Context) {
-	response.NotImplemented(c)
 }

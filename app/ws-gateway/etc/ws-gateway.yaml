@@ -16,8 +16,8 @@ JWT:
   ExpireSec: 7200
   RefreshSec: 604800
 
-BotPlatform:
-  Target: ${BOT_PLATFORM_ADDR}
+BotService:
+  Target: ${BOT_SERVICE_ADDR}
   NonBlock: true
 
 MessageService:

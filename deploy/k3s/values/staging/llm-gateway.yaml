@@ -4,3 +4,7 @@ service:
   metricsPort: 9101
 config:
   name: llm-gateway
+  secretEnv:
+    INGEST_EMBEDDING_TOKEN:
+      name: aim-ingest-embedding
+      key: token

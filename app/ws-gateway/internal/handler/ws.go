@@ -10,14 +10,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
-	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
+	message "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/app/ws-gateway/internal/presence"
 	"github.com/maomeng/aim/app/ws-gateway/internal/push"
 	"github.com/maomeng/aim/app/ws-gateway/internal/session"
 	"github.com/maomeng/aim/app/ws-gateway/internal/streamcache"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/logx"
-	message "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -67,16 +67,16 @@ func marshalServerEvent(evt ServerEvent) []byte {
 }
 
 type WSHandler struct {
-	upgrader          websocket.Upgrader
-	sessions          *session.Manager
-	presenceMgr       *presence.Manager
-	pushRouter        *push.Router
-	rdb               *redis.Client
-	streamCache       *streamcache.StreamCache
-	jwtSecret         string
-	logger            logx.Logger
-	botPlatformClient botplatform.BotPlatformClient
-	messageClient     message.MessageServiceClient
+	upgrader      websocket.Upgrader
+	sessions      *session.Manager
+	presenceMgr   *presence.Manager
+	pushRouter    *push.Router
+	rdb           *redis.Client
+	streamCache   *streamcache.StreamCache
+	jwtSecret     string
+	logger        logx.Logger
+	botClient     botpb.BotServiceClient
+	messageClient message.MessageServiceClient
 }
 
 func NewWSHandler(
@@ -88,20 +88,20 @@ func NewWSHandler(
 	sc *streamcache.StreamCache,
 	jwtSecret string,
 	logger logx.Logger,
-	botPlatClient botplatform.BotPlatformClient,
+	botClient botpb.BotServiceClient,
 	msgClient message.MessageServiceClient,
 ) *WSHandler {
 	return &WSHandler{
-		upgrader:          upgrader,
-		sessions:          sessions,
-		presenceMgr:       presenceMgr,
-		pushRouter:        pushRouter,
-		rdb:               rdb,
-		streamCache:       sc,
-		jwtSecret:         jwtSecret,
-		logger:            logger,
-		botPlatformClient: botPlatClient,
-		messageClient:     msgClient,
+		upgrader:      upgrader,
+		sessions:      sessions,
+		presenceMgr:   presenceMgr,
+		pushRouter:    pushRouter,
+		rdb:           rdb,
+		streamCache:   sc,
+		jwtSecret:     jwtSecret,
+		logger:        logger,
+		botClient:     botClient,
+		messageClient: msgClient,
 	}
 }
 
@@ -155,7 +155,7 @@ func (h *WSHandler) UpgradeBot(c *gin.Context) {
 		return
 	}
 
-	if h.botPlatformClient == nil {
+	if h.botClient == nil {
 		c.AbortWithStatusJSON(503, gin.H{"error": "bot platform unavailable"})
 		return
 	}
@@ -163,7 +163,7 @@ func (h *WSHandler) UpgradeBot(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resp, err := h.botPlatformClient.ValidateBotToken(ctx, &botplatform.ValidateBotTokenReq{Token: token})
+	resp, err := h.botClient.ValidateBotToken(ctx, &botpb.ValidateBotTokenReq{Token: token})
 	if err != nil || !resp.Valid {
 		c.AbortWithStatusJSON(401, gin.H{"error": "invalid bot token"})
 		return

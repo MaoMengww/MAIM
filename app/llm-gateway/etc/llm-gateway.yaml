@@ -26,6 +26,13 @@ RateLimit:
   DefaultRPM: 100
   DefaultConcurrency: 10
 
+EmbeddingQuota:
+  OnlineRPM: ${LLM_EMBED_ONLINE_RPM}
+  OnlineConcurrency: ${LLM_EMBED_ONLINE_CONCURRENCY}
+  IngestRPM: ${LLM_EMBED_INGEST_RPM}
+  IngestConcurrency: ${LLM_EMBED_INGEST_CONCURRENCY}
+  IngestToken: ${INGEST_EMBEDDING_TOKEN}
+
 EncKey: ${ENC_KEY}
 CpuThreshold: 900
 

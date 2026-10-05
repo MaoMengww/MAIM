@@ -101,7 +101,7 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 			cb := &model.ConvBot{
 				ID:        cbID,
 				ConvID:    id,
-				BotID:     bot.ID,
+				BotID:     bot.Id,
 				AddedBy:   in.CreatorId,
 				CreatedAt: now,
 			}
@@ -112,14 +112,14 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 			botMember := &model.ConversationMember{
 				ID:         botMemberID,
 				ConvID:     id,
-				UserID:     bot.ID,
+				UserID:     bot.Id,
 				MemberType: model.MemberTypeBot,
-				BotID:      bot.ID,
+				BotID:      bot.Id,
 				Role:       int32(conversation.MemberRole_MEMBER_ROLE_MEMBER),
 				JoinedAt:   now,
 			}
 			if err := l.svcCtx.ConversationRepo.AddBotWithMember(l.ctx, cb, botMember); err != nil {
-				l.Logger.Errorf("add bot conv_bot failed: conv=%d, bot_id=%d, err=%v", id, bot.ID, err)
+				l.Logger.Errorf("add bot conv_bot failed: conv=%d, bot_id=%d, err=%v", id, bot.Id, err)
 				return nil, err
 			}
 		} else {

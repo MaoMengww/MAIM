@@ -11,10 +11,9 @@ Services:
   UserServiceAddr: ${USER_SERVICE_ADDR}
   MessageServiceAddr: ${MESSAGE_SERVICE_ADDR}
   FileServiceAddr: ${FILE_SERVICE_ADDR}
-  BotPlatformServiceAddr: ${BOT_PLATFORM_ADDR}
+  BotServiceAddr: ${BOT_SERVICE_ADDR}
   KnowledgeServiceAddr: ${KNOWLEDGE_BASE_ADDR}
   NotificationServiceAddr: ${SIGNALING_SERVICE_ADDR}
-  AIBotServiceAddr: ${AI_BOT_SERVICE_ADDR}
   LLMGatewayServiceAddr: ${LLM_GATEWAY_ADDR}
 
 RateLimit:

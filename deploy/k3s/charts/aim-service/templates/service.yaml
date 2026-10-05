@@ -12,10 +12,12 @@ spec:
   selector:
     app: {{ include "aim-service.fullname" . }}
   ports:
+    {{- if gt (int .Values.service.grpcPort) 0 }}
     - port: {{ .Values.service.grpcPort }}
       targetPort: grpc
       name: grpc
       protocol: TCP
+    {{- end }}
     {{- if .Values.service.httpPort }}
     - port: {{ .Values.service.httpPort }}
       targetPort: http

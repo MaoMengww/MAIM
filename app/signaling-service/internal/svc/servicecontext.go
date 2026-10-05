@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/app/signaling-service/internal/config"
 	"github.com/maomeng/aim/app/signaling-service/internal/consumer"
@@ -52,10 +52,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 
 	msgClient := message.NewMessageServiceClient(zrpc.MustNewClient(c.MessageService).Conn())
-	botPlatformClient := botplatform.NewBotPlatformClient(zrpc.MustNewClient(c.BotPlatform).Conn())
+	botClient := botpb.NewBotServiceClient(zrpc.MustNewClient(c.BotService).Conn())
 	wsClient := zrpc.MustNewClient(c.WsGateway)
 
-	memberRepo := repo.NewMemberRepo(msgClient, botPlatformClient)
+	memberRepo := repo.NewMemberRepo(msgClient, botClient)
 	notifRepo := repo.NewNotificationRepo(gdb)
 	presenceChecker := consumer.NewRedisPresenceChecker(rdb)
 	grpcPusher := consumer.NewGRPCPusher(wsClient)

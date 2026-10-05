@@ -54,7 +54,7 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 	member := &model.ConversationMember{
 		ID:         memberID,
 		ConvID:     in.ConversationId,
-		UserID:     bot.ID,
+		UserID:     bot.Id,
 		MemberType: model.MemberTypeBot,
 		BotID:      in.BotId,
 		Role:       int32(conversation.MemberRole_MEMBER_ROLE_MEMBER),

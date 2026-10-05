@@ -16,19 +16,25 @@ import (
 )
 
 type ServiceContext struct {
-	Config      config.Config
-	DB          *database.DB
-	EncKey      []byte
-	ModelRepo   domain.ModelRegistry
-	BillingRepo domain.BillingRecorder
-	RateLimiter domain.RateLimiter
-	Snowflake   *snowflake.Node
-	Logger      logx.Logger
-	UserClient  userpb.UserServiceClient
+	Config                 config.Config
+	DB                     *database.DB
+	EncKey                 []byte
+	ModelRepo              domain.ModelRegistry
+	BillingRepo            domain.BillingRecorder
+	RateLimiter            domain.RateLimiter
+	OnlineEmbeddingLimiter domain.RateLimiter
+	IngestEmbeddingLimiter domain.RateLimiter
+	Snowflake              *snowflake.Node
+	Logger                 logx.Logger
+	UserClient             userpb.UserServiceClient
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	logger := logx.DefaultLogger()
+	quota := c.EmbeddingQuota
+	if quota.OnlineRPM <= 0 || quota.IngestRPM <= 0 || quota.OnlineConcurrency <= 0 || quota.IngestConcurrency <= 0 || quota.IngestToken == "" {
+		panic("embeddingQuota requires positive budgets and an ingestToken")
+	}
 
 	db, err := database.NewDB(c.Database, nil)
 	if err != nil {
@@ -63,15 +69,17 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 
 	return &ServiceContext{
-		Config:      c,
-		DB:          db,
-		EncKey:      encKey,
-		ModelRepo:   infra.NewModelRepo(db, encKey, c.ModelConf.RefreshInterval),
-		BillingRepo: infra.NewBillingRepo(db),
-		RateLimiter: infra.NewRateLimiter(c.Redis.Host, c.Redis.Pass, c.RateLimit.DefaultRPM, c.RateLimit.DefaultConcurrency),
-		Snowflake:   snowNode,
-		Logger:      logger,
-		UserClient:  userpb.NewUserServiceClient(userConn.Conn()),
+		Config:                 c,
+		DB:                     db,
+		EncKey:                 encKey,
+		ModelRepo:              infra.NewModelRepo(db, encKey, c.ModelConf.RefreshInterval),
+		BillingRepo:            infra.NewBillingRepo(db),
+		RateLimiter:            infra.NewRateLimiter(c.Redis.Host, c.Redis.Pass, c.RateLimit.DefaultRPM, c.RateLimit.DefaultConcurrency),
+		OnlineEmbeddingLimiter: infra.NewEmbeddingRateLimiter(c.Redis.Host, c.Redis.Pass, quota.OnlineRPM, quota.OnlineConcurrency, "online"),
+		IngestEmbeddingLimiter: infra.NewEmbeddingRateLimiter(c.Redis.Host, c.Redis.Pass, quota.IngestRPM, quota.IngestConcurrency, "ingest"),
+		Snowflake:              snowNode,
+		Logger:                 logger,
+		UserClient:             userpb.NewUserServiceClient(userConn.Conn()),
 	}
 }
 

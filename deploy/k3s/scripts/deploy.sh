@@ -10,8 +10,9 @@ K3S_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROJECT_ROOT="$(cd "$K3S_ROOT/.." && pwd)"
 
 SERVICES=(user-service message-service file-service
-           llm-gateway knowledge-base bot-platform ai-bot-service
+           llm-gateway knowledge-base bot-service
            signaling-service ws-gateway gateway)
+WORKLOADS=("${SERVICES[@]}" bot-runtime knowledge-ingest)
 
 build_images() {
   echo "=== Building all service images ==="
@@ -58,7 +59,11 @@ init_db() {
 
 deploy_services() {
   echo "=== Deploying all services ==="
-  for svc in "${SERVICES[@]}"; do
+  : "${INGEST_EMBEDDING_TOKEN:?Set the private ingestion quota token before deploying}"
+  kubectl create secret generic aim-ingest-embedding \
+    --from-literal=token="$INGEST_EMBEDDING_TOKEN" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  for svc in "${WORKLOADS[@]}"; do
     echo "Installing aim-${svc}..."
     helm install "aim-${svc}" "$K3S_ROOT/charts/aim-service/" \
       -f "$K3S_ROOT/values/staging/${svc}.yaml" 2>&1 | grep STATUS

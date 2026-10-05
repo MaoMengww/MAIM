@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/pkg/database"
 	"gorm.io/gorm"
@@ -52,7 +53,7 @@ type ConversationStore interface {
 
 	FindPrivateConv(ctx context.Context, userID1, userID2 int64) (*model.Conversation, error)
 
-	GetBot(ctx context.Context, botID int64) (*model.Bot, error)
+	GetBot(ctx context.Context, botID int64) (*botpb.Bot, error)
 	AddBot(ctx context.Context, bot *model.ConvBot) error
 	RemoveBot(ctx context.Context, convID, botID int64) error
 	UpdateBot(ctx context.Context, convID, botID int64, settings any) error
@@ -60,7 +61,7 @@ type ConversationStore interface {
 	GetBotInConv(ctx context.Context, convID, botID int64) (*model.ConvBot, error)
 	AddBotWithMember(ctx context.Context, bot *model.ConvBot, member *model.ConversationMember) error
 	RemoveBotWithMember(ctx context.Context, convID, botID int64) error
-	GetBotsByIDs(ctx context.Context, ids []int64) ([]model.Bot, error)
+	GetBotsByIDs(ctx context.Context, ids []int64) ([]*botpb.Bot, error)
 }
 
 type ConversationRepo struct {
@@ -490,12 +491,10 @@ func (r *ConversationRepo) FindPrivateConv(ctx context.Context, userID1, userID2
 
 // ========== Bot Management ==========
 
-// GetBot reads the bot directory. The bot domain owns this table; the message
-// domain only reads the two display columns it needs (ADR-0007).
-func (r *ConversationRepo) GetBot(ctx context.Context, botID int64) (*model.Bot, error) {
-	var bot model.Bot
-	err := r.DB.WithContext(ctx).Select("id, name, avatar").Where("id = ?", botID).First(&bot).Error
-	if err != nil {
+// GetBot reads only the Bot display projection, never the control API (ADR-0007).
+func (r *ConversationRepo) GetBot(ctx context.Context, botID int64) (*botpb.Bot, error) {
+	var bot botpb.Bot
+	if err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar").Where("id = ?", botID).Take(&bot).Error; err != nil {
 		return nil, err
 	}
 	return &bot, nil
@@ -558,12 +557,12 @@ func (r *ConversationRepo) RemoveBotWithMember(ctx context.Context, convID, botI
 	})
 }
 
-func (r *ConversationRepo) GetBotsByIDs(ctx context.Context, ids []int64) ([]model.Bot, error) {
+func (r *ConversationRepo) GetBotsByIDs(ctx context.Context, ids []int64) ([]*botpb.Bot, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	var bots []model.Bot
-	err := r.DB.WithContext(ctx).Select("id, name, avatar").Where("id IN ?", ids).Find(&bots).Error
+	var bots []*botpb.Bot
+	err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar").Where("id IN ?", ids).Find(&bots).Error
 	return bots, err
 }
 

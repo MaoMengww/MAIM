@@ -16,14 +16,22 @@ x-aim-env: &aim-env
   MINERU_URL: ${MINERU_URL:-http://host.docker.internal:30000}
   JWT_SECRET: ${JWT_SECRET:-aim-dev-secret-key}
   ENC_KEY: ${AIM_ENC_KEY}
+  BOT_ENCRYPTION_KEY: ${BOT_ENCRYPTION_KEY:-}
+  BOT_METRICS_PORT: ${BOT_METRICS_PORT:-9109}
+  INGEST_REQUESTS_PER_SECOND: ${INGEST_REQUESTS_PER_SECOND:-5}
+  INGEST_CONCURRENCY: ${INGEST_CONCURRENCY:-2}
+  LLM_EMBED_ONLINE_RPM: ${LLM_EMBED_ONLINE_RPM:-80}
+  LLM_EMBED_ONLINE_CONCURRENCY: ${LLM_EMBED_ONLINE_CONCURRENCY:-8}
+  LLM_EMBED_INGEST_RPM: ${LLM_EMBED_INGEST_RPM:-20}
+  LLM_EMBED_INGEST_CONCURRENCY: ${LLM_EMBED_INGEST_CONCURRENCY:-2}
   USER_SERVICE_ADDR: dns:///user-service:50051
   MESSAGE_SERVICE_ADDR: dns:///message-service:50053
   FILE_SERVICE_ADDR: dns:///file-service:50054
-  BOT_PLATFORM_ADDR: dns:///bot-platform:8085
+  BOT_SERVICE_ADDR: dns:///bot-service:50058
+  BOT_RUNTIME_ADDR: dns:///bot-runtime:50058
   KNOWLEDGE_BASE_ADDR: dns:///knowledge-base:50057
   LLM_GATEWAY_ADDR: dns:///llm-gateway:50056
   SIGNALING_SERVICE_ADDR: dns:///signaling-service:50061
-  AI_BOT_SERVICE_ADDR: dns:///ai-bot-service:50062
   WS_GATEWAY_ADDR: dns:///ws-gateway:50060
 
 services:
@@ -347,6 +355,7 @@ services:
     container_name: aim-llm-gateway
     environment:
       <<: *aim-env
+      INGEST_EMBEDDING_TOKEN: ${INGEST_EMBEDDING_TOKEN:?Set a private token shared by ingestion and llm-gateway}
     ports:
       - "50056:50056"
     depends_on:
@@ -364,6 +373,7 @@ services:
         SERVICE: knowledge-base
     image: aim-knowledge-base:latest
     container_name: aim-knowledge-base
+    command: ["-f", "/app/etc/knowledge-base.yaml", "-role", "online"]
     environment: *aim-env
     ports:
       - "50057:50057"
@@ -385,18 +395,43 @@ services:
 
     restart: unless-stopped
 
-
-  bot-platform:
+  knowledge-ingest:
     build:
       context: .
       dockerfile: deploy/docker/Dockerfile
       args:
-        SERVICE: bot-platform
-    image: aim-bot-platform:latest
-    container_name: aim-bot-platform
+        SERVICE: knowledge-base
+    image: aim-knowledge-base:latest
+    command: ["-f", "/app/etc/knowledge-base.yaml", "-role", "ingest"]
+    environment:
+      <<: *aim-env
+      INGEST_EMBEDDING_TOKEN: ${INGEST_EMBEDDING_TOKEN:?Set a private token shared by ingestion and llm-gateway}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      init-kafka-topics:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+
+  bot-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SERVICE: bot-service
+    image: aim-bot-service:latest
+    container_name: aim-bot-service
+    command: ["-f", "/app/etc/bot.yaml", "-role", "control"]
     environment: *aim-env
     ports:
-      - "8085:8085"
+      - "50058:50058"
     depends_on:
       postgres:
         condition: service_healthy
@@ -405,20 +440,28 @@ services:
 
 
 
-  ai-bot-service:
+  bot-runtime:
     build:
       context: .
       dockerfile: deploy/docker/Dockerfile
       args:
-        SERVICE: ai-bot-service
-    image: aim-ai-bot-service:latest
-    container_name: aim-ai-bot-service
-    environment: *aim-env
-    ports:
-      - "50062:50062"
+        SERVICE: bot-service
+    image: aim-bot-service:latest
+    command: ["-f", "/app/etc/bot.yaml", "-role", "runtime"]
+    environment:
+      <<: *aim-env
+      # Keep runtime metrics off the control plane's default port; both roles
+      # share one image and may share a host.
+      BOT_METRICS_PORT: "9119"
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      init-kafka-topics:
+        condition: service_completed_successfully
 
     restart: unless-stopped
 

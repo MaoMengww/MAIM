@@ -10,7 +10,7 @@ type Config struct {
 	Kafka          config.KafkaConfig     `json:"kafka"`
 	Database       config.DatabaseConfig  `json:"database"`
 	MessageService zrpc.RpcClientConf     `json:"messageService"`
-	BotPlatform    zrpc.RpcClientConf     `json:"botPlatform"`
+	BotService     zrpc.RpcClientConf     `json:"botService"`
 	WsGateway      zrpc.RpcClientConf     `json:"wsGateway"`
 	Push           PushConfig             `json:"push"`
 	RateLimit      config.RateLimitConfig `json:"rateLimit"`

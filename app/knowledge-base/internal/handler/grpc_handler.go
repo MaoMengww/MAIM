@@ -26,16 +26,15 @@ import (
 
 type KnowledgeBaseHandler struct {
 	pb.UnimplementedKnowledgeBaseServer
-	KBRepo         domain.KBRepo
-	DocRepo        domain.DocumentRepo
-	FileStore      domain.FileStore
-	VectorStore    domain.VectorStore
-	Producer       *kafka.Producer
-	IngestPipeline *pipeline.IngestPipeline
-	RetrievePipe   *pipeline.RetrievePipeline
-	Snowflake      *snowflake.Node
-	Logger         logx.Logger
-	LLMGateway     zrpc.Client
+	KBRepo       domain.KBRepo
+	DocRepo      domain.DocumentRepo
+	FileStore    domain.FileStore
+	VectorStore  domain.VectorStore
+	Producer     *kafka.Producer
+	RetrievePipe *pipeline.RetrievePipeline
+	Snowflake    *snowflake.Node
+	Logger       logx.Logger
+	LLMGateway   zrpc.Client
 }
 
 type PipelineConfigProvider interface {
@@ -230,7 +229,11 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 	if err := h.FileStore.Put(ctx, minioKey, bytes.NewReader(fileBytes.Bytes()), meta.FileSize, contentType(meta.FileType)); err != nil {
 		return errors.Wrap(errors.CodeIOError, "upload file failed", err)
 	}
-	pipelineOverride := convertPipelineConfig(meta.PipelineOverride)
+	var pipelineOverride *domain.PipelineConfig
+	if meta.PipelineOverride != nil {
+		cfg := convertPipelineConfig(meta.PipelineOverride)
+		pipelineOverride = &cfg
+	}
 	// fileType is already validated above
 	docID, err := h.Snowflake.Generate()
 	if err != nil {
@@ -246,7 +249,7 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 		MinioKey:         minioKey,
 		ContentHash:      contentHash,
 		Status:           domain.DocStatusPending,
-		PipelineOverride: &pipelineOverride,
+		PipelineOverride: pipelineOverride,
 		Metadata:         parseJSONMeta(meta.Metadata),
 	}
 	if err := h.DocRepo.Create(ctx, doc); err != nil {
@@ -262,6 +265,7 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 		return errors.Wrap(errors.CodeInternal, "marshal upload event failed", err)
 	}
 	if err := h.Producer.Send(ctx, fmt.Sprintf("%d", doc.ID), eventData); err != nil {
+		_ = h.DocRepo.UpdateStatus(ctx, doc.ID, domain.DocStatusFailed, "publish upload event failed: "+err.Error())
 		return errors.Wrap(errors.CodeMQError, "publish upload event failed", err)
 	}
 	h.Logger.WithContext(ctx).Infof("document uploaded: doc_id=%d kb_id=%d file_name=%s", doc.ID, kbID, meta.OriginalFilename)
@@ -395,12 +399,21 @@ func (h *KnowledgeBaseHandler) RetryDocument(ctx context.Context, req *pb.RetryD
 	if err != nil {
 		return nil, domain.ErrDocNotFound
 	}
+	kb, err := h.KBRepo.Get(ctx, doc.KBID)
+	if err != nil {
+		return nil, domain.ErrKBNotFound
+	}
+	if kb.OwnerID != getCallerID(ctx) && !isAdmin(ctx) {
+		return nil, domain.ErrForbidden
+	}
 	if doc.Status != domain.DocStatusFailed {
 		return nil, domain.ErrDocumentNotFailed
 	}
 	doc.Status = domain.DocStatusPending
 	doc.ErrorMessage = ""
-	_ = h.DocRepo.Update(ctx, doc)
+	if err := h.DocRepo.Update(ctx, doc); err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "reset document status failed", err)
+	}
 	eventData, err := json.Marshal(map[string]any{
 		"doc_id": doc.ID,
 	})
@@ -408,6 +421,7 @@ func (h *KnowledgeBaseHandler) RetryDocument(ctx context.Context, req *pb.RetryD
 		return nil, errors.Wrap(errors.CodeInternal, "marshal retry event failed", err)
 	}
 	if err := h.Producer.Send(ctx, fmt.Sprintf("%d", doc.ID), eventData); err != nil {
+		_ = h.DocRepo.UpdateStatus(ctx, doc.ID, domain.DocStatusFailed, "publish retry event failed: "+err.Error())
 		return nil, errors.Wrap(errors.CodeMQError, "publish retry event failed", err)
 	}
 	return toDocumentRsp(doc), nil
@@ -450,7 +464,11 @@ func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq
 	retrievalCfg := kb.PipelineConfig.Retrieval
 	metrics.KbSearchTotal.Inc("rag")
 	if h.RetrievePipe != nil {
-		items, err := h.RetrievePipe.Retrieve(ctx, req.BotId, req.ConvId, req.Query, retrievalCfg, kb.OwnerID)
+		embeddingModelID := kb.EmbeddingModelID
+		if embeddingModelID <= 0 {
+			embeddingModelID = h.RetrievePipe.EmbeddingModelID
+		}
+		items, err := h.RetrievePipe.Retrieve(ctx, kbIDs, req.Query, retrievalCfg, embeddingModelID, kb.OwnerID)
 		if err != nil {
 			return nil, err
 		}

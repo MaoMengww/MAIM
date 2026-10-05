@@ -13,4 +13,8 @@ var (
 		"Total completion tokens consumed", "model")
 	LLMCostTotal = metrics.NewCounterVec("llm_cost_total",
 		"Total LLM API cost (cents)", "model")
+	LLMEmbeddingRequests = metrics.NewCounterVec("llm_embedding_requests_total",
+		"Embedding requests per reserved workload", "workload", "status")
+	LLMEmbeddingDuration = metrics.NewHistogramVec("llm_embedding_duration_seconds",
+		"Embedding request latency per reserved workload", []string{"workload"}, nil)
 )

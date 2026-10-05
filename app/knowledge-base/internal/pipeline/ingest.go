@@ -22,16 +22,19 @@ import (
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/logx"
-	"github.com/maomeng/aim/pkg/snowflake"
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
 var mdImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^()\s]*(?:\([^)]*\)[^()\s]*)*)\)`)
 
 // downloadImage downloads an image from a URL with a 30s timeout.
-func downloadImage(url string) ([]byte, string, error) {
+func downloadImage(ctx context.Context, url string) ([]byte, string, error) {
 	cli := &http.Client{Timeout: 30 * time.Second}
-	resp, err := cli.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	resp, err := cli.Do(req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -55,7 +58,7 @@ type IngestPipeline struct {
 	FileStore        domain.FileStore
 	DocRepo          domain.DocumentRepo
 	KBRepo           domain.KBRepo
-	Snowflake        *snowflake.Node
+	NextChunkID      func(context.Context) (int64, error)
 	LLMGatewayClient zrpc.Client
 	RetryLimit       int
 	MaxFileSize      int64
@@ -72,20 +75,27 @@ func (p *IngestPipeline) emitProgress(ctx context.Context, doc *domain.Document,
 func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg domain.PipelineConfig, embeddingModelID int64, ownerID int64) (err error) {
 	start := time.Now()
 	logger := p.Logger.WithContext(ctx)
+	statusCtx, statusCancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer statusCancel()
 	defer func() {
 		duration := time.Since(start).Seconds()
 		kbIDStr := strconv.FormatInt(doc.KBID, 10)
 		status := "success"
 		if err != nil {
 			status = "failed"
-			if updateErr := p.DocRepo.UpdateStatus(ctx, doc.ID, domain.DocStatusFailed, err.Error()); updateErr != nil {
+			failureCtx, cancel := context.WithTimeout(statusCtx, 5*time.Second)
+			defer cancel()
+			if updateErr := p.DocRepo.UpdateStatus(failureCtx, doc.ID, domain.DocStatusFailed, err.Error()); updateErr != nil {
 				logger.Errorf("failed to update doc %d status to failed: %v", doc.ID, updateErr)
 			}
 		}
 		metrics.KbIngestDuration.Observe(duration, status)
+		metrics.KbIngestTotal.Inc(status)
 		metrics.KbDocumentTotal.Add(1, kbIDStr, status)
 		// Always update counts after processing attempt
-		if countErr := p.KBRepo.UpdateCounts(ctx, doc.KBID); countErr != nil {
+		countCtx, cancel := context.WithTimeout(statusCtx, 5*time.Second)
+		defer cancel()
+		if countErr := p.KBRepo.UpdateCounts(countCtx, doc.KBID); countErr != nil {
 			logger.Errorf("failed to update kb counts for kb %d: %v", doc.KBID, countErr)
 		}
 	}()
@@ -101,7 +111,11 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 		defer raw.Close()
 
 		buf := new(bytes.Buffer)
-		if _, err := buf.ReadFrom(raw); err != nil {
+		var reader io.Reader = raw
+		if p.MaxFileSize > 0 {
+			reader = io.LimitReader(raw, p.MaxFileSize+1)
+		}
+		if _, err := buf.ReadFrom(reader); err != nil {
 			return errors.Wrap(errors.CodeIOError, "failed to read file", err)
 		}
 		fileBytes := buf.Bytes()
@@ -112,7 +126,14 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 
 		setupParser := p.Parser
 		if setupParser == nil {
-			setupParser = parser.SetupParser(cfg.Parsing, doc.FileType)
+			parsingCfg := cfg.Parsing
+			if len(parsingCfg.Engines) == 0 {
+				parsingCfg.Engines = []string{"builtin"}
+			}
+			setupParser = parser.SetupParser(parsingCfg, doc.FileType)
+		}
+		if setupParser == nil {
+			return domain.ErrParserUnsupported
 		}
 		parsed, err := setupParser.Parse(ctx, fileBytes)
 		if err != nil {
@@ -156,42 +177,31 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 			conn := p.LLMGatewayClient.Conn()
 			if conn != nil {
 				cli := llmgateway.NewLLMGatewayClient(conn)
-				var wg sync.WaitGroup
-				var mu sync.Mutex
+				// Serial image requests keep total VLM concurrency bounded by the
+				// document worker pool instead of spawning a goroutine per image.
 				for _, img := range parsedContent.Images {
 					if len(img.RawContent) == 0 || img.URL == "" {
 						continue
 					}
-					wg.Add(1)
-					go func(img domain.ImageRef) {
-						defer wg.Done()
-						mime := img.ContentType
-						if mime == "" {
-							mime = "image/png"
-						}
-						dataURL := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(img.RawContent))
-						resp, err := cli.VlmChat(ctx, &llmgateway.VlmChatReq{
-							ModelId:    cfg.Parsing.VLM.ModelID,
-							OwnerId:    ownerID,
-							UserPrompt: "Please describe the content of this image in detail, including any text, data, tables, charts, and other information.",
-							ImageData:  dataURL,
-							MaxTokens:  1024,
-						})
-						if err != nil {
-							p.Logger.WithContext(ctx).Errorf("vlm describe failed: %v", err)
-							return
-						}
-						if len(resp.Choices) > 0 {
-							orig := fmt.Sprintf("![%s](%s)", img.AltText, img.URL)
-							figure := fmt.Sprintf("<figure>\n<img src=\"%s\" alt=\"%s\">\n<figcaption>%s</figcaption>\n</figure>",
-								img.URL, img.AltText, resp.Choices[0].Message.Content)
-							mu.Lock()
-							parsedContent.RawText = strings.ReplaceAll(parsedContent.RawText, orig, figure)
-							mu.Unlock()
-						}
-					}(img)
+					mime := img.ContentType
+					if mime == "" {
+						mime = "image/png"
+					}
+					dataURL := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(img.RawContent))
+					resp, err := cli.VlmChat(ctx, &llmgateway.VlmChatReq{
+						ModelId: cfg.Parsing.VLM.ModelID, OwnerId: ownerID,
+						UserPrompt: "Please describe the content of this image in detail, including any text, data, tables, charts, and other information.",
+						ImageData:  dataURL, MaxTokens: 1024,
+					})
+					if err != nil {
+						return errors.Wrap(errors.CodeRPCError, "vlm describe failed", err)
+					}
+					if len(resp.Choices) > 0 {
+						orig := fmt.Sprintf("![%s](%s)", img.AltText, img.URL)
+						figure := fmt.Sprintf("<figure>\n<img src=\"%s\" alt=\"%s\">\n<figcaption>%s</figcaption>\n</figure>", img.URL, img.AltText, resp.Choices[0].Message.Content)
+						parsedContent.RawText = strings.ReplaceAll(parsedContent.RawText, orig, figure)
+					}
 				}
-				wg.Wait()
 			}
 		}
 	}
@@ -226,7 +236,7 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 		// Store parent chunks and build index -> ID mapping
 		parentIDMap := make(map[int]int64)
 		for _, parent := range pcResult.Parents {
-			chunkID, err := p.Snowflake.Generate()
+			chunkID, err := p.NextChunkID(ctx)
 			if err != nil {
 				return fmt.Errorf("generate chunk id failed: %w", err)
 			}
@@ -248,7 +258,7 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 		// Create child records with ParentChunkID
 		records := make([]domain.ChunkRecord, len(pcResult.Children))
 		for i, ch := range pcResult.Children {
-			chunkID, err := p.Snowflake.Generate()
+			chunkID, err := p.NextChunkID(ctx)
 			if err != nil {
 				return fmt.Errorf("generate chunk id failed: %w", err)
 			}
@@ -284,6 +294,9 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 
 	// Stage 3: Embed + Store
 	p.emitProgress(ctx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeEmbedding, Level: event.EventLevelInfo, Title: "æ­£å¨åéå", Message: "ææ¡£æ­£å¨çæåé"})
+	// Retain completed batches if the final index write or a later batch needs
+	// a stage retry; already embedded chunks must not consume another RPM slot.
+	var completedVectors [][]float32
 	if err := p.runStage(ctx, doc, domain.DocStatusEmbedding, func() error {
 		var vecDocs []domain.VectorDoc
 		for _, ch := range pcResult.Children {
@@ -291,6 +304,8 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 				ch.Metadata = make(map[string]any)
 			}
 			ch.Metadata["doc_title"] = doc.Title
+			ch.Metadata["doc_id"] = strconv.FormatInt(doc.ID, 10)
+			ch.Metadata["chunk_index"] = int32(ch.Index)
 			vd := domain.VectorDoc{
 				DocID:    ch.ID(),
 				KBID:     ch.KBID,
@@ -309,8 +324,14 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 
 		if len(childTexts) > 0 && p.Embedder != nil {
 			const batchSize = 10
-			vectors := make([][]float32, len(childTexts))
+			if completedVectors == nil {
+				completedVectors = make([][]float32, len(childTexts))
+			}
+			vectors := completedVectors
 			for start := 0; start < len(childTexts); start += batchSize {
+				if vectors[start] != nil {
+					continue
+				}
 				end := start + batchSize
 				if end > len(childTexts) {
 					end = len(childTexts)
@@ -351,7 +372,9 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 func (p *IngestPipeline) runStage(ctx context.Context, doc *domain.Document, status domain.DocStatus, fn func() error) error {
 	l := p.Logger.WithContext(ctx)
 
-	_ = p.DocRepo.UpdateStatus(ctx, doc.ID, status, "")
+	if err := p.DocRepo.UpdateStatus(ctx, doc.ID, status, ""); err != nil {
+		return err
+	}
 
 	limit := p.RetryLimit
 	if limit <= 0 {
@@ -360,17 +383,27 @@ func (p *IngestPipeline) runStage(ctx context.Context, doc *domain.Document, sta
 
 	var lastErr error
 	for attempt := 0; attempt <= limit; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := fn(); err == nil {
 			return nil
 		} else {
 			lastErr = err
 			l.Infof("stage %s attempt %d/%d failed: %v", string(status), attempt+1, limit+1, err)
 		}
+		if attempt == limit {
+			break
+		}
 		backoff := time.Duration(attempt+1) * time.Second
 		if attempt > 0 {
 			backoff = time.Duration(1<<uint(attempt)) * time.Second
 		}
-		time.Sleep(backoff)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
 	}
 
 	return errors.Wrap(errors.CodeInternal, fmt.Sprintf("stage %s failed after %d tries", string(status), limit+1), lastErr)
@@ -396,26 +429,23 @@ func resolveAndDownloadImages(ctx context.Context, doc *domain.ParsedDocument, l
 	sem := make(chan struct{}, 5)
 	var wg sync.WaitGroup
 
+downloads:
 	for _, m := range matches {
 		alt, url := m[1], m[2]
-		wg.Add(1)
-		go func(alt, url string) {
-			defer wg.Done()
-			sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			break downloads
+		}
+		wg.Go(func() {
 			defer func() { <-sem }()
-
-			body, ct, err := downloadImage(url)
+			body, ct, err := downloadImage(ctx, url)
 			if err != nil {
 				logger.WithContext(ctx).Infof("download image %s failed: %v", url, err)
 				return
 			}
-			results <- imgResult{
-				AltText:     alt,
-				URL:         url,
-				RawContent:  body,
-				ContentType: ct,
-			}
-		}(alt, url)
+			results <- imgResult{AltText: alt, URL: url, RawContent: body, ContentType: ct}
+		})
 	}
 
 	go func() {

@@ -333,6 +333,7 @@ CREATE TABLE IF NOT EXISTS bot.mcp_tools (
 );
 CREATE SEQUENCE IF NOT EXISTS bot.mcp_tools_id_seq;
 ALTER SEQUENCE bot.mcp_tools_id_seq OWNED BY bot.mcp_tools.id;
+ALTER TABLE bot.mcp_tools ALTER COLUMN id SET DEFAULT nextval('bot.mcp_tools_id_seq');
 
 CREATE TABLE IF NOT EXISTS bot.conv_summaries (
     id            BIGINT PRIMARY KEY,

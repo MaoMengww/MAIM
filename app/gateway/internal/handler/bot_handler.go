@@ -6,8 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	aibot "github.com/maomeng/aim/app/ai-bot-service/pb/aibot"
-	"github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
@@ -19,23 +18,21 @@ import (
 )
 
 type BotHandler struct {
-	botClient   botplatform.BotPlatformClient
-	convClient  message.MessageServiceClient
-	aiBotClient aibot.AiBotServiceClient
-	fileClient  filepb.FileServiceClient
+	botClient  botpb.BotServiceClient
+	convClient message.MessageServiceClient
+	fileClient filepb.FileServiceClient
 }
 
-func NewBotHandler(botConn, msgConn, aiBotConn, fileConn grpc.ClientConnInterface) *BotHandler {
+func NewBotHandler(botClient botpb.BotServiceClient, msgConn, fileConn grpc.ClientConnInterface) *BotHandler {
 	return &BotHandler{
-		botClient:   botplatform.NewBotPlatformClient(botConn),
-		convClient:  message.NewMessageServiceClient(msgConn),
-		aiBotClient: aibot.NewAiBotServiceClient(aiBotConn),
-		fileClient:  filepb.NewFileServiceClient(fileConn),
+		botClient:  botClient,
+		convClient: message.NewMessageServiceClient(msgConn),
+		fileClient: filepb.NewFileServiceClient(fileConn),
 	}
 }
 
 func (h *BotHandler) CreateBot(c *gin.Context) {
-	var req botplatform.CreateBotReq
+	var req botpb.CreateBotReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -51,7 +48,7 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 }
 
 func (h *BotHandler) UpdateBot(c *gin.Context) {
-	var req botplatform.UpdateBotReq
+	var req botpb.UpdateBotReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -103,7 +100,7 @@ func (h *BotHandler) UploadBotAvatar(c *gin.Context) {
 
 	// 同步更新 Bot 的 avatar 字段
 	if resp.Url != "" {
-		_, err = h.botClient.UpdateBot(ctx, &botplatform.UpdateBotReq{
+		_, err = h.botClient.UpdateBot(ctx, &botpb.UpdateBotReq{
 			BotId:  botID,
 			UserId: userID,
 			Avatar: resp.Url,
@@ -118,7 +115,7 @@ func (h *BotHandler) UploadBotAvatar(c *gin.Context) {
 }
 
 func (h *BotHandler) DeleteBot(c *gin.Context) {
-	req := &botplatform.DeleteBotReq{
+	req := &botpb.DeleteBotReq{
 		BotId:  parseInt64(c.Param("id")),
 		UserId: c.GetInt64(middleware.CtxKeyUserID),
 	}
@@ -132,7 +129,7 @@ func (h *BotHandler) DeleteBot(c *gin.Context) {
 }
 
 func (h *BotHandler) GetBot(c *gin.Context) {
-	req := &botplatform.GetBotReq{BotId: parseInt64(c.Param("id"))}
+	req := &botpb.GetBotReq{BotId: parseInt64(c.Param("id"))}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.botClient.GetBot(ctx, req)
 	if err != nil {
@@ -143,7 +140,7 @@ func (h *BotHandler) GetBot(c *gin.Context) {
 }
 
 func (h *BotHandler) ListBots(c *gin.Context) {
-	req := &botplatform.ListBotsReq{
+	req := &botpb.ListBotsReq{
 		OwnerId: c.GetInt64(middleware.CtxKeyUserID),
 		Status:  c.Query("status"),
 	}
@@ -157,7 +154,7 @@ func (h *BotHandler) ListBots(c *gin.Context) {
 }
 
 func (h *BotHandler) RotateSecret(c *gin.Context) {
-	req := &botplatform.RotateSecretReq{
+	req := &botpb.RotateSecretReq{
 		BotId:  parseInt64(c.Param("id")),
 		UserId: c.GetInt64(middleware.CtxKeyUserID),
 	}
@@ -176,7 +173,7 @@ func (h *BotHandler) Webhook(c *gin.Context) {
 		response.BadRequest(c, "failed to read body")
 		return
 	}
-	req := &botplatform.WebhookReq{
+	req := &botpb.WebhookReq{
 		Body:      body,
 		Signature: c.GetHeader(consts.HeaderAIMSignature),
 		Timestamp: parseInt64(c.GetHeader(consts.HeaderAIMTimestamp)),
@@ -191,7 +188,7 @@ func (h *BotHandler) Webhook(c *gin.Context) {
 }
 
 func (h *BotHandler) IssueToken(c *gin.Context) {
-	var req botplatform.IssueBotTokenReq
+	var req botpb.IssueBotTokenReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -208,7 +205,7 @@ func (h *BotHandler) IssueToken(c *gin.Context) {
 }
 
 func (h *BotHandler) ValidateToken(c *gin.Context) {
-	var req botplatform.ValidateBotTokenReq
+	var req botpb.ValidateBotTokenReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -225,14 +222,14 @@ func (h *BotHandler) ValidateToken(c *gin.Context) {
 // ========== AI Bot Streaming Chat ==========
 
 func (h *BotHandler) StreamChat(c *gin.Context) {
-	var req aibot.StreamChatReq
+	var req botpb.StreamChatReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	req.BotId = parseInt64(c.Param("id"))
 	ctx := middleware.WithGRPCMetadata(c)
-	stream, err := h.aiBotClient.StreamChat(ctx, &req)
+	stream, err := h.botClient.StreamChat(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
 		return
@@ -330,7 +327,7 @@ func (h *BotHandler) ListConvBots(c *gin.Context) {
 // ========== Global MCP Server Management ==========
 
 func (h *BotHandler) CreateMcpServer(c *gin.Context) {
-	var req botplatform.CreateMcpServerReq
+	var req botpb.CreateMcpServerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -346,7 +343,7 @@ func (h *BotHandler) CreateMcpServer(c *gin.Context) {
 }
 
 func (h *BotHandler) UpdateMcpServer(c *gin.Context) {
-	var req botplatform.UpdateMcpServerReq
+	var req botpb.UpdateMcpServerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -363,7 +360,7 @@ func (h *BotHandler) UpdateMcpServer(c *gin.Context) {
 }
 
 func (h *BotHandler) DeleteMcpServer(c *gin.Context) {
-	req := &botplatform.DeleteMcpServerReq{
+	req := &botpb.DeleteMcpServerReq{
 		Id:     parseInt64(c.Param("id")),
 		UserId: c.GetInt64(middleware.CtxKeyUserID),
 	}
@@ -377,7 +374,7 @@ func (h *BotHandler) DeleteMcpServer(c *gin.Context) {
 }
 
 func (h *BotHandler) GetMcpServer(c *gin.Context) {
-	req := &botplatform.GetMcpServerReq{
+	req := &botpb.GetMcpServerReq{
 		Id:     parseInt64(c.Param("id")),
 		UserId: c.GetInt64(middleware.CtxKeyUserID),
 	}
@@ -391,7 +388,7 @@ func (h *BotHandler) GetMcpServer(c *gin.Context) {
 }
 
 func (h *BotHandler) ListMcpServers(c *gin.Context) {
-	req := &botplatform.ListMcpServersReq{
+	req := &botpb.ListMcpServersReq{
 		UserId: c.GetInt64(middleware.CtxKeyUserID),
 		Status: c.Query("status"),
 		Pagination: &common.Pagination{
@@ -411,7 +408,7 @@ func (h *BotHandler) ListMcpServers(c *gin.Context) {
 // ========== Bot MCP Assignment ==========
 
 func (h *BotHandler) AssignMcpToBot(c *gin.Context) {
-	var req botplatform.AssignMcpToBotReq
+	var req botpb.AssignMcpToBotReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -428,7 +425,7 @@ func (h *BotHandler) AssignMcpToBot(c *gin.Context) {
 }
 
 func (h *BotHandler) UnassignMcpFromBot(c *gin.Context) {
-	req := &botplatform.UnassignMcpFromBotReq{
+	req := &botpb.UnassignMcpFromBotReq{
 		BotId:       parseInt64(c.Param("id")),
 		UserId:      c.GetInt64(middleware.CtxKeyUserID),
 		McpServerId: parseInt64(c.Param("mcp_id")),
@@ -443,7 +440,7 @@ func (h *BotHandler) UnassignMcpFromBot(c *gin.Context) {
 }
 
 func (h *BotHandler) ListBotMcpServers(c *gin.Context) {
-	req := &botplatform.ListBotMcpServersReq{BotId: parseInt64(c.Param("id"))}
+	req := &botpb.ListBotMcpServersReq{BotId: parseInt64(c.Param("id"))}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.botClient.ListBotMcpServers(ctx, req)
 	if err != nil {
@@ -454,7 +451,7 @@ func (h *BotHandler) ListBotMcpServers(c *gin.Context) {
 }
 
 func (h *BotHandler) UpdateBotMcpServer(c *gin.Context) {
-	var req botplatform.UpdateBotMcpServerReq
+	var req botpb.UpdateBotMcpServerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -474,7 +471,7 @@ func (h *BotHandler) UpdateBotMcpServer(c *gin.Context) {
 // ========== MCP Tool Discovery ==========
 
 func (h *BotHandler) DiscoverMcpTools(c *gin.Context) {
-	req := &botplatform.DiscoverMcpToolsReq{
+	req := &botpb.DiscoverMcpToolsReq{
 		McpServerId: parseInt64(c.Param("id")),
 		UserId:      c.GetInt64(middleware.CtxKeyUserID),
 	}
@@ -488,7 +485,7 @@ func (h *BotHandler) DiscoverMcpTools(c *gin.Context) {
 }
 
 func (h *BotHandler) ListMcpTools(c *gin.Context) {
-	req := &botplatform.ListMcpToolsReq{
+	req := &botpb.ListMcpToolsReq{
 		McpServerId: parseInt64(c.Param("id")),
 		UserId:      c.GetInt64(middleware.CtxKeyUserID),
 	}

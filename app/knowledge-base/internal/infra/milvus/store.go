@@ -168,6 +168,9 @@ func (s *MilvusStore) Upsert(ctx context.Context, docs []domain.VectorDoc) error
 		if v, ok := doc.Metadata["doc_id"].(int64); ok {
 			docIDs[i] = v
 		}
+		if v, ok := doc.Metadata["doc_id"].(string); ok {
+			docIDs[i], _ = strconv.ParseInt(v, 10, 64)
+		}
 		if v, ok := doc.Metadata["chunk_index"].(int32); ok {
 			chunkIdx[i] = v
 		}

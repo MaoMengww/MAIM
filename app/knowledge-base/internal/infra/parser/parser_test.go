@@ -438,7 +438,7 @@ func TestHTMLToText_Entities(t *testing.T) {
 	html := "<p>&amp; &lt; &gt; &quot; &#39;</p>"
 	// x/net/html tokenizer automatically decodes text content
 	result := htmlToText([]byte(html))
-	assert.Contains(t, result, "&") // &amp; → &
+	assert.Contains(t, result, "&")        // &amp; → &
 	assert.NotContains(t, result, "&amp;") // already decoded
 }
 

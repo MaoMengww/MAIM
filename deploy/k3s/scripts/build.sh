@@ -12,8 +12,7 @@ SERVICES=(
   file-service
   llm-gateway
   knowledge-base
-  bot-platform
-  ai-bot-service
+  bot-service
   signaling-service
   ws-gateway
   gateway

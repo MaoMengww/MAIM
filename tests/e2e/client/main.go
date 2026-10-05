@@ -90,6 +90,7 @@ type event struct {
 		ConvID    decimal `json:"conv_id"`
 		SenderID  decimal `json:"sender_id"`
 		Seq       decimal `json:"seq"`
+		ReplyToID decimal `json:"reply_to_msg_id"`
 		Content   struct {
 			Text string `json:"text"`
 		} `json:"content"`
@@ -97,9 +98,12 @@ type event struct {
 }
 
 type driver struct {
-	gateway string
-	client  *http.Client
-	timeout time.Duration
+	gateway       string
+	client        *http.Client
+	timeout       time.Duration
+	provider      string
+	ingestTimeout time.Duration
+	queryDeadline time.Duration
 }
 
 func main() {
@@ -133,13 +137,16 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://ws-gateway:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|stage-p3|stage-p4|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance；conversation-unread 为 issue09 独立验收")
+	selected := flags.String("scenario", "all", "选择 all|stage-p3|stage-p4|stage-p5|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
+	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
+	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
+	queryDeadline := flags.Duration("query-deadline", 5*time.Second, "入库负载下每次检索的硬截止时间")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || *timeout <= 0 {
-		return errors.New("run 不接受位置参数，timeout 必须大于零")
+	if flags.NArg() != 0 || *timeout <= 0 || *ingestTimeout <= 0 || *queryDeadline <= 0 {
+		return errors.New("run 不接受位置参数，所有 timeout/deadline 必须大于零")
 	}
 	if _, err := endpoint(*gateway, "http", "https"); err != nil {
 		return fmt.Errorf("配置 gateway: %w", err)
@@ -153,6 +160,8 @@ func run(args []string) error {
 			{"conversations", *realtimeA, *realtimeA},
 			{"same-instance-a", *realtimeA, *realtimeA},
 			{"same-instance-b", *realtimeB, *realtimeB},
+			{"bot-runtime", *realtimeA, *realtimeA},
+			{"knowledge-ingest", "", ""},
 		}
 		if *cross {
 			scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
@@ -161,6 +170,12 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}}
 	case "stage-p4":
 		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}, {"conversation-unread", *realtimeA, *realtimeA}}
+	case "stage-p5":
+		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}, {"conversation-unread", *realtimeA, *realtimeA}, {"bot-runtime", *realtimeA, *realtimeA}, {"knowledge-ingest", "", ""}}
+	case "bot-runtime":
+		scenarios = []scenarioSpec{{"bot-runtime", *realtimeA, *realtimeA}}
+	case "knowledge-ingest":
+		scenarios = []scenarioSpec{{"knowledge-ingest", "", ""}}
 	case "conversations", "conversation-unread":
 		scenarios = []scenarioSpec{{*selected, *realtimeA, *realtimeA}}
 	case "relationships":
@@ -172,10 +187,15 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|stage-p3|stage-p4|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|stage-p3|stage-p4|stage-p5|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance")
 	}
 	for _, scenario := range scenarios {
-		if scenario.name == "relationships" {
+		if scenario.name == "bot-runtime" || scenario.name == "knowledge-ingest" {
+			if _, err := endpoint(*provider, "http", "https"); err != nil {
+				return fmt.Errorf("配置外部 provider: %w", err)
+			}
+		}
+		if scenario.name == "relationships" || scenario.name == "knowledge-ingest" {
 			continue
 		}
 		for _, address := range []string{scenario.a, scenario.b} {
@@ -187,7 +207,8 @@ func run(args []string) error {
 	if (*selected == "all" || *selected == "cross-instance") && *realtimeA == *realtimeB {
 		return errors.New("realtime A/B 必须使用不同地址，不能将单实例冒充两实例")
 	}
-	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout}
+	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout,
+		provider: strings.TrimRight(*provider, "/"), ingestTimeout: *ingestTimeout, queryDeadline: *queryDeadline}
 	defer d.client.CloseIdleConnections()
 	var failures []error
 	for _, scenario := range scenarios {
@@ -197,6 +218,10 @@ func run(args []string) error {
 			err = d.relationships()
 		case "conversations", "conversation-unread":
 			err = d.conversations(scenario.a, scenario.name == "conversation-unread")
+		case "bot-runtime":
+			err = d.botRuntime(scenario.a)
+		case "knowledge-ingest":
+			err = d.knowledgeIngest()
 		default:
 			err = d.scenario(scenario.a, scenario.b)
 		}
@@ -206,6 +231,10 @@ func run(args []string) error {
 			failures = append(failures, failure)
 		} else if scenario.name == "relationships" {
 			fmt.Println("E2E PASS: relationships 请求 → 接受/拒绝/取消 → 双向好友 → 备注/分组 → 删除 → 拉黑/解除")
+		} else if scenario.name == "bot-runtime" {
+			fmt.Println("E2E PASS: bot-runtime CRUD/配置 → 网络 MCP 发现/调用 → token 验证 → Kafka Bot 精确回复 → 同实例 WS/REST读取 → 删除")
+		} else if scenario.name == "knowledge-ingest" {
+			fmt.Printf("E2E PASS: knowledge-ingest multipart上传 → 异步ready → 精确内容检索 → 大文档并发入库时每次查询 <=%s → 失败入库不伤查询\n", d.queryDeadline)
 		} else if scenario.name == "conversations" || scenario.name == "conversation-unread" {
 			fmt.Printf("E2E PASS: %s 建群 → 邀请/列成员 → 权限 → 群聊 WS → 精确 ID 读取/补拉 → 会话列表 → 已读回执 → 移除后拒绝读取\n", scenario.name)
 			if scenario.name == "conversation-unread" {

@@ -2,18 +2,21 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"net/http"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/config"
-	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	"github.com/maomeng/aim/app/knowledge-base/internal/handler"
 	"github.com/maomeng/aim/app/knowledge-base/internal/infra/embedder"
 	"github.com/maomeng/aim/app/knowledge-base/internal/infra/milvus"
 	"github.com/maomeng/aim/app/knowledge-base/internal/infra/reranker"
+	"github.com/maomeng/aim/app/knowledge-base/internal/metrics"
 	"github.com/maomeng/aim/app/knowledge-base/internal/pipeline"
 	"github.com/maomeng/aim/app/knowledge-base/internal/svc"
 	pb "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase"
@@ -28,119 +31,130 @@ import (
 )
 
 var configFile = flag.String("f", "etc/knowledge-base.yaml", "the config file")
+var role = flag.String("role", "online", "workload role: online or ingest")
 
 func main() {
 	flag.Parse()
-
+	if *role != "online" && *role != "ingest" {
+		panic("role must be online or ingest")
+	}
 	var c config.Config
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
-	ctx := svc.NewServiceContext(c)
-	logger := logx.DefaultLogger()
-
-	var (
-		embed    domain.Embedder
-		vecStore domain.VectorStore
-		rank     domain.Reranker
-	)
-	if c.LLMGateway.Target != "" {
-		embed = embedder.NewLLMGatewayEmbedder(ctx.LLMGatewayClient)
-		rank = reranker.NewLLMGatewayReranker(ctx.LLMGatewayClient)
-	}
-
-	if c.Milvus.Address != "" {
-		vs, err := milvus.NewMilvusStore(c.Milvus)
-		if err != nil {
-			panic(fmt.Sprintf("init milvus failed: %v", err))
+	if *role == "ingest" {
+		if c.Ingest.RequestsPerSecond <= 0 || c.Ingest.Concurrency <= 0 || c.Ingest.EmbeddingToken == "" {
+			panic("ingest requires positive requestsPerSecond/concurrency and an embeddingToken")
 		}
-		vecStore = vs
+		c.Name = "knowledge-ingest"
+		c.Telemetry.Name = c.Name
+		c.Prometheus.Port = c.Ingest.MetricsPort
+		c.ServiceConf.MustSetUp()
 	}
-
-	ingestPipe := &pipeline.IngestPipeline{
-		Parser:           ctx.Parser,
-		Chunker:          ctx.Chunker,
-		Embedder:         embed,
-		VectorStore:      vecStore,
-		FileStore:        ctx.FileStore,
-		DocRepo:          ctx.DocRepo,
-		KBRepo:           ctx.KBRepo,
-		Snowflake:        ctx.Snowflake,
-		LLMGatewayClient: ctx.LLMGatewayClient,
-		RetryLimit:       c.RetryLimit,
-		MaxFileSize:      c.MaxFileSize,
-		Logger:           logger,
+	resources := svc.NewServiceContext(c, *role)
+	defer resources.Close()
+	logger := logx.DefaultLogger()
+	vecStore, err := milvus.NewMilvusStore(c.Milvus)
+	if err != nil {
+		panic(fmt.Sprintf("init milvus failed: %v", err))
 	}
+	defer vecStore.Close(context.Background())
+	embed := embedder.NewLLMGatewayEmbedder(resources.LLMGatewayClient)
 
-	retrievePipe := &pipeline.RetrievePipeline{
-		KBRepo:           ctx.KBRepo,
-		Embedder:         embed,
-		VectorStore:      vecStore,
-		Reranker:         rank,
-		Logger:           logger,
-		EmbeddingModelID: 15,
+	if *role == "ingest" {
+		ingestPipe := &pipeline.IngestPipeline{
+			Embedder: embed, VectorStore: vecStore, FileStore: resources.FileStore,
+			DocRepo: resources.DocRepo, KBRepo: resources.KBRepo,
+			NextChunkID: func(ctx context.Context) (int64, error) {
+				var id int64
+				err := resources.DB.WithContext(ctx).Raw("SELECT nextval('knowledge.ingest_chunk_ids')").Scan(&id).Error
+				return id, err
+			},
+			LLMGatewayClient: resources.LLMGatewayClient, RetryLimit: c.RetryLimit,
+			MaxFileSize: c.MaxFileSize, Logger: logger,
+		}
+		docHandler := handler.NewDocumentUploadedHandler(resources.DocRepo, resources.KBRepo, ingestPipe, logger, c.Ingest)
+		if err := runIngest(c, docHandler, logger); err != nil {
+			panic(err)
+		}
+		return
 	}
 
 	h := &handler.KnowledgeBaseHandler{
-		KBRepo:         ctx.KBRepo,
-		DocRepo:        ctx.DocRepo,
-		FileStore:      ctx.FileStore,
-		VectorStore:    vecStore,
-		Producer:       ctx.Producer,
-		IngestPipeline: ingestPipe,
-		RetrievePipe:   retrievePipe,
-		Snowflake:      ctx.Snowflake,
-		Logger:         logger,
-		LLMGateway:     ctx.LLMGatewayClient,
+		KBRepo: resources.KBRepo, DocRepo: resources.DocRepo, FileStore: resources.FileStore,
+		VectorStore: vecStore, Producer: resources.Producer,
+		RetrievePipe: &pipeline.RetrievePipeline{
+			KBRepo: resources.KBRepo, Embedder: embed, VectorStore: vecStore,
+			Reranker: reranker.NewLLMGatewayReranker(resources.LLMGatewayClient), Logger: logger,
+			EmbeddingModelID: 15,
+		},
+		Snowflake: resources.Snowflake, Logger: logger, LLMGateway: resources.LLMGatewayClient,
 	}
-
-	if len(c.Kafka.Brokers) > 0 {
-		kafkaConsumer, err := kafka.NewConsumer(c.Kafka, []string{"document.uploaded"}, c.Kafka.ConsumerGroup, logger)
-		if err != nil {
-			panic(fmt.Sprintf("init kafka consumer failed: %v", err))
-		}
-
-		docHandler := &handler.DocumentUploadedHandler{
-			DocRepo:            ctx.DocRepo,
-			KBRepo:             ctx.KBRepo,
-			IngestPipe:         ingestPipe,
-			Logger:             logger,
-			DefaultEmbeddingID: 15,
-		}
-
-		// Signal-aware context so consumer exits on SIGINT/SIGTERM
-		consumerCtx, consumerStop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-
-		go func() {
-			defer consumerStop()
-			for {
-				err := kafkaConsumer.Consume(consumerCtx, &kafka.MessageHandler{
-					OnMessage: docHandler.Handle,
-					Logger:    logger,
-				})
-				if err != nil {
-					logger.Errorf("kafka consume failed: %v, restarting in 3s...", err)
-					select {
-					case <-consumerCtx.Done():
-						return
-					case <-time.After(3 * time.Second):
-					}
-				} else {
-					// Consume returned nil (context cancelled), exit normally
-					return
-				}
-			}
-		}()
-	}
-
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
 		pb.RegisterKnowledgeBaseServer(grpcServer, h)
-
 		if c.Mode == service.DevMode || c.Mode == service.TestMode {
 			reflection.Register(grpcServer)
 		}
 	})
 	s.AddUnaryInterceptors(interceptor.UnaryRequestIDInterceptor(), interceptor.UnaryUserIDInterceptor(), interceptor.UnaryErrorInterceptor())
 	defer s.Stop()
-
-	fmt.Printf("Starting knowledge-base rpc server at %s...\n", c.ListenOn)
+	fmt.Printf("Starting knowledge-base online rpc server at %s...\n", c.ListenOn)
 	s.Start()
+}
+
+func runIngest(c config.Config, h *handler.DocumentUploadedHandler, logger logx.Logger) error {
+	consumer, err := kafka.NewConsumer(c.Kafka, []string{"document.uploaded"}, c.Kafka.ConsumerGroup, logger)
+	if err != nil {
+		return fmt.Errorf("init ingest consumer: %w", err)
+	}
+	defer consumer.Close()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		if ctx.Err() != nil || !h.Ready.Load() {
+			http.Error(w, "ingest consumer not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", c.Ingest.HealthPort))
+	if err != nil {
+		return fmt.Errorf("listen ingest health: %w", err)
+	}
+	health := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	healthDone := make(chan error, 1)
+	go func() {
+		err := health.Serve(listener)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			stop()
+		}
+		healthDone <- err
+	}()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = health.Shutdown(shutdownCtx)
+	}()
+	logger.Infof("starting knowledge-ingest consumer group=%s health_port=%d metrics_port=%d concurrency=%d requests_per_second=%d", c.Kafka.ConsumerGroup, c.Ingest.HealthPort, c.Ingest.MetricsPort, c.Ingest.Concurrency, c.Ingest.RequestsPerSecond)
+	for ctx.Err() == nil {
+		err := consumer.Consume(ctx, h)
+		h.Ready.Store(false)
+		metrics.KbIngestConsumerReady.Set(0)
+		if ctx.Err() != nil {
+			break
+		}
+		metrics.KbIngestConsumerErrors.Inc("consume")
+		logger.Errorf("ingest consumer failed: %v", err)
+		select {
+		case <-ctx.Done():
+		case <-time.After(3 * time.Second):
+		}
+	}
+	select {
+	case err := <-healthDone:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	default:
+	}
+	return nil
 }

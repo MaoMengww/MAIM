@@ -1,0 +1,562 @@
+syntax = "proto3";
+
+package bot;
+
+import "common/common.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/maomeng/aim/app/bot-service/pb/bot";
+
+service BotService {
+  rpc StreamChat(StreamChatReq) returns (stream StreamChatResp);
+  rpc SummarizeConversation(SummarizeReq) returns (SummarizeResp);
+  rpc GetConvSummaries(GetConvSummariesReq) returns (GetConvSummariesResp);
+  rpc CreateTodo(CreateTodoReq) returns (TodoItem);
+  rpc UpdateTodo(UpdateTodoReq) returns (google.protobuf.Empty);
+  rpc DeleteTodo(DeleteTodoReq) returns (google.protobuf.Empty);
+  rpc GenerateReplyCandidates(ReplyCandidatesReq) returns (ReplyCandidatesResp);
+  rpc TranslateMessage(TranslateMessageReq) returns (TranslateMessageResp);
+
+  // Bot CRUD
+  rpc CreateBot(CreateBotReq) returns (Bot);
+  rpc UpdateBot(UpdateBotReq) returns (Bot);
+  rpc DeleteBot(DeleteBotReq) returns (common.BaseResponse);
+  rpc GetBot(GetBotReq) returns (Bot);
+  rpc ListBots(ListBotsReq) returns (ListBotsResp);
+
+  // Secret management
+  rpc RotateSecret(RotateSecretReq) returns (RotateSecretResp);
+
+  // Webhook
+  rpc HandleIncomingWebhook(WebhookReq) returns (WebhookResp);
+
+  // Bot Token
+  rpc IssueBotToken(IssueBotTokenReq) returns (IssueBotTokenResp);
+  rpc ValidateBotToken(ValidateBotTokenReq) returns (ValidateBotTokenResp);
+
+  // Global MCP Server Management
+  rpc CreateMcpServer(CreateMcpServerReq) returns (McpServerInfo);
+  rpc UpdateMcpServer(UpdateMcpServerReq) returns (McpServerInfo);
+  rpc DeleteMcpServer(DeleteMcpServerReq) returns (common.BaseResponse);
+  rpc GetMcpServer(GetMcpServerReq) returns (McpServerInfo);
+  rpc ListMcpServers(ListMcpServersReq) returns (ListMcpServersResp);
+
+  // Bot MCP Assignment
+  rpc AssignMcpToBot(AssignMcpToBotReq) returns (common.BaseResponse);
+  rpc UnassignMcpFromBot(UnassignMcpFromBotReq) returns (common.BaseResponse);
+  rpc ListBotMcpServers(ListBotMcpServersReq) returns (ListBotMcpServersResp);
+  rpc UpdateBotMcpServer(UpdateBotMcpServerReq) returns (common.BaseResponse);
+
+  // MCP Tool Discovery
+  rpc DiscoverMcpTools(DiscoverMcpToolsReq) returns (DiscoverMcpToolsResp);
+  rpc ListMcpTools(ListMcpToolsReq) returns (ListMcpToolsResp);
+
+  // Read APIs for other services
+  rpc BatchGetBots(BatchGetBotsReq) returns (BatchGetBotsResp);
+  rpc GetBotWebhookConfig(GetBotWebhookConfigReq) returns (GetBotWebhookConfigResp);
+}
+
+// ========== Enums ==========
+
+enum BotType {
+  BOT_TYPE_UNSPECIFIED = 0;
+  BOT_TYPE_OFFICIAL = 1;
+  BOT_TYPE_SELF_DEPLOYED = 2;
+  BOT_TYPE_THIRD_PARTY = 3;
+}
+
+enum BotStatus {
+  BOT_STATUS_UNSPECIFIED = 0;
+  BOT_STATUS_ACTIVE = 1;
+  BOT_STATUS_DISABLED = 2;
+}
+
+enum ConnMode {
+  CONN_MODE_UNSPECIFIED = 0;
+  CONN_MODE_WS = 1;
+  CONN_MODE_WEBHOOK = 2;
+}
+
+// ========== Bot Entity ==========
+
+message Bot {
+  int64 id = 1;
+  int64 owner_id = 2;
+  string name = 3;
+  string avatar = 4;
+  string type = 5;
+  string status = 7;
+
+  // AI config
+  bool use_platform_model = 10;
+  string model_name = 11;
+  string base_url = 12;
+  string system_prompt = 13;
+  string persona = 14;
+  bool enable_knowledge = 15;
+  double temperature = 16;
+  int32 max_context_messages = 17;
+  bool streaming_enabled = 18;
+  int32 max_context_tokens = 19;
+
+  // Memory config
+  string memory_model_name = 20;
+  int64 memory_model_id = 22;
+  bool memory_use_platform_model = 21;
+  int32 memory_limit = 23;  // 0=default(5)
+  string memory_embedding_model_name = 24;
+  int64 memory_embedding_model_id = 25;
+
+  // Connection config (third_party)
+  string conn_mode = 30;
+  string callback_url = 31;
+  bool has_webhook_secret = 32;
+  bool has_app_secret = 33;
+
+  // General
+  repeated string bot_tags = 40;
+  string capabilities = 41;  // JSONB
+  string settings = 42;      // JSONB
+
+  int64 model_id = 52;
+  string template_id = 53;  // "qa" | "knowledge" (official only)
+  string sub_type = 54;     // "webhook" | "ws" (third_party only)
+
+  // Trigger config
+  repeated string response_triggers = 55;  // "always" | "mention" | "keyword:xxx"
+
+  int64 created_at = 50;
+  int64 updated_at = 51;
+}
+
+// ========== Create Bot ==========
+
+message CreateBotReq {
+  int64 owner_id = 1;
+  string name = 2;
+  string type = 3;
+  string avatar = 4;
+
+  // AI config
+  bool use_platform_model = 10;
+  string model_name = 11;
+  string base_url = 12;
+  string api_key = 13;         // plaintext, server encrypts
+  string system_prompt = 14;
+  string persona = 15;
+  bool enable_knowledge = 16;
+  double temperature = 17;
+  int32 max_context_messages = 18;
+  bool streaming_enabled = 19;
+  int32 max_context_tokens = 25;
+
+  // Memory config
+  string memory_model_name = 20;
+  int64 memory_model_id = 22;
+  bool memory_use_platform_model = 21;
+  string memory_api_key = 23;  // plaintext, server encrypts
+  int32 memory_limit = 24;     // 0=default(5)
+  string memory_embedding_model_name = 26;
+  int64 memory_embedding_model_id = 27;
+
+  // Connection config (third_party)
+  string conn_mode = 30;
+  string callback_url = 31;
+
+  repeated string bot_tags = 40;
+  string capabilities = 41;
+  string settings = 42;
+  int64 model_id = 43;
+  string template_id = 44;
+  string sub_type = 45;
+
+  repeated string response_triggers = 46;  // "always" | "mention" | "keyword:xxx"
+}
+
+// ========== Update Bot ==========
+
+message UpdateBotReq {
+  int64 bot_id = 1;
+  int64 user_id = 2;           // caller, must be owner
+
+  string name = 3;
+  string avatar = 4;
+  string status = 5;
+
+  bool use_platform_model = 10;
+  string model_name = 11;
+  string base_url = 12;
+  string api_key = 13;
+  string system_prompt = 14;
+  string persona = 15;
+  bool enable_knowledge = 16;
+  double temperature = 17;
+  int32 max_context_messages = 18;
+  bool streaming_enabled = 19;
+  int32 max_context_tokens = 25;
+
+  string memory_model_name = 20;
+  int64 memory_model_id = 22;
+  bool memory_use_platform_model = 21;
+  string memory_api_key = 23;
+  int32 memory_limit = 24;     // 0=default(5)
+  string memory_embedding_model_name = 26;
+  int64 memory_embedding_model_id = 27;
+
+  string conn_mode = 30;
+  string callback_url = 31;
+
+  repeated string bot_tags = 40;
+  string capabilities = 41;
+  string settings = 42;
+  int64 model_id = 43;
+  string template_id = 44;
+  string sub_type = 45;
+
+  repeated string response_triggers = 46;  // "always" | "mention" | "keyword:xxx"
+}
+
+// ========== Delete Bot ==========
+
+message DeleteBotReq {
+  int64 bot_id = 1;
+  int64 user_id = 2;
+}
+
+// ========== Get Bot ==========
+
+message GetBotReq {
+  int64 bot_id = 1;
+}
+
+// ========== List Bots ==========
+
+message ListBotsReq {
+  int64 owner_id = 1;
+  string status = 2;
+  common.Pagination pagination = 3;
+}
+
+message ListBotsResp {
+  repeated Bot bots = 1;
+  common.PaginationResp pagination = 2;
+}
+
+// ========== Rotate Secret ==========
+
+message RotateSecretReq {
+  int64 bot_id = 1;
+  int64 user_id = 2;
+}
+
+message RotateSecretResp {
+  string webhook_secret = 1;
+  string app_secret = 2;
+}
+
+// ========== Webhook ==========
+
+message WebhookReq {
+  int64 bot_id = 1;
+  bytes body = 2;
+  string signature = 3;
+  int64 timestamp = 4;
+}
+
+message WebhookResp {
+  int64 message_id = 1;
+}
+
+// ========== Bot Token ==========
+
+message IssueBotTokenReq {
+  int64 bot_id = 1;
+  int64 user_id = 2;
+  int64 ttl_seconds = 3;
+}
+
+message IssueBotTokenResp {
+  string token = 1;
+  int64 expires_at = 2;
+}
+
+message ValidateBotTokenReq {
+  string token = 1;
+}
+
+message ValidateBotTokenResp {
+  bool valid = 1;
+  int64 bot_id = 2;
+  int64 owner_id = 3;
+  string type = 4;
+}
+
+// ========== MCP Server Info ==========
+
+message McpServerInfo {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+  string transport = 4;      // sse / http-streamable / stdio
+  string url = 5;
+  string command = 6;
+  repeated string args = 7;
+  string env = 8;            // JSON
+  int32 timeout_ms = 11;
+  string status = 12;
+  int64 created_by = 13;
+  int64 created_at = 14;
+  int64 updated_at = 15;
+  // new fields
+  string auth_config = 16;      // JSON: {api_key, token}
+  string advanced_config = 17;  // JSON: {timeout, retry_count, retry_delay}
+  bool enabled = 18;
+}
+
+// ========== Global MCP CRUD ==========
+
+message CreateMcpServerReq {
+  int64 user_id = 1;
+  string name = 2;
+  string description = 3;
+  string transport = 4;      // sse / http-streamable / stdio
+  string url = 5;
+  string command = 6;
+  repeated string args = 7;
+  string env = 8;
+  int32 timeout_ms = 11;
+  // new fields
+  string auth_config = 12;      // JSON
+  string advanced_config = 13;  // JSON
+  bool enabled = 14;
+}
+
+message UpdateMcpServerReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  string name = 3;
+  string description = 4;
+  string transport = 5;
+  string url = 6;
+  string command = 7;
+  repeated string args = 8;
+  string env = 9;
+  int32 timeout_ms = 12;
+  string status = 13;
+  // new fields
+  string auth_config = 14;      // JSON
+  string advanced_config = 15;  // JSON
+  bool enabled = 16;
+}
+
+message DeleteMcpServerReq {
+  int64 id = 1;
+  int64 user_id = 2;
+}
+
+message GetMcpServerReq {
+  int64 id = 1;
+  int64 user_id = 2;
+}
+
+message ListMcpServersReq {
+  int64 user_id = 1;
+  string status = 2;
+  common.Pagination pagination = 3;
+}
+
+message ListMcpServersResp {
+  repeated McpServerInfo servers = 1;
+  common.PaginationResp pagination = 2;
+}
+
+// ========== Bot MCP Assignment ==========
+
+message AssignMcpToBotReq {
+  int64 bot_id = 1;
+  int64 user_id = 2;
+  int64 mcp_server_id = 3;
+}
+
+message UnassignMcpFromBotReq {
+  int64 bot_id = 1;
+  int64 user_id = 2;
+  int64 mcp_server_id = 3;
+}
+
+message ListBotMcpServersReq {
+  int64 bot_id = 1;
+}
+
+message BotMcpServerInfo {
+  int64 id = 1;
+  int64 mcp_server_id = 2;
+  string name = 3;
+  string description = 4;
+  string transport = 5;
+  string url = 6;
+  string discovery = 7;
+  repeated string tools = 8;
+  int32 timeout_ms = 9;
+  string status = 10;
+  bool enabled = 11;
+}
+
+message ListBotMcpServersResp {
+  repeated BotMcpServerInfo servers = 1;
+}
+
+message UpdateBotMcpServerReq {
+  int64 bot_id = 1;
+  int64 user_id = 2;
+  int64 mcp_server_id = 3;
+  bool enabled = 4;
+}
+
+// ========== MCP Tool Discovery ==========
+
+message McpToolInfo {
+  int64 id = 1;
+  int64 mcp_server_id = 2;
+  string name = 3;
+  string description = 4;
+  string input_schema = 5;  // JSON
+  int64 updated_at = 6;
+}
+
+message DiscoverMcpToolsReq {
+  int64 user_id = 1;
+  int64 mcp_server_id = 2;
+}
+
+message DiscoverMcpToolsResp {
+  repeated McpToolInfo tools = 1;
+}
+
+message ListMcpToolsReq {
+  int64 user_id = 1;
+  int64 mcp_server_id = 2;
+}
+
+message ListMcpToolsResp {
+  repeated McpToolInfo tools = 1;
+}
+
+// ========== Read APIs for other services ==========
+
+message BatchGetBotsReq {
+  repeated int64 bot_ids = 1;
+}
+
+message BatchGetBotsResp {
+  repeated Bot bots = 1;
+}
+
+message GetBotWebhookConfigReq {
+  int64 bot_id = 1;
+}
+
+message GetBotWebhookConfigResp {
+  string conn_mode = 1;
+  string callback_url = 2;
+  string webhook_secret = 3;
+  string status = 4;
+  string type = 5;
+}
+
+message StreamChatReq {
+  int64 bot_id = 1;
+  int64 conv_id = 2;
+  string message = 3;
+  int64 reply_to_msg_id = 4;   // 可选
+}
+
+message StreamChatResp {
+  string type = 1;              // "chunk" | "tool_call" | "tool_result" | "done" | "error"
+  string content = 2;           // 文本增量 / 工具结果
+  string tool_name = 3;         // tool_call / tool_result 时用
+  string message_id = 4;        // done 时返回
+  int64 conv_id = 5;
+}
+
+message SummarizeReq {
+  int64 conv_id = 1;
+  int64 user_id = 2;
+  oneof range {
+    int32 last_message_count = 3;
+    TimeRange time_range = 4;
+    bool all = 5;
+  }
+}
+
+message TimeRange {
+  int64 start_time = 1;
+  int64 end_time = 2;
+}
+
+message SummarizeResp {
+  int64 summary_id = 1;
+  string summary = 2;
+  repeated TodoItem todos = 3;
+  int32 total_messages = 4;
+  int64 created_at = 5;
+  string status = 6; // "processing" | "completed"
+}
+
+message GetConvSummariesReq {
+  int64 conv_id = 1;
+  int32 limit = 2;
+}
+
+message GetConvSummariesResp {
+  repeated SummarizeResp items = 1;
+}
+
+message CreateTodoReq {
+  int64 conv_id = 1;
+  int64 summary_id = 2;
+  string content = 3;
+}
+
+message TodoItem {
+  int64 id = 1;
+  int64 summary_id = 2;
+  int64 conv_id = 3;
+  string content = 4;
+  bool done = 5;
+  int64 created_at = 6;
+  int64 updated_at = 7;
+}
+
+message UpdateTodoReq {
+  int64 todo_id = 1;
+  string content = 2;
+  bool done = 3;
+}
+
+message DeleteTodoReq {
+  int64 todo_id = 1;
+}
+
+message ReplyCandidatesReq {
+  int64 conv_id = 1;
+  int64 user_id = 2;
+  int64 reply_to_msg_id = 3;
+}
+
+message ReplyCandidatesResp {
+  repeated string candidates = 1;
+  string status = 2; // "processing" | "completed"
+}
+
+message TranslateMessageReq {
+  string text = 1;
+  string target_lang = 2;
+  int64 msg_id = 3;
+}
+
+message TranslateMessageResp {
+  string translated_text = 1;
+  string detected_lang = 2;
+  string status = 3; // "processing" | "completed"
+}

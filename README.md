@@ -6,10 +6,10 @@
 
 ## 项目概要
 
-MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型深度融入实时通讯场景。当前由 **10 个 Go 服务** 构成；会话、消息与已读/未读模型同属 message-service，最终目标为 8 个部署单元，通过 **Helmfile + k3s** 声明式部署。
+MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型深度融入实时通讯场景。当前由 **9 个 Go 服务、11 个业务工作负载** 构成；Bot 控制面与运行时同属 bot-service，在线检索与入库同属 knowledge-base，两者分别保留独立进程与副本。最终目标为 8 个服务，通过 **Helmfile + k3s** 声明式部署。
 
 - **定位**：IM 平台 + AI Bot 引擎 + 知识库 RAG，三者一体化
-- **规模**：10 个 Go 服务，gRPC + Kafka 通信；账号与好友关系同属 user-service，会话聚合与消息同属 message-service
+- **规模**：9 个 Go 服务，gRPC + Kafka 通信；账号与好友关系同属 user-service，会话聚合与消息同属 message-service
 - **部署**：Docker Compose 或 k3s，平台 DNS 发现，YAML 模板 + 环境变量配置
 
 ---
@@ -110,16 +110,15 @@ Gateway (REST) ──gRPC──▶ message-service
 
 ```
 AIM/
-├── app/                              # 10 个 Go 服务 (go-zero 统一布局)
+├── app/                              # 9 个 Go 服务 (go-zero 统一布局)
 │   ├── gateway/                      # REST API 网关 (Gin BFF, JWT + 限流)
 │   ├── ws-gateway/                   # WebSocket 实时网关 (长连接 + 在线状态)
 │   ├── user-service/                 # 账号、资料、好友关系、分组与黑名单
 │   ├── message-service/              # 消息域 (会话与群组、消息、收件箱、已读未读)
 │   ├── file-service/                 # 文件管理 (MinIO Presigned URL)
 │   ├── llm-gateway/                  # LLM 模型网关 (多厂商路由 + 计费)
-│   ├── bot-platform/                 # Bot 管理平台 (创建/配置/MCP/Webhook)
-│   ├── ai-bot-service/               # AI Bot 执行引擎 (Eino ReAct Agent + 记忆)
-│   ├── knowledge-base/               # RAG 向量检索（解析/分块/Embedding/检索）
+│   ├── bot-service/                  # Bot 控制面 + Eino Agent/MCP/记忆，control/runtime 独立工作负载
+│   ├── knowledge-base/               # RAG 在线检索与入库，online/ingest 独立工作负载
 │   └── signaling-service/            # 事件扇出与推送 (Kafka → WS/APNs/FCM/Bot路由)
 │
 ├── deploy/
@@ -200,11 +199,18 @@ Compose 的 `init-kafka-topics` 在 broker 就绪后幂等创建活跃 topic，�
 python3 tests/e2e/run.py --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --scenario stage-p5 --artifacts /tmp/aim-e2e-artifacts
 ```
 
 每次使用独立 Compose project、网络与数据卷，无宿主端口映射。启动顺序按真实依赖编排（`message-service` 先于它的热路径调用方 `signaling-service`），全部中间件与应用就绪后才施加流量。成功或失败后均清理该 project 的容器与数据卷；`--artifacts` 保留诊断日志。
 
 默认检查关系链、A/A 与 B/B，`--cross-instance` 追加 A/B 双向投递；`--scenario` 可选择单个场景，`stage-p3` 检查完整关系链与 A/A，`stage-p4` 追加会话与成员管理，但仍启动含两个长连接实例的全栈。P1 之后两者的期望不同：Compose 的推送目标 `WS_GATEWAY_ADDR` 只解析到主 `ws-gateway` 实例，因此 A/A（两端都连在推送可达的实例上）是确定性通过的；B/B 与 A/B 需要「按连接定向投递」，属 P6 范围，当前仍然失败——默认验收不会跳过或伪装该失败。
+
+`stage-p5` 在 P4 场景上追加 Bot 配置/令牌、真实网络 MCP 工具发现与调用、Kafka 回复及 WS/REST 精确内容核对，以及四个大文档并发入库期间的检索和失败隔离。OpenAI/MCP 外部协议由 `e2e-provider` 提供；AIM 内部 RPC、Kafka、PostgreSQL、Milvus 不替换。在线查询每次硬截止 5 秒；入库总截止 10 分钟，容纳默认 20 RPM 预算，不提高配额或缩小文档负载。
+
+Bot 使用同一镜像：`bot-service -role control` 提供外部入口，运行时调用转发到 `BOT_RUNTIME_ADDR`；`bot-runtime -role runtime` 消费消息并执行 Agent，直接读取同域配置，不依赖控制面 RPC。两个工作负载分别暴露 9109/9119 指标，可独立调整副本。Knowledge 使用同一镜像：`-role online` 仅提供查询/管理 RPC，`-role ingest` 仅消费上传事件，提供独立健康检查与 9118 指标。Compose 和 Helm 均为独立工作负载配置资源；Helm 的 `bot-runtime.yaml`、`knowledge-ingest.yaml` 可单独设置 `replicaCount`。
+
+Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且相互隔离；仅入库 worker 持有 `INGEST_EMBEDDING_TOKEN`，llm-gateway 校验凭据后才允许使用入库池。在线请求超额立即拒绝，入库任务在 RPC 截止时间内等待可用配额；Redis 故障不放行。生产部署需创建 Helm 引用的 `aim-ingest-embedding` Secret（`token` key），并设置独立随机令牌；不要把令牌注入在线检索进程。
 
 ---
 
@@ -301,7 +307,7 @@ python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
 
 ### AI Bot 执行引擎
 
-ai-bot-service 是 AI 能力的核心引擎，基于 **CloudWeGo Eino** 框架构建 ReAct Agent，实现 LLM 推理、工具调用、知识检索、记忆管理的完整闭环。
+bot-service 的 runtime 角色是 AI 能力的核心引擎，基于 **CloudWeGo Eino** 框架构建 ReAct Agent，实现 LLM 推理、工具调用、知识检索、记忆管理的完整闭环；控制面与其共享领域、数据 schema 和 BotService 协议。
 
 #### 整体处理流程
 
@@ -405,7 +411,7 @@ agent, err := react.NewAgent(ctx, &react.AgentConfig{
 
 MCP (Model Context Protocol) 工具集成流程：
 
-1. 从 bot-platform 获取 Bot 绑定的 MCP Server 配置
+1. 从 bot 域仓储读取 Bot 绑定的 MCP Server 配置，不调用控制面 RPC
 2. 创建 `mcp-go` 客户端（支持 SSE 和 StreamableHTTP 两种传输）
 3. 发送 MCP `Initialize` 请求（协议版本协商）
 4. 通过 `einoMCP.GetTools()` 获取所有工具定义
@@ -578,7 +584,7 @@ signaling-service 是消息扇出(fanout)的核心枢纽。
 
 1. **在线推送**：通过 gRPC 调用 ws-gateway 的 `InternalPushService`
 2. **离线推送**：通过 FCM/APNS 发送移动端通知
-3. **Bot 路由**：将消息推送给第三方 Bot（WS 或 Webhook）；官方与自部署 Bot 由 ai-bot-service 直接消费 `message.created`
+3. **Bot 路由**：将消息推送给第三方 Bot（WS 或 Webhook）；官方与自部署 Bot 由 bot-runtime 直接消费 `message.created`
 4. **未读计数**：消息域按 `max_seq - last_read_seq` 批量计算权威未读数；推送层不维护计数器
 5. **已读回执**：消费 `conversation.read.updated` 事件，推送给其他成员
 
@@ -597,7 +603,7 @@ signaling-service 是消息扇出(fanout)的核心枢纽。
 
 | Bot 类型 | 路由方式 |
 |---------|---------|
-| Official / Self-Deployed | Kafka `message.created` topic → ai-bot-service |
+| Official / Self-Deployed | Kafka `message.created` topic → bot-runtime |
 | Third-Party (conn_mode=ws) | ws-gateway WebSocket 推送 |
 | Third-Party (conn_mode=webhook) | HTTP Webhook 回调 |
 

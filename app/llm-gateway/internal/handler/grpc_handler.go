@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/crypto"
 	"github.com/maomeng/aim/pkg/errors"
+	"google.golang.org/grpc/metadata"
 )
 
 type LLMGatewayHandler struct {
@@ -340,12 +342,65 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 	if err != nil {
 		return nil, err
 	}
+	if info.ModelEntry.OwnerID != 0 && info.ModelEntry.OwnerID != req.OwnerId {
+		return nil, errors.ErrForbidden
+	}
+	workload := "online"
+	limiter := h.svcCtx.OnlineEmbeddingLimiter
+	md, _ := metadata.FromIncomingContext(ctx)
+	markers := md.Get("x-aim-embedding-workload")
+	if len(markers) > 0 {
+		if len(markers) != 1 || markers[0] != "ingest" {
+			return nil, errors.New(errors.CodeInvalidParam, "invalid embedding workload")
+		}
+		tokens := md.Get("x-aim-ingest-token")
+		if len(tokens) != 1 || h.svcCtx.Config.EmbeddingQuota.IngestToken == "" || subtle.ConstantTimeCompare([]byte(tokens[0]), []byte(h.svcCtx.Config.EmbeddingQuota.IngestToken)) != 1 {
+			return nil, errors.ErrForbidden
+		}
+		workload = "ingest"
+		limiter = h.svcCtx.IngestEmbeddingLimiter
+	}
+	if limiter == nil {
+		return nil, errors.New(errors.CodeInternal, "embedding quota unavailable")
+	}
+	started := time.Now()
+	result := "failed"
+	defer func() {
+		metrics.LLMEmbeddingRequests.Inc(workload, result)
+		metrics.LLMEmbeddingDuration.Observe(time.Since(started).Seconds(), workload)
+	}()
 
 	modelName := info.ModelEntry.ModelName
 	log.Infof("method=Embed model=%s model_id=%d input_count=%d bot_id=%d owner_id=%d", modelName, req.ModelId, len(req.Input), req.BotId, req.OwnerId)
 
 	if info.TrackBilling {
 		if err := h.checkBalance(ctx, req.OwnerId); err != nil {
+			return nil, err
+		}
+	}
+	if workload == "online" {
+		if err := limiter.Allow(ctx, modelName); err != nil {
+			return nil, err
+		}
+	}
+	if err := waitEmbeddingQuota(ctx, workload, func() error {
+		return limiter.IncrConcurrency(ctx, modelName)
+	}); err != nil {
+		return nil, err
+	}
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := limiter.DecrConcurrency(releaseCtx, modelName); err != nil {
+			log.Errorf("embedding concurrency release failed: workload=%s error=%v", workload, err)
+		}
+	}()
+	if workload == "ingest" {
+		// Hold only the reserved ingest slot while waiting for its RPM window;
+		// online has a separate pool and always rejects quota exhaustion immediately.
+		if err := waitEmbeddingQuota(ctx, workload, func() error {
+			return limiter.Allow(ctx, modelName)
+		}); err != nil {
 			return nil, err
 		}
 	}
@@ -384,7 +439,31 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 	} else {
 		log.Infof("method=Embed model=%s embeddings=%d", modelName, len(embeddings))
 	}
+	result = "success"
 	return resp, nil
+}
+
+// Retry only local quota exhaustion, never provider errors or Redis failures.
+// The enclosing RPC deadline bounds how long an ingestion batch can wait.
+func waitEmbeddingQuota(ctx context.Context, workload string, acquire func() error) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := acquire()
+		if err == nil || workload != "ingest" {
+			return err
+		}
+		quotaErr, ok := errors.IsBizError(err)
+		if !ok || quotaErr.Code != errors.CodeTooManyRequests {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 // ----- Rerank (direct HTTP, manual billing) -----

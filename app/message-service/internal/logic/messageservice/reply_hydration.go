@@ -133,7 +133,7 @@ func resolveReplySenderName(ctx context.Context, svcCtx *svc.ServiceContext, sen
 	return ""
 }
 
-// botNamesByID resolves bot display names from the bot domain's table (ADR-0007).
+// botNamesByID resolves bot display names from the bot domain's API.
 func botNamesByID(ctx context.Context, convs *repo.ConversationRepo, botIDs []int64) map[int64]string {
 	names := make(map[int64]string, len(botIDs))
 	if len(botIDs) == 0 || convs == nil {
@@ -144,7 +144,7 @@ func botNamesByID(ctx context.Context, convs *repo.ConversationRepo, botIDs []in
 		return names
 	}
 	for _, bot := range bots {
-		names[bot.ID] = bot.Name
+		names[bot.Id] = bot.Name
 	}
 	return names
 }

@@ -4,19 +4,18 @@ import (
 	"encoding/json"
 
 	"github.com/gin-gonic/gin"
-	"github.com/maomeng/aim/app/ai-bot-service/pb/aibot"
+	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
-	"google.golang.org/grpc"
 )
 
 type ConversationToolHandler struct {
-	aiBotClient aibot.ConversationToolServiceClient
+	botClient botpb.BotServiceClient
 }
 
-func NewConversationToolHandler(conn grpc.ClientConnInterface) *ConversationToolHandler {
+func NewConversationToolHandler(botClient botpb.BotServiceClient) *ConversationToolHandler {
 	return &ConversationToolHandler{
-		aiBotClient: aibot.NewConversationToolServiceClient(conn),
+		botClient: botClient,
 	}
 }
 
@@ -35,23 +34,23 @@ func (h *ConversationToolHandler) Summarize(c *gin.Context) {
 		return
 	}
 
-	req := &aibot.SummarizeReq{ConvId: convID, UserId: userID}
+	req := &botpb.SummarizeReq{ConvId: convID, UserId: userID}
 	if body.All {
-		req.Range = &aibot.SummarizeReq_All{All: true}
+		req.Range = &botpb.SummarizeReq_All{All: true}
 	} else if body.StartTime > 0 || body.EndTime > 0 {
-		req.Range = &aibot.SummarizeReq_TimeRange{
-			TimeRange: &aibot.TimeRange{StartTime: body.StartTime, EndTime: body.EndTime},
+		req.Range = &botpb.SummarizeReq_TimeRange{
+			TimeRange: &botpb.TimeRange{StartTime: body.StartTime, EndTime: body.EndTime},
 		}
 	} else {
 		count := body.LastMessageCount
 		if count <= 0 {
 			count = 100
 		}
-		req.Range = &aibot.SummarizeReq_LastMessageCount{LastMessageCount: count}
+		req.Range = &botpb.SummarizeReq_LastMessageCount{LastMessageCount: count}
 	}
 
 	ctx := middleware.WithGRPCMetadata(c)
-	resp, err := h.aiBotClient.SummarizeConversation(ctx, req)
+	resp, err := h.botClient.SummarizeConversation(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
 		return
@@ -63,14 +62,14 @@ func (h *ConversationToolHandler) GetSummaries(c *gin.Context) {
 	convID := parseInt64(c.Param("id"))
 	userID := c.GetInt64(middleware.CtxKeyUserID)
 
-	req := &aibot.GetConvSummariesReq{
+	req := &botpb.GetConvSummariesReq{
 		ConvId: convID,
 		Limit:  int32(parseInt64(c.DefaultQuery("limit", "20"))),
 	}
 	_, _ = userID, req // userID available for future auth
 
 	ctx := middleware.WithGRPCMetadata(c)
-	resp, err := h.aiBotClient.GetConvSummaries(ctx, req)
+	resp, err := h.botClient.GetConvSummaries(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
 		return
@@ -89,7 +88,7 @@ func (h *ConversationToolHandler) CreateTodo(c *gin.Context) {
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
-	resp, err := h.aiBotClient.CreateTodo(ctx, &aibot.CreateTodoReq{
+	resp, err := h.botClient.CreateTodo(ctx, &botpb.CreateTodoReq{
 		ConvId:    convID,
 		SummaryId: body.SummaryID,
 		Content:   body.Content,
@@ -112,7 +111,7 @@ func (h *ConversationToolHandler) UpdateTodo(c *gin.Context) {
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
-	_, err := h.aiBotClient.UpdateTodo(ctx, &aibot.UpdateTodoReq{
+	_, err := h.botClient.UpdateTodo(ctx, &botpb.UpdateTodoReq{
 		TodoId:  todoID,
 		Content: body.Content,
 		Done:    body.Done,
@@ -127,7 +126,7 @@ func (h *ConversationToolHandler) UpdateTodo(c *gin.Context) {
 func (h *ConversationToolHandler) DeleteTodo(c *gin.Context) {
 	todoID := parseInt64(c.Param("todoId"))
 	ctx := middleware.WithGRPCMetadata(c)
-	_, err := h.aiBotClient.DeleteTodo(ctx, &aibot.DeleteTodoReq{TodoId: todoID})
+	_, err := h.botClient.DeleteTodo(ctx, &botpb.DeleteTodoReq{TodoId: todoID})
 	if err != nil {
 		response.GRPCError(c, err)
 		return
@@ -150,7 +149,7 @@ func (h *ConversationToolHandler) ReplyCandidates(c *gin.Context) {
 	replyToMsgID, _ := body.ReplyToMsgID.Int64()
 
 	ctx := middleware.WithGRPCMetadata(c)
-	resp, err := h.aiBotClient.GenerateReplyCandidates(ctx, &aibot.ReplyCandidatesReq{
+	resp, err := h.botClient.GenerateReplyCandidates(ctx, &botpb.ReplyCandidatesReq{
 		ConvId:       convID,
 		UserId:       userID,
 		ReplyToMsgId: replyToMsgID,
@@ -177,7 +176,7 @@ func (h *ConversationToolHandler) Translate(c *gin.Context) {
 	}
 
 	ctx := middleware.WithGRPCMetadata(c)
-	resp, err := h.aiBotClient.TranslateMessage(ctx, &aibot.TranslateMessageReq{
+	resp, err := h.botClient.TranslateMessage(ctx, &botpb.TranslateMessageReq{
 		Text:       body.Text,
 		TargetLang: body.TargetLang,
 		MsgId:      msgID,

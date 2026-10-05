@@ -1,0 +1,17 @@
+replicaCount: 1
+image:
+  name: knowledge-base
+args: ["-f", "/app/etc/knowledge-base.yaml", "-role", "ingest"]
+service:
+  grpcPort: null
+  httpPort: 9092
+  metricsPort: 9118
+probes:
+  httpPort: 9092
+  httpPath: /health
+config:
+  name: knowledge-ingest
+  secretEnv:
+    INGEST_EMBEDDING_TOKEN:
+      name: aim-ingest-embedding
+      key: token

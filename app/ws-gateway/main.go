@@ -12,7 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	message "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/app/ws-gateway/internal/config"
 	"github.com/maomeng/aim/app/ws-gateway/internal/handler"
@@ -79,10 +79,10 @@ func main() {
 		WriteBufferSize: cfg.WebSocket.WriteBufferSize,
 		CheckOrigin:     func(r *http.Request) bool { return true },
 	}
-	// Bot platform gRPC client (for bot token validation on /ws/bot)
-	var botPlatClient botplatform.BotPlatformClient
-	if cfg.BotPlatform.Target != "" {
-		botPlatClient = botplatform.NewBotPlatformClient(zrpc.MustNewClient(cfg.BotPlatform).Conn())
+	// Bot service gRPC client (for bot token validation on /ws/bot)
+	var botClient botpb.BotServiceClient
+	if cfg.BotService.Target != "" {
+		botClient = botpb.NewBotServiceClient(zrpc.MustNewClient(cfg.BotService).Conn())
 	}
 
 	// Message service gRPC client (for bot WS reply via message.send)
@@ -98,7 +98,7 @@ func main() {
 		MaxChunksPerStream: cfg.StreamCache.MaxChunksPerStream,
 	})
 
-	wsHandler := handler.NewWSHandler(upgrader, sessionMgr, presenceMgr, pushRouter, rdb, streamCache, cfg.JWT.Secret, logger, botPlatClient, msgClient)
+	wsHandler := handler.NewWSHandler(upgrader, sessionMgr, presenceMgr, pushRouter, rdb, streamCache, cfg.JWT.Secret, logger, botClient, msgClient)
 
 	// Routes
 	router.Register(r, wsHandler, &cfg)

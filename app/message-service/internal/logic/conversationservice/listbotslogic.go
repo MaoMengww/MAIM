@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/maomeng/aim/app/message-service/internal/model"
+	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -31,10 +31,10 @@ func (l *ListBotsLogic) ListBots(in *conversation.ListBotsReq) (*conversation.Li
 	for i, cb := range cbs {
 		botIDs[i] = cb.BotID
 	}
-	botMap := make(map[int64]*model.Bot, len(botIDs))
+	botMap := make(map[int64]*botpb.Bot, len(botIDs))
 	if bots, err := l.svcCtx.ConversationRepo.GetBotsByIDs(l.ctx, botIDs); err == nil {
 		for i := range bots {
-			botMap[bots[i].ID] = &bots[i]
+			botMap[bots[i].Id] = bots[i]
 		}
 	}
 

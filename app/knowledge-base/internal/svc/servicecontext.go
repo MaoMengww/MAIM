@@ -5,9 +5,7 @@ import (
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/config"
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
-	"github.com/maomeng/aim/app/knowledge-base/internal/infra/chunker"
 	infraMinio "github.com/maomeng/aim/app/knowledge-base/internal/infra/minio"
-	"github.com/maomeng/aim/app/knowledge-base/internal/infra/parser"
 	"github.com/maomeng/aim/app/knowledge-base/internal/infra/repo"
 	"github.com/maomeng/aim/pkg/database"
 	pkgkafka "github.com/maomeng/aim/pkg/kafka"
@@ -23,14 +21,12 @@ type ServiceContext struct {
 	KBRepo           domain.KBRepo
 	DocRepo          domain.DocumentRepo
 	FileStore        domain.FileStore
-	Parser           domain.Parser
-	Chunker          domain.Chunker
 	Producer         *pkgkafka.Producer
 	LLMGatewayClient zrpc.Client
 	Snowflake        *snowflake.Node
 }
 
-func NewServiceContext(c config.Config) *ServiceContext {
+func NewServiceContext(c config.Config, role string) *ServiceContext {
 	log := logx.DefaultLogger()
 	log.Infof("Initializing knowledge-base service...")
 
@@ -43,9 +39,12 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 	log.Infof("Database connected")
 
-	kafkaProducer, err := pkgkafka.NewProducer(c.Kafka, "document.uploaded", log)
-	if err != nil {
-		panic(fmt.Sprintf("init kafka producer failed: %v", err))
+	var kafkaProducer *pkgkafka.Producer
+	if role == "online" {
+		kafkaProducer, err = pkgkafka.NewProducer(c.Kafka, "document.uploaded", log)
+		if err != nil {
+			panic(fmt.Sprintf("init kafka producer failed: %v", err))
+		}
 	}
 
 	minioClient, err := pkgminio.NewClient(c.Minio)
@@ -54,9 +53,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 	fileStore := infraMinio.NewFileStore(minioClient)
 
-	snowNode, err := snowflake.NewNode(c.Snowflake.WorkerID)
-	if err != nil {
-		snowNode, err = snowflake.NewNode(0)
+	var snowNode *snowflake.Node
+	if role == "online" {
+		snowNode, err = snowflake.NewNode(c.Snowflake.WorkerID)
 		if err != nil {
 			panic(fmt.Sprintf("init snowflake failed: %v", err))
 		}
@@ -65,8 +64,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	kbRepo := repo.NewKBRepo(db).WithSnow(snowNode)
 	docRepo := repo.NewDocumentRepo(db).WithSnow(snowNode)
 	llmGatewayClient := zrpc.MustNewClient(c.LLMGateway)
-	defaultParser := parser.NewParserChain(parser.NewBuiltinParser("txt"))
-	defaultChunker := chunker.NewChunker()
 
 	return &ServiceContext{
 		Config:           c,
@@ -74,10 +71,20 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		KBRepo:           kbRepo,
 		DocRepo:          docRepo,
 		FileStore:        fileStore,
-		Parser:           defaultParser,
-		Chunker:          defaultChunker,
 		Producer:         kafkaProducer,
 		LLMGatewayClient: llmGatewayClient,
 		Snowflake:        snowNode,
+	}
+}
+
+func (s *ServiceContext) Close() {
+	if s.Producer != nil {
+		_ = s.Producer.Close()
+	}
+	if s.LLMGatewayClient != nil {
+		_ = s.LLMGatewayClient.Conn().Close()
+	}
+	if s.DB != nil {
+		_ = s.DB.Close()
 	}
 }

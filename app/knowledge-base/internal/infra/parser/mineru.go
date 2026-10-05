@@ -651,18 +651,18 @@ type mineruBatchResultResponse struct {
 	Code int    `json:"code"`
 	Msg  string `json:"msg"`
 	Data struct {
-		BatchID       string                    `json:"batch_id"`
+		BatchID       string                     `json:"batch_id"`
 		ExtractResult []mineruBatchExtractResult `json:"extract_result"`
 	} `json:"data"`
 }
 
 type mineruBatchExtractResult struct {
-	FileName        string                  `json:"file_name"`
-	State           string                  `json:"state"`
-	FullZipURL      string                  `json:"full_zip_url"`
-	ErrMsg          string                  `json:"err_msg"`
-	DataID          string                  `json:"data_id"`
-	ExtractProgress *mineruExtractProgress  `json:"extract_progress,omitempty"`
+	FileName        string                 `json:"file_name"`
+	State           string                 `json:"state"`
+	FullZipURL      string                 `json:"full_zip_url"`
+	ErrMsg          string                 `json:"err_msg"`
+	DataID          string                 `json:"data_id"`
+	ExtractProgress *mineruExtractProgress `json:"extract_progress,omitempty"`
 }
 
 type mineruExtractProgress struct {

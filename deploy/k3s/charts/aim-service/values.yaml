@@ -1,9 +1,11 @@
 replicaCount: 1
+args: []
 
 image:
   repository: docker.io/library
   tag: latest
   pullPolicy: Never
+  name: ""
 
 service:
   type: ClusterIP
@@ -13,10 +15,17 @@ service:
   httpPort: null
   wsPort: null
 
+# probes.httpPort switches liveness/readiness from a gRPC TCP socket to an HTTP
+# GET (used by workloads that expose no gRPC listener, e.g. the RAG ingest worker).
+probes:
+  httpPort: null
+  httpPath: /health
+
 config:
   name: ""
   configFilename: ""
   extraEnv: {}
+  secretEnv: {}
 
 environment:
   POSTGRES_DSN_BASE: "postgres://aim:aim123@aim-postgres:5432/aim"
@@ -36,14 +45,22 @@ environment:
   MINERU_URL: "http://aim-mineru:30000"
   JWT_SECRET: "aim-dev-secret-key"
   ENC_KEY: "Ay+h5wU31Vfy5gITlP1P2cmNtOPkTsnqIupXHqpgutw="
+  BOT_ENCRYPTION_KEY: ""
+  BOT_METRICS_PORT: "9109"
+  INGEST_REQUESTS_PER_SECOND: "5"
+  INGEST_CONCURRENCY: "2"
+  LLM_EMBED_ONLINE_RPM: "80"
+  LLM_EMBED_ONLINE_CONCURRENCY: "8"
+  LLM_EMBED_INGEST_RPM: "20"
+  LLM_EMBED_INGEST_CONCURRENCY: "2"
   USER_SERVICE_ADDR: "dns:///aim-user-service:50051"
   MESSAGE_SERVICE_ADDR: "dns:///aim-message-service:50053"
   FILE_SERVICE_ADDR: "dns:///aim-file-service:50054"
-  BOT_PLATFORM_ADDR: "dns:///aim-bot-platform:8085"
+  BOT_SERVICE_ADDR: "dns:///aim-bot-service:50058"
+  BOT_RUNTIME_ADDR: "dns:///aim-bot-runtime:50058"
   KNOWLEDGE_BASE_ADDR: "dns:///aim-knowledge-base:50057"
   LLM_GATEWAY_ADDR: "dns:///aim-llm-gateway:50056"
   SIGNALING_SERVICE_ADDR: "dns:///aim-signaling-service:50061"
-  AI_BOT_SERVICE_ADDR: "dns:///aim-ai-bot-service:50062"
   WS_GATEWAY_ADDR: "dns:///aim-ws-gateway:50060"
 
 

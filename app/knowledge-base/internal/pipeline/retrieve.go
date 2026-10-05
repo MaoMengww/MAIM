@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	"github.com/maomeng/aim/pkg/errors"
@@ -17,10 +18,19 @@ type RetrievePipeline struct {
 	EmbeddingModelID int64
 }
 
-func (p *RetrievePipeline) Retrieve(ctx context.Context, botID, convID int64, query string, retrievalCfg domain.RetrievalConfig, ownerID int64) ([]domain.RetrieveItem, error) {
+func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []int64, query string, retrievalCfg domain.RetrievalConfig, embeddingModelID, ownerID int64) ([]domain.RetrieveItem, error) {
 	logger := p.Logger.WithContext(ctx)
+	if len(kbIDs) == 0 {
+		return nil, nil
+	}
+	if retrievalCfg.TopK <= 0 {
+		retrievalCfg.TopK = 5
+	}
+	if retrievalCfg.CandidateTopK <= 0 {
+		retrievalCfg.CandidateTopK = max(20, retrievalCfg.TopK)
+	}
 	// 1. Query embedding
-	vectors, err := p.Embedder.Embed(ctx, []string{query}, p.EmbeddingModelID, ownerID)
+	vectors, err := p.Embedder.Embed(ctx, []string{query}, embeddingModelID, ownerID)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeRPCError, "query embedding failed", err)
 	}
@@ -34,14 +44,17 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, botID, convID int64, qu
 	switch retrievalCfg.Mode {
 	case "vector":
 		results, err = p.VectorStore.Search(ctx, queryVector, retrievalCfg.CandidateTopK, domain.SearchFilter{
+			KBIDs:          kbIDs,
 			ScoreThreshold: retrievalCfg.ScoreThreshold,
 		})
 	case "fulltext":
 		results, err = p.VectorStore.SparseSearch(ctx, query, retrievalCfg.CandidateTopK, domain.SearchFilter{
+			KBIDs:          kbIDs,
 			ScoreThreshold: retrievalCfg.ScoreThreshold,
 		})
 	default: // hybrid
 		results, err = p.VectorStore.HybridSearch(ctx, queryVector, query, retrievalCfg.CandidateTopK, domain.SearchFilter{
+			KBIDs:          kbIDs,
 			ScoreThreshold: retrievalCfg.ScoreThreshold,
 		}, domain.WeightConfig{
 			DenseWeight:  retrievalCfg.DenseWeight,
@@ -107,9 +120,12 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, botID, convID int64, qu
 	items := make([]domain.RetrieveItem, 0, len(results))
 	for _, r := range results {
 		docTitle, _ := r.Metadata["doc_title"].(string)
+		docIDText, _ := r.Metadata["doc_id"].(string)
+		docID, _ := strconv.ParseInt(docIDText, 10, 64)
 		items = append(items, domain.RetrieveItem{
 			Content:        r.Content,
 			Score:          r.Score,
+			DocID:          docID,
 			KBID:           r.KBID,
 			DocTitle:       docTitle,
 			MatchedContent: r.Content,

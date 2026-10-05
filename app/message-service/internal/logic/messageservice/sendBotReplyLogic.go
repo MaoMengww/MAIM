@@ -38,7 +38,7 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 	now := time.Now()
 	content := extractBotContent(in)
 
-	// 读取 Bot 展示名（bot.bots 只读，见 ADR-0007）— 在事务外执行
+	// 只读 Bot 展示投影，不依赖控制面 RPC (ADR-0007)。
 	if bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, in.BotId); err == nil {
 		content.BotName = bot.Name
 		content.BotAvatar = bot.Avatar

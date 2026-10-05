@@ -4,19 +4,19 @@ import (
 	"context"
 	"fmt"
 
-	botplatform "github.com/maomeng/aim/app/bot-platform/pb/botplatform"
+	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/app/signaling-service/internal/model"
 	"github.com/maomeng/aim/pkg/consts"
 )
 
 type MemberRepo struct {
-	convClient  message.MessageServiceClient
-	botPlatform botplatform.BotPlatformClient
+	convClient message.MessageServiceClient
+	botService botpb.BotServiceClient
 }
 
-func NewMemberRepo(msgClient message.MessageServiceClient, botPlatform botplatform.BotPlatformClient) *MemberRepo {
-	return &MemberRepo{convClient: msgClient, botPlatform: botPlatform}
+func NewMemberRepo(msgClient message.MessageServiceClient, botService botpb.BotServiceClient) *MemberRepo {
+	return &MemberRepo{convClient: msgClient, botService: botService}
 }
 
 func (r *MemberRepo) GetConvMembers(ctx context.Context, convID int64) ([]int64, error) {
@@ -42,8 +42,8 @@ func (r *MemberRepo) GetConvBotsWithConfig(ctx context.Context, convID int64) ([
 		connMode := ""
 		callbackURL := ""
 		botType := consts.BotTypeOfficial
-		if r.botPlatform != nil {
-			wc, wcErr := r.botPlatform.GetBotWebhookConfig(ctx, &botplatform.GetBotWebhookConfigReq{BotId: b.BotId})
+		if r.botService != nil {
+			wc, wcErr := r.botService.GetBotWebhookConfig(ctx, &botpb.GetBotWebhookConfigReq{BotId: b.BotId})
 			if wcErr == nil {
 				connMode = wc.ConnMode
 				callbackURL = wc.CallbackUrl

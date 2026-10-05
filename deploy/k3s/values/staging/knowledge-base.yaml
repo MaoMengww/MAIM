@@ -1,6 +1,7 @@
 replicaCount: 1
+args: ["-f", "/app/etc/knowledge-base.yaml", "-role", "online"]
 service:
   grpcPort: 50057
-  metricsPort: 9101
+  metricsPort: 9108
 config:
   name: knowledge-base
