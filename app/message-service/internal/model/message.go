@@ -29,17 +29,33 @@ func (Message) TableName() string {
 	return "messages"
 }
 
+const InboxMessageNew = "message.new"
+
+// UserInbox stores a change reference; Position is assigned by InboxRepo, not
+// by the caller or the conversation's message sequence.
 type UserInbox struct {
-	UserID    int64     `gorm:"primaryKey;column:user_id" json:"user_id"`
-	ConvID    int64     `gorm:"primaryKey;column:conv_id" json:"conv_id"`
+	UserID    int64     `gorm:"primaryKey;autoIncrement:false;column:user_id" json:"user_id"`
+	Position  int64     `gorm:"primaryKey;autoIncrement:false;column:position" json:"position"`
+	ConvID    int64     `gorm:"column:conv_id" json:"conv_id"`
 	MessageID int64     `gorm:"column:message_id" json:"message_id"`
-	Seq       int64     `gorm:"primaryKey;column:seq" json:"seq"`
+	Kind      string    `gorm:"column:kind" json:"kind"`
 	IsDeleted bool      `gorm:"column:is_deleted" json:"is_deleted"`
 	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
 }
 
 func (UserInbox) TableName() string {
-	return "user_inbox"
+	return "inbox_entries"
+}
+
+// InboxStream.Position is the committed end of the user's stream. Its row lock
+// serializes allocation and entry insertion until their shared transaction ends.
+type InboxStream struct {
+	UserID   int64 `gorm:"primaryKey;autoIncrement:false;column:user_id"`
+	Position int64 `gorm:"column:position"`
+}
+
+func (InboxStream) TableName() string {
+	return "inbox_streams"
 }
 
 type Broadcast struct {

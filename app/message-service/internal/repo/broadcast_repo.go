@@ -49,7 +49,7 @@ func (r *BroadcastRepo) List(ctx context.Context, scope string, page, pageSize i
 }
 
 func (r *BroadcastRepo) ListByUser(ctx context.Context, userID int64, page, pageSize int) ([]model.Broadcast, int64, error) {
-	// broadcasts visible to user: scope='all' OR map in user_inbox
+	// Broadcasts are visible by scope; they are not user inbox entries.
 	q := r.db.WithContext(ctx).Model(&model.Broadcast{}).
 		Where("scope = ? OR (scope = ? AND scope_target_id = ?)", "all", "user", userID)
 

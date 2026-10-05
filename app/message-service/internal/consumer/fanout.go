@@ -43,11 +43,7 @@ func (f *Fanout) send(ctx context.Context, convID int64, users []int64, payload 
 	return f.publisher.Publish(ctx, convID, delivery.Intent{UserIDs: users, Payload: raw, Notification: notification})
 }
 
-func (f *Fanout) MessageCreated(ctx context.Context, evt event.MessageCreatedEvent, raw []byte) error {
-	users, err := f.UserIDs(ctx, evt.ConvID)
-	if err != nil {
-		return err
-	}
+func (f *Fanout) MessageCreated(ctx context.Context, evt event.MessageCreatedEvent, raw []byte, users []int64) error {
 	counts, err := f.conversations.UnreadCounts(ctx, evt.ConvID, users)
 	if err != nil {
 		return err

@@ -38,15 +38,6 @@ type MessageRepoInterface interface {
 	DeleteWithTx(ctx context.Context, tx *gorm.DB, id int64) error
 }
 
-type InboxRepoInterface interface {
-	BatchInsert(ctx context.Context, inboxes []model.UserInbox) error
-	MarkDeleted(ctx context.Context, userID, convID, messageID int64) error
-	GetByUserAndConv(ctx context.Context, userID, convID int64, fromSeq int64, limit int32) ([]model.UserInbox, error)
-	GetMaxSeq(ctx context.Context, userID, convID int64) (int64, error)
-	DeleteByUser(ctx context.Context, userID, convID, messageID int64) error
-	ExistsByMessageID(ctx context.Context, messageID, convID int64) (bool, error)
-}
-
 type BroadcastRepoInterface interface {
 	Insert(ctx context.Context, broadcast *model.Broadcast) error
 	GetByID(ctx context.Context, id int64) (*model.Broadcast, error)

@@ -17,23 +17,17 @@ import (
 
 var errMaxRetries = errors.New("max retries exceeded")
 
-type ConvMemberResolver interface {
-	MemberIDs(ctx context.Context, convID int64) ([]int64, error)
-}
-
 type InboxWriter struct {
 	inboxRepo   *repo.InboxRepo
-	resolver    ConvMemberResolver
 	logger      logx.Logger
 	maxRetries  int
 	dlqProducer *kafka.Producer
 	fanout      *Fanout
 }
 
-func NewInboxWriter(inboxRepo *repo.InboxRepo, resolver ConvMemberResolver, fanout *Fanout, logger logx.Logger, maxRetries int, dlqProducer *kafka.Producer) *InboxWriter {
+func NewInboxWriter(inboxRepo *repo.InboxRepo, fanout *Fanout, logger logx.Logger, maxRetries int, dlqProducer *kafka.Producer) *InboxWriter {
 	return &InboxWriter{
 		inboxRepo:   inboxRepo,
-		resolver:    resolver,
 		logger:      logger,
 		maxRetries:  maxRetries,
 		dlqProducer: dlqProducer,
@@ -79,10 +73,22 @@ func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) err
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return err
 	}
+	// Broadcasts still use this topic until issue11; they have no conversation
+	// and must never enter the user synchronization stream.
+	if payload.ConvID == 0 {
+		var broadcast event.BroadcastCreatedEvent
+		if err := json.Unmarshal(data, &broadcast); err != nil {
+			return err
+		}
+		if broadcast.BroadcastID > 0 {
+			return nil
+		}
+		return errors.New("new message requires a conversation")
+	}
 
 	logger.Infof("inbox writer: processing message: conv_id=%d seq=%d", payload.ConvID, payload.Seq)
 
-	members, err := w.resolver.MemberIDs(ctx, payload.ConvID)
+	members, err := w.fanout.UserIDs(ctx, payload.ConvID)
 	if err != nil {
 		logger.Errorf("get conv members failed: conv=%d err=%v", payload.ConvID, err)
 		return err
@@ -96,7 +102,7 @@ func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) err
 			UserID:    uid,
 			ConvID:    payload.ConvID,
 			MessageID: payload.MessageID,
-			Seq:       payload.Seq,
+			Kind:      model.InboxMessageNew,
 			CreatedAt: now,
 		})
 	}
@@ -111,7 +117,7 @@ func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) err
 	}
 
 	logger.Infof("inbox writer: wrote %d inbox entries: conv_id=%d seq=%d", len(inboxes), payload.ConvID, payload.Seq)
-	return w.fanout.MessageCreated(ctx, payload, data)
+	return w.fanout.MessageCreated(ctx, payload, data, members)
 }
 
 func (w *InboxWriter) retry(ctx context.Context, topic string, data []byte) error {

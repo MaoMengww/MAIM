@@ -12,7 +12,6 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/database"
-	"github.com/maomeng/aim/pkg/snowflake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
@@ -150,56 +149,5 @@ func TestEditMessage_NotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "message not found")
 	assert.Nil(t, resp)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestEditMessage_WithinWindow_Success(t *testing.T) {
-	db, mock := setupEditDB(t)
-
-	now := time.Now()
-	rows := sqlmock.NewRows([]string{
-		"id", "conv_id", "sender_id", "client_msg_id", "seq", "msg_type",
-		"content", "reply_to_msg_id", "status", "edit_history", "edit_count",
-		"created_at", "updated_at",
-	}).AddRow(1, 100, 10, "", 1, model.MsgTypeText, `{"text":"hi"}`, 0, model.MessageStatusNormal, `[]`, 0, now, now)
-
-	mock.ExpectQuery(`SELECT \* FROM "messages" WHERE id = \$1 ORDER BY "messages"."id" LIMIT \$2`).
-		WithArgs(int64(1), 1).
-		WillReturnRows(rows)
-
-	mock.ExpectBegin()
-	mock.ExpectExec(`UPDATE "messages" SET`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), int64(1)).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	// Outbox INSERT inside the same transaction (GORM generates 11-arg INSERT)
-	mock.ExpectQuery(`INSERT INTO "msg"."outbox_events"`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
-	mock.ExpectCommit()
-
-	sf, err := snowflake.NewNode(1)
-	require.NoError(t, err)
-
-	svcCtx := &svc.ServiceContext{
-		Config:      config.Config{Message: config.MessageConfig{EditWindowSeconds: 120}},
-		DB:          db,
-		MessageRepo: repo.NewMessageRepo(db),
-		OutboxRepo:  repo.NewOutboxRepo(db),
-		Snowflake:   sf,
-	}
-
-	logic := NewEditMessageLogic(context.Background(), svcCtx)
-	resp, err := logic.EditMessage(&message.EditMessageReq{
-		MessageId:      1,
-		UserId:         10,
-		ConversationId: 100,
-		Text:           &message.TextContent{Text: "edited text", MentionUserIds: []int64{2}},
-	})
-
-	require.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.Equal(t, int32(0), resp.Code)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

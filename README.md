@@ -248,8 +248,8 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 | 层级 | 机制 | 实现方式 |
 |------|------|---------|
 | 发送端 | 客户端幂等 key | `client_msg_id` + Redis `SetNX("msg:idempotent:{client_msg_id}", TTL=2小时)`，重复请求直接返回 `ErrDuplicateMessage` |
-| Inbox 写入 | 数据库幂等 | `BatchInsert` 使用 `ON CONFLICT DO NOTHING`，联合主键 `(user_id, conv_id, seq)` 保证即使 Kafka 消息重复消费也不会产生重复 inbox 记录 |
-| Kafka 消费 | 持久化幂等 | InboxWriter 用 `ExistsByMessageID(messageID, convID)` 避免重复收件箱写入，但重放仍发布投递意图；客户端按会话 `seq` 去重，不把推送当作 exactly-once |
+| Inbox 写入 | 用户流事务 + 唯一约束 | `BatchInsert` 按用户 ID 顺序锁定 `inbox_streams`，去重后分配位置并与 `inbox_entries` 同事务提交；唯一键 `(user_id, conv_id, message_id, kind)` 保证重放不重复写入 |
+| Kafka 消费 | 先持久化再投递 | InboxWriter 对同一批人类收件人先写收件箱再发布投递意图；重放不增加同步位置，但仍允许 best-effort 推送重放 |
 
 #### 不丢失（零消息丢失）
 
@@ -294,7 +294,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 2. **OutboxDispatcher 轮询**：后台 goroutine 轮询 pending 事件，使用 `SELECT ... FOR UPDATE SKIP LOCKED` 保证多实例安全
 3. **指数退避重试**：发送失败按 `1s → 2s → 4s → 8s → 16s → 32s → 60s` 退避，最多 10 次
 4. **死信队列**：超过最大重试次数后标记 `status=2 (failed)`，人工介入或后续补偿
-5. **下游持久化幂等**：InboxWriter、SearchIndexer 等在消费前做 `ExistsByMessageID` 幂等检查；收件箱已存在不跳过投递意图，允许 best-effort 推送重放
+5. **下游持久化幂等**：InboxWriter 在用户流锁内检查每名收件人的引用，避免重复分配位置；收件箱已存在不跳过投递意图，允许 best-effort 推送重放
 6. **客户端 SyncMessages 最终兜底**：客户端可随时通过 `SyncMessages(from_seq=lastKnownSeq)` 拉取缺失消息
 
 #### 不乱序（严格有序保证）
@@ -305,7 +305,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 |------|------|------|
 | Seq 生成 | PostgreSQL UPSERT + RETURNING | 同一会话内 seq 严格递增（`INSERT ... ON CONFLICT DO UPDATE SET current_seq = current_seq + 1 RETURNING current_seq`），与消息写入同事务 |
 | 消息存储 | `messaging.messages` 表 `idx_conv_seq (conv_id, seq)` 索引 | 所有查询 `ORDER BY seq`，天然有序 |
-| Inbox 存储 | `messaging.user_inbox` 包含 `seq` | `GetByUserAndConv` 查询 `ORDER BY seq ASC` |
+| Inbox 存储 | `messaging.inbox_entries` 主键 `(user_id, position)` | 每个用户一条跨会话流；分配器 `inbox_streams.position` 是已提交末端，与记录同事务提交，较小位置不会晚于较大位置出现 |
 | 增量同步 | `SyncMessages: WHERE seq > from_seq ORDER BY seq ASC` | 客户端按 seq 顺序接收，不会乱序 |
 | 游标分页 | `GetMessages: WHERE seq < cursor ORDER BY seq DESC` | 基于 seq，不会跨页乱序 |
 
@@ -313,10 +313,11 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 
 #### Inbox 写扩散模型
 
-每条消息为每个成员生成一条 `messaging.user_inbox` 记录，支持：
+每条新消息（含系统消息与 Bot 回复）为每个人类收件人生成一条 `messaging.inbox_entries` 记录，包含会话、消息 ID 与变更种类，不复制正文。`014_user_inbox_stream.sql` 迁移有效消息引用后删除旧 `user_inbox` 表；广播不再写入无会话记录。
 
-- **每用户独立的删除状态** (`is_deleted`) — 删除仅对当前用户生效
-- **按 seq 排序的增量同步** — 客户端只需记录上次同步的 seq 即可拉取增量
+- **用户同步位置**：由 `messaging.inbox_streams` 独立分配，跨会话且不由会话 `seq` 推导；位置分配与收件箱写入要么一起提交，要么一起回滚。
+- **当前协议边界**：issue03 已切换存储与新消息写入；issue04 才切换用户级同步 API。现有 `SyncMessages` 仍按会话，通过关联 `messages.seq` 读取，不能把用户位置误作会话序号。
+- **个人删除**：暂保留 `is_deleted` 标记，issue09 再迁移为独立覆盖层；其它变更写入与保留期分别见 issue07/08、issue05。
 
 已读位点不在收件箱里：`messaging.conv_read_seqs` 是每个用户在会话内已读位点的唯一真相源（收件箱上的 `last_read_seq` 死列已由 `006_drop_inbox_read_seq.sql` 删除），未读数由消息域用「`seq` 大于该用户已读位点、且发送者不是该用户」在本地计算。
 

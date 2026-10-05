@@ -45,7 +45,7 @@ func main() {
 	}
 
 	fanout := consumer.NewFanout(ctx.ConversationRepo, ctx.DeliveryPublisher)
-	inboxWriter := consumer.NewInboxWriter(ctx.InboxRepo, ctx.ConversationRepo, fanout, ctx.Logger, c.Kafka.MaxRetry, dlqProducer)
+	inboxWriter := consumer.NewInboxWriter(ctx.InboxRepo, fanout, ctx.Logger, c.Kafka.MaxRetry, dlqProducer)
 	inboxConsumer, err := kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated, consts.KafkaTopicMessageRecalled, consts.KafkaTopicMessageEdited, consts.KafkaTopicMessageDeleted, consts.KafkaTopicConversationReadUpdated}, c.Kafka.ConsumerGroup+"-inbox", ctx.Logger)
 	if err != nil {
 		panic(fmt.Sprintf("kafka inbox consumer: %v", err))

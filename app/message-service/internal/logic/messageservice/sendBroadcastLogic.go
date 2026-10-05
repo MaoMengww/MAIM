@@ -15,8 +15,6 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-const inboxBatchSize = 500
-
 type SendBroadcastLogic struct {
 	ctx    context.Context
 	svcCtx *svc.ServiceContext
@@ -61,17 +59,10 @@ func (l *SendBroadcastLogic) SendBroadcast(in *message.SendBroadcastReq) (*messa
 		return nil, errors.Wrap(errors.CodeInternal, "insert broadcast failed", err)
 	}
 
-	targetUsers, err := l.resolveTargetUsers(in.Scope, scopeTargetID)
+	_, err = l.resolveTargetUsers(in.Scope, scopeTargetID)
 	if err != nil {
 		l.Errorf("resolve target users for broadcast %d failed: %v", broadcastID, err)
 		return nil, errors.Wrap(errors.CodeInternal, "resolve target users failed", err)
-	}
-
-	if len(targetUsers) > 0 {
-		if err := l.writeInboxEntries(targetUsers, broadcastID, now); err != nil {
-			l.Errorf("write inbox entries for broadcast %d failed: %v", broadcastID, err)
-			return nil, errors.Wrap(errors.CodeInternal, "write inbox entries failed", err)
-		}
 	}
 
 	kafkaMsg := event.BroadcastCreatedEvent{
@@ -109,28 +100,4 @@ func (l *SendBroadcastLogic) resolveTargetUsers(scope string, scopeTargetID int6
 	default:
 		return nil, fmt.Errorf("unknown scope: %s", scope)
 	}
-}
-
-func (l *SendBroadcastLogic) writeInboxEntries(userIDs []int64, broadcastID int64, now time.Time) error {
-	for i := 0; i < len(userIDs); i += inboxBatchSize {
-		end := i + inboxBatchSize
-		if end > len(userIDs) {
-			end = len(userIDs)
-		}
-		batch := userIDs[i:end]
-		inboxes := make([]model.UserInbox, 0, len(batch))
-		for _, uid := range batch {
-			inboxes = append(inboxes, model.UserInbox{
-				UserID:    uid,
-				ConvID:    0, // 0 means broadcast
-				MessageID: broadcastID,
-				Seq:       broadcastID,
-				CreatedAt: now,
-			})
-		}
-		if err := l.svcCtx.InboxRepo.BatchInsert(l.ctx, inboxes); err != nil {
-			return err
-		}
-	}
-	return nil
 }
