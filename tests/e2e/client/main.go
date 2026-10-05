@@ -254,7 +254,7 @@ func run(args []string) error {
 		} else if scenario.name == "user-sync" {
 			fmt.Println("E2E PASS: user-sync 双账号注册/登录 → 空流正位点重建 → 单位点跨单聊/群聊limit=1分页正文/无遗漏/隔离 → 最近2条历史与置顶免打扰重建 → 续增量 → 未知/负位点显式重建 → 非法参数HTTP400")
 		} else if scenario.name == "broadcasts" {
-			fmt.Println("E2E PASS: broadcasts user/group/all → 并发首播唯一系统会话 → 普通 message.new 跨实例投递 → 离线增量/历史 → 范围隔离")
+			fmt.Println("E2E PASS: broadcasts 并发首播唯一系统会话 → user/group/all范围 → 跨实例普通message.new → 会话复用/seq → 离线同步/重建/history → 非成员拒读")
 		} else if scenario.name == "bot-runtime" {
 			fmt.Println("E2E PASS: bot-runtime CRUD/配置 → 网络 MCP 发现/调用 → token 验证 → Kafka Bot 精确回复 → 同实例 WS/REST读取 → 删除")
 		} else if scenario.name == "knowledge-ingest" {

@@ -34,18 +34,42 @@ type broadcastBody struct {
 	payload string
 }
 
+type broadcastSyncPage struct {
+	Changes []struct {
+		Position decimal          `json:"position"`
+		ConvID   decimal          `json:"conversation_id"`
+		Kind     string           `json:"kind"`
+		Message  broadcastMessage `json:"message"`
+	} `json:"changes"`
+	HasMore         bool    `json:"has_more"`
+	NextPosition    decimal `json:"next_position"`
+	RebuildRequired bool    `json:"rebuild_required"`
+	Conversations   []struct {
+		Conversation conversationView   `json:"conversation"`
+		Messages     []broadcastMessage `json:"messages"`
+	} `json:"conversations"`
+}
+
 func (d *driver) broadcasts(addressA, addressB string) error {
 	suffix, err := randomSuffix()
 	if err != nil {
 		return err
 	}
 	users := make([]account, 4)
+	positions := make([]decimal, len(users))
 	for i := range users {
 		users[i], err = d.register(fmt.Sprintf("broadcast_%d", i), suffix)
 		if err != nil {
 			return err
 		}
-
+		var initial broadcastSyncPage
+		if err := d.request(http.MethodGet, "/messages/sync?position=0&limit=50", users[i].token, nil, &initial); err != nil {
+			return err
+		}
+		if !initial.RebuildRequired || initial.NextPosition <= 0 || len(initial.Changes) != 0 || len(initial.Conversations) != 0 {
+			return errors.New("broadcasts.initial: 新账号普通同步必须重建为空并返回有效用户位点")
+		}
+		positions[i] = initial.NextPosition
 	}
 	var group struct {
 		ID decimal `json:"conversation_id"`
@@ -94,7 +118,7 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 	expected[0] = []broadcastBody{first, second}
 	convIDs := make([]decimal, len(users))
 	messages := make([][]broadcastMessage, len(users))
-	if err := d.broadcastState(users, users[2], expected, convIDs, messages); err != nil {
+	if err := d.broadcastState(users, users[2], positions, expected, convIDs, messages); err != nil {
 		return fmt.Errorf("broadcasts.user: %w", err)
 	}
 	if err := d.broadcastReceive(connections[0], users[2], messages[0]); err != nil {
@@ -112,7 +136,7 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 	for _, i := range []int{0, 1} {
 		expected[i] = append(expected[i], groupBody)
 	}
-	if err := d.broadcastState(users, users[2], expected, convIDs, messages); err != nil {
+	if err := d.broadcastState(users, users[2], positions, expected, convIDs, messages); err != nil {
 		return fmt.Errorf("broadcasts.group: %w", err)
 	}
 	for _, i := range []int{0, 1} {
@@ -130,7 +154,7 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 	for i := range users {
 		expected[i] = append(expected[i], allBody)
 	}
-	if err := d.broadcastState(users, users[2], expected, convIDs, messages); err != nil {
+	if err := d.broadcastState(users, users[2], positions, expected, convIDs, messages); err != nil {
 		return fmt.Errorf("broadcasts.all: %w", err)
 	}
 	for i, conn := range connections {
@@ -146,10 +170,27 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 	if err := d.ready(connD); err != nil {
 		return err
 	}
-	// Reconnect uses the existing ordinary conversation sync until issue04.
+	// New-device rebuild must expose exactly the offline user's all broadcast,
+	// while its pre-broadcast position above already proved ordinary incrementals.
+	if err := d.broadcastPoll("offline.rebuild", func(bounded *driver) (bool, error) {
+		var page broadcastSyncPage
+		if err := bounded.request(http.MethodGet, "/messages/sync?position=0&limit=50", users[3].token, nil, &page); err != nil {
+			return false, err
+		}
+		if !page.RebuildRequired || page.HasMore || len(page.Changes) != 0 || page.NextPosition <= positions[3] || len(page.Conversations) != 1 {
+			return false, errors.New("broadcasts.offline.rebuild: 新设备重建的会话/位点/分页不符合契约")
+		}
+		snapshot := page.Conversations[0]
+		if snapshot.Conversation.ID != convIDs[3] || snapshot.Conversation.Type != 3 || len(snapshot.Messages) != 1 {
+			return false, errors.New("broadcasts.offline.rebuild: 离线用户系统会话或消息不匹配")
+		}
+		return true, checkBroadcastMessage(snapshot.Messages[0], messages[3][0], users[2])
+	}); err != nil {
+		return err
+	}
 	// Read the same ordinary surfaces after reconnect; no broadcast endpoint is
 	// consulted to recover content or to determine which user owns a message.
-	if err := d.broadcastState(users, users[2], expected, convIDs, messages); err != nil {
+	if err := d.broadcastState(users, users[2], positions, expected, convIDs, messages); err != nil {
 		return err
 	}
 	for i, caller := range users {
@@ -221,7 +262,7 @@ func (d *driver) broadcastPoll(step string, observe func(*driver) (bool, error))
 	}
 }
 
-func (d *driver) broadcastState(users []account, sender account, expected [][]broadcastBody, convIDs []decimal, messages [][]broadcastMessage) error {
+func (d *driver) broadcastState(users []account, sender account, positions []decimal, expected [][]broadcastBody, convIDs []decimal, messages [][]broadcastMessage) error {
 	// First wait for recipients, then inspect outsiders. This avoids declaring
 	// isolation from an empty projection before legitimate fanout has progressed.
 	for _, visible := range []bool{true, false} {
@@ -246,7 +287,7 @@ func (d *driver) broadcastState(users []account, sender account, expected [][]br
 					return false, errors.New("broadcasts.scope: 系统会话重复或范围外用户拥有系统会话")
 				}
 				if !visible {
-					return bounded.broadcastIncremental(caller, sender, 0, nil)
+					return bounded.broadcastIncremental(caller, sender, positions[i], 0, nil)
 				}
 				if len(system) == 0 {
 					return false, nil
@@ -321,7 +362,7 @@ func (d *driver) broadcastState(users []account, sender account, expected [][]br
 						return false, err
 					}
 				}
-				done, err := bounded.broadcastIncremental(caller, sender, row.ID, history.Messages)
+				done, err := bounded.broadcastIncremental(caller, sender, positions[i], row.ID, history.Messages)
 				if done && err == nil {
 					messages[i] = history.Messages
 				}
@@ -348,34 +389,43 @@ func checkBroadcastMessage(actual, expected broadcastMessage, sender account) er
 	return checkBroadcastContent(actual.System, broadcastBody{text: expected.System.Detail, payload: expected.System.Payload}, sender)
 }
 
-func (d *driver) broadcastIncremental(caller, sender account, convID decimal, expected []broadcastMessage) (bool, error) {
-	if convID == 0 {
-		return len(expected) == 0, nil
-	}
-	var page struct {
-		Messages []broadcastMessage `json:"messages"`
-	}
-	if err := d.request(http.MethodGet, "/messages/"+convID.String()+"/sync?from_seq=0&limit=50", caller.token, nil, &page); err != nil {
-		return false, err
-	}
-	if len(page.Messages) > len(expected) {
-		return false, errors.New("broadcasts.sync: duplicate or unexpected message")
-	}
-	if len(page.Messages) < len(expected) {
-		return false, nil
-	}
+func (d *driver) broadcastIncremental(caller, sender account, position, convID decimal, expected []broadcastMessage) (bool, error) {
 	matched := make(map[decimal]bool, len(expected))
-	for _, msg := range page.Messages {
-		index := slices.IndexFunc(expected, func(candidate broadcastMessage) bool { return candidate.MessageID == msg.MessageID })
-		if index < 0 || matched[msg.MessageID] {
-			return false, errors.New("broadcasts.sync: unexpected or duplicate message")
-		}
-		if err := checkBroadcastMessage(msg, expected[index], sender); err != nil {
+	for {
+		var page broadcastSyncPage
+		if err := d.request(http.MethodGet, "/messages/sync?position="+position.String()+"&limit=50", caller.token, nil, &page); err != nil {
 			return false, err
 		}
-		matched[msg.MessageID] = true
+		if page.RebuildRequired || len(page.Conversations) != 0 {
+			return false, errors.New("broadcasts.sync: 有效用户位点不应进入重建")
+		}
+		previous := position
+		for _, change := range page.Changes {
+			msg := change.Message
+			if change.Position <= previous || change.ConvID <= 0 || msg.MessageID <= 0 || msg.Seq <= 0 || msg.ConvID != change.ConvID || change.Kind != "message.new" {
+				return false, errors.New("broadcasts.sync: 普通收件箱位点/会话/消息/seq/kind 无效，广播不能脱离会话")
+			}
+			previous = change.Position
+			if msg.System.Action != "broadcast" {
+				continue
+			}
+			index := slices.IndexFunc(expected, func(candidate broadcastMessage) bool { return candidate.MessageID == msg.MessageID })
+			if change.ConvID != convID || index < 0 || matched[msg.MessageID] {
+				return false, errors.New("broadcasts.sync: 收件箱存在范围外或重复广播")
+			}
+			if err := checkBroadcastMessage(msg, expected[index], sender); err != nil {
+				return false, err
+			}
+			matched[msg.MessageID] = true
+		}
+		if page.NextPosition < previous || (page.HasMore && page.NextPosition <= position) {
+			return false, errors.New("broadcasts.sync: 分页位点没有覆盖消息或不能前进")
+		}
+		if !page.HasMore {
+			return len(matched) == len(expected), nil
+		}
+		position = page.NextPosition
 	}
-	return true, nil
 }
 
 func (d *driver) broadcastReceive(conn *websocket.Conn, sender account, expected []broadcastMessage) error {

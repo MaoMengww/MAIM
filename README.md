@@ -221,7 +221,7 @@ python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifact
 
 `user-sync` 检查空流重建、单个位点跨会话分页、消息正文与账号隔离、新设备最近历史及置顶/免打扰设置、未知位点重建和续增量；过期回收与并发未提交写入窗口由真实 PostgreSQL 的 `TestUserSync` 集成回归覆盖。
 
-`broadcasts` 检查 `user/group/all` 范围、并发首次广播只创建一个用户系统会话、后续复用与递增 `seq`、两副本上的普通 `message.new` 投递，以及离线账号经收件箱增量和会话历史读取广播。广播无需客户端专用事件分支。
+`broadcasts` 检查 `user/group/all` 范围、并发首次广播只创建一个用户系统会话、后续复用与递增 `seq`、两副本上的普通 `message.new` 投递，以及离线账号经用户收件箱增量/重建和会话历史读取广播。广播无需客户端专用事件分支。
 
 `stage-p5` 在 P4 场景上追加 Bot 配置/令牌、真实网络 MCP 工具发现与调用、Kafka 回复及 WS/REST 精确内容核对，以及四个大文档并发入库期间的检索和失败隔离。OpenAI/MCP 外部协议由 `e2e-provider` 提供；AIM 内部 RPC、Kafka、PostgreSQL、Milvus 不替换。在线查询每次硬截止 5 秒；入库总截止 10 分钟，容纳默认 20 RPM 预算，不提高配额或缩小文档负载。
 
