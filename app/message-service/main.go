@@ -34,14 +34,19 @@ func main() {
 		_, err := messageservicelogic.NewSendSystemMessageLogic(callCtx, ctx).SendSystemMessage(req)
 		return err
 	}
+	defer ctx.Close()
 
 	dlqProducer, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageCreatedDLQ, ctx.Logger)
 	if err != nil {
 		ctx.Logger.Errorf("kafka dlq producer init failed: %v", err)
 	}
+	if dlqProducer != nil {
+		defer dlqProducer.Close()
+	}
 
-	inboxWriter := consumer.NewInboxWriter(ctx.InboxRepo, ctx.ConversationRepo, ctx.Logger, c.Kafka.MaxRetry, dlqProducer)
-	inboxConsumer, err := kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated}, c.Kafka.ConsumerGroup+"-inbox", ctx.Logger)
+	fanout := consumer.NewFanout(ctx.ConversationRepo, ctx.DeliveryPublisher)
+	inboxWriter := consumer.NewInboxWriter(ctx.InboxRepo, ctx.ConversationRepo, fanout, ctx.Logger, c.Kafka.MaxRetry, dlqProducer)
+	inboxConsumer, err := kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated, consts.KafkaTopicMessageRecalled, consts.KafkaTopicMessageEdited, consts.KafkaTopicMessageDeleted, consts.KafkaTopicConversationReadUpdated}, c.Kafka.ConsumerGroup+"-inbox", ctx.Logger)
 	if err != nil {
 		panic(fmt.Sprintf("kafka inbox consumer: %v", err))
 	}

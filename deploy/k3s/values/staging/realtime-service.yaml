@@ -1,0 +1,22 @@
+replicaCount: 2
+args: ["-f", "/app/etc/realtime.yaml"]
+terminationGracePeriodSeconds: 60
+service:
+  type: ClusterIP
+  grpcPort: 50061
+  wsPort: 8081
+  metricsPort: 9090
+probes:
+  httpPort: 8081
+  readinessPath: /readiness
+config:
+  name: realtime-service
+  configFilename: realtime
+  extraEnv:
+    REALTIME_HEARTBEAT_INTERVAL: "30"
+    REALTIME_REGISTRY_TTL_SECONDS: "90"
+    REALTIME_INSTANCE_ID: ""
+    REALTIME_READINESS_DELAY_SECONDS: "5"
+    REALTIME_DRAIN_SECONDS: "30"
+    REALTIME_WRITE_TIMEOUT_SECONDS: "5"
+    REALTIME_SHUTDOWN_TIMEOUT_SECONDS: "40"

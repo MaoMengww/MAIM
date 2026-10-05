@@ -1,0 +1,62 @@
+Name: realtime-service
+Host: 0.0.0.0
+Port: 8081
+ListenOn: 0.0.0.0:50061
+WebSocket:
+  ReadBufferSize: 1024
+  WriteBufferSize: 1024
+  HeartbeatInterval: ${REALTIME_HEARTBEAT_INTERVAL}
+  WriteTimeoutSeconds: ${REALTIME_WRITE_TIMEOUT_SECONDS}
+  MaxConn: 10000
+Registry:
+  InstanceID: ${REALTIME_INSTANCE_ID}
+  TTLSeconds: ${REALTIME_REGISTRY_TTL_SECONDS}
+Shutdown:
+  ReadinessDelaySeconds: ${REALTIME_READINESS_DELAY_SECONDS}
+  DrainSeconds: ${REALTIME_DRAIN_SECONDS}
+  TimeoutSeconds: ${REALTIME_SHUTDOWN_TIMEOUT_SECONDS}
+JWT:
+  Secret: ${JWT_SECRET}
+  ExpireSec: 7200
+  RefreshSec: 604800
+Redis:
+  Host: ${REDIS_ADDR}
+  Password: ""
+  DB: 0
+Database:
+  Driver: postgres
+  DSN: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=notify
+  MaxOpenConn: 50
+  MaxIdleConn: 10
+Kafka:
+  Brokers: ${KAFKA_BROKERS}
+  ConsumerGroup: realtime-service
+  Version: "2.8.0"
+BotService:
+  Target: ${BOT_SERVICE_ADDR}
+  NonBlock: true
+MessageService:
+  Target: ${MESSAGE_SERVICE_ADDR}
+  NonBlock: true
+Metrics:
+  Port: 9090
+Log:
+  Level: info
+  Format: json
+  Output: stdout
+Telemetry:
+  Name: realtime-service
+  Endpoint: ${OTEL_ENDPOINT}
+  Sampler: 1.0
+StreamCache:
+  Enabled: true
+  TTLSeconds: 300
+  MaxChunksPerStream: 1000
+Push:
+  FCMEnabled: false
+  FCMCredentials: ""
+  APNSEnabled: false
+  APNSKeyFile: ""
+  APNSKeyID: ""
+  APNSTeamID: ""
+  APNSTopic: com.aim.chat

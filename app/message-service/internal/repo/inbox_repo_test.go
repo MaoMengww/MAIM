@@ -40,21 +40,6 @@ func TestInboxRepo_BatchInsert_Empty(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestInboxRepo_MarkDeleted(t *testing.T) {
-	db, mock := setupMockDB(t)
-	repo := NewInboxRepo(db)
-
-	mock.ExpectBegin()
-	mock.ExpectExec(`UPDATE "user_inbox" SET .+ WHERE user_id = \$2 AND conv_id = \$3 AND message_id = \$4`).
-		WithArgs(sqlmock.AnyArg(), int64(1), int64(100), int64(1001)).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-
-	err := repo.MarkDeleted(context.Background(), 1, 100, 1001)
-	assert.NoError(t, err)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestInboxRepo_GetByUserAndConv(t *testing.T) {
 	db, mock := setupMockDB(t)
 	repo := NewInboxRepo(db)

@@ -61,10 +61,6 @@ KnowledgeBase:
   Target: ${KNOWLEDGE_BASE_ADDR}
   Timeout: 600000
 
-WsGateway:
-  Target: ${WS_GATEWAY_ADDR}
-  Timeout: 10000
-
 Runtime:
   Target: ${BOT_RUNTIME_ADDR}
   NonBlock: true

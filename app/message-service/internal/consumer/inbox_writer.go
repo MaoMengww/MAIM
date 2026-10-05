@@ -27,15 +27,17 @@ type InboxWriter struct {
 	logger      logx.Logger
 	maxRetries  int
 	dlqProducer *kafka.Producer
+	fanout      *Fanout
 }
 
-func NewInboxWriter(inboxRepo *repo.InboxRepo, resolver ConvMemberResolver, logger logx.Logger, maxRetries int, dlqProducer *kafka.Producer) *InboxWriter {
+func NewInboxWriter(inboxRepo *repo.InboxRepo, resolver ConvMemberResolver, fanout *Fanout, logger logx.Logger, maxRetries int, dlqProducer *kafka.Producer) *InboxWriter {
 	return &InboxWriter{
 		inboxRepo:   inboxRepo,
 		resolver:    resolver,
 		logger:      logger,
 		maxRetries:  maxRetries,
 		dlqProducer: dlqProducer,
+		fanout:      fanout,
 	}
 }
 
@@ -50,12 +52,9 @@ func (w *InboxWriter) ConsumeClaim(session sarama.ConsumerGroupSession, claim sa
 			if !ok {
 				return nil
 			}
-			if msg.Topic != consts.KafkaTopicMessageCreated {
-				session.MarkMessage(msg, "")
-				continue
-			}
-			if err := w.handleMessageCreated(session.Context(), msg.Value); err != nil {
-				if retryErr := w.retry(session.Context(), msg.Value); retryErr != nil {
+			ctx := kafka.ExtractTraceContext(session.Context(), msg.Headers)
+			if err := w.handle(ctx, msg.Topic, msg.Value); err != nil {
+				if retryErr := w.retry(ctx, msg.Topic, msg.Value); retryErr != nil {
 					logger.Errorf("inbox writer failed after retries: key=%s err=%v", string(msg.Key), err)
 				}
 			}
@@ -64,6 +63,13 @@ func (w *InboxWriter) ConsumeClaim(session sarama.ConsumerGroupSession, claim sa
 			return nil
 		}
 	}
+}
+
+func (w *InboxWriter) handle(ctx context.Context, topic string, data []byte) error {
+	if topic == consts.KafkaTopicMessageCreated {
+		return w.handleMessageCreated(ctx, data)
+	}
+	return w.fanout.Handle(ctx, topic, data)
 }
 
 func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) error {
@@ -75,18 +81,6 @@ func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) err
 	}
 
 	logger.Infof("inbox writer: processing message: conv_id=%d seq=%d", payload.ConvID, payload.Seq)
-
-	// Idempotency check: if inbox entries already exist for this message, skip.
-	// This handles duplicate deliveries from OutboxDispatcher retries.
-	exists, err := w.inboxRepo.ExistsByMessageID(ctx, payload.MessageID, payload.ConvID)
-	if err != nil {
-		logger.Errorf("inbox writer: idempotency check failed: %v", err)
-		return err
-	}
-	if exists {
-		logger.Infof("inbox writer: message %d already in inbox, skipping", payload.MessageID)
-		return nil
-	}
 
 	members, err := w.resolver.MemberIDs(ctx, payload.ConvID)
 	if err != nil {
@@ -117,13 +111,13 @@ func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) err
 	}
 
 	logger.Infof("inbox writer: wrote %d inbox entries: conv_id=%d seq=%d", len(inboxes), payload.ConvID, payload.Seq)
-	return nil
+	return w.fanout.MessageCreated(ctx, payload, data)
 }
 
-func (w *InboxWriter) retry(ctx context.Context, data []byte) error {
-	for i := 0; i < w.maxRetries; i++ {
+func (w *InboxWriter) retry(ctx context.Context, topic string, data []byte) error {
+	for i := range w.maxRetries {
 		time.Sleep(time.Duration(i+1) * 100 * time.Millisecond)
-		if err := w.handleMessageCreated(ctx, data); err == nil {
+		if err := w.handle(ctx, topic, data); err == nil {
 			return nil
 		}
 	}

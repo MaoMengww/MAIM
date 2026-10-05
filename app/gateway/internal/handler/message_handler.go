@@ -130,6 +130,7 @@ func (h *MessageHandler) EditMessage(c *gin.Context) {
 	}
 	req := msgclient.EditMessageReq{
 		MessageId: parseInt64(c.Param("id")),
+		UserId:    c.GetInt64(middleware.CtxKeyUserID),
 		Text:      &msgpb.TextContent{Text: dto.Text},
 	}
 	ctx := middleware.WithGRPCMetadata(c)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/config"
+	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	"github.com/maomeng/aim/app/knowledge-base/internal/handler"
 	"github.com/maomeng/aim/app/knowledge-base/internal/infra/embedder"
 	"github.com/maomeng/aim/app/knowledge-base/internal/infra/milvus"
@@ -20,6 +21,8 @@ import (
 	"github.com/maomeng/aim/app/knowledge-base/internal/pipeline"
 	"github.com/maomeng/aim/app/knowledge-base/internal/svc"
 	pb "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase"
+	"github.com/maomeng/aim/pkg/delivery"
+	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
@@ -70,6 +73,22 @@ func main() {
 			},
 			LLMGatewayClient: resources.LLMGatewayClient, RetryLimit: c.RetryLimit,
 			MaxFileSize: c.MaxFileSize, Logger: logger,
+			Progress: func(ctx context.Context, doc *domain.Document, evt event.RealtimeEvent) {
+				kb, err := resources.KBRepo.Get(ctx, doc.KBID)
+				if err != nil {
+					logger.Errorf("progress owner lookup failed: doc_id=%d err=%v", doc.ID, err)
+					return
+				}
+				evt.UserID, evt.DocID, evt.KBID = kb.OwnerID, doc.ID, doc.KBID
+				evt.Source, evt.CreatedAt = "knowledge-base", time.Now().Unix()
+				raw, err := event.MarshalRealtimeEvent(evt)
+				if err == nil {
+					err = resources.DeliveryPublisher.Publish(ctx, kb.OwnerID, delivery.Intent{UserIDs: []int64{kb.OwnerID}, Payload: raw})
+				}
+				if err != nil {
+					logger.Errorf("progress publish failed: doc_id=%d err=%v", doc.ID, err)
+				}
+			},
 		}
 		docHandler := handler.NewDocumentUploadedHandler(resources.DocRepo, resources.KBRepo, ingestPipe, logger, c.Ingest)
 		if err := runIngest(c, docHandler, logger); err != nil {

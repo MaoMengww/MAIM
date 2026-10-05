@@ -21,7 +21,7 @@ groups:
           summary: "gRPC error rate > 5% for method {{ $labels.method }}"
 
       - alert: ServiceDown
-        expr: up{job=~"rpc-services|gateway|ws-gateway"} == 0
+        expr: up{job=~"rpc-services|gateway|realtime-service"} == 0
         for: 1m
         labels:
           severity: critical

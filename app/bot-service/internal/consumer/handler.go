@@ -38,9 +38,9 @@ type Handler struct {
 	convClient    interface {
 		GetConversationMembers(ctx context.Context, convID int64) ([]int64, error)
 	}
-	dedup     *Dedup
-	userNames graph.UserNamesFunc
-	wsClient  stream.WsGatewayClient
+	dedup          *Dedup
+	userNames      graph.UserNamesFunc
+	deliveryClient stream.DeliveryClient
 }
 
 func NewHandler(
@@ -57,7 +57,7 @@ func NewHandler(
 		GetConversationMembers(ctx context.Context, convID int64) ([]int64, error)
 	},
 	dedup *Dedup,
-	wsClient stream.WsGatewayClient,
+	deliveryClient stream.DeliveryClient,
 	userNames ...graph.UserNamesFunc,
 ) *Handler {
 	var un graph.UserNamesFunc
@@ -65,33 +65,53 @@ func NewHandler(
 		un = userNames[0]
 	}
 	return &Handler{
-		logger:        logger,
-		botRepo:       botRepo,
-		convBotRepo:   convBotRepo,
-		llmClient:     llmClient,
-		retriever:     retriever,
-		memoryStore:   memoryStore,
-		memoryManager: memoryManager,
-		msgClient:     msgClient,
-		kbClient:      kbClient,
-		convClient:    convClient,
-		dedup:         dedup,
-		wsClient:      wsClient,
-		userNames:     un,
+		logger:         logger,
+		botRepo:        botRepo,
+		convBotRepo:    convBotRepo,
+		llmClient:      llmClient,
+		retriever:      retriever,
+		memoryStore:    memoryStore,
+		memoryManager:  memoryManager,
+		msgClient:      msgClient,
+		kbClient:       kbClient,
+		convClient:     convClient,
+		dedup:          dedup,
+		deliveryClient: deliveryClient,
+		userNames:      un,
 	}
 }
 
 func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 	event, msgID, err := parseEvent(raw)
+	var source struct {
+		SenderType string `json:"sender_type"`
+	}
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return err
+	}
+	if source.SenderType == "bot" || source.SenderType == "system" {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("parse event: %w", err)
 	}
 
 	if event.BotID == 0 && event.ConvID != 0 && h.convBotRepo != nil {
-		bots, cbErr := h.convBotRepo.FindByConv(ctx, event.ConvID)
-		if cbErr == nil && len(bots) > 0 {
-			event.BotID = bots[0].BotID
+		bots, err := h.convBotRepo.FindByConv(ctx, event.ConvID)
+		if err != nil {
+			return err
 		}
+		for _, binding := range bots {
+			event.BotID = binding.BotID
+			payload, err := json.Marshal(event)
+			if err != nil {
+				return err
+			}
+			if err := h.Handle(ctx, payload); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	if event.BotID == 0 {
@@ -116,6 +136,9 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		return fmt.Errorf("bot/conv not found: %w", err)
 	}
 
+	if bot.Type == "third_party" {
+		return nil
+	}
 	if !shouldRespond(event, bot) {
 		return nil
 	}
@@ -197,12 +220,12 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		return fmt.Errorf("create react agent: %w", err)
 	}
 
-	if bot.StreamingEnabled && h.wsClient != nil {
+	if bot.StreamingEnabled && h.deliveryClient != nil {
 		replyToMsgID := int64(0)
 		if event.Message != nil {
 			replyToMsgID = event.Message.MsgID
 		}
-		pusher := stream.NewWSPusher(h.wsClient, event.ConvID, event.BotID, replyToMsgID)
+		pusher := stream.NewDeliveryPusher(ctx, h.deliveryClient, event.ConvID, event.BotID, replyToMsgID)
 
 		stream, streamErr := agent.Stream(ctx, []*schema.Message{
 			{Role: schema.User, Content: msgText},
@@ -405,69 +428,34 @@ func buildRawPayload(kbSources []graph.KnowledgeSource, usedTools []string) stri
 // parseEvent parses a Kafka message.created event, handling both nested (BotEvent)
 // and flat formats.
 func parseEvent(raw []byte) (*model.BotEvent, int64, error) {
-	var event model.BotEvent
-	if err := json.Unmarshal(raw, &event); err != nil {
-		return nil, 0, fmt.Errorf("json unmarshal: %w", err)
+	var evt model.BotEvent
+	if err := json.Unmarshal(raw, &evt); err != nil {
+		return nil, 0, err
 	}
-
-	if event.Message != nil {
-		return &event, event.Message.MsgID, nil
+	if evt.Message != nil {
+		return &evt, evt.Message.MsgID, nil
 	}
-
-	var flat map[string]any
+	var flat struct {
+		MessageID    int64  `json:"message_id"`
+		SenderID     int64  `json:"sender_id"`
+		SenderName   string `json:"sender_name"`
+		MsgType      int32  `json:"msg_type"`
+		ReplyToMsgID int64  `json:"reply_to_msg_id"`
+		Content      struct {
+			Text     string  `json:"text"`
+			Mentions []int64 `json:"mention_user_ids"`
+		} `json:"content"`
+	}
 	if err := json.Unmarshal(raw, &flat); err != nil {
-		return &event, 0, nil
+		return nil, 0, err
 	}
-
-	event.EventType = "message.created"
-
-	if v, ok := flat["conv_id"].(float64); ok {
-		event.ConvID = int64(v)
+	if evt.EventType == "" {
+		evt.EventType = "message.created"
 	}
-
-	var msgID int64
-	if v, ok := flat["message_id"].(float64); ok {
-		msgID = int64(v)
-	}
-	if event.Message == nil {
-		event.Message = &model.EventMessage{}
-	}
-	event.Message.MsgID = msgID
-	if v, ok := flat["msg_type"].(float64); ok {
-		event.Message.MsgType = int32(v)
-	}
-	if v, ok := flat["reply_to_msg_id"].(float64); ok {
-		event.Message.ReplyToMsgID = int64(v)
-	}
-
-	if content, ok := flat["content"].(map[string]any); ok {
-		if text, ok := content["text"].(string); ok {
-			event.Message.Text = text
-		}
-		if mentions, ok := content["mention_user_ids"]; ok {
-			switch m := mentions.(type) {
-			case []any:
-				for _, id := range m {
-					if f, ok := id.(float64); ok {
-						event.MentionedUserIDs = append(event.MentionedUserIDs, int64(f))
-					}
-				}
-			}
-		}
-	}
-
-	if v, ok := flat["sender_id"].(float64); ok {
-		event.Sender = &model.EventSender{UserID: int64(v)}
-	}
-	if v, ok := flat["sender_name"].(string); ok && event.Sender != nil {
-		event.Sender.Username = v
-	}
-
-	if v, ok := flat["bot_id"].(float64); ok {
-		event.BotID = int64(v)
-	}
-
-	return &event, msgID, nil
+	evt.Message = &model.EventMessage{MsgID: flat.MessageID, Text: flat.Content.Text, MsgType: flat.MsgType, ReplyToMsgID: flat.ReplyToMsgID}
+	evt.Sender = &model.EventSender{UserID: flat.SenderID, Username: flat.SenderName}
+	evt.MentionedUserIDs = flat.Content.Mentions
+	return &evt, flat.MessageID, nil
 }
 
 // fallbackForLanguage returns a fallback message in the user's language.

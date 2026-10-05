@@ -19,7 +19,6 @@ type Config struct {
 	LlmGateway     zrpc.RpcClientConf     `json:"llmGateway"`
 	MessageService zrpc.RpcClientConf     `json:"messageService"`
 	KnowledgeBase  zrpc.RpcClientConf     `json:"knowledgeBase"`
-	WsGateway      zrpc.RpcClientConf     `json:"wsGateway"`
 	Runtime        zrpc.RpcClientConf     `json:"runtime,optional"`
 	UserService    zrpc.RpcClientConf     `json:"userService"`
 	Milvus         MilvusConfig           `json:"milvus"`

@@ -104,6 +104,7 @@ type driver struct {
 	provider      string
 	ingestTimeout time.Duration
 	queryDeadline time.Duration
+	controlDir    string
 }
 
 func main() {
@@ -134,14 +135,15 @@ func options(name string) *flag.FlagSet {
 func run(args []string) error {
 	flags := options("run")
 	gateway := flags.String("gateway", "http://gateway:8080", "gateway HTTP 根地址")
-	realtimeA := flags.String("realtime-a", "ws://ws-gateway:8081/ws", "realtime A WebSocket 地址")
+	realtimeA := flags.String("realtime-a", "ws://realtime-service:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|stage-p3|stage-p4|stage-p5|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
 	queryDeadline := flags.Duration("query-deadline", 5*time.Second, "入库负载下每次检索的硬截止时间")
+	controlDir := flags.String("control-dir", "", "stage-p6 runner 生命周期检查点目录")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -162,9 +164,7 @@ func run(args []string) error {
 			{"same-instance-b", *realtimeB, *realtimeB},
 			{"bot-runtime", *realtimeA, *realtimeA},
 			{"knowledge-ingest", "", ""},
-		}
-		if *cross {
-			scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
+			{"cross-instance", *realtimeA, *realtimeB},
 		}
 	case "stage-p3":
 		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}}
@@ -172,6 +172,11 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}, {"conversation-unread", *realtimeA, *realtimeA}}
 	case "stage-p5":
 		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}, {"conversation-unread", *realtimeA, *realtimeA}, {"bot-runtime", *realtimeA, *realtimeA}, {"knowledge-ingest", "", ""}}
+	case "stage-p6":
+		if *controlDir == "" {
+			return errors.New("stage-p6 需要 run.py 生命周期控制与 -control-dir")
+		}
+		scenarios = []scenarioSpec{{"stage-p6", *realtimeA, *realtimeB}}
 	case "bot-runtime":
 		scenarios = []scenarioSpec{{"bot-runtime", *realtimeA, *realtimeA}}
 	case "knowledge-ingest":
@@ -187,10 +192,13 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|stage-p3|stage-p4|stage-p5|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance")
+	}
+	if *cross && *selected != "all" && *selected != "cross-instance" && *selected != "stage-p6" {
+		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
 	}
 	for _, scenario := range scenarios {
-		if scenario.name == "bot-runtime" || scenario.name == "knowledge-ingest" {
+		if scenario.name == "bot-runtime" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
 			if _, err := endpoint(*provider, "http", "https"); err != nil {
 				return fmt.Errorf("配置外部 provider: %w", err)
 			}
@@ -204,11 +212,11 @@ func run(args []string) error {
 			}
 		}
 	}
-	if (*selected == "all" || *selected == "cross-instance") && *realtimeA == *realtimeB {
+	if (*selected == "all" || *selected == "cross-instance" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
 		return errors.New("realtime A/B 必须使用不同地址，不能将单实例冒充两实例")
 	}
 	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout,
-		provider: strings.TrimRight(*provider, "/"), ingestTimeout: *ingestTimeout, queryDeadline: *queryDeadline}
+		provider: strings.TrimRight(*provider, "/"), ingestTimeout: *ingestTimeout, queryDeadline: *queryDeadline, controlDir: *controlDir}
 	defer d.client.CloseIdleConnections()
 	var failures []error
 	for _, scenario := range scenarios {
@@ -219,9 +227,11 @@ func run(args []string) error {
 		case "conversations", "conversation-unread":
 			err = d.conversations(scenario.a, scenario.name == "conversation-unread")
 		case "bot-runtime":
-			err = d.botRuntime(scenario.a)
+			err = d.botRuntime(scenario.a, scenario.b)
 		case "knowledge-ingest":
 			err = d.knowledgeIngest()
+		case "stage-p6":
+			err = d.realtimeP6(scenario.a, scenario.b)
 		default:
 			err = d.scenario(scenario.a, scenario.b)
 		}
@@ -240,6 +250,8 @@ func run(args []string) error {
 			if scenario.name == "conversation-unread" {
 				fmt.Println("E2E PASS: conversation-unread 列表未读数 → mark read 归零 → 已读位点不能回退")
 			}
+		} else if scenario.name == "stage-p6" {
+			fmt.Println("E2E PASS: stage-p6 定向跨实例/多端/权限/群消息变更/已读未读/Bot流式 → 连接登记心跳与重连 → SIGKILL/TTL/seq补拉/恢复 → readiness503/平滑drain/恢复")
 		} else {
 			fmt.Printf("E2E PASS: %s 注册 → 登录 → 身份 → 私聊 → 双向 WS 投递\n", scenario.name)
 		}
@@ -438,7 +450,11 @@ func (d *driver) connect(address string, a account) (*websocket.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
 	defer cancel()
 	dialer := websocket.Dialer{HandshakeTimeout: d.timeout}
-	conn, response, err := dialer.DialContext(ctx, u.String(), nil)
+	// Browsers always send Origin on a WebSocket handshake, and the web client's
+	// origin (vite dev server) differs from the realtime host. Dial the way the
+	// real client does so a same-origin-only server is rejected here, not in prod.
+	headers := http.Header{"Origin": []string{"http://localhost:3000"}}
+	conn, response, err := dialer.DialContext(ctx, u.String(), headers)
 	if response != nil && response.Body != nil {
 		response.Body.Close()
 	}
@@ -449,6 +465,17 @@ func (d *driver) connect(address string, a account) (*websocket.Conn, error) {
 		return nil, fmt.Errorf("WebSocket 握手: %s", transportFailure(err))
 	}
 	conn.SetReadLimit(1 << 20)
+	// Control writes may run concurrently with application writes. All scenarios
+	// must maintain the connection lease, including the older P3/P4 clients.
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(d.timeout)); err != nil {
+				return
+			}
+		}
+	}()
 	return conn, nil
 }
 

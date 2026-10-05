@@ -79,11 +79,12 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 	}
 	ownerRole := int32(conversation.MemberRole_MEMBER_ROLE_OWNER)
 	owner := model.ConversationMember{
-		ID:       ownerID,
-		ConvID:   id,
-		UserID:   in.CreatorId,
-		Role:     ownerRole,
-		JoinedAt: now,
+		ID:         ownerID,
+		ConvID:     id,
+		UserID:     in.CreatorId,
+		MemberType: model.MemberTypeUser,
+		Role:       ownerRole,
+		JoinedAt:   now,
 	}
 	if err := l.svcCtx.ConversationRepo.AddMember(l.ctx, &owner); err != nil {
 		l.Logger.Errorf("add owner failed: %v", err)
@@ -129,11 +130,12 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 				return nil, fmt.Errorf("generate peer id failed: %w", err)
 			}
 			peer := model.ConversationMember{
-				ID:       peerID,
-				ConvID:   id,
-				UserID:   in.GetPeerUserId(),
-				Role:     peerRole,
-				JoinedAt: now,
+				ID:         peerID,
+				ConvID:     id,
+				UserID:     in.GetPeerUserId(),
+				MemberType: model.MemberTypeUser,
+				Role:       peerRole,
+				JoinedAt:   now,
 			}
 			if err := l.svcCtx.ConversationRepo.AddMember(l.ctx, &peer); err != nil {
 				l.Logger.Errorf("add peer failed: %v", err)
@@ -157,11 +159,12 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 				return nil, fmt.Errorf("generate member id failed: %w", err)
 			}
 			members = append(members, model.ConversationMember{
-				ID:       memberID,
-				ConvID:   id,
-				UserID:   uid,
-				Role:     memberRole,
-				JoinedAt: now,
+				ID:         memberID,
+				ConvID:     id,
+				UserID:     uid,
+				MemberType: model.MemberTypeUser,
+				Role:       memberRole,
+				JoinedAt:   now,
 			})
 		}
 		if len(members) > 0 {

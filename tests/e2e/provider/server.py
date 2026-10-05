@@ -142,9 +142,30 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 message = {"role": "assistant", "content": "fixture-reply:" + text}
                 reason = "stop"
-            self._json(200, {"id": "fixture-chat-1", "object": "chat.completion", "created": 1, "model": model,
-                             "choices": [{"index": 0, "message": message, "finish_reason": reason}],
-                             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+            if body.get("stream"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if reason == "tool_calls":
+                    deltas = [{"role": "assistant", "tool_calls": [dict(message["tool_calls"][0], index=0)]}]
+                else:
+                    content = message["content"]
+                    split = max(1, len(content) // 2)
+                    deltas = [{"role": "assistant", "content": content[:split]}, {"content": content[split:]}]
+                for delta in deltas + [{}]:
+                    chunk = {"id": "fixture-chat-1", "object": "chat.completion.chunk", "created": 1, "model": model,
+                             "choices": [{"index": 0, "delta": delta, "finish_reason": reason if not delta else None}]}
+                    self.wfile.write(("data: " + json.dumps(chunk) + "\n\n").encode())
+                    self.wfile.flush()
+                    time.sleep(.05)
+                self.wfile.write(b"data: [DONE]\n\n")
+                self.wfile.flush()
+                self.close_connection = True
+            else:
+                self._json(200, {"id": "fixture-chat-1", "object": "chat.completion", "created": 1, "model": model,
+                                 "choices": [{"index": 0, "message": message, "finish_reason": reason}],
+                                 "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
         elif path == "/v1/embeddings":
             inputs = body.get("input", [])
             if isinstance(inputs, str):

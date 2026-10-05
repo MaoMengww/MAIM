@@ -11,7 +11,7 @@ PROJECT_ROOT="$(cd "$K3S_ROOT/.." && pwd)"
 
 SERVICES=(user-service message-service file-service
            llm-gateway knowledge-base bot-service
-           signaling-service ws-gateway gateway)
+           realtime-service gateway)
 WORKLOADS=("${SERVICES[@]}" bot-runtime knowledge-ingest)
 
 build_images() {
@@ -84,7 +84,7 @@ deploy_ingress() {
 start_forwards() {
   echo "=== Starting port forwards ==="
   nohup kubectl port-forward svc/aim-gateway 8080:8080 &>/dev/null &
-  nohup kubectl port-forward svc/aim-ws-gateway 8081:8081 &>/dev/null &
+  nohup kubectl port-forward svc/aim-realtime-service 8081:8081 &>/dev/null &
   nohup kubectl port-forward svc/aim-minio 9000:9000 &>/dev/null &
   sleep 2
   echo "REST API:  http://localhost:8080"

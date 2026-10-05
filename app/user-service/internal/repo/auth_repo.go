@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/maomeng/aim/app/user-service/internal/model"
+	"github.com/maomeng/aim/pkg/connections"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/zeromicro/go-zero/core/stores/redis"
 )
@@ -65,8 +66,8 @@ func (r *AuthRepo) IsTokenRevoked(ctx context.Context, jti string) (bool, error)
 }
 
 // IsDeviceOnline checks if the device has an active WebSocket connection
-// by probing the presence key written by ws-gateway.
+// by probing the authoritative per-device connection registry entry.
 func (r *AuthRepo) IsDeviceOnline(ctx context.Context, userID int64, deviceID string) (bool, error) {
-	key := fmt.Sprintf("user:%d:device:%s", userID, deviceID)
+	key := connections.DeviceKey(connections.User, userID, deviceID)
 	return r.redis.ExistsCtx(ctx, key)
 }

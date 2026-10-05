@@ -13,6 +13,7 @@ import (
 	"github.com/maomeng/aim/migrations/postgres"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/database"
+	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/snowflake"
@@ -33,6 +34,7 @@ type ServiceContext struct {
 	MessageDeletedProducer  *kafka.Producer
 	BotEventProducer        *kafka.Producer
 	ReadUpdatedProducer     *kafka.Producer
+	DeliveryPublisher       *delivery.Publisher
 	ESClient                *es.Client
 	Snowflake               *snowflake.Node
 	Logger                  logx.Logger
@@ -112,6 +114,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		}
 	}
 
+	deliveryPublisher, err := delivery.NewPublisher(c.Kafka, logger)
+	if err != nil {
+		panic(fmt.Sprintf("delivery publisher init failed: %v", err))
+	}
 	esClient, err := es.NewClient(c.Elasticsearch)
 	if err != nil {
 		panic(fmt.Sprintf("elasticsearch init failed: %v", err))
@@ -158,6 +164,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		MessageDeletedProducer:  kpDeleted,
 		BotEventProducer:        botEventProducer,
 		ReadUpdatedProducer:     readUpdatedProducer,
+		DeliveryPublisher:       deliveryPublisher,
 		ESClient:                esClient,
 		Snowflake:               sf,
 		Logger:                  logger,
@@ -178,5 +185,22 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			},
 			logger,
 		),
+	}
+}
+
+func (s *ServiceContext) Close() {
+	if s.DeliveryPublisher != nil {
+		_ = s.DeliveryPublisher.Close()
+	}
+	for _, p := range []*kafka.Producer{s.MessageCreatedProducer, s.MessageRecalledProducer, s.MessageEditedProducer, s.MessageDeletedProducer, s.BotEventProducer, s.ReadUpdatedProducer} {
+		if p != nil {
+			_ = p.Close()
+		}
+	}
+	if s.Redis != nil {
+		_ = s.Redis.Close()
+	}
+	if s.DB != nil {
+		_ = s.DB.Close()
 	}
 }

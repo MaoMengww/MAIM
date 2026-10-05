@@ -70,6 +70,11 @@ test/loadtest/
 # ==== Dev tools ====
 tools/
 
+# ==== E2E harness workspace artifacts ====
+# 运行 tests/e2e/run.py 产生的字节码与红绿证据只留在工作区，与 ticket/ADR 同理
+__pycache__/
+tests/e2e/evidence/
+
 # ==== Generated tool artifacts ====
 .superpowers/
 .trae/

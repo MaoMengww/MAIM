@@ -12,9 +12,9 @@ scrape_configs:
     static_configs:
       - targets: ['172.27.95.205:8080']
 
-  - job_name: 'ws-gateway'
+  - job_name: 'realtime-service'
     static_configs:
-      - targets: ['172.27.95.205:9110']
+      - targets: ['realtime-service:9090']
 
   - job_name: 'rpc-services'
     static_configs:

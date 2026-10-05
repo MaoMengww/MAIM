@@ -88,6 +88,7 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 			if updateErr := p.DocRepo.UpdateStatus(failureCtx, doc.ID, domain.DocStatusFailed, err.Error()); updateErr != nil {
 				logger.Errorf("failed to update doc %d status to failed: %v", doc.ID, updateErr)
 			}
+			p.emitProgress(failureCtx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeFailed, Level: event.EventLevelError, Title: "入库失败", Message: err.Error()})
 		}
 		metrics.KbIngestDuration.Observe(duration, status)
 		metrics.KbIngestTotal.Inc(status)

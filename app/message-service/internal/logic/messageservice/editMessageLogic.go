@@ -78,7 +78,7 @@ func (l *EditMessageLogic) EditMessage(in *message.EditMessageReq) (*common.Base
 	}
 	if err := outboxEvent.SetPayload(map[string]any{
 		"message_id":  in.MessageId,
-		"conv_id":     in.ConversationId,
+		"conv_id":     msg.ConvID,
 		"user_id":     in.UserId,
 		"new_content": newContent,
 	}); err != nil {

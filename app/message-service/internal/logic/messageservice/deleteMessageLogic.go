@@ -72,7 +72,7 @@ func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*commo
 				return err
 			}
 		} else {
-			if err := l.svcCtx.InboxRepo.MarkDeleted(l.ctx, in.UserId, convID, in.MessageId); err != nil {
+			if err := l.svcCtx.InboxRepo.MarkDeleted(l.ctx, tx, in.UserId, convID, in.MessageId); err != nil {
 				return err
 			}
 		}

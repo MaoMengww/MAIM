@@ -4881,28 +4881,30 @@ func (x *GetReadStatusResp) GetReadUsers() []*ReadUser {
 	return nil
 }
 
-type GetUnreadCountsReq struct {
+// Ephemeral typing events are authorized and fanned out by the message domain.
+type SendTypingEventReq struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ConversationId int64                  `protobuf:"varint,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
-	UserIds        []int64                `protobuf:"varint,2,rep,packed,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
+	UserId         int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Stopped        bool                   `protobuf:"varint,3,opt,name=stopped,proto3" json:"stopped,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
-func (x *GetUnreadCountsReq) Reset() {
-	*x = GetUnreadCountsReq{}
+func (x *SendTypingEventReq) Reset() {
+	*x = SendTypingEventReq{}
 	mi := &file_message_service_message_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetUnreadCountsReq) String() string {
+func (x *SendTypingEventReq) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetUnreadCountsReq) ProtoMessage() {}
+func (*SendTypingEventReq) ProtoMessage() {}
 
-func (x *GetUnreadCountsReq) ProtoReflect() protoreflect.Message {
+func (x *SendTypingEventReq) ProtoReflect() protoreflect.Message {
 	mi := &file_message_service_message_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -4914,46 +4916,52 @@ func (x *GetUnreadCountsReq) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetUnreadCountsReq.ProtoReflect.Descriptor instead.
-func (*GetUnreadCountsReq) Descriptor() ([]byte, []int) {
+// Deprecated: Use SendTypingEventReq.ProtoReflect.Descriptor instead.
+func (*SendTypingEventReq) Descriptor() ([]byte, []int) {
 	return file_message_service_message_proto_rawDescGZIP(), []int{63}
 }
 
-func (x *GetUnreadCountsReq) GetConversationId() int64 {
+func (x *SendTypingEventReq) GetConversationId() int64 {
 	if x != nil {
 		return x.ConversationId
 	}
 	return 0
 }
 
-func (x *GetUnreadCountsReq) GetUserIds() []int64 {
+func (x *SendTypingEventReq) GetUserId() int64 {
 	if x != nil {
-		return x.UserIds
+		return x.UserId
 	}
-	return nil
+	return 0
 }
 
-type GetUnreadCountsResp struct {
+func (x *SendTypingEventReq) GetStopped() bool {
+	if x != nil {
+		return x.Stopped
+	}
+	return false
+}
+
+type SendTypingEventResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Counts        map[int64]int32        `protobuf:"bytes,1,rep,name=counts,proto3" json:"counts,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetUnreadCountsResp) Reset() {
-	*x = GetUnreadCountsResp{}
+func (x *SendTypingEventResp) Reset() {
+	*x = SendTypingEventResp{}
 	mi := &file_message_service_message_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetUnreadCountsResp) String() string {
+func (x *SendTypingEventResp) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetUnreadCountsResp) ProtoMessage() {}
+func (*SendTypingEventResp) ProtoMessage() {}
 
-func (x *GetUnreadCountsResp) ProtoReflect() protoreflect.Message {
+func (x *SendTypingEventResp) ProtoReflect() protoreflect.Message {
 	mi := &file_message_service_message_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -4965,16 +4973,9 @@ func (x *GetUnreadCountsResp) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetUnreadCountsResp.ProtoReflect.Descriptor instead.
-func (*GetUnreadCountsResp) Descriptor() ([]byte, []int) {
+// Deprecated: Use SendTypingEventResp.ProtoReflect.Descriptor instead.
+func (*SendTypingEventResp) Descriptor() ([]byte, []int) {
 	return file_message_service_message_proto_rawDescGZIP(), []int{64}
-}
-
-func (x *GetUnreadCountsResp) GetCounts() map[int64]int32 {
-	if x != nil {
-		return x.Counts
-	}
-	return nil
 }
 
 type BotInConv struct {
@@ -5811,15 +5812,12 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
 	"totalCount\x120\n" +
 	"\n" +
-	"read_users\x18\x03 \x03(\v2\x11.message.ReadUserR\treadUsers\"X\n" +
-	"\x12GetUnreadCountsReq\x12'\n" +
-	"\x0fconversation_id\x18\x01 \x01(\x03R\x0econversationId\x12\x19\n" +
-	"\buser_ids\x18\x02 \x03(\x03R\auserIds\"\x92\x01\n" +
-	"\x13GetUnreadCountsResp\x12@\n" +
-	"\x06counts\x18\x01 \x03(\v2(.message.GetUnreadCountsResp.CountsEntryR\x06counts\x1a9\n" +
-	"\vCountsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\x03R\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xc1\x01\n" +
+	"read_users\x18\x03 \x03(\v2\x11.message.ReadUserR\treadUsers\"p\n" +
+	"\x12SendTypingEventReq\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\x03R\x0econversationId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x18\n" +
+	"\astopped\x18\x03 \x01(\bR\astopped\"\x15\n" +
+	"\x13SendTypingEventResp\"\xc1\x01\n" +
 	"\tBotInConv\x12\x15\n" +
 	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
@@ -5920,7 +5918,7 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\n" +
 	"MarkAsRead\x12\x16.message.MarkAsReadReq\x1a\x14.common.BaseResponse\x12F\n" +
 	"\rGetReadStatus\x12\x19.message.GetReadStatusReq\x1a\x1a.message.GetReadStatusResp\x12L\n" +
-	"\x0fGetUnreadCounts\x12\x1b.message.GetUnreadCountsReq\x1a\x1c.message.GetUnreadCountsResp\x122\n" +
+	"\x0fSendTypingEvent\x12\x1b.message.SendTypingEventReq\x1a\x1c.message.SendTypingEventResp\x122\n" +
 	"\x06AddBot\x12\x12.message.AddBotReq\x1a\x14.common.BaseResponse\x128\n" +
 	"\tRemoveBot\x12\x15.message.RemoveBotReq\x1a\x14.common.BaseResponse\x128\n" +
 	"\tUpdateBot\x12\x15.message.UpdateBotReq\x1a\x14.common.BaseResponse\x127\n" +
@@ -5939,7 +5937,7 @@ func file_message_service_message_proto_rawDescGZIP() []byte {
 }
 
 var file_message_service_message_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_message_service_message_proto_msgTypes = make([]protoimpl.MessageInfo, 73)
+var file_message_service_message_proto_msgTypes = make([]protoimpl.MessageInfo, 72)
 var file_message_service_message_proto_goTypes = []any{
 	(MessageType)(0),                    // 0: message.MessageType
 	(MessageStatus)(0),                  // 1: message.MessageStatus
@@ -6009,8 +6007,8 @@ var file_message_service_message_proto_goTypes = []any{
 	(*GetReadStatusReq)(nil),            // 65: message.GetReadStatusReq
 	(*ReadUser)(nil),                    // 66: message.ReadUser
 	(*GetReadStatusResp)(nil),           // 67: message.GetReadStatusResp
-	(*GetUnreadCountsReq)(nil),          // 68: message.GetUnreadCountsReq
-	(*GetUnreadCountsResp)(nil),         // 69: message.GetUnreadCountsResp
+	(*SendTypingEventReq)(nil),          // 68: message.SendTypingEventReq
+	(*SendTypingEventResp)(nil),         // 69: message.SendTypingEventResp
 	(*BotInConv)(nil),                   // 70: message.BotInConv
 	(*AddBotReq)(nil),                   // 71: message.AddBotReq
 	(*RemoveBotReq)(nil),                // 72: message.RemoveBotReq
@@ -6018,12 +6016,11 @@ var file_message_service_message_proto_goTypes = []any{
 	(*ListBotsReq)(nil),                 // 74: message.ListBotsReq
 	(*ListBotsResp)(nil),                // 75: message.ListBotsResp
 	nil,                                 // 76: message.SearchMessagesResp.HighlightsEntry
-	nil,                                 // 77: message.GetUnreadCountsResp.CountsEntry
-	(*common.CursorPagination)(nil),     // 78: common.CursorPagination
-	(*common.CursorPaginationResp)(nil), // 79: common.CursorPaginationResp
-	(*common.Pagination)(nil),           // 80: common.Pagination
-	(*common.PaginationResp)(nil),       // 81: common.PaginationResp
-	(*common.BaseResponse)(nil),         // 82: common.BaseResponse
+	(*common.CursorPagination)(nil),     // 77: common.CursorPagination
+	(*common.CursorPaginationResp)(nil), // 78: common.CursorPaginationResp
+	(*common.Pagination)(nil),           // 79: common.Pagination
+	(*common.PaginationResp)(nil),       // 80: common.PaginationResp
+	(*common.BaseResponse)(nil),         // 81: common.BaseResponse
 }
 var file_message_service_message_proto_depIdxs = []int32{
 	0,  // 0: message.ReplyMessageSummary.type:type_name -> message.MessageType
@@ -6048,17 +6045,17 @@ var file_message_service_message_proto_depIdxs = []int32{
 	11, // 19: message.SendMessageReq.location:type_name -> message.LocationContent
 	14, // 20: message.SendMessageReq.custom:type_name -> message.CustomContent
 	6,  // 21: message.EditMessageReq.text:type_name -> message.TextContent
-	78, // 22: message.GetMessagesReq.pagination:type_name -> common.CursorPagination
+	77, // 22: message.GetMessagesReq.pagination:type_name -> common.CursorPagination
 	0,  // 23: message.GetMessagesReq.filter_types:type_name -> message.MessageType
 	15, // 24: message.GetMessagesResp.messages:type_name -> message.Message
-	79, // 25: message.GetMessagesResp.pagination:type_name -> common.CursorPaginationResp
+	78, // 25: message.GetMessagesResp.pagination:type_name -> common.CursorPaginationResp
 	15, // 26: message.SyncMessagesResp.messages:type_name -> message.Message
 	15, // 27: message.GetMessageByIDResp.message:type_name -> message.Message
 	15, // 28: message.BatchGetMessagesResp.messages:type_name -> message.Message
 	0,  // 29: message.SearchMessagesReq.message_types:type_name -> message.MessageType
-	80, // 30: message.SearchMessagesReq.pagination:type_name -> common.Pagination
+	79, // 30: message.SearchMessagesReq.pagination:type_name -> common.Pagination
 	15, // 31: message.SearchMessagesResp.messages:type_name -> message.Message
-	81, // 32: message.SearchMessagesResp.pagination:type_name -> common.PaginationResp
+	80, // 32: message.SearchMessagesResp.pagination:type_name -> common.PaginationResp
 	76, // 33: message.SearchMessagesResp.highlights:type_name -> message.SearchMessagesResp.HighlightsEntry
 	31, // 34: message.SearchMessagesResp.type_counts:type_name -> message.TypeCount
 	2,  // 35: message.Conversation.type:type_name -> message.ConversationType
@@ -6067,98 +6064,97 @@ var file_message_service_message_proto_depIdxs = []int32{
 	2,  // 38: message.CreateConversationReq.type:type_name -> message.ConversationType
 	38, // 39: message.CreateConversationResp.conversation:type_name -> message.Conversation
 	38, // 40: message.GetConversationResp.conversation:type_name -> message.Conversation
-	78, // 41: message.ListConversationsReq.pagination:type_name -> common.CursorPagination
+	77, // 41: message.ListConversationsReq.pagination:type_name -> common.CursorPagination
 	2,  // 42: message.ListConversationsReq.type:type_name -> message.ConversationType
 	38, // 43: message.ListConversationsResp.conversations:type_name -> message.Conversation
-	79, // 44: message.ListConversationsResp.pagination:type_name -> common.CursorPaginationResp
-	80, // 45: message.GetMembersReq.pagination:type_name -> common.Pagination
+	78, // 44: message.ListConversationsResp.pagination:type_name -> common.CursorPaginationResp
+	79, // 45: message.GetMembersReq.pagination:type_name -> common.Pagination
 	39, // 46: message.GetMembersResp.members:type_name -> message.ConversationMember
-	81, // 47: message.GetMembersResp.pagination:type_name -> common.PaginationResp
+	80, // 47: message.GetMembersResp.pagination:type_name -> common.PaginationResp
 	3,  // 48: message.UpdateMemberReq.role:type_name -> message.MemberRole
 	66, // 49: message.GetReadStatusResp.read_users:type_name -> message.ReadUser
-	77, // 50: message.GetUnreadCountsResp.counts:type_name -> message.GetUnreadCountsResp.CountsEntry
-	70, // 51: message.ListBotsResp.bots:type_name -> message.BotInConv
-	16, // 52: message.MessageService.SendMessage:input_type -> message.SendMessageReq
-	18, // 53: message.MessageService.RecallMessage:input_type -> message.RecallMessageReq
-	19, // 54: message.MessageService.EditMessage:input_type -> message.EditMessageReq
-	20, // 55: message.MessageService.DeleteMessage:input_type -> message.DeleteMessageReq
-	21, // 56: message.MessageService.GetMessages:input_type -> message.GetMessagesReq
-	24, // 57: message.MessageService.SyncMessages:input_type -> message.SyncMessagesReq
-	26, // 58: message.MessageService.GetMessageByID:input_type -> message.GetMessageByIDReq
-	28, // 59: message.MessageService.BatchGetMessages:input_type -> message.BatchGetMessagesReq
-	23, // 60: message.MessageService.GetAroundSeq:input_type -> message.GetAroundSeqReq
-	30, // 61: message.MessageService.SearchMessages:input_type -> message.SearchMessagesReq
-	33, // 62: message.MessageService.SendBroadcast:input_type -> message.SendBroadcastReq
-	35, // 63: message.MessageService.SendBotReply:input_type -> message.SendBotReplyReq
-	36, // 64: message.MessageService.SendSystemMessage:input_type -> message.SendSystemMessageReq
-	40, // 65: message.MessageService.CreateConversation:input_type -> message.CreateConversationReq
-	42, // 66: message.MessageService.GetConversation:input_type -> message.GetConversationReq
-	44, // 67: message.MessageService.ListConversations:input_type -> message.ListConversationsReq
-	46, // 68: message.MessageService.UpdateConversation:input_type -> message.UpdateConversationReq
-	47, // 69: message.MessageService.DeleteConversation:input_type -> message.DeleteConversationReq
-	48, // 70: message.MessageService.AddMembers:input_type -> message.AddMembersReq
-	50, // 71: message.MessageService.RemoveMembers:input_type -> message.RemoveMembersReq
-	51, // 72: message.MessageService.GetMembers:input_type -> message.GetMembersReq
-	53, // 73: message.MessageService.UpdateMember:input_type -> message.UpdateMemberReq
-	54, // 74: message.MessageService.MuteAll:input_type -> message.MuteAllReq
-	55, // 75: message.MessageService.UnmuteAll:input_type -> message.UnmuteAllReq
-	56, // 76: message.MessageService.MuteMember:input_type -> message.MuteMemberReq
-	57, // 77: message.MessageService.UnmuteMember:input_type -> message.UnmuteMemberReq
-	58, // 78: message.MessageService.SetAnnouncement:input_type -> message.SetAnnouncementReq
-	59, // 79: message.MessageService.DeleteAnnouncement:input_type -> message.DeleteAnnouncementReq
-	60, // 80: message.MessageService.TransferOwner:input_type -> message.TransferOwnerReq
-	61, // 81: message.MessageService.GetSettings:input_type -> message.GetSettingsReq
-	63, // 82: message.MessageService.UpdateSettings:input_type -> message.UpdateSettingsReq
-	64, // 83: message.MessageService.MarkAsRead:input_type -> message.MarkAsReadReq
-	65, // 84: message.MessageService.GetReadStatus:input_type -> message.GetReadStatusReq
-	68, // 85: message.MessageService.GetUnreadCounts:input_type -> message.GetUnreadCountsReq
-	71, // 86: message.MessageService.AddBot:input_type -> message.AddBotReq
-	72, // 87: message.MessageService.RemoveBot:input_type -> message.RemoveBotReq
-	73, // 88: message.MessageService.UpdateBot:input_type -> message.UpdateBotReq
-	74, // 89: message.MessageService.ListBots:input_type -> message.ListBotsReq
-	17, // 90: message.MessageService.SendMessage:output_type -> message.SendMessageResp
-	82, // 91: message.MessageService.RecallMessage:output_type -> common.BaseResponse
-	82, // 92: message.MessageService.EditMessage:output_type -> common.BaseResponse
-	82, // 93: message.MessageService.DeleteMessage:output_type -> common.BaseResponse
-	22, // 94: message.MessageService.GetMessages:output_type -> message.GetMessagesResp
-	25, // 95: message.MessageService.SyncMessages:output_type -> message.SyncMessagesResp
-	27, // 96: message.MessageService.GetMessageByID:output_type -> message.GetMessageByIDResp
-	29, // 97: message.MessageService.BatchGetMessages:output_type -> message.BatchGetMessagesResp
-	22, // 98: message.MessageService.GetAroundSeq:output_type -> message.GetMessagesResp
-	32, // 99: message.MessageService.SearchMessages:output_type -> message.SearchMessagesResp
-	34, // 100: message.MessageService.SendBroadcast:output_type -> message.SendBroadcastResp
-	37, // 101: message.MessageService.SendBotReply:output_type -> message.SendBotReplyResp
-	17, // 102: message.MessageService.SendSystemMessage:output_type -> message.SendMessageResp
-	41, // 103: message.MessageService.CreateConversation:output_type -> message.CreateConversationResp
-	43, // 104: message.MessageService.GetConversation:output_type -> message.GetConversationResp
-	45, // 105: message.MessageService.ListConversations:output_type -> message.ListConversationsResp
-	82, // 106: message.MessageService.UpdateConversation:output_type -> common.BaseResponse
-	82, // 107: message.MessageService.DeleteConversation:output_type -> common.BaseResponse
-	49, // 108: message.MessageService.AddMembers:output_type -> message.AddMembersResp
-	82, // 109: message.MessageService.RemoveMembers:output_type -> common.BaseResponse
-	52, // 110: message.MessageService.GetMembers:output_type -> message.GetMembersResp
-	82, // 111: message.MessageService.UpdateMember:output_type -> common.BaseResponse
-	82, // 112: message.MessageService.MuteAll:output_type -> common.BaseResponse
-	82, // 113: message.MessageService.UnmuteAll:output_type -> common.BaseResponse
-	82, // 114: message.MessageService.MuteMember:output_type -> common.BaseResponse
-	82, // 115: message.MessageService.UnmuteMember:output_type -> common.BaseResponse
-	82, // 116: message.MessageService.SetAnnouncement:output_type -> common.BaseResponse
-	82, // 117: message.MessageService.DeleteAnnouncement:output_type -> common.BaseResponse
-	82, // 118: message.MessageService.TransferOwner:output_type -> common.BaseResponse
-	62, // 119: message.MessageService.GetSettings:output_type -> message.GetSettingsResp
-	82, // 120: message.MessageService.UpdateSettings:output_type -> common.BaseResponse
-	82, // 121: message.MessageService.MarkAsRead:output_type -> common.BaseResponse
-	67, // 122: message.MessageService.GetReadStatus:output_type -> message.GetReadStatusResp
-	69, // 123: message.MessageService.GetUnreadCounts:output_type -> message.GetUnreadCountsResp
-	82, // 124: message.MessageService.AddBot:output_type -> common.BaseResponse
-	82, // 125: message.MessageService.RemoveBot:output_type -> common.BaseResponse
-	82, // 126: message.MessageService.UpdateBot:output_type -> common.BaseResponse
-	75, // 127: message.MessageService.ListBots:output_type -> message.ListBotsResp
-	90, // [90:128] is the sub-list for method output_type
-	52, // [52:90] is the sub-list for method input_type
-	52, // [52:52] is the sub-list for extension type_name
-	52, // [52:52] is the sub-list for extension extendee
-	0,  // [0:52] is the sub-list for field type_name
+	70, // 50: message.ListBotsResp.bots:type_name -> message.BotInConv
+	16, // 51: message.MessageService.SendMessage:input_type -> message.SendMessageReq
+	18, // 52: message.MessageService.RecallMessage:input_type -> message.RecallMessageReq
+	19, // 53: message.MessageService.EditMessage:input_type -> message.EditMessageReq
+	20, // 54: message.MessageService.DeleteMessage:input_type -> message.DeleteMessageReq
+	21, // 55: message.MessageService.GetMessages:input_type -> message.GetMessagesReq
+	24, // 56: message.MessageService.SyncMessages:input_type -> message.SyncMessagesReq
+	26, // 57: message.MessageService.GetMessageByID:input_type -> message.GetMessageByIDReq
+	28, // 58: message.MessageService.BatchGetMessages:input_type -> message.BatchGetMessagesReq
+	23, // 59: message.MessageService.GetAroundSeq:input_type -> message.GetAroundSeqReq
+	30, // 60: message.MessageService.SearchMessages:input_type -> message.SearchMessagesReq
+	33, // 61: message.MessageService.SendBroadcast:input_type -> message.SendBroadcastReq
+	35, // 62: message.MessageService.SendBotReply:input_type -> message.SendBotReplyReq
+	36, // 63: message.MessageService.SendSystemMessage:input_type -> message.SendSystemMessageReq
+	40, // 64: message.MessageService.CreateConversation:input_type -> message.CreateConversationReq
+	42, // 65: message.MessageService.GetConversation:input_type -> message.GetConversationReq
+	44, // 66: message.MessageService.ListConversations:input_type -> message.ListConversationsReq
+	46, // 67: message.MessageService.UpdateConversation:input_type -> message.UpdateConversationReq
+	47, // 68: message.MessageService.DeleteConversation:input_type -> message.DeleteConversationReq
+	48, // 69: message.MessageService.AddMembers:input_type -> message.AddMembersReq
+	50, // 70: message.MessageService.RemoveMembers:input_type -> message.RemoveMembersReq
+	51, // 71: message.MessageService.GetMembers:input_type -> message.GetMembersReq
+	53, // 72: message.MessageService.UpdateMember:input_type -> message.UpdateMemberReq
+	54, // 73: message.MessageService.MuteAll:input_type -> message.MuteAllReq
+	55, // 74: message.MessageService.UnmuteAll:input_type -> message.UnmuteAllReq
+	56, // 75: message.MessageService.MuteMember:input_type -> message.MuteMemberReq
+	57, // 76: message.MessageService.UnmuteMember:input_type -> message.UnmuteMemberReq
+	58, // 77: message.MessageService.SetAnnouncement:input_type -> message.SetAnnouncementReq
+	59, // 78: message.MessageService.DeleteAnnouncement:input_type -> message.DeleteAnnouncementReq
+	60, // 79: message.MessageService.TransferOwner:input_type -> message.TransferOwnerReq
+	61, // 80: message.MessageService.GetSettings:input_type -> message.GetSettingsReq
+	63, // 81: message.MessageService.UpdateSettings:input_type -> message.UpdateSettingsReq
+	64, // 82: message.MessageService.MarkAsRead:input_type -> message.MarkAsReadReq
+	65, // 83: message.MessageService.GetReadStatus:input_type -> message.GetReadStatusReq
+	68, // 84: message.MessageService.SendTypingEvent:input_type -> message.SendTypingEventReq
+	71, // 85: message.MessageService.AddBot:input_type -> message.AddBotReq
+	72, // 86: message.MessageService.RemoveBot:input_type -> message.RemoveBotReq
+	73, // 87: message.MessageService.UpdateBot:input_type -> message.UpdateBotReq
+	74, // 88: message.MessageService.ListBots:input_type -> message.ListBotsReq
+	17, // 89: message.MessageService.SendMessage:output_type -> message.SendMessageResp
+	81, // 90: message.MessageService.RecallMessage:output_type -> common.BaseResponse
+	81, // 91: message.MessageService.EditMessage:output_type -> common.BaseResponse
+	81, // 92: message.MessageService.DeleteMessage:output_type -> common.BaseResponse
+	22, // 93: message.MessageService.GetMessages:output_type -> message.GetMessagesResp
+	25, // 94: message.MessageService.SyncMessages:output_type -> message.SyncMessagesResp
+	27, // 95: message.MessageService.GetMessageByID:output_type -> message.GetMessageByIDResp
+	29, // 96: message.MessageService.BatchGetMessages:output_type -> message.BatchGetMessagesResp
+	22, // 97: message.MessageService.GetAroundSeq:output_type -> message.GetMessagesResp
+	32, // 98: message.MessageService.SearchMessages:output_type -> message.SearchMessagesResp
+	34, // 99: message.MessageService.SendBroadcast:output_type -> message.SendBroadcastResp
+	37, // 100: message.MessageService.SendBotReply:output_type -> message.SendBotReplyResp
+	17, // 101: message.MessageService.SendSystemMessage:output_type -> message.SendMessageResp
+	41, // 102: message.MessageService.CreateConversation:output_type -> message.CreateConversationResp
+	43, // 103: message.MessageService.GetConversation:output_type -> message.GetConversationResp
+	45, // 104: message.MessageService.ListConversations:output_type -> message.ListConversationsResp
+	81, // 105: message.MessageService.UpdateConversation:output_type -> common.BaseResponse
+	81, // 106: message.MessageService.DeleteConversation:output_type -> common.BaseResponse
+	49, // 107: message.MessageService.AddMembers:output_type -> message.AddMembersResp
+	81, // 108: message.MessageService.RemoveMembers:output_type -> common.BaseResponse
+	52, // 109: message.MessageService.GetMembers:output_type -> message.GetMembersResp
+	81, // 110: message.MessageService.UpdateMember:output_type -> common.BaseResponse
+	81, // 111: message.MessageService.MuteAll:output_type -> common.BaseResponse
+	81, // 112: message.MessageService.UnmuteAll:output_type -> common.BaseResponse
+	81, // 113: message.MessageService.MuteMember:output_type -> common.BaseResponse
+	81, // 114: message.MessageService.UnmuteMember:output_type -> common.BaseResponse
+	81, // 115: message.MessageService.SetAnnouncement:output_type -> common.BaseResponse
+	81, // 116: message.MessageService.DeleteAnnouncement:output_type -> common.BaseResponse
+	81, // 117: message.MessageService.TransferOwner:output_type -> common.BaseResponse
+	62, // 118: message.MessageService.GetSettings:output_type -> message.GetSettingsResp
+	81, // 119: message.MessageService.UpdateSettings:output_type -> common.BaseResponse
+	81, // 120: message.MessageService.MarkAsRead:output_type -> common.BaseResponse
+	67, // 121: message.MessageService.GetReadStatus:output_type -> message.GetReadStatusResp
+	69, // 122: message.MessageService.SendTypingEvent:output_type -> message.SendTypingEventResp
+	81, // 123: message.MessageService.AddBot:output_type -> common.BaseResponse
+	81, // 124: message.MessageService.RemoveBot:output_type -> common.BaseResponse
+	81, // 125: message.MessageService.UpdateBot:output_type -> common.BaseResponse
+	75, // 126: message.MessageService.ListBots:output_type -> message.ListBotsResp
+	89, // [89:127] is the sub-list for method output_type
+	51, // [51:89] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
 func init() { file_message_service_message_proto_init() }
@@ -6201,7 +6197,7 @@ func file_message_service_message_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_message_service_message_proto_rawDesc), len(file_message_service_message_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   73,
+			NumMessages:   72,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

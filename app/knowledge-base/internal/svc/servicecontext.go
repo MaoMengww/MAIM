@@ -8,6 +8,7 @@ import (
 	infraMinio "github.com/maomeng/aim/app/knowledge-base/internal/infra/minio"
 	"github.com/maomeng/aim/app/knowledge-base/internal/infra/repo"
 	"github.com/maomeng/aim/pkg/database"
+	"github.com/maomeng/aim/pkg/delivery"
 	pkgkafka "github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 	pkgminio "github.com/maomeng/aim/pkg/minio"
@@ -16,14 +17,15 @@ import (
 )
 
 type ServiceContext struct {
-	Config           config.Config
-	DB               *database.DB
-	KBRepo           domain.KBRepo
-	DocRepo          domain.DocumentRepo
-	FileStore        domain.FileStore
-	Producer         *pkgkafka.Producer
-	LLMGatewayClient zrpc.Client
-	Snowflake        *snowflake.Node
+	Config            config.Config
+	DB                *database.DB
+	KBRepo            domain.KBRepo
+	DocRepo           domain.DocumentRepo
+	FileStore         domain.FileStore
+	Producer          *pkgkafka.Producer
+	DeliveryPublisher *delivery.Publisher
+	LLMGatewayClient  zrpc.Client
+	Snowflake         *snowflake.Node
 }
 
 func NewServiceContext(c config.Config, role string) *ServiceContext {
@@ -46,6 +48,10 @@ func NewServiceContext(c config.Config, role string) *ServiceContext {
 			panic(fmt.Sprintf("init kafka producer failed: %v", err))
 		}
 	}
+	deliveryPublisher, err := delivery.NewPublisher(c.Kafka, log)
+	if err != nil {
+		panic(fmt.Sprintf("init delivery publisher failed: %v", err))
+	}
 
 	minioClient, err := pkgminio.NewClient(c.Minio)
 	if err != nil {
@@ -66,18 +72,22 @@ func NewServiceContext(c config.Config, role string) *ServiceContext {
 	llmGatewayClient := zrpc.MustNewClient(c.LLMGateway)
 
 	return &ServiceContext{
-		Config:           c,
-		DB:               db,
-		KBRepo:           kbRepo,
-		DocRepo:          docRepo,
-		FileStore:        fileStore,
-		Producer:         kafkaProducer,
-		LLMGatewayClient: llmGatewayClient,
-		Snowflake:        snowNode,
+		Config:            c,
+		DB:                db,
+		KBRepo:            kbRepo,
+		DocRepo:           docRepo,
+		FileStore:         fileStore,
+		Producer:          kafkaProducer,
+		DeliveryPublisher: deliveryPublisher,
+		LLMGatewayClient:  llmGatewayClient,
+		Snowflake:         snowNode,
 	}
 }
 
 func (s *ServiceContext) Close() {
+	if s.DeliveryPublisher != nil {
+		_ = s.DeliveryPublisher.Close()
+	}
 	if s.Producer != nil {
 		_ = s.Producer.Close()
 	}

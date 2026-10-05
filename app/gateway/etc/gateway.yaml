@@ -13,7 +13,7 @@ Services:
   FileServiceAddr: ${FILE_SERVICE_ADDR}
   BotServiceAddr: ${BOT_SERVICE_ADDR}
   KnowledgeServiceAddr: ${KNOWLEDGE_BASE_ADDR}
-  NotificationServiceAddr: ${SIGNALING_SERVICE_ADDR}
+  RealtimeServiceAddr: ${REALTIME_SERVICE_ADDR}
   LLMGatewayServiceAddr: ${LLM_GATEWAY_ADDR}
 
 RateLimit:

@@ -2,19 +2,17 @@ package user
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
-	"github.com/zeromicro/go-zero/core/stores/redis"
+	"github.com/maomeng/aim/pkg/connections"
 )
 
 type StatusLogic struct {
-	rdb *redis.Redis
+	registry *connections.Store
 }
 
-func NewStatusLogic(rdb *redis.Redis) *StatusLogic {
-	return &StatusLogic{rdb: rdb}
+func NewStatusLogic(registry *connections.Store) *StatusLogic {
+	return &StatusLogic{registry: registry}
 }
 
 func (l *StatusLogic) BatchGetStatus(ctx context.Context, req *userpb.BatchGetStatusReq) (*userpb.BatchGetStatusResp, error) {
@@ -23,23 +21,20 @@ func (l *StatusLogic) BatchGetStatus(ctx context.Context, req *userpb.BatchGetSt
 	}
 	statuses := make([]*userpb.UserStatus, 0, len(req.UserIds))
 	for _, uid := range req.UserIds {
-		key := fmt.Sprintf("user:%d:devices", uid)
-		result, err := l.rdb.HgetallCtx(ctx, key)
+		routes, err := l.registry.List(ctx, connections.User, uid)
 		if err != nil {
-			continue
+			return nil, err
 		}
-		isOnline := len(result) > 0
-		devices := make([]*userpb.DeviceInfo, 0, len(result))
-		for deviceID, tsStr := range result {
-			ts, _ := strconv.ParseInt(tsStr, 10, 64)
+		devices := make([]*userpb.DeviceInfo, 0, len(routes))
+		for _, route := range routes {
 			devices = append(devices, &userpb.DeviceInfo{
-				DeviceId:     deviceID,
-				LastActiveAt: ts,
+				DeviceId:     route.DeviceID,
+				LastActiveAt: route.LastActive,
 			})
 		}
 		statuses = append(statuses, &userpb.UserStatus{
 			UserId:   uid,
-			IsOnline: isOnline,
+			IsOnline: len(routes) > 0,
 			Devices:  devices,
 		})
 	}

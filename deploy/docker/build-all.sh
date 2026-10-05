@@ -6,7 +6,7 @@ echo "=== Docker Build All Services ==="
 services=(
   user-service message-service
   gateway file-service llm-gateway knowledge-base
-  bot-service ws-gateway signaling-service
+  bot-service realtime-service
 )
 
 total=${#services[@]}

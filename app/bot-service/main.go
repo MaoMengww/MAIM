@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/maomeng/aim/app/bot-service/internal/client"
@@ -45,6 +46,7 @@ func main() {
 	c.Role = *role
 	ctx := svc.NewServiceContext(c)
 	logger := logx.DefaultLogger()
+	defer ctx.DeliveryPublisher.Close()
 
 	// gRPC server — also initializes OpenTelemetry tracing via go-zero's ServiceConf.SetUp()
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
@@ -62,6 +64,27 @@ func main() {
 
 	var eventConsumer *kafka.Consumer
 	kafkaCtx, kafkaCancel := context.WithCancel(context.Background())
+	var thirdPartyConsumer *kafka.Consumer
+	if c.Role != "runtime" {
+		var err error
+		thirdPartyConsumer, err = kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated, consts.KafkaTopicMessageEdited, consts.KafkaTopicMessageRecalled, consts.KafkaTopicConvBotAdded}, c.Kafka.ConsumerGroup+"-third-party", logger)
+		if err != nil {
+			panic(fmt.Sprintf("third-party consumer init failed: %v", err))
+		}
+		h := consumer.NewThirdPartyHandler(ctx.BotRepo, repo.NewConvBotRepo(ctx.DB), ctx.DeliveryPublisher, logger)
+		go func() {
+			for kafkaCtx.Err() == nil {
+				if err := thirdPartyConsumer.Consume(kafkaCtx, h); err != nil && kafkaCtx.Err() == nil {
+					logger.Errorf("third-party consumer: %v", err)
+					select {
+					case <-kafkaCtx.Done():
+						return
+					case <-time.After(time.Second):
+					}
+				}
+			}
+		}()
+	}
 	if c.Role != "control" {
 		// Register global eino callback handlers for OTel tracing and logging
 		callbacks.AppendGlobalHandlers(graph.NewOTelCallbackHandler(logger))
@@ -99,7 +122,7 @@ func main() {
 		msgClient := client.NewMessageClient(ctx.MessageSvcConn)
 		kbClient := client.NewKnowledgeClient(ctx.KnowledgeConn)
 
-		wsClient := client.NewWsGatewayClient(ctx.WsGatewayConn)
+		deliveryClient := client.NewDeliveryClient(msgClient, ctx.DeliveryPublisher)
 
 		memStore := memory.NewGraphStoreAdapter(ctx.MemoryManager)
 
@@ -115,7 +138,7 @@ func main() {
 			kbClient,
 			nil, // convClient
 			consumer.NewDedup(ctx.Redis),
-			wsClient,
+			deliveryClient,
 			userNames,
 		)
 
@@ -144,6 +167,9 @@ func main() {
 		kafkaCancel()
 		if eventConsumer != nil {
 			eventConsumer.Close()
+		}
+		if thirdPartyConsumer != nil {
+			_ = thirdPartyConsumer.Close()
 		}
 		if ctx.Neo4jDriver != nil {
 			_ = ctx.Neo4jDriver.Close(context.Background())

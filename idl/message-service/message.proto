@@ -58,7 +58,7 @@ service MessageService {
   // ========== Read Status ==========
   rpc MarkAsRead(MarkAsReadReq) returns (common.BaseResponse);
   rpc GetReadStatus(GetReadStatusReq) returns (GetReadStatusResp);
-  rpc GetUnreadCounts(GetUnreadCountsReq) returns (GetUnreadCountsResp);
+  rpc SendTypingEvent(SendTypingEventReq) returns (SendTypingEventResp);
 
   // ========== Bot Management ==========
   rpc AddBot(AddBotReq) returns (common.BaseResponse);
@@ -648,16 +648,14 @@ message GetReadStatusResp {
   repeated ReadUser read_users = 3;
 }
 
-// ========== Unread Counts (read model owned by the messaging domain) ==========
-
-message GetUnreadCountsReq {
+// Ephemeral typing events are authorized and fanned out by the message domain.
+message SendTypingEventReq {
   int64 conversation_id = 1;
-  repeated int64 user_ids = 2;
+  int64 user_id = 2;
+  bool stopped = 3;
 }
 
-message GetUnreadCountsResp {
-  map<int64, int32> counts = 1;
-}
+message SendTypingEventResp {}
 
 // ========== Bot Messages ==========
 

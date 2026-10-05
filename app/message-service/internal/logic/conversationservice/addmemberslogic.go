@@ -44,11 +44,12 @@ func (l *AddMembersLogic) AddMembers(in *conversation.AddMembersReq) (*conversat
 			return nil, fmt.Errorf("generate member id failed: %w", err)
 		}
 		m := model.ConversationMember{
-			ID:       memberID,
-			ConvID:   in.ConversationId,
-			UserID:   uid,
-			Role:     memberRole,
-			JoinedAt: now,
+			ID:         memberID,
+			ConvID:     in.ConversationId,
+			UserID:     uid,
+			MemberType: model.MemberTypeUser,
+			Role:       memberRole,
+			JoinedAt:   now,
 		}
 		if err := l.svcCtx.ConversationRepo.AddMember(l.ctx, &m); err != nil {
 			failed = append(failed, uid)

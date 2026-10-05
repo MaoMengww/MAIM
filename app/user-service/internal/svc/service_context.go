@@ -8,20 +8,23 @@ import (
 	"github.com/maomeng/aim/app/user-service/internal/model"
 	"github.com/maomeng/aim/app/user-service/internal/repo"
 	"github.com/maomeng/aim/migrations/postgres"
+	"github.com/maomeng/aim/pkg/connections"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/snowflake"
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/zeromicro/go-zero/core/stores/redis"
 )
 
 type ServiceContext struct {
-	Config config.Config
-	DB     *database.DB
-	Redis  *redis.Redis
-	JWT    *jwt.Manager
-	Snow   *snowflake.Node
-	Log    logx.Logger
+	Config        config.Config
+	DB            *database.DB
+	Redis         *redis.Redis
+	PresenceRedis goredis.UniversalClient
+	JWT           *jwt.Manager
+	Snow          *snowflake.Node
+	Log           logx.Logger
 
 	AuthLogic     *authlogic.Logic
 	UserLogic     *userlogic.Logic
@@ -73,22 +76,30 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 	userRepo := repo.NewUserRepo(db)
 	authRepo := repo.NewAuthRepo(db, rdb)
 	userLogic := userlogic.New(userRepo, logger)
+	presenceRedis := goredis.NewUniversalClient(&goredis.UniversalOptions{
+		Addrs: []string{cfg.AppRedis.Host}, Password: cfg.AppRedis.Password,
+		DB: cfg.AppRedis.DB, IsClusterMode: cfg.AppRedis.ClusterMode,
+	})
 
 	return &ServiceContext{
 		Config:        cfg,
 		DB:            db,
 		Redis:         rdb,
+		PresenceRedis: presenceRedis,
 		JWT:           jwtMgr,
 		Snow:          snowNode,
 		Log:           logger,
 		AuthLogic:     authlogic.New(userRepo, authRepo, snowNode, jwtMgr, logger),
 		UserLogic:     userLogic,
-		StatusLogic:   userlogic.NewStatusLogic(rdb),
+		StatusLogic:   userlogic.NewStatusLogic(connections.New(presenceRedis, 0)),
 		FriendContext: friendlogic.NewContext(db, snowNode, userLogic),
 	}
 }
 
 func (s *ServiceContext) Close() {
+	if s.PresenceRedis != nil {
+		_ = s.PresenceRedis.Close()
+	}
 	if s.DB != nil {
 		_ = s.DB.Close()
 	}

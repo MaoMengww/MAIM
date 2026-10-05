@@ -5,6 +5,7 @@ import (
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/pkg/database"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -25,8 +26,8 @@ func (r *InboxRepo) BatchInsert(ctx context.Context, inboxes []model.UserInbox) 
 	}).Create(&inboxes).Error
 }
 
-func (r *InboxRepo) MarkDeleted(ctx context.Context, userID, convID, messageID int64) error {
-	return r.db.WithContext(ctx).Model(&model.UserInbox{}).
+func (r *InboxRepo) MarkDeleted(ctx context.Context, tx *gorm.DB, userID, convID, messageID int64) error {
+	return tx.WithContext(ctx).Model(&model.UserInbox{}).
 		Where("user_id = ? AND conv_id = ? AND message_id = ?", userID, convID, messageID).
 		Update("is_deleted", true).Error
 }

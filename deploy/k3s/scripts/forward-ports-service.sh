@@ -15,12 +15,12 @@ done
 # Wait for gateway pod to be ready
 kubectl wait --for=condition=ready pod -l app=aim-gateway --timeout=120s 2>/dev/null || true
 
-# Wait for ws-gateway pod
-kubectl wait --for=condition=ready pod -l app=aim-ws-gateway --timeout=120s 2>/dev/null || true
+# Wait for realtime-service pod
+kubectl wait --for=condition=ready pod -l app=aim-realtime-service --timeout=120s 2>/dev/null || true
 
 # Start port forwards
 nohup kubectl port-forward svc/aim-gateway 8080:8080 --address 0.0.0.0 &>/dev/null &
-nohup kubectl port-forward svc/aim-ws-gateway 8081:8081 --address 0.0.0.0 &>/dev/null &
+nohup kubectl port-forward svc/aim-realtime-service 8081:8081 --address 0.0.0.0 &>/dev/null &
 nohup kubectl port-forward svc/aim-minio 9000:9000 --address 0.0.0.0 &>/dev/null &
 
 sleep 2

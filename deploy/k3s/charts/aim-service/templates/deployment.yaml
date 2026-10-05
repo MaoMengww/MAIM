@@ -15,6 +15,7 @@ spec:
         app: {{ include "aim-service.fullname" . }}
         app.kubernetes.io/part-of: aim
     spec:
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       containers:
         - name: {{ include "aim-service.fullname" . }}
           image: "{{ .Values.image.repository }}/aim-{{ .Values.image.name | default .Values.config.name }}:{{ .Values.image.tag }}"
@@ -74,7 +75,7 @@ spec:
           readinessProbe:
             {{- if .Values.probes.httpPort }}
             httpGet:
-              path: {{ .Values.probes.httpPath | default "/health" }}
+              path: {{ .Values.probes.readinessPath | default "/health" }}
               port: {{ .Values.probes.httpPort }}
             {{- else }}
             tcpSocket:

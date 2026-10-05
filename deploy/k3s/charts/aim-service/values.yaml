@@ -1,5 +1,6 @@
 replicaCount: 1
 args: []
+terminationGracePeriodSeconds: 30
 
 image:
   repository: docker.io/library
@@ -20,6 +21,7 @@ service:
 probes:
   httpPort: null
   httpPath: /health
+  readinessPath: /health
 
 config:
   name: ""
@@ -60,8 +62,7 @@ environment:
   BOT_RUNTIME_ADDR: "dns:///aim-bot-runtime:50058"
   KNOWLEDGE_BASE_ADDR: "dns:///aim-knowledge-base:50057"
   LLM_GATEWAY_ADDR: "dns:///aim-llm-gateway:50056"
-  SIGNALING_SERVICE_ADDR: "dns:///aim-signaling-service:50061"
-  WS_GATEWAY_ADDR: "dns:///aim-ws-gateway:50060"
+  REALTIME_SERVICE_ADDR: "dns:///aim-realtime-service:50061"
 
 
 resources:

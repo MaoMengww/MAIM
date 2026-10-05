@@ -6,10 +6,10 @@
 
 ## 项目概要
 
-MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型深度融入实时通讯场景。当前由 **9 个 Go 服务、11 个业务工作负载** 构成；Bot 控制面与运行时同属 bot-service，在线检索与入库同属 knowledge-base，两者分别保留独立进程与副本。最终目标为 8 个服务，通过 **Helmfile + k3s** 声明式部署。
+MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型深度融入实时通讯场景。当前由 **8 个 Go 服务、10 个业务工作负载** 构成；Bot 控制面与运行时同属 bot-service，在线检索与入库同属 knowledge-base，两者分别保留独立进程与副本。realtime-service 统一长连接、连接登记、定向投递与离线推送，通过 **Helmfile + k3s** 声明式部署。
 
 - **定位**：IM 平台 + AI Bot 引擎 + 知识库 RAG，三者一体化
-- **规模**：9 个 Go 服务，gRPC + Kafka 通信；账号与好友关系同属 user-service，会话聚合与消息同属 message-service
+- **规模**：8 个 Go 服务，gRPC + Kafka 通信；账号与好友关系同属 user-service，会话聚合、消息与扇出同属 message-service
 - **部署**：Docker Compose 或 k3s，平台 DNS 发现，YAML 模板 + 环境变量配置
 
 ---
@@ -17,91 +17,31 @@ MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型�
 ## 架构全景
 
 ```
- ┌──────────────────────────────────────────────────────────────┐
- │                       Web 前端 (React)                        │
- │                   ws:// / https://                            │
- └───────────┬──────────────────────────────┬───────────────────┘
-             │                              │
-    ┌────────▼────────┐              ┌──────▼──────┐
-    │   ws-gateway    │              │   Gateway   │
-    │  WebSocket 长连接 │              │  Gin BFF    │
-    │  Port 8081      │              │  Port 8080  │
-    └────────┬────────┘              └──────┬──────┘
-             │ gRPC Push API                │ gRPC
-             │                              │
-    ┌────────▼──────────────────────────────▼──────────────┐
-    │                  微服务层                              │
-    │                                                       │
-    │  ┌──────────┐ ┌──────────┐ ┌───────────┐            │
-    │  │  user    │ │   conv   │ │  message  │  ...       │
-    │  └──────────┘ └──────────┘ └───────────┘            │
-    │                                                       │
-    │  ┌──────────┐ ┌──────────┐ ┌───────────┐            │
-    │  │ llm-gw   │ │   kb     │ │  ai-bot   │  ...       │
-    │  └──────────┘ └──────────┘ └───────────┘            │
-    └──────┬──────────────│──▲───────────┬────────────────┘
-           │              │  │           │
-    ┌──────▼──────┐ ┌─────▼──│──┐ ┌──────▼──────────────┐
-    │ 平台 DNS    │ │   Kafka   │ │ signaling-service   │
-    │ 服务发现    │ │  事件总线 │ │ 推送调度/在线状态     │
-    └─────────────┘ └───────────┘ └─────────┬────────────┘
-                                           │
-    ┌───────────────────────────────────────▼────────────┐
-    │                 中间件基础设施                        │
-    │  PostgreSQL │ Redis │ MinIO │ Milvus │ ES │ Neo4j  │
-    └────────────────────────────────────────────────────┘
+Web 前端 ── REST ──▶ gateway ── gRPC ──▶ user / message / file
+    │                                      bot / knowledge-base / llm-gateway
+    │ WebSocket
+    ▼
+realtime-service ◀── Kafka delivery.requested ◀── message / bot / knowledge-base
+    │
+    ├── Redis 连接登记：用户 + 设备 → 实例 + generation（独立 TTL）
+    ├── Redis rt:node:{instance} → 持有连接的实例 → WebSocket
+    └── FCM / APNs 离线提醒
+
+共享基础设施：PostgreSQL / Redis / Kafka / MinIO / Milvus / ES / Neo4j
 ```
 
 ### 消息流转全景
 
 ```
-客户端发送消息
-    │
-    ▼
-Gateway (REST) ──gRPC──▶ message-service
-                              │
-                    ┌─────────┼─────────────────────────┐
-                    │         │                         │
-               messages   nextSeq()          outbox_events
-               写入      (PG UPSERT + RETURNING,  同事务写入
-              (PostgreSQL)  同事务内)             (事务原子)
-                    │         │                         │
-                    └─────────┼─────────────────────────┘
-                              │
-                      ┌───────┴───────┐
-                      │    DB 事务     │
-                      │   CREATE /    │
-                      │  ROLLBACK     │
-                      └───────┬───────┘
-                              │ 事务提交成功
-                              ▼
-                    OutboxDispatcher
-                              │
-                              ▼
-                    Kafka "message.created"
-                              │
-                    ┌─────────┼──────────┬──────────────┐
-                    │         │          │              │
-                    ▼         ▼          ▼              ▼
-                  inbox    search   conversation   signaling
-                  writer   indexer  -service      -service
-                    │         │          │              │
-                    │         │     update last_msg   fanout
-                    │         │     mark unread       │
-                    │         │          │         ┌───┼───┐
-                    │         │          │         │   │   │
-                    ▼         ▼          ▼         ▼   ▼   ▼
-                user_      ES      conv table  WS  FCM  Bot
-                inbox     index              push APNS route
+客户端 → gateway → message-service
+    → [本地事务] 会话权限 + seq + 消息 + outbox + 最新消息
+    → OutboxDispatcher → Kafka message.created
+        ├── 收件箱写扩散 + 成员解析 + 权威未读 → delivery.requested
+        │      → realtime 单消费组 → Redis 实例专用通道 → 用户各设备 WS
+        ├── ES 搜索索引
+        └── bot-runtime → Agent / MCP / Bot 回复（再次进入消息写入链路）
 
-              messages 表  sequences 表      outbox_events 表
-              (seq 有序)  (seq 持久化, PG)     (状态机: pending→sent/failed)
-                                              pending ──▶ sent
-                                                │
-                                         指数退避重试
-                                         1s→2s→...→60s(max)
-                                                │
-                                         超时(10次) → failed
+推送 best-effort；断线、实例故障或推送缺口通过按会话 seq 增量补拉恢复。
 ```
 
 ---
@@ -110,16 +50,15 @@ Gateway (REST) ──gRPC──▶ message-service
 
 ```
 AIM/
-├── app/                              # 9 个 Go 服务 (go-zero 统一布局)
+├── app/                              # 8 个 Go 服务
 │   ├── gateway/                      # REST API 网关 (Gin BFF, JWT + 限流)
-│   ├── ws-gateway/                   # WebSocket 实时网关 (长连接 + 在线状态)
+│   ├── realtime-service/             # 长连接、连接登记、定向投递、在线状态与离线推送
 │   ├── user-service/                 # 账号、资料、好友关系、分组与黑名单
 │   ├── message-service/              # 消息域 (会话与群组、消息、收件箱、已读未读)
 │   ├── file-service/                 # 文件管理 (MinIO Presigned URL)
 │   ├── llm-gateway/                  # LLM 模型网关 (多厂商路由 + 计费)
 │   ├── bot-service/                  # Bot 控制面 + Eino Agent/MCP/记忆，control/runtime 独立工作负载
-│   ├── knowledge-base/               # RAG 在线检索与入库，online/ingest 独立工作负载
-│   └── signaling-service/            # 事件扇出与推送 (Kafka → WS/APNs/FCM/Bot路由)
+│   └── knowledge-base/               # RAG 在线检索与入库，online/ingest 独立工作负载
 │
 ├── deploy/
 │   ├── docker/                       # Dockerfile (多阶段构建) + 入口脚本
@@ -200,13 +139,16 @@ python3 tests/e2e/run.py --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p5 --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --scenario stage-p6 --artifacts /tmp/aim-e2e-artifacts
 ```
 
-每次使用独立 Compose project、网络与数据卷，无宿主端口映射。启动顺序按真实依赖编排（`message-service` 先于它的热路径调用方 `signaling-service`），全部中间件与应用就绪后才施加流量。成功或失败后均清理该 project 的容器与数据卷；`--artifacts` 保留诊断日志。
+每次使用独立 Compose project、网络与数据卷，无宿主端口映射。全部中间件与应用就绪后才施加流量；realtime 的两个实例分别可寻址，但共用一个 Kafka 消费组。成功或失败后均清理该 project 的容器与数据卷；`--artifacts` 保留诊断日志。
 
-默认检查关系链、A/A 与 B/B，`--cross-instance` 追加 A/B 双向投递；`--scenario` 可选择单个场景，`stage-p3` 检查完整关系链与 A/A，`stage-p4` 追加会话与成员管理，但仍启动含两个长连接实例的全栈。P1 之后两者的期望不同：Compose 的推送目标 `WS_GATEWAY_ADDR` 只解析到主 `ws-gateway` 实例，因此 A/A（两端都连在推送可达的实例上）是确定性通过的；B/B 与 A/B 需要「按连接定向投递」，属 P6 范围，当前仍然失败——默认验收不会跳过或伪装该失败。
+默认 `all` 检查关系链、同实例与 A/B 跨实例双向投递；`--scenario` 可选择单个场景。P6 已用连接登记取代旧的单实例 gRPC 推送目标，同实例与跨实例走同一条 Redis 定向投递路径。
 
 `stage-p5` 在 P4 场景上追加 Bot 配置/令牌、真实网络 MCP 工具发现与调用、Kafka 回复及 WS/REST 精确内容核对，以及四个大文档并发入库期间的检索和失败隔离。OpenAI/MCP 外部协议由 `e2e-provider` 提供；AIM 内部 RPC、Kafka、PostgreSQL、Milvus 不替换。在线查询每次硬截止 5 秒；入库总截止 10 分钟，容纳默认 20 RPM 预算，不提高配额或缩小文档负载。
+
+`stage-p6` 覆盖 P3/P4 主链路、跨实例 Bot 回复和流式输出、发送方其它设备回显、非成员隔离、撤回/编辑/删除与未读同步。验收通过 `presence.query` 查询设备所在实例，并真实执行强制终止、TTL 自然失效、TTL 内投递失败负反馈、重启恢复，以及 readiness 摘流量后的多连接平滑排空；故障期间遗漏的消息按会话 `seq` 补拉。`--artifacts` 保留检查点与服务日志。
 
 Bot 使用同一镜像：`bot-service -role control` 提供外部入口，运行时调用转发到 `BOT_RUNTIME_ADDR`；`bot-runtime -role runtime` 消费消息并执行 Agent，直接读取同域配置，不依赖控制面 RPC。两个工作负载分别暴露 9109/9119 指标，可独立调整副本。Knowledge 使用同一镜像：`-role online` 仅提供查询/管理 RPC，`-role ingest` 仅消费上传事件，提供独立健康检查与 9118 指标。Compose 和 Helm 均为独立工作负载配置资源；Helm 的 `bot-runtime.yaml`、`knowledge-ingest.yaml` 可单独设置 `replicaCount`。
 
@@ -224,10 +166,11 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 客户端 → Gateway REST → message-service gRPC
   → [事务] messages + outbox_events + seq (PostgreSQL)
   → OutboxDispatcher (后台轮询)
-  → Kafka message.created → signaling-service fanout → ws-gateway push → 客户端
+  → Kafka message.created → 消息域收件箱与扇出 → delivery.requested
+  → realtime → Redis 实例专用通道 → WebSocket（best-effort；seq 补拉兜底）
 ```
 
-#### 不重复（Exactly-Once 语义）
+#### 不重复（持久化 effectively-once 语义）
 
 **三层防重机制**：
 
@@ -235,7 +178,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 |------|------|---------|
 | 发送端 | 客户端幂等 key | `client_msg_id` + Redis `SetNX("msg:idempotent:{client_msg_id}", TTL=2小时)`，重复请求直接返回 `ErrDuplicateMessage` |
 | Inbox 写入 | 数据库幂等 | `BatchInsert` 使用 `ON CONFLICT DO NOTHING`，联合主键 `(user_id, conv_id, seq)` 保证即使 Kafka 消息重复消费也不会产生重复 inbox 记录 |
-| Kafka 消费 | 业务层幂等 | InboxWriter 消费前先 `ExistsByMessageID(messageID, convID)` 检查，已存在则跳过。配合 at-least-once 语义 + OutboxDispatcher 最多一次投递，实现 effectively-once |
+| Kafka 消费 | 持久化幂等 | InboxWriter 用 `ExistsByMessageID(messageID, convID)` 避免重复收件箱写入，但重放仍发布投递意图；客户端按会话 `seq` 去重，不把推送当作 exactly-once |
 
 #### 不丢失（零消息丢失）
 
@@ -280,7 +223,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 2. **OutboxDispatcher 轮询**：后台 goroutine 轮询 pending 事件，使用 `SELECT ... FOR UPDATE SKIP LOCKED` 保证多实例安全
 3. **指数退避重试**：发送失败按 `1s → 2s → 4s → 8s → 16s → 32s → 60s` 退避，最多 10 次
 4. **死信队列**：超过最大重试次数后标记 `status=2 (failed)`，人工介入或后续补偿
-5. **下游消费者幂等**：InboxWriter、SearchIndexer 等在消费前做 `ExistsByMessageID` 幂等检查，不惧重复投递
+5. **下游持久化幂等**：InboxWriter、SearchIndexer 等在消费前做 `ExistsByMessageID` 幂等检查；收件箱已存在不跳过投递意图，允许 best-effort 推送重放
 6. **客户端 SyncMessages 最终兜底**：客户端可随时通过 `SyncMessages(from_seq=lastKnownSeq)` 拉取缺失消息
 
 #### 不乱序（严格有序保证）
@@ -405,7 +348,7 @@ agent, err := react.NewAgent(ctx, &react.AgentConfig{
 
 | 通道 | 实现 |
 |------|------|
-| **WebSocket** | 通过 ws-gateway 的 `PushToConv` gRPC 推送流式 chunk |
+| **WebSocket** | Bot 解析会话收件人后发布 `delivery.requested`，realtime 按连接登记投递流式 chunk，不向无关在线用户广播 |
 
 #### MCP 工具集成
 
@@ -576,36 +519,23 @@ Parent 块（~4096 字符）  ─────── 提供 LLM 上下文窗口
 
 ---
 
-### 信令推送服务
+### Realtime 定向投递
 
-signaling-service 是消息扇出(fanout)的核心枢纽。
+`realtime-service` 不拥有会话成员、消息业务判断或未读数；消息域产出的投递意图已包含收件人和客户端信封。
 
-#### 核心职责
+1. **连接登记**：每设备独立 TTL；建立、心跳与断开维护，`generation` 条件更新防止旧连接删除新登记。在线状态查询直接复用登记。
+2. **在线投递**：Kafka 单消费组读取 `delivery.requested`；查询目标设备实例，发布到 `rt:node:{instance}`。同实例与跨实例使用同一路径，发送方自己的其它设备也收到回显。
+3. **负反馈**：节点无订阅、连接缺失或写失败时清理对应 generation 的登记，记录降级并触发配置启用的 FCM/APNs。没有 ACK、重投或未确认队列。
+4. **正确性**：WebSocket 是 best-effort；客户端按会话 `seq` 补拉恢复缺口，未读由消息域持有。
+5. **平滑退出**：SIGTERM 先使 readiness 失败、拒绝新接入，再等待摘流量窗口并分散关闭连接。Compose 与 Helm 预留退出宽限期。
 
-1. **在线推送**：通过 gRPC 调用 ws-gateway 的 `InternalPushService`
-2. **离线推送**：通过 FCM/APNS 发送移动端通知
-3. **Bot 路由**：将消息推送给第三方 Bot（WS 或 Webhook）；官方与自部署 Bot 由 bot-runtime 直接消费 `message.created`
-4. **未读计数**：消息域按 `max_seq - last_read_seq` 批量计算权威未读数；推送层不维护计数器
-5. **已读回执**：消费 `conversation.read.updated` 事件，推送给其他成员
-
-#### Fanout 扇出逻辑
-
-**消息扇出**：
-
-1. 获取会话成员列表
-2. 从消息域批量读取接收者的权威未读数（缺失成员计为 0）
-3. 区分在线/离线用户
-4. 为每个在线用户推送 `message.new` 事件（附带个人未读数）
-5. 为离线用户通过 FCM/APNS 发送推送通知
-6. 推送给会话中的 Bot
-
-**Bot 路由策略**：
+消息域负责新消息、Bot 回复、撤回、编辑、按用户删除、已读回执和未读同步的收件人解析；typing 也由消息域校验成员再产出投递意图。
 
 | Bot 类型 | 路由方式 |
 |---------|---------|
-| Official / Self-Deployed | Kafka `message.created` topic → bot-runtime |
-| Third-Party (conn_mode=ws) | ws-gateway WebSocket 推送 |
-| Third-Party (conn_mode=webhook) | HTTP Webhook 回调 |
+| Official / Self-Deployed | Kafka `message.created` → bot-runtime |
+| Third-Party (conn_mode=ws) | `delivery.requested` 的 Bot 收件人 → realtime WebSocket |
+| Third-Party (conn_mode=webhook) | bot 域读取配置并发送签名 HTTP Webhook |
 
 ## 系统能力矩阵
 

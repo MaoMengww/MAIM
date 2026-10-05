@@ -106,6 +106,7 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 			"message_id":      msgID,
 			"conv_id":         in.ConversationId,
 			"sender_id":       in.BotId,
+			"sender_type":     "bot",
 			"msg_type":        int64(model.MsgTypeBot),
 			"content":         contentMap,
 			"seq":             seq,

@@ -13,8 +13,7 @@ SERVICES=(
   llm-gateway
   knowledge-base
   bot-service
-  signaling-service
-  ws-gateway
+  realtime-service
   gateway
 )
 

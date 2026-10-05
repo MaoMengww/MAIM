@@ -14,6 +14,7 @@ import (
 	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/consts"
+	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/interceptor"
 	commonpb "github.com/maomeng/aim/pkg/pb/common"
@@ -58,9 +59,8 @@ func (s *ConversationToolServer) getLLMInput(ctx context.Context, userID, convID
 	}, nil
 }
 
-// pushAsyncResult pushes an async operation result to a user via ws-gateway.
+// pushAsyncResult publishes an async operation result to all of the user's devices.
 func (s *ConversationToolServer) pushAsyncResult(userID int64, eventType string, data map[string]any) {
-	wsClient := client.NewWsGatewayClient(s.svcCtx.WsGatewayConn)
 	msg := map[string]any{
 		"type": eventType,
 	}
@@ -72,7 +72,7 @@ func (s *ConversationToolServer) pushAsyncResult(userID int64, eventType string,
 		s.svcCtx.Logger.Errorf("pushAsyncResult marshal failed: type=%s err=%v", eventType, err)
 		return
 	}
-	if err := wsClient.PushToUser(context.Background(), userID, b); err != nil {
+	if err := s.svcCtx.DeliveryPublisher.Publish(context.Background(), userID, delivery.Intent{UserIDs: []int64{userID}, Payload: b}); err != nil {
 		s.svcCtx.Logger.Errorf("pushAsyncResult push failed: type=%s user=%d err=%v", eventType, userID, err)
 	}
 }

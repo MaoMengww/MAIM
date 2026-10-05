@@ -15,6 +15,7 @@ import (
 	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/database"
+	"github.com/maomeng/aim/pkg/delivery"
 	pkgjwt "github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
@@ -28,27 +29,27 @@ import (
 )
 
 type ServiceContext struct {
-	Repo            repo.BotRepoInterface
-	BotRepo         *repo.BotRepo
-	EncryptionKey   []byte
-	BotJWT          *pkgjwt.Manager
-	MessageClient   msgpb.MessageServiceClient
-	Config          config.Config
-	DB              *database.DB
-	Redis           *goredis.Client
-	Logger          logx.Logger
-	KafkaProducer   *kafka.Producer
-	Neo4jDriver     neo4j.DriverWithContext
-	MemoryStore     *memory.Neo4jStore
-	MemoryManager   *memory.Manager
-	MemoryVector    *memory.MemoryVectorStore
-	MemoryEmbedder  memory.Embedder
-	LlmGatewayConn  zrpc.Client
-	MessageSvcConn  zrpc.Client
-	KnowledgeConn   zrpc.Client
-	WsGatewayConn   zrpc.Client
-	RuntimeClient   botpb.BotServiceClient
-	UserServiceConn zrpc.Client
+	Repo              repo.BotRepoInterface
+	BotRepo           *repo.BotRepo
+	EncryptionKey     []byte
+	BotJWT            *pkgjwt.Manager
+	MessageClient     msgpb.MessageServiceClient
+	Config            config.Config
+	DB                *database.DB
+	Redis             *goredis.Client
+	Logger            logx.Logger
+	KafkaProducer     *kafka.Producer
+	Neo4jDriver       neo4j.DriverWithContext
+	MemoryStore       *memory.Neo4jStore
+	MemoryManager     *memory.Manager
+	MemoryVector      *memory.MemoryVectorStore
+	MemoryEmbedder    memory.Embedder
+	LlmGatewayConn    zrpc.Client
+	MessageSvcConn    zrpc.Client
+	KnowledgeConn     zrpc.Client
+	DeliveryPublisher *delivery.Publisher
+	RuntimeClient     botpb.BotServiceClient
+	UserServiceConn   zrpc.Client
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -66,6 +67,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	r := repo.NewBotRepo(db, sf)
 	base := &ServiceContext{Config: c, DB: db, Logger: logger, Repo: r, BotRepo: r,
 		EncryptionKey: []byte(c.EncryptionKey), BotJWT: pkgjwt.NewManager(c.JWT.Secret, c.JWT.ExpireSec, c.JWT.RefreshSec)}
+	base.DeliveryPublisher, err = delivery.NewPublisher(c.Kafka, logger)
+	if err != nil {
+		panic(fmt.Sprintf("delivery publisher init failed: %v", err))
+	}
 	if c.Role != "runtime" {
 		if err := db.AutoMigrate(&model.Bot{}, &model.McpServer{}, &model.BotMcpServer{}, &model.McpTool{}); err != nil {
 			panic(fmt.Sprintf("auto migrate failed: %v", err))
@@ -151,10 +156,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		panic(fmt.Sprintf("knowledge-base client failed: %v", err))
 	}
-	wsGatewayConn, err := zrpc.NewClient(c.WsGateway, reqIDClientOpt, reqIDStreamOpt)
-	if err != nil {
-		panic(fmt.Sprintf("ws-gateway client failed: %v", err))
-	}
 	userServiceConn, err := zrpc.NewClient(c.UserService, reqIDClientOpt, reqIDStreamOpt)
 	if err != nil {
 		panic(fmt.Sprintf("user-service client failed: %v", err))
@@ -169,7 +170,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	base.LlmGatewayConn = llmGatewayConn
 	base.MessageSvcConn = messageSvcConn
 	base.KnowledgeConn = knowledgeConn
-	base.WsGatewayConn = wsGatewayConn
 	base.UserServiceConn = userServiceConn
 	return base
 }

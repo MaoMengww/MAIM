@@ -1,5 +1,5 @@
 #!/bin/bash
-# Auto port-forward gateway and ws-gateway to localhost
+# Auto port-forward gateway and realtime-service to localhost
 # Usage: ./deploy/k3s/scripts/forward-ports.sh [start|stop|status]
 # Default Ingress (for non-localhost access): http://172.27.95.205
 
@@ -44,7 +44,7 @@ stop_forward() {
 case "${1:-start}" in
   start)
     start_forward "gateway"    "aim-gateway"    8080 8080 "$GW_PID_FILE"
-    start_forward "ws-gateway" "aim-ws-gateway"  8081 8081 "$WS_PID_FILE"
+    start_forward "realtime-service" "aim-realtime-service" 8081 8081 "$WS_PID_FILE"
     echo ""
     echo "=== Port Forwards ==="
     echo "  REST API:  http://localhost:8080"
@@ -53,10 +53,10 @@ case "${1:-start}" in
     ;;
   stop)
     stop_forward "gateway"    "$GW_PID_FILE"
-    stop_forward "ws-gateway" "$WS_PID_FILE"
+    stop_forward "realtime-service" "$WS_PID_FILE"
     ;;
   status)
-    for f in gateway:8080:"$GW_PID_FILE" ws-gateway:8081:"$WS_PID_FILE"; do
+    for f in gateway:8080:"$GW_PID_FILE" realtime-service:8081:"$WS_PID_FILE"; do
       name="${f%%:*}"
       port="${f#*:}"; port="${port%:*}"
       pid_file="${f##*:}"

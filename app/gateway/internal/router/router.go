@@ -41,7 +41,7 @@ func New(
 	msgH := handler.NewMessageHandler(clients.Message, clients.File.Conn())
 	fileH := handler.NewFileHandler(clients.File.Conn(), clients.User.Conn())
 	broadcastH := handler.NewBroadcastHandler(clients.Message)
-	notifH := handler.NewNotificationHandler(clients.Notification.Conn())
+	notifH := handler.NewRealtimeHandler(clients.Realtime.Conn())
 	botClient := botpb.NewBotServiceClient(clients.BotService.Conn())
 	botH := handler.NewBotHandler(botClient, clients.Message.Conn(), clients.File.Conn())
 	kbH := handler.NewKnowledgeHandler(clients.KnowledgeBase.Conn())
@@ -168,6 +168,8 @@ func New(
 	notifs.POST("/:id/read", notifH.MarkRead)
 	notifs.POST("/read_all", notifH.MarkAllRead)
 	notifs.DELETE("/:id", notifH.DeleteNotification)
+	protected.POST("/device/register", notifH.RegisterDevice)
+	protected.POST("/device/unregister", notifH.UnregisterDevice)
 
 	// Bot Management
 	bots := protected.Group("/bots")

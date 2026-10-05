@@ -4,7 +4,7 @@ import { safeJsonParse } from '@/utils/json';
 
 type Handler = (payload: any) => void;
 
-// WebSocket event types matching ws-gateway
+// WebSocket event types matching realtime
 const eventHandlers = new Map<string, Set<Handler>>();
 
 // Track active streaming sessions for reconnection replay
@@ -22,6 +22,8 @@ let heartbeatTimer: number | null = null;
 const RECONNECT_BASE = 1000;
 const RECONNECT_MAX = 16000;
 const HEARTBEAT_INTERVAL = 25000;
+// One browser runtime is one device; reconnects replace its connection registry entry.
+const deviceId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 let isFirstConnect = true;
 
@@ -35,7 +37,6 @@ export function wsConnect() {
   const token = useAuthStore.getState().token;
   if (!token) return;
 
-  const deviceId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const WS_BASE = import.meta.env.VITE_WS_BASE || 'ws://localhost:8081';
   const url = `${WS_BASE}/ws?token=${token}&device_id=${deviceId}`;
   useWSStore.getState().setStatus('connecting');

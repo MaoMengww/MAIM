@@ -121,9 +121,9 @@ func (s *MessageServiceServer) GetReadStatus(ctx context.Context, in *messagepb.
 	return l.GetReadStatus(in)
 }
 
-func (s *MessageServiceServer) GetUnreadCounts(ctx context.Context, in *messagepb.GetUnreadCountsReq) (*messagepb.GetUnreadCountsResp, error) {
-	l := conversationservicelogic.NewGetUnreadCountsLogic(ctx, s.svcCtx)
-	return l.GetUnreadCounts(in)
+func (s *MessageServiceServer) SendTypingEvent(ctx context.Context, in *messagepb.SendTypingEventReq) (*messagepb.SendTypingEventResp, error) {
+	l := conversationservicelogic.NewSendTypingEventLogic(ctx, s.svcCtx)
+	return l.SendTypingEvent(in)
 }
 
 // ========== Bot Management ==========

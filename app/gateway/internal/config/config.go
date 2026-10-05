@@ -8,13 +8,13 @@ import (
 // Targets are full gRPC targets (e.g. dns:///user-service:50051) supplied by
 // the environment, so no service registry is involved.
 type ServicesConfig struct {
-	UserServiceAddr         string `json:"userServiceAddr"`
-	MessageServiceAddr      string `json:"messageServiceAddr"`
-	FileServiceAddr         string `json:"fileServiceAddr"`
-	BotServiceAddr          string `json:"botServiceAddr"`
-	KnowledgeServiceAddr    string `json:"knowledgeServiceAddr"`
-	NotificationServiceAddr string `json:"notificationServiceAddr"`
-	LLMGatewayServiceAddr   string `json:"llmGatewayServiceAddr"`
+	UserServiceAddr       string `json:"userServiceAddr"`
+	MessageServiceAddr    string `json:"messageServiceAddr"`
+	FileServiceAddr       string `json:"fileServiceAddr"`
+	BotServiceAddr        string `json:"botServiceAddr"`
+	KnowledgeServiceAddr  string `json:"knowledgeServiceAddr"`
+	RealtimeServiceAddr   string `json:"realtimeServiceAddr"`
+	LLMGatewayServiceAddr string `json:"llmGatewayServiceAddr"`
 }
 
 type RateLimitConfig struct {

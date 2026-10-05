@@ -27,6 +27,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: aim-ws-gateway
+                name: aim-realtime-service
                 port:
                   number: 8081

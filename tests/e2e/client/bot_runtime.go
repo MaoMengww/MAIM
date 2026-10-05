@@ -71,7 +71,8 @@ type botView struct {
 	Triggers []string `json:"response_triggers"`
 }
 
-func (d *driver) botRuntime(address string) (result error) {
+func (d *driver) botRuntime(address, secondAddress string) (result error) {
+	crossInstance := address != secondAddress
 	suffix, err := randomSuffix()
 	if err != nil {
 		return err
@@ -96,7 +97,7 @@ func (d *driver) botRuntime(address string) (result error) {
 	if err := d.request(http.MethodPost, "/bots", owner.token, map[string]any{
 		"name": "p5-bot-" + suffix, "type": "self_deployed", "model_id": modelID,
 		"model_name": modelName, "system_prompt": "Use fixture_echo to echo the user's exact text before replying.",
-		"response_triggers": []string{"always"}, "streaming_enabled": false, "enable_knowledge": false,
+		"response_triggers": []string{"always"}, "streaming_enabled": crossInstance, "enable_knowledge": false,
 	}, &bot); err != nil {
 		return err
 	}
@@ -113,7 +114,7 @@ func (d *driver) botRuntime(address string) (result error) {
 	prompt := "P5 updated prompt: use fixture_echo before replying"
 	if err := d.request(http.MethodPut, path, owner.token, map[string]any{
 		"name": "p5-configured-" + suffix, "model_id": modelID, "system_prompt": prompt,
-		"response_triggers": []string{"always"}, "streaming_enabled": false, "enable_knowledge": false,
+		"response_triggers": []string{"always"}, "streaming_enabled": crossInstance, "enable_knowledge": false,
 		"max_context_messages": 4, "temperature": 0.2,
 	}, nil); err != nil {
 		return err
@@ -215,6 +216,18 @@ func (d *driver) botRuntime(address string) (result error) {
 	var conv struct {
 		ID decimal `json:"conversation_id"`
 	}
+	var remote, mirror, observer *p6Socket
+	var member, outsider account
+	if crossInstance {
+		member, err = d.register("bot_member", suffix)
+		if err != nil {
+			return err
+		}
+		outsider, err = d.register("bot_outside", suffix)
+		if err != nil {
+			return err
+		}
+	}
 	if err := d.request(http.MethodPost, "/convs", owner.token, map[string]any{"type": "group", "group_name": "p5-bot-" + suffix}, &conv); err != nil {
 		return err
 	}
@@ -224,6 +237,28 @@ func (d *driver) botRuntime(address string) (result error) {
 	defer func() {
 		result = errors.Join(result, d.request(http.MethodDelete, "/convs/"+conv.ID.String(), owner.token, nil, nil))
 	}()
+	if crossInstance {
+		if err := d.request(http.MethodPost, "/convs/"+conv.ID.String()+"/members/invite", owner.token, map[string]any{"user_ids": []int64{int64(member.id)}}, nil); err != nil {
+			return err
+		}
+		remote, err = d.p6Connect(secondAddress, member)
+		if err != nil {
+			return err
+		}
+		defer remote.close()
+		otherDevice := owner
+		otherDevice.device += "_bot_mirror"
+		mirror, err = d.p6Connect(secondAddress, otherDevice)
+		if err != nil {
+			return err
+		}
+		defer mirror.close()
+		observer, err = d.p6Connect(secondAddress, outsider)
+		if err != nil {
+			return err
+		}
+		defer observer.close()
+	}
 	if err := d.request(http.MethodPost, "/convs/"+conv.ID.String()+"/bots", owner.token, map[string]any{"bot_id": bot.ID.String()}, nil); err != nil {
 		return err
 	}
@@ -267,6 +302,20 @@ func (d *driver) botRuntime(address string) (result error) {
 	}
 	if err := d.conversationSync("bot.reply.sync", owner, conv.ID, sent.Seq, reply); err != nil {
 		return err
+	}
+	if crossInstance {
+		for _, target := range []*p6Socket{remote, mirror} {
+			if _, err := d.p6Message(target, reply); err != nil {
+				return err
+			}
+			if err := d.p6BotStream(target, bot.ID, conv.ID, sent.MessageID, reply); err != nil {
+				return err
+			}
+		}
+		if err := d.p6NoConversation(observer, conv.ID, 0); err != nil {
+			return err
+		}
+		fmt.Println("P6 evidence: Bot真实provider/MCP回复和流式chunk/done同路由跨实例/发送者另一设备，非成员无事件")
 	}
 	after, err := d.observeProvider()
 	if err != nil {

@@ -53,7 +53,7 @@ const (
 	MessageService_UpdateSettings_FullMethodName     = "/message.MessageService/UpdateSettings"
 	MessageService_MarkAsRead_FullMethodName         = "/message.MessageService/MarkAsRead"
 	MessageService_GetReadStatus_FullMethodName      = "/message.MessageService/GetReadStatus"
-	MessageService_GetUnreadCounts_FullMethodName    = "/message.MessageService/GetUnreadCounts"
+	MessageService_SendTypingEvent_FullMethodName    = "/message.MessageService/SendTypingEvent"
 	MessageService_AddBot_FullMethodName             = "/message.MessageService/AddBot"
 	MessageService_RemoveBot_FullMethodName          = "/message.MessageService/RemoveBot"
 	MessageService_UpdateBot_FullMethodName          = "/message.MessageService/UpdateBot"
@@ -107,7 +107,7 @@ type MessageServiceClient interface {
 	// ========== Read Status ==========
 	MarkAsRead(ctx context.Context, in *MarkAsReadReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
 	GetReadStatus(ctx context.Context, in *GetReadStatusReq, opts ...grpc.CallOption) (*GetReadStatusResp, error)
-	GetUnreadCounts(ctx context.Context, in *GetUnreadCountsReq, opts ...grpc.CallOption) (*GetUnreadCountsResp, error)
+	SendTypingEvent(ctx context.Context, in *SendTypingEventReq, opts ...grpc.CallOption) (*SendTypingEventResp, error)
 	// ========== Bot Management ==========
 	AddBot(ctx context.Context, in *AddBotReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
 	RemoveBot(ctx context.Context, in *RemoveBotReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
@@ -453,10 +453,10 @@ func (c *messageServiceClient) GetReadStatus(ctx context.Context, in *GetReadSta
 	return out, nil
 }
 
-func (c *messageServiceClient) GetUnreadCounts(ctx context.Context, in *GetUnreadCountsReq, opts ...grpc.CallOption) (*GetUnreadCountsResp, error) {
+func (c *messageServiceClient) SendTypingEvent(ctx context.Context, in *SendTypingEventReq, opts ...grpc.CallOption) (*SendTypingEventResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetUnreadCountsResp)
-	err := c.cc.Invoke(ctx, MessageService_GetUnreadCounts_FullMethodName, in, out, cOpts...)
+	out := new(SendTypingEventResp)
+	err := c.cc.Invoke(ctx, MessageService_SendTypingEvent_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -550,7 +550,7 @@ type MessageServiceServer interface {
 	// ========== Read Status ==========
 	MarkAsRead(context.Context, *MarkAsReadReq) (*common.BaseResponse, error)
 	GetReadStatus(context.Context, *GetReadStatusReq) (*GetReadStatusResp, error)
-	GetUnreadCounts(context.Context, *GetUnreadCountsReq) (*GetUnreadCountsResp, error)
+	SendTypingEvent(context.Context, *SendTypingEventReq) (*SendTypingEventResp, error)
 	// ========== Bot Management ==========
 	AddBot(context.Context, *AddBotReq) (*common.BaseResponse, error)
 	RemoveBot(context.Context, *RemoveBotReq) (*common.BaseResponse, error)
@@ -665,8 +665,8 @@ func (UnimplementedMessageServiceServer) MarkAsRead(context.Context, *MarkAsRead
 func (UnimplementedMessageServiceServer) GetReadStatus(context.Context, *GetReadStatusReq) (*GetReadStatusResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetReadStatus not implemented")
 }
-func (UnimplementedMessageServiceServer) GetUnreadCounts(context.Context, *GetUnreadCountsReq) (*GetUnreadCountsResp, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetUnreadCounts not implemented")
+func (UnimplementedMessageServiceServer) SendTypingEvent(context.Context, *SendTypingEventReq) (*SendTypingEventResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method SendTypingEvent not implemented")
 }
 func (UnimplementedMessageServiceServer) AddBot(context.Context, *AddBotReq) (*common.BaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddBot not implemented")
@@ -1295,20 +1295,20 @@ func _MessageService_GetReadStatus_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MessageService_GetUnreadCounts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetUnreadCountsReq)
+func _MessageService_SendTypingEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendTypingEventReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MessageServiceServer).GetUnreadCounts(ctx, in)
+		return srv.(MessageServiceServer).SendTypingEvent(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MessageService_GetUnreadCounts_FullMethodName,
+		FullMethod: MessageService_SendTypingEvent_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MessageServiceServer).GetUnreadCounts(ctx, req.(*GetUnreadCountsReq))
+		return srv.(MessageServiceServer).SendTypingEvent(ctx, req.(*SendTypingEventReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1525,8 +1525,8 @@ var MessageService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MessageService_GetReadStatus_Handler,
 		},
 		{
-			MethodName: "GetUnreadCounts",
-			Handler:    _MessageService_GetUnreadCounts_Handler,
+			MethodName: "SendTypingEvent",
+			Handler:    _MessageService_SendTypingEvent_Handler,
 		},
 		{
 			MethodName: "AddBot",

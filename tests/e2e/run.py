@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+import time
 
 
 # name -> the workload behind a compose service. directory/config are relative to
@@ -28,8 +29,7 @@ APPLICATIONS = {
     "knowledge-ingest": ("knowledge-base", "knowledge-base.yaml", "http", 9092, ["-role", "ingest"]),
     "bot-service": ("bot-service", "bot.yaml", "grpc", 50058, ["-role", "control"]),
     "bot-runtime": ("bot-service", "bot.yaml", "grpc", 50058, ["-role", "runtime"]),
-    "signaling-service": ("signaling-service", "signaling.yaml", "grpc", 50061, []),
-    "ws-gateway": ("ws-gateway", "ws-gateway.yaml", "http", 8081, []),
+    "realtime-service": ("realtime-service", "realtime.yaml", "http", 8081, []),
     "gateway": ("gateway", "gateway.yaml", "http", 8080, []),
 }
 OPTIONAL = {"prometheus", "kibana", "grafana"}
@@ -210,12 +210,19 @@ class Runner:
             address = (f"http://127.0.0.1:{port}/health" if kind == "http"
                        else f"127.0.0.1:{port}")
             service["healthcheck"] = self.health(kind, address)
-        services["realtime-b"] = copy.deepcopy(services["ws-gateway"])
+        # Both replicas share one Kafka delivery group; each owns its unique
+        # instance subscription and connection registrations.
+        for key, value in {
+            "REALTIME_HEARTBEAT_INTERVAL": "1", "REALTIME_REGISTRY_TTL_SECONDS": "6",
+            "REALTIME_READINESS_DELAY_SECONDS": "2", "REALTIME_DRAIN_SECONDS": "6",
+            "REALTIME_WRITE_TIMEOUT_SECONDS": "2", "REALTIME_INSTANCE_ID": "realtime-a",
+        }.items():
+            services["realtime-service"]["environment"][key] = value
+        services["realtime-b"] = copy.deepcopy(services["realtime-service"])
         services["realtime-b"].pop("build", None)
         services["realtime-b"]["hostname"] = "realtime-b"
-        # A and B must stay separately addressable: signaling pushes by the
-        # shared discovery name ws-gateway, so B must not answer to it here.
-        networks_a = services["ws-gateway"].setdefault("networks", {})
+        services["realtime-b"]["environment"]["REALTIME_INSTANCE_ID"] = "realtime-b"
+        networks_a = services["realtime-service"].setdefault("networks", {})
         networks_a["default"] = networks_a.get("default") or {}
         networks_a["default"].setdefault("aliases", []).append("realtime-a")
         for name, address in (("otel-collector", "http://127.0.0.1:13133/"),
@@ -248,8 +255,8 @@ class Runner:
         dependencies = {
             "llm-gateway": ["user-service"],
             "message-service": ["user-service", "bot-service"],
-            "knowledge-base": ["llm-gateway", "ws-gateway", "realtime-b"],
-            "signaling-service": ["message-service", "bot-service", "ws-gateway", "realtime-b"],
+            "knowledge-base": ["llm-gateway"],
+            "realtime-service": ["message-service", "bot-service"],
             "bot-runtime": ["llm-gateway", "message-service", "knowledge-base", "bot-service",
                             "user-service"],
             "gateway": sorted(set(APPLICATIONS) - {"gateway"}) + ["realtime-b"],
@@ -264,6 +271,12 @@ class Runner:
             "image": f"{self.project}-client:e2e", "pull_policy": "never",
             "profiles": ["harness"], "entrypoint": ["/e2e"],
         }
+        self.control = self.directory / "control"
+        self.control.mkdir(mode=0o777)
+        self.control.chmod(0o777)
+        services["e2e-client"]["volumes"] = [
+            {"type": "bind", "source": str(self.control), "target": "/control"},
+        ]
         services["probe-seed"] = {
             "image": "alpine:3.21", "profiles": ["harness"],
             "entrypoint": ["/bin/sh", "-ec"],
@@ -310,8 +323,11 @@ class Runner:
         if self.args.cross_instance:
             scenario.append("-cross-instance")
         # The client's timeout is per interaction, not an overall scene budget.
-        self.compose("acceptance", "run", "--rm", "--no-deps", "e2e-client", *scenario,
-                     timeout=max(180, self.args.timeout * 100))
+        if self.args.scenario == "stage-p6":
+            self.lifecycle_acceptance(scenario)
+        else:
+            self.compose("acceptance", "run", "--rm", "--no-deps", "e2e-client", *scenario,
+                         timeout=max(180, self.args.timeout * 100))
         self.emit("[acceptance] PASS")
 
     def wait_for(self, layer, services):
@@ -327,6 +343,74 @@ class Runner:
                 raise LayerFailure(f"{layer}: {service}: state={state.get('State', 'missing')} "
                                    f"health={state.get('Health', 'missing')}")
         self.emit(f"[{layer}] all {len(services)} services healthy")
+
+    def lifecycle_acceptance(self, scenario):
+        self.model["services"]["e2e-client"]["command"] = scenario + ["-control-dir", "/control"]
+        self.composefile.write_text(json.dumps(self.model, indent=2) + "\n")
+        if self.artifacts:
+            shutil.copyfile(self.composefile, self.artifacts / "compose.json")
+        self.compose("p6-client-start", "up", "--detach", "--no-build", "--no-deps", "e2e-client")
+        for action in ("kill-b", "restart-b", "feedback-kill-b", "feedback-restart-b", "drain-b", "drain-exited"):
+            self.await_checkpoint(action)
+            if action == "kill-b":
+                self.compose("p6-force-kill", "kill", "--signal", "SIGKILL", "realtime-b")
+                # Route expiry is observable via authenticated WS presence.query,
+                # not Redis implementation keys. Wait beyond the configured TTL.
+                time.sleep(8)
+            elif action == "feedback-kill-b":
+                self.compose("p6-feedback-kill", "kill", "--signal", "SIGKILL", "realtime-b")
+            elif action == "drain-b":
+                self.compose("p6-graceful-signal", "kill", "--signal", "SIGTERM", "realtime-b")
+            else:
+                if action == "feedback-restart-b":
+                    self.compose("p6-feedback-evidence", "logs", "--no-color", "--timestamps", "--tail", "100", "realtime-service")
+                if action == "drain-exited":
+                    self.await_exit("realtime-b", 20)
+                    self.compose("p6-drain-evidence", "logs", "--no-color", "--timestamps", "--tail", "100", "realtime-b")
+                self.compose("p6-restart", "up", "--detach", "--no-build", "--no-deps", "--wait",
+                             "--wait-timeout", str(self.args.readiness_timeout), "realtime-b",
+                             timeout=self.args.readiness_timeout + 30)
+            (self.control / (action + ".done")).write_text("done\n")
+        self.await_exit("e2e-client", max(180, self.args.timeout * 20), require_success=True)
+        self.compose("p6-client-evidence", "logs", "--no-color", "--timestamps", "e2e-client")
+        self.compose("p6-realtime-evidence", "logs", "--no-color", "--timestamps", "--tail", "100", "realtime-service", "realtime-b")
+        self.wait_for("p6-restored-readiness", sorted(APPLICATIONS) + ["realtime-b"])
+
+    def await_checkpoint(self, action):
+        deadline = time.monotonic() + max(180, self.args.timeout * 50)
+        next_state = 0
+        while time.monotonic() < deadline:
+            if (self.control / (action + ".request")).is_file():
+                self.emit(f"[p6-lifecycle] client checkpoint={action}")
+                if self.artifacts:
+                    (self.artifacts / (action + ".request")).write_text("ready\n")
+                return
+            if time.monotonic() >= next_state:
+                self.assert_client_running()
+                next_state = time.monotonic() + 5
+            time.sleep(.1)
+        raise LayerFailure(f"p6-lifecycle: client never reached {action}")
+
+    def assert_client_running(self):
+        states = parse_states(self.compose("p6-client-state", "ps", "--all", "--format", "json", capture=True))
+        state = next((row for row in states if row.get("Service") == "e2e-client"), {})
+        if state.get("State") != "running":
+            self.compose("p6-client-failure", "logs", "--no-color", "e2e-client", required=False)
+            raise LayerFailure(f"p6-lifecycle: client exited before checkpoint, exit={state.get('ExitCode')}")
+
+    def await_exit(self, service, seconds, require_success=False):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            states = parse_states(self.compose("p6-exit-state", "ps", "--all", "--format", "json", capture=True))
+            state = next((row for row in states if row.get("Service") == service), {})
+            if state.get("State") == "exited":
+                if require_success and state.get("ExitCode") != 0:
+                    self.compose("p6-client-failure", "logs", "--no-color", service, required=False)
+                    raise LayerFailure(f"p6-lifecycle: {service} exit={state.get('ExitCode')}")
+                self.emit(f"[p6-lifecycle] {service} exited with code={state.get('ExitCode')}")
+                return
+            time.sleep(.5)
+        raise LayerFailure(f"p6-lifecycle: {service} did not exit within {seconds:g}s")
 
     def diagnose(self):
         if not self.compose_written:
@@ -368,8 +452,8 @@ def parse_states(raw):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery (known P6 red case)")
-    parser.add_argument("--scenario", choices=("all", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "knowledge-ingest", "stage-p5"),
+    parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery")
+    parser.add_argument("--scenario", choices=("all", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "knowledge-ingest", "stage-p5", "stage-p6"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")

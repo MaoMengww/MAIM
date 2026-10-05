@@ -11,7 +11,7 @@ type Clients struct {
 	User          zrpc.Client
 	Message       zrpc.Client
 	File          zrpc.Client
-	Notification  zrpc.Client
+	Realtime      zrpc.Client
 	BotService    zrpc.Client
 	KnowledgeBase zrpc.Client
 	LLMGateway    zrpc.Client
@@ -37,7 +37,7 @@ func NewClients(cfg *config.Config) *Clients {
 		User:          newClient("user-service", cfg.Services.UserServiceAddr),
 		Message:       newClient("message-service", cfg.Services.MessageServiceAddr),
 		File:          newClient("file-service", cfg.Services.FileServiceAddr),
-		Notification:  newClient("signaling-service", cfg.Services.NotificationServiceAddr),
+		Realtime:      newClient("realtime-service", cfg.Services.RealtimeServiceAddr),
 		BotService:    newClient("bot-service", cfg.Services.BotServiceAddr),
 		KnowledgeBase: newClient("knowledge-base", cfg.Services.KnowledgeServiceAddr),
 		LLMGateway:    newClient("llm-gateway", cfg.Services.LLMGatewayServiceAddr),
@@ -46,7 +46,7 @@ func NewClients(cfg *config.Config) *Clients {
 
 func (c *Clients) Close() {
 	clients := []zrpc.Client{
-		c.User, c.Message, c.File, c.Notification, c.BotService, c.KnowledgeBase, c.LLMGateway,
+		c.User, c.Message, c.File, c.Realtime, c.BotService, c.KnowledgeBase, c.LLMGateway,
 	}
 	for _, cli := range clients {
 		if cli != nil {

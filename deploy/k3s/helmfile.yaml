@@ -127,15 +127,10 @@ releases:
     values:
       - values/{{ .Environment.Name }}/bot-runtime.yaml
 
-  - name: aim-signaling-service
+  - name: aim-realtime-service
     chart: ./charts/aim-service
     values:
-      - values/{{ .Environment.Name }}/signaling-service.yaml
-
-  - name: aim-ws-gateway
-    chart: ./charts/aim-service
-    values:
-      - values/{{ .Environment.Name }}/ws-gateway.yaml
+      - values/{{ .Environment.Name }}/realtime-service.yaml
 
   - name: aim-gateway
     chart: ./charts/aim-service

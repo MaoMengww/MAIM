@@ -17,7 +17,7 @@ const (
 	EventSubscribePresence   = "subscribe_presence"
 	EventUnsubscribePresence = "unsubscribe_presence"
 	EventTyping              = "typing"
-	EventTypingStop          = "typing_stop"
+	EventTypingStop          = "typing.stop"
 	EventAck                 = "ack"
 
 	// Server to Client
@@ -31,6 +31,7 @@ const (
 	EventTypingStopNotify = "typing.stop"
 	EventUnreadCount      = "unread_count"
 	EventReadReceipt      = "read_receipt"
+	EventNotificationNew  = "notification.new"
 )
 
 // ---- WebSocket timing ----
