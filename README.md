@@ -315,9 +315,10 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 
 每条消息为每个成员生成一条 `messaging.user_inbox` 记录，支持：
 
-- **每用户独立的已读位置** (`last_read_seq`)
 - **每用户独立的删除状态** (`is_deleted`) — 删除仅对当前用户生效
 - **按 seq 排序的增量同步** — 客户端只需记录上次同步的 seq 即可拉取增量
+
+已读位点不在收件箱里：`messaging.conv_read_seqs` 是每个用户在会话内已读位点的唯一真相源（收件箱上的 `last_read_seq` 死列已由 `006_drop_inbox_read_seq.sql` 删除），未读数由消息域用「`seq` 大于该用户已读位点、且发送者不是该用户」在本地计算。
 
 ### AI Bot 执行引擎
 
