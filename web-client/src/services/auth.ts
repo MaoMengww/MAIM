@@ -1,13 +1,14 @@
 import client, { unwrap } from './client';
+import { deviceCredentials } from './device';
 import type { LoginReq, RegisterReq } from '@/types/api';
 import type { APIResponse, LoginResp, SessionInfo, UserInfo } from '@/types/model';
 
 export const authApi = {
   login: (data: LoginReq) =>
-    client.post<APIResponse<LoginResp>>('/auth/login', data).then(unwrap),
+    client.post<APIResponse<LoginResp>>('/auth/login', { ...data, ...deviceCredentials() }).then(unwrap),
 
   register: (data: RegisterReq) =>
-    client.post<APIResponse<LoginResp>>('/auth/register', data).then(unwrap),
+    client.post<APIResponse<LoginResp>>('/auth/register', { ...data, ...deviceCredentials() }).then(unwrap),
 
   logout: () =>
     client.post<APIResponse<null>>('/auth/logout', {}).then(unwrap),

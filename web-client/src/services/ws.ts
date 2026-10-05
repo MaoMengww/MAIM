@@ -1,3 +1,4 @@
+import { getDeviceId } from './device';
 import { useAuthStore } from '@/stores/auth';
 import { useWSStore } from '@/stores/ws';
 import { safeJsonParse } from '@/utils/json';
@@ -22,8 +23,6 @@ let heartbeatTimer: number | null = null;
 const RECONNECT_BASE = 1000;
 const RECONNECT_MAX = 16000;
 const HEARTBEAT_INTERVAL = 25000;
-// One browser runtime is one device; reconnects replace its connection registry entry.
-const deviceId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 let isFirstConnect = true;
 
@@ -37,8 +36,18 @@ export function wsConnect() {
   const token = useAuthStore.getState().token;
   if (!token) return;
 
+  let deviceId: string;
+  try {
+    deviceId = getDeviceId();
+  } catch (error) {
+    // Never silently connect with a temporary identity when persistence is unavailable.
+    useWSStore.getState().setStatus('disconnected');
+    console.error('WebSocket connection blocked: cannot persist browser device identity.', error);
+    return;
+  }
+
   const WS_BASE = import.meta.env.VITE_WS_BASE || 'ws://localhost:8081';
-  const url = `${WS_BASE}/ws?token=${token}&device_id=${deviceId}`;
+  const url = `${WS_BASE}/ws?token=${token}&device_id=${encodeURIComponent(deviceId)}`;
   useWSStore.getState().setStatus('connecting');
 
   const socket = new WebSocket(url);
