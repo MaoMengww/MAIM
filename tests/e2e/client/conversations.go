@@ -93,13 +93,16 @@ func (d *driver) conversations(address string, unread bool) error {
 	if err := d.conversationMessage("member.read", member, seed); err != nil {
 		return err
 	}
-	if err := d.conversationSync("member.sync", member, convID, 0, seed); err != nil {
+	if err := d.conversationSync("member.sync", member, convID, seed); err != nil {
 		return err
 	}
-	for _, target := range []string{path, "/messages/" + seed.MessageID.String(), "/messages/" + convID.String() + "/sync"} {
+	for _, target := range []string{path, "/messages/" + seed.MessageID.String()} {
 		if err := d.conversationForbidden("outsider.read", http.MethodGet, target, invitee, nil); err != nil {
 			return err
 		}
+	}
+	if err := d.conversationSyncHidden("outsider.sync", invitee, convID); err != nil {
+		return err
 	}
 	inviteBody := map[string]any{"user_ids": []int64{int64(invitee.id)}}
 	if err := d.conversationForbidden("member.invite", http.MethodPost, path+"/members/invite", member, inviteBody); err != nil {
@@ -166,10 +169,10 @@ func (d *driver) conversations(address string, unread bool) error {
 	if err := d.conversationMessage("invited.read", invitee, latest); err != nil {
 		return err
 	}
-	if err := d.conversationSync("invited.catchup", invitee, convID, seed.Seq, first, latest); err != nil {
+	if err := d.conversationSync("invited.catchup", invitee, convID, first, latest); err != nil {
 		return err
 	}
-	if err := d.conversationSync("invited.resume", invitee, convID, first.Seq, latest); err != nil {
+	if err := d.conversationSync("invited.resume", invitee, convID, latest); err != nil {
 		return err
 	}
 	for _, caller := range []account{owner, member, invitee} {
@@ -225,16 +228,19 @@ func (d *driver) conversations(address string, unread bool) error {
 	if _, err := d.conversationList("removed.hidden", invitee, convID, false); err != nil {
 		return err
 	}
-	for _, target := range []string{path, "/messages/" + latest.MessageID.String(), "/messages/" + convID.String() + "/sync"} {
+	for _, target := range []string{path, "/messages/" + latest.MessageID.String()} {
 		if err := d.conversationForbidden("removed.read", http.MethodGet, target, invitee, nil); err != nil {
 			return err
 		}
+	}
+	if err := d.conversationSyncHidden("removed.sync", invitee, convID); err != nil {
+		return err
 	}
 	// Positive reads on the same endpoints distinguish permissions from outages.
 	if err := d.conversationMessage("remaining.read", member, latest); err != nil {
 		return err
 	}
-	if err := d.conversationSync("remaining.sync", member, convID, first.Seq, latest); err != nil {
+	if err := d.conversationSync("remaining.sync", member, convID, latest); err != nil {
 		return err
 	}
 	for _, caller := range []account{owner, member} {
@@ -327,45 +333,84 @@ func checkStoredMessage(step string, actual storedMessage, expected sentMessage)
 	return nil
 }
 
-func (d *driver) conversationSync(step string, caller account, convID, after decimal, expected ...sentMessage) error {
+func (d *driver) conversationSync(step string, caller account, convID decimal, expected ...sentMessage) error {
+	_, err := d.conversationCatchup(step, caller, convID, 0, expected...)
+	return err
+}
+
+func (d *driver) conversationSyncHidden(step string, caller account, convID decimal) error {
+	result, err := d.inboxRead(step, caller, 0, 50)
+	if err != nil {
+		return err
+	}
+	if err := checkInboxRebuild(step, "new_device", result); err != nil {
+		return err
+	}
+	for _, snapshot := range result.Conversations {
+		if snapshot.Conversation.ID == convID {
+			return fmt.Errorf("conversations.%s: 用户同步重建泄露无权限会话 %s", step, convID)
+		}
+		for _, message := range snapshot.Messages {
+			if message.ConvID == convID {
+				return fmt.Errorf("conversations.%s: 用户同步重建泄露无权限会话消息 %s", step, convID)
+			}
+		}
+	}
+	return nil
+}
+
+// Position is a user-stream cursor, never a conversation seq. A new device may
+// satisfy expected messages from rebuild history; incremental calls filter changes.
+func (d *driver) conversationCatchup(step string, caller account, convID, position decimal, expected ...sentMessage) (decimal, error) {
 	deadline := time.Now().Add(d.timeout)
-	var result struct {
-		Messages []storedMessage `json:"messages"`
-		MaxSeq   decimal         `json:"max_seq"`
-		HasMore  bool            `json:"has_more"`
+	pending := make(map[decimal]sentMessage, len(expected))
+	for _, message := range expected {
+		pending[message.MessageID] = message
 	}
 	for {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return fmt.Errorf("conversations.%s: 等待收件箱补拉超时", step)
+			return position, fmt.Errorf("conversations.%s: 等待用户同步消息超时，缺失%d条", step, len(pending))
 		}
 		bounded := *d
 		bounded.timeout = remaining
-		path := "/messages/" + convID.String() + "/sync?from_seq=" + after.String() + "&limit=50"
-		if err := bounded.conversationCall(step, http.MethodGet, path, caller, nil, &result); err != nil {
-			return err
+		result, err := bounded.inboxRead(step, caller, position, 50)
+		if err != nil {
+			return position, err
 		}
-		previous, matched := after, 0
-		for _, msg := range result.Messages {
-			if msg.ConvID != convID || msg.Seq <= previous {
-				return fmt.Errorf("conversations.%s: 补拉包含其他会话或 seq 未严格递增/越过 from_seq=%s", step, after)
+		var messages []storedMessage
+		if result.RebuildRequired {
+			if position != 0 {
+				return position, fmt.Errorf("conversations.%s: 有效用户位点不应触发重建", step)
 			}
-			previous = msg.Seq
-			if matched < len(expected) && msg.MessageID == expected[matched].MessageID {
-				if err := checkStoredMessage(step, msg, expected[matched]); err != nil {
-					return err
+			for _, snapshot := range result.Conversations {
+				if snapshot.Conversation.ID == convID {
+					messages = snapshot.Messages
 				}
-				matched++
+			}
+		} else {
+			for _, change := range result.Changes {
+				if change.ConversationID == convID {
+					messages = append(messages, change.Message)
+				}
 			}
 		}
-		if matched != len(expected) {
-			time.Sleep(min(100*time.Millisecond, max(0, time.Until(deadline))))
+		for _, message := range messages {
+			if confirmed, ok := pending[message.MessageID]; ok {
+				if err := checkStoredMessage(step, message, confirmed); err != nil {
+					return position, err
+				}
+				delete(pending, message.MessageID)
+			}
+		}
+		position = result.NextPosition
+		if result.HasMore {
 			continue
 		}
-		if result.HasMore || result.MaxSeq < previous {
-			return fmt.Errorf("conversations.%s: 补拉分页状态不一致（has_more=%t max_seq=%s last_seq=%s）", step, result.HasMore, result.MaxSeq, previous)
+		if len(pending) == 0 {
+			return position, nil
 		}
-		return nil
+		time.Sleep(min(100*time.Millisecond, max(0, time.Until(deadline))))
 	}
 }
 

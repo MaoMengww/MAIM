@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/config"
 	"github.com/maomeng/aim/app/message-service/internal/consumer"
@@ -15,6 +16,7 @@ import (
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/kafka"
 
+	"github.com/maomeng/aim/pkg/logx"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -35,6 +37,31 @@ func main() {
 		return err
 	}
 	defer ctx.Close()
+
+	// Stop collection before ServiceContext closes its database.
+	retentionCtx, retentionCancel := context.WithCancel(context.Background())
+	retentionDone := make(chan struct{})
+	go func() {
+		defer close(retentionDone)
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			cutoff := time.Now().AddDate(0, 0, -ctx.Config.Message.InboxRetentionDays)
+			if removed, err := ctx.InboxRepo.Prune(retentionCtx, cutoff); err != nil {
+				if retentionCtx.Err() == nil {
+					ctx.Logger.WithContext(retentionCtx).Errorw("inbox_retention_failed", logx.Err(err))
+				}
+			} else if removed > 0 {
+				ctx.Logger.WithContext(retentionCtx).Infow("inbox_retention_completed", logx.Field("removed", removed))
+			}
+			select {
+			case <-retentionCtx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	defer func() { retentionCancel(); <-retentionDone }()
 
 	dlqProducer, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageCreatedDLQ, ctx.Logger)
 	if err != nil {

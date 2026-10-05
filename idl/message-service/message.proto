@@ -284,16 +284,30 @@ message GetAroundSeqReq {
 // ========== Sync ==========
 
 message SyncMessagesReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
-  int64 from_seq = 3;
-  int32 limit = 4;
+  int64 user_id = 1;
+  int64 position = 2;
+  int32 limit = 3;
+}
+
+message InboxChange {
+  int64 position = 1;
+  int64 conversation_id = 2;
+  string kind = 3;
+  Message message = 4;
+}
+
+message ConversationSnapshot {
+  Conversation conversation = 1;
+  repeated Message messages = 2;
 }
 
 message SyncMessagesResp {
-  repeated Message messages = 1;
+  repeated InboxChange changes = 1;
   bool has_more = 2;
-  int64 max_seq = 3;
+  int64 next_position = 3;
+  bool rebuild_required = 4;
+  repeated ConversationSnapshot conversations = 5;
+  string rebuild_reason = 6;
 }
 
 // ========== Get By ID ==========

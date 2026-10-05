@@ -211,6 +211,7 @@ python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p5 --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p6 --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --scenario user-sync --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifacts
 ```
 
@@ -218,11 +219,13 @@ python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifact
 
 默认 `all` 检查关系链、同实例与 A/B 跨实例双向投递；`--scenario` 可选择单个场景。P6 已用连接登记取代旧的单实例 gRPC 推送目标，同实例与跨实例走同一条 Redis 定向投递路径。
 
+`user-sync` 检查空流重建、单个位点跨会话分页、消息正文与账号隔离、新设备最近历史及置顶/免打扰设置、未知位点重建和续增量；过期回收与并发未提交写入窗口由真实 PostgreSQL 的 `TestUserSync` 集成回归覆盖。
+
 `broadcasts` 检查 `user/group/all` 范围、并发首次广播只创建一个用户系统会话、后续复用与递增 `seq`、两副本上的普通 `message.new` 投递，以及离线账号经收件箱增量和会话历史读取广播。广播无需客户端专用事件分支。
 
 `stage-p5` 在 P4 场景上追加 Bot 配置/令牌、真实网络 MCP 工具发现与调用、Kafka 回复及 WS/REST 精确内容核对，以及四个大文档并发入库期间的检索和失败隔离。OpenAI/MCP 外部协议由 `e2e-provider` 提供；AIM 内部 RPC、Kafka、PostgreSQL、Milvus 不替换。在线查询每次硬截止 5 秒；入库总截止 10 分钟，容纳默认 20 RPM 预算，不提高配额或缩小文档负载。
 
-`stage-p6` 覆盖 P3/P4 主链路、跨实例 Bot 回复和流式输出、发送方其它设备回显、非成员隔离、撤回/编辑/删除与未读同步。验收通过 `presence.query` 查询设备所在实例，并真实执行强制终止、TTL 自然失效、TTL 内投递失败负反馈、重启恢复，以及 readiness 摘流量后的多连接平滑排空；故障期间遗漏的消息按会话 `seq` 补拉。`--artifacts` 保留检查点与服务日志。
+`stage-p6` 覆盖 P3/P4 主链路、跨实例 Bot 回复和流式输出、发送方其它设备回显、非成员隔离、撤回/编辑/删除与未读同步。验收通过 `presence.query` 查询设备所在实例，并真实执行强制终止、TTL 自然失效、TTL 内投递失败负反馈、重启恢复，以及 readiness 摘流量后的多连接平滑排空；故障期间遗漏的消息按用户同步位点补拉。`--artifacts` 保留检查点与服务日志。
 
 Bot 使用同一镜像：`bot-service -role control` 提供外部入口，运行时调用转发到 `BOT_RUNTIME_ADDR`；`bot-runtime -role runtime` 消费消息并执行 Agent，直接读取同域配置，不依赖控制面 RPC。两个工作负载分别暴露 9109/9119 指标，可独立调整副本。Knowledge 使用同一镜像：`-role online` 仅提供查询/管理 RPC，`-role ingest` 仅消费上传事件，只监听一个 `9118` HTTP 端口同时服务 `/health` 与 `/metrics`。Compose 与 Helm 都把两者作为独立工作负载配置资源，可单独设置 `replicaCount`；Helm 侧不另建 values 文件，由同域 values 覆盖生成。
 
@@ -298,7 +301,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 3. **指数退避重试**：发送失败按 `1s → 2s → 4s → 8s → 16s → 32s → 60s` 退避，最多 10 次
 4. **死信队列**：超过最大重试次数后标记 `status=2 (failed)`，人工介入或后续补偿
 5. **下游持久化幂等**：InboxWriter 在用户流锁内检查每名收件人的引用，避免重复分配位置；收件箱已存在不跳过投递意图，允许 best-effort 推送重放
-6. **客户端 SyncMessages 最终兜底**：客户端可随时通过 `SyncMessages(from_seq=lastKnownSeq)` 拉取缺失消息
+6. **客户端 SyncMessages 最终兜底**：客户端可通过 `GET /api/v1/messages/sync?position=lastKnownPosition&limit=50` 用一个用户位点拉取所有会话的缺失变化；按响应 `next_position` 继续，直到 `has_more=false`。
 
 #### 不乱序（严格有序保证）
 
@@ -309,7 +312,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 | Seq 生成 | PostgreSQL UPSERT + RETURNING | 同一会话内 seq 严格递增（`INSERT ... ON CONFLICT DO UPDATE SET current_seq = current_seq + 1 RETURNING current_seq`），与消息写入同事务 |
 | 消息存储 | `messaging.messages` 表 `idx_conv_seq (conv_id, seq)` 索引 | 所有查询 `ORDER BY seq`，天然有序 |
 | Inbox 存储 | `messaging.inbox_entries` 主键 `(user_id, position)` | 每个用户一条跨会话流；分配器 `inbox_streams.position` 是已提交末端，与记录同事务提交，较小位置不会晚于较大位置出现 |
-| 增量同步 | `SyncMessages: WHERE seq > from_seq ORDER BY seq ASC` | 客户端按 seq 顺序接收，不会乱序 |
+| 增量同步 | `SyncMessages: WHERE position > $request_position ORDER BY position ASC` | 跨会话变化按用户 position 顺序分页；有后续页时 `next_position` 只到本页末位置，末页可到同一快照中的已提交末端；已删除或失去成员资格的引用不会泄露正文 |
 | 游标分页 | `GetMessages: WHERE seq < cursor ORDER BY seq DESC` | 基于 seq，不会跨页乱序 |
 
 **关键设计**：每个会话拥有独立的 seq 空间（`messaging.sequences` 表每 conv 一行），不同会话的 seq 互不影响。PostgreSQL UPSERT 的原子性保证了同一事务内 seq 的严格递增。
@@ -319,8 +322,12 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 每条新消息（含系统消息与 Bot 回复）为每个人类收件人生成一条 `messaging.inbox_entries` 记录，包含会话、消息 ID 与变更种类，不复制正文。`014_user_inbox_stream.sql` 迁移有效消息引用后删除旧 `user_inbox` 表；广播不再写入无会话记录。
 
 - **用户同步位置**：由 `messaging.inbox_streams` 独立分配，跨会话且不由会话 `seq` 推导；位置分配与收件箱写入要么一起提交，要么一起回滚。
-- **当前协议边界**：issue03 已切换存储与新消息写入；issue04 才切换用户级同步 API。现有 `SyncMessages` 仍按会话，通过关联 `messages.seq` 读取，不能把用户位置误作会话序号。
-- **个人删除**：暂保留 `is_deleted` 标记，issue09 再迁移为独立覆盖层；其它变更写入与保留期分别见 issue07/08、issue05。
+- **同步协议**：`SyncMessages` 请求包含 `user_id`、`position` 与 `limit`；HTTP 用户 ID 仅从鉴权上下文读取，不接受请求 UID。响应 `changes` 中每条包含 `position`、`conversation_id`、`kind` 与消息正文 `message`。旧会话级同步入口已移除；会话历史 `GetMessages` 与 `GetAroundSeq` 保持不变。
+- **重建协议**：省略位点或 `position=0` 返回 `rebuild_required=true`、`rebuild_reason=new_device`；未知位点（含负位点）返回 `unknown_position`；超出收件箱保留期返回 `expired_position`。重建包含完整当前会话列表（含个人设置）与每会话最近 `limit` 条历史，并返回可继续增量的正 `next_position`，即使用户流为空也不静默从最新开始。
+- **参数边界**：`position` 必须可解析为有符号 64 位整数，`limit` 必须可解析为非负有符号 32 位整数；显式空值、格式错误、溢出或负 `limit` 返回参数错误。省略 `limit` 或传 `0` 默认 50，上限为 `Message.MaxPageSize`（默认 100）；重建时每会话使用同一 `limit`。负 `position` 交给重建逻辑而非拒绝请求。
+- **收件箱保留期**：配置 `Message.inboxRetentionDays`（正整数，默认 30 天），启动时及随后每小时回收过期前缀；`inbox_streams.retained_position` 与删除同事务更新，已提交末端不回退。历史读取不受影响；同步时直接按记录年龄判断过期位点，不依赖回收 worker 是否已运行。
+- **重建可观测性**：Prometheus `aim_service_inbox_sync_rebuild_total{reason="new_device|unknown_position|expired_position"}` 统计成功重建次数；标签只有三种固定原因，不包含用户或设备 ID。
+- **个人删除**：暂保留 `is_deleted` 标记，issue09 再迁移为独立覆盖层；其它变更写入见 issue07/08。
 
 已读位点不在收件箱里：`messaging.conv_read_seqs` 是每个用户在会话内已读位点的唯一真相源（收件箱上的 `last_read_seq` 死列已由 `006_drop_inbox_read_seq.sql` 删除），未读数由消息域用「`seq` 大于该用户已读位点、且发送者不是该用户」在本地计算。
 

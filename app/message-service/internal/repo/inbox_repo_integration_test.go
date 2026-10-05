@@ -68,25 +68,6 @@ func TestInboxCrossConversationPositions(t *testing.T) {
 	var position int64
 	require.NoError(t, db.Raw("SELECT position FROM messaging.inbox_streams WHERE user_id = ?", userID).Scan(&position).Error)
 	require.Equal(t, int64(2), position)
-	// The old RPC remains conversation-scoped until issue04. It must still use
-	// the message's seq, not the user's now-distinct position (2 for this entry).
-	page, err := r.GetByUserAndConv(ctx, userID, secondConv, 0, 50)
-	require.NoError(t, err)
-	require.Len(t, page, 1)
-	require.Equal(t, secondMsg, page[0].MessageID)
-	seq, err := r.GetMaxSeq(ctx, userID, secondConv)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), seq)
-	// Hard deletion between the inbox page read and message hydration must not
-	// reset the page boundary to zero. The reference retains its snapshot seq.
-	require.NoError(t, NewMessageRepo(db).Delete(ctx, secondMsg))
-	messages, err := NewMessageRepo(db).GetByIDs(ctx, []int64{secondMsg})
-	require.NoError(t, err)
-	require.Empty(t, messages)
-	require.Equal(t, int64(1), page[0].Seq)
-	page, err = r.GetByUserAndConv(ctx, userID, secondConv, 1, 50)
-	require.NoError(t, err)
-	require.Empty(t, page)
 }
 
 func TestInboxConcurrentFanoutAndReplay(t *testing.T) {

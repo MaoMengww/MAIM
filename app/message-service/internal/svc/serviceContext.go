@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 
@@ -54,6 +55,10 @@ type ServiceContext struct {
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
+	c.Message.InboxRetentionDays = cmp.Or(c.Message.InboxRetentionDays, 30)
+	if c.Message.InboxRetentionDays < 0 {
+		panic("message.inboxRetentionDays must be positive")
+	}
 	logger := logx.DefaultLogger()
 
 	db, err := database.NewDB(c.Database, logger)

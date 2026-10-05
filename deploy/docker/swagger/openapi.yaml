@@ -1202,18 +1202,59 @@ components:
           type: boolean
           default: false
 
+    InboxChange:
+      type: object
+      properties:
+        position:
+          type: integer
+          format: int64
+          description: 用户流中的独立位点，与会话 seq 无关
+        conversation_id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+        message:
+          $ref: '#/components/schemas/Message'
+
+    ConversationSnapshot:
+      type: object
+      properties:
+        conversation:
+          $ref: '#/components/schemas/Conversation'
+        messages:
+          type: array
+          description: 该会话最近 limit 条可见历史
+          items:
+            $ref: '#/components/schemas/Message'
+
     SyncMessagesResp:
       type: object
       properties:
-        messages:
+        changes:
           type: array
+          description: 所有会话的变化，按 position 升序排列并包含消息正文
           items:
-            $ref: '#/components/schemas/Message'
+            $ref: '#/components/schemas/InboxChange'
         has_more:
           type: boolean
-        max_seq:
+          description: 为 true 时继续使用 next_position 请求下一页
+        next_position:
           type: integer
           format: int64
+          description: 增量为本页最后返回的位置；重建为可继续增量的正位点
+        rebuild_required:
+          type: boolean
+          description: 为 true 时使用完整快照重建本地会话状态，不视为普通增量
+        conversations:
+          type: array
+          description: 重建时的完整当前会话列表（含个人设置）和每会话最近历史
+          items:
+            $ref: '#/components/schemas/ConversationSnapshot'
+        rebuild_reason:
+          type: string
+          description: 仅重建时返回；零位点为 new_device，未知位点（含负位点）为 unknown_position，超过保留期为 expired_position
+          enum: [new_device, unknown_position, expired_position]
 
     GetMessageByIDResp:
       type: object
@@ -4079,36 +4120,34 @@ paths:
                       data:
                         $ref: '#/components/schemas/SendMessageResp'
 
-  /messages/{conversation_id}/sync:
+  /messages/sync:
     get:
       tags:
         - Message
-      summary: 同步消息（增量拉取）
+      summary: 用户级跨会话同步与重建
+      description: 用户 ID 仅来自 Bearer 鉴权，不接受请求 UID。位点为 0、未知或超过收件箱保留期时显式返回完整重建快照；正常增量按返回的 next_position 续拉，直到 has_more=false。收件箱保留期由 Message.inboxRetentionDays 配置（默认 30 天），回收不影响会话历史读取。
       operationId: msgSyncMessages
       security:
         - BearerAuth: []
       parameters:
-        - name: conversation_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
-        - name: from_seq
+        - name: position
           in: query
           schema:
             type: integer
             format: int64
-          description: 起始 seq（返回 > from_seq 的消息）
+            default: 0
+          description: 用户同步位点（不是会话 seq）；省略或 0 为新设备重建，负位点进入 unknown_position 重建。格式错误、空值或溢出返回参数错误。
         - name: limit
           in: query
           schema:
             type: integer
-          description: 每页数量
+            format: int32
+            minimum: 0
+            default: 50
+          description: 增量每页数量或重建每会话历史数量；省略或 0 默认 50，上限为 Message.MaxPageSize（默认 100）。负数、空值、格式错误或 int32 溢出返回参数错误。
       responses:
         "200":
-          description: 消息列表
+          description: 跨会话增量或显式重建快照
           content:
             application/json:
               schema:
@@ -4117,6 +4156,12 @@ paths:
                   - properties:
                       data:
                         $ref: '#/components/schemas/SyncMessagesResp'
+        "400":
+          description: position 或 limit 参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
 
   /messages/{conversation_id}/around/{seq}:
     get:

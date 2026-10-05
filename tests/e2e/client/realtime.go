@@ -506,6 +506,10 @@ func (d *driver) p6Lifecycle(addressA, addressB string) error {
 	if err := d.p6Presence(survivor, victim, map[string]string{victim.device: "realtime-b"}); err != nil {
 		return err
 	}
+	syncPosition, err := d.conversationCatchup("p6.before-crash.sync", victim, conv.ID, 0, confirmed)
+	if err != nil {
+		return err
+	}
 	if err := d.p6Checkpoint("kill-b"); err != nil {
 		return err
 	}
@@ -527,7 +531,8 @@ func (d *driver) p6Lifecycle(addressA, addressB string) error {
 		return err
 	}
 	defer restored.close()
-	if err := d.conversationSync("p6.crash.seq.catchup", victim, conv.ID, confirmed.Seq, missed); err != nil {
+	syncPosition, err = d.conversationCatchup("p6.crash.position.catchup", victim, conv.ID, syncPosition, missed)
+	if err != nil {
 		return err
 	}
 	row, err := d.conversationList("p6.crash.unread", victim, conv.ID, true)
@@ -544,7 +549,11 @@ func (d *driver) p6Lifecycle(addressA, addressB string) error {
 	if _, err := d.p6Message(restored, fresh); err != nil {
 		return err
 	}
-	fmt.Printf("P6 evidence: SIGKILL真实断连 → TTL后offline → 缺失消息%s(seq=%s)按from_seq=%s补齐 → 恢复实例投递成功\n", missed.MessageID, missed.Seq, confirmed.Seq)
+	syncPosition, err = d.conversationCatchup("p6.before-feedback.sync", victim, conv.ID, syncPosition, fresh)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("P6 evidence: SIGKILL真实断连 → TTL后offline → 缺失消息%s(seq=%s)按用户位点补齐至position=%s → 恢复实例投递成功\n", missed.MessageID, missed.Seq, syncPosition)
 	if err := d.p6Checkpoint("feedback-kill-b"); err != nil {
 		return err
 	}
@@ -570,7 +579,7 @@ func (d *driver) p6Lifecycle(addressA, addressB string) error {
 		return err
 	}
 	defer recovered.close()
-	if err := d.conversationSync("p6.negative.feedback.catchup", victim, conv.ID, fresh.Seq, feedbackMessage); err != nil {
+	if _, err := d.conversationCatchup("p6.negative.feedback.catchup", victim, conv.ID, syncPosition, feedbackMessage); err != nil {
 		return err
 	}
 	if err := d.request(http.MethodPut, "/convs/"+conv.ID.String()+"/read", victim.token, map[string]any{"seq": int64(feedbackMessage.Seq)}, nil); err != nil {

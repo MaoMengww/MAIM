@@ -10,4 +10,7 @@ var (
 	// 新增
 	MessageEditRecalledTotal = metrics.NewCounterVec("message_edit_recalled_total",
 		"Message edit/recall count", "action")
+
+	InboxSyncRebuildTotal = metrics.NewCounterVec("inbox_sync_rebuild_total",
+		"User sync rebuilds", "reason")
 )

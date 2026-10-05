@@ -3,8 +3,10 @@ package repo
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/pkg/database"
@@ -99,44 +101,105 @@ func (r *InboxRepo) MarkDeleted(ctx context.Context, tx *gorm.DB, userID, convID
 		Update("is_deleted", true).Error
 }
 
-// InboxMessageReference is the conversation read projection used by the current
-// sync RPC. Seq comes from messages in the same query, never from inbox storage.
-type InboxMessageReference struct {
-	model.UserInbox
-	Seq int64
+// EnsureStream reserves a positive checkpoint even before the first change.
+// This runs before the read snapshot, not inside a read-only transaction.
+func (r *InboxRepo) EnsureStream(ctx context.Context, userID int64) error {
+	var stream model.InboxStream
+	if err := r.db.WithContext(ctx).Where("user_id = ?", userID).Take(&stream).Error; err == nil && stream.Position > 0 {
+		return nil
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if err := r.db.WithContext(ctx).Exec(`INSERT INTO inbox_streams (user_id, position) VALUES (?, 1)
+		ON CONFLICT (user_id) DO NOTHING`, userID).Error; err != nil {
+		return err
+	}
+	// Existing positive streams need no lock or write. Only a legacy empty
+	// allocator reserves a checkpoint; a writer that won the race keeps its end.
+	return r.db.WithContext(ctx).Model(&model.InboxStream{}).
+		Where("user_id = ? AND position = 0", userID).Update("position", 1).Error
 }
 
-func (r *InboxRepo) GetByUserAndConv(ctx context.Context, userID, convID int64, fromSeq int64, limit int32) ([]InboxMessageReference, error) {
-	var inboxes []InboxMessageReference
-	q := r.db.WithContext(ctx).Model(&model.UserInbox{}).Select("inbox_entries.*, messages.seq").
-		Joins("JOIN messages ON messages.id = inbox_entries.message_id AND messages.conv_id = inbox_entries.conv_id").
-		Where("inbox_entries.user_id = ? AND inbox_entries.conv_id = ? AND is_deleted = ? AND kind = ?", userID, convID, false, model.InboxMessageNew)
+type InboxPage struct {
+	Entries       []model.UserInbox
+	NextPosition  int64
+	HasMore       bool
+	RebuildReason string
+}
 
-	if fromSeq > 0 {
-		q = q.Where("messages.seq > ?", fromSeq)
-		err := q.Order("messages.seq ASC").Limit(int(limit)).Find(&inboxes).Error
+// ReadPage must share a repeatable-read snapshot with message hydration and
+// rebuild reads. Position is a committed boundary, never an allocation counter.
+func (r *InboxRepo) ReadPage(ctx context.Context, userID, position int64, limit int, cutoff time.Time) (InboxPage, error) {
+	var stream model.InboxStream
+	if err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&stream).Error; err != nil {
+		return InboxPage{}, err
+	}
+	var expiredPosition int64
+	if err := r.db.WithContext(ctx).Model(&model.UserInbox{}).
+		Where("user_id = ? AND created_at < ?", userID, cutoff).
+		Select("COALESCE(MAX(position), 0)").Scan(&expiredPosition).Error; err != nil {
+		return InboxPage{}, err
+	}
+	page := InboxPage{NextPosition: stream.Position}
+	switch {
+	case position == 0:
+		page.RebuildReason = "new_device"
+	case position < 0 || position > stream.Position:
+		page.RebuildReason = "unknown_position"
+	case position < max(stream.RetainedPosition, expiredPosition):
+		page.RebuildReason = "expired_position"
+	}
+	if page.RebuildReason != "" {
+		return page, nil
+	}
+	if err := r.db.WithContext(ctx).Where("user_id = ? AND position > ? AND position <= ?", userID, position, stream.Position).
+		Order("position ASC").Limit(limit + 1).Find(&page.Entries).Error; err != nil {
+		return InboxPage{}, err
+	}
+	page.HasMore = len(page.Entries) > limit
+	if page.HasMore {
+		page.Entries = page.Entries[:limit]
+		page.NextPosition = page.Entries[len(page.Entries)-1].Position
+	}
+	return page, nil
+}
+
+// Prune removes only a prefix and advances its durable lower boundary in the
+// same transaction. The allocator lock also serializes collection with fanout.
+func (r *InboxRepo) Prune(ctx context.Context, cutoff time.Time) (int64, error) {
+	var users []int64
+	if err := r.db.WithContext(ctx).Model(&model.UserInbox{}).Where("created_at < ?", cutoff).
+		Distinct("user_id").Order("user_id").Pluck("user_id", &users).Error; err != nil {
+		return 0, err
+	}
+	var removed int64
+	for _, userID := range users {
+		err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var stream model.InboxStream
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&stream).Error; err != nil {
+				return err
+			}
+			var boundary int64
+			if err := tx.Model(&model.UserInbox{}).Where("user_id = ? AND created_at < ?", userID, cutoff).
+				Select("COALESCE(MAX(position), 0)").Scan(&boundary).Error; err != nil {
+				return err
+			}
+			if boundary == 0 {
+				return nil
+			}
+			result := tx.Where("user_id = ? AND position <= ?", userID, boundary).Delete(&model.UserInbox{})
+			if result.Error != nil {
+				return result.Error
+			}
+			if err := tx.Model(&stream).Update("retained_position", max(stream.RetainedPosition, boundary)).Error; err != nil {
+				return err
+			}
+			removed += result.RowsAffected
+			return nil
+		})
 		if err != nil {
-			return nil, err
+			return removed, err
 		}
-		return inboxes, nil
 	}
-
-	// 首次加载：取最新的 limit 条，翻转回升序
-	err := q.Order("messages.seq DESC").Limit(int(limit)).Find(&inboxes).Error
-	if err != nil {
-		return nil, err
-	}
-	slices.Reverse(inboxes)
-	return inboxes, nil
-}
-
-func (r *InboxRepo) GetMaxSeq(ctx context.Context, userID, convID int64) (int64, error) {
-	var seq int64
-	err := r.db.WithContext(ctx).
-		Model(&model.UserInbox{}).
-		Joins("JOIN messages ON messages.id = inbox_entries.message_id AND messages.conv_id = inbox_entries.conv_id").
-		Where("inbox_entries.user_id = ? AND inbox_entries.conv_id = ? AND is_deleted = ? AND kind = ?", userID, convID, false, model.InboxMessageNew).
-		Select("COALESCE(MAX(messages.seq), 0)").
-		Scan(&seq).Error
-	return seq, err
+	return removed, nil
 }

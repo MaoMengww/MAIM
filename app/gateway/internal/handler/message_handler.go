@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -71,15 +72,27 @@ func (h *MessageHandler) SyncMessages(c *gin.Context) {
 		response.BadRequest(c, "invalid user id")
 		return
 	}
-	req := &msgclient.SyncMessagesReq{
-		ConversationId: parseInt64(c.Param("id")),
-		UserId:         uid,
+	req := &msgclient.SyncMessagesReq{UserId: uid}
+	query, err := url.ParseQuery(c.Request.URL.RawQuery)
+	if err != nil {
+		response.BadRequest(c, "invalid query")
+		return
 	}
-	if fromSeq := parseInt64(c.Query("from_seq")); fromSeq > 0 {
-		req.FromSeq = fromSeq
+	if query.Has("position") {
+		position, err := strconv.ParseInt(query.Get("position"), 10, 64)
+		if err != nil {
+			response.BadRequest(c, "invalid position")
+			return
+		}
+		req.Position = position
 	}
-	if limit := int32(parseInt64(c.Query("limit"))); limit > 0 {
-		req.Limit = limit
+	if query.Has("limit") {
+		limit, err := strconv.ParseInt(query.Get("limit"), 10, 32)
+		if err != nil || limit < 0 {
+			response.BadRequest(c, "invalid limit")
+			return
+		}
+		req.Limit = int32(limit)
 	}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.msgClient.SyncMessages(ctx, req)

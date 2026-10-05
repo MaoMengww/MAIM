@@ -137,7 +137,7 @@ func New(
 	// Message
 	msgs := protected.Group("/messages")
 	msgs.POST("/send", msgH.SendMessage)
-	msgs.GET("/:id/sync", msgH.SyncMessages)
+	msgs.GET("/sync", msgH.SyncMessages)
 	msgs.GET("/:id", msgH.GetMessageByID)
 	msgs.POST("/:id/recall", msgH.RecallMessage)
 	msgs.PUT("/:id", msgH.EditMessage)

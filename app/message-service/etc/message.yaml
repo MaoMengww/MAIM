@@ -26,6 +26,7 @@ Message:
   recallWindowSeconds: 120
   editWindowSeconds: 120
   maxPageSize: 100
+  inboxRetentionDays: 30
 
 Conv:
   maxMemberCount: 500

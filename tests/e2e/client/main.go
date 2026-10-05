@@ -138,7 +138,7 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://realtime-service:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
@@ -161,6 +161,7 @@ func run(args []string) error {
 			{"relationships", "", ""},
 			{"conversations", *realtimeA, *realtimeA},
 			{"broadcasts", *realtimeA, *realtimeB},
+			{"user-sync", "", ""},
 			{"same-instance-a", *realtimeA, *realtimeA},
 			{"same-instance-b", *realtimeB, *realtimeB},
 			{"bot-runtime", *realtimeA, *realtimeA},
@@ -188,6 +189,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"broadcasts", *realtimeA, *realtimeB}}
 	case "relationships":
 		scenarios = []scenarioSpec{{"relationships", "", ""}}
+	case "user-sync":
+		scenarios = []scenarioSpec{{"user-sync", "", ""}}
 	case "same-instance-a":
 		scenarios = []scenarioSpec{{"same-instance-a", *realtimeA, *realtimeA}}
 	case "same-instance-b":
@@ -195,7 +198,7 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	}
 	if *cross && *selected != "all" && *selected != "cross-instance" && *selected != "stage-p6" {
 		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
@@ -206,7 +209,7 @@ func run(args []string) error {
 				return fmt.Errorf("配置外部 provider: %w", err)
 			}
 		}
-		if scenario.name == "relationships" || scenario.name == "knowledge-ingest" {
+		if scenario.name == "relationships" || scenario.name == "knowledge-ingest" || scenario.name == "user-sync" {
 			continue
 		}
 		for _, address := range []string{scenario.a, scenario.b} {
@@ -227,6 +230,8 @@ func run(args []string) error {
 		switch scenario.name {
 		case "relationships":
 			err = d.relationships()
+		case "user-sync":
+			err = d.userSync()
 		case "conversations", "conversation-unread":
 			err = d.conversations(scenario.a, scenario.name == "conversation-unread")
 		case "broadcasts":
@@ -246,6 +251,8 @@ func run(args []string) error {
 			failures = append(failures, failure)
 		} else if scenario.name == "relationships" {
 			fmt.Println("E2E PASS: relationships 请求 → 接受/拒绝/取消 → 双向好友 → 备注/分组 → 删除 → 拉黑/解除")
+		} else if scenario.name == "user-sync" {
+			fmt.Println("E2E PASS: user-sync 双账号注册/登录 → 空流正位点重建 → 单位点跨单聊/群聊limit=1分页正文/无遗漏/隔离 → 最近2条历史与置顶免打扰重建 → 续增量 → 未知/负位点显式重建 → 非法参数HTTP400")
 		} else if scenario.name == "broadcasts" {
 			fmt.Println("E2E PASS: broadcasts user/group/all → 并发首播唯一系统会话 → 普通 message.new 跨实例投递 → 离线增量/历史 → 范围隔离")
 		} else if scenario.name == "bot-runtime" {
@@ -258,7 +265,7 @@ func run(args []string) error {
 				fmt.Println("E2E PASS: conversation-unread 列表未读数 → mark read 归零 → 已读位点不能回退")
 			}
 		} else if scenario.name == "stage-p6" {
-			fmt.Println("E2E PASS: stage-p6 定向跨实例/多端/权限/群消息变更/已读未读/Bot流式 → 连接登记心跳与重连 → SIGKILL/TTL/seq补拉/恢复 → readiness503/平滑drain/恢复")
+			fmt.Println("E2E PASS: stage-p6 定向跨实例/多端/权限/群消息变更/已读未读/Bot流式 → 连接登记心跳与重连 → SIGKILL/TTL/用户位点补拉/恢复 → readiness503/平滑drain/恢复")
 		} else {
 			fmt.Printf("E2E PASS: %s 注册 → 登录 → 身份 → 私聊 → 双向 WS 投递\n", scenario.name)
 		}

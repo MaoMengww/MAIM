@@ -51,8 +51,9 @@ func (UserInbox) TableName() string {
 // InboxStream.Position is the committed end of the user's stream. Its row lock
 // serializes allocation and entry insertion until their shared transaction ends.
 type InboxStream struct {
-	UserID   int64 `gorm:"primaryKey;autoIncrement:false;column:user_id"`
-	Position int64 `gorm:"column:position"`
+	UserID           int64 `gorm:"primaryKey;autoIncrement:false;column:user_id"`
+	Position         int64 `gorm:"column:position"`
+	RetainedPosition int64 `gorm:"column:retained_position"`
 }
 
 func (InboxStream) TableName() string {

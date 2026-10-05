@@ -359,6 +359,7 @@ func (h *ConversationHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 	req.ConversationId = parseInt64(c.Param("id"))
+	req.UserId = c.GetInt64(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.convClient.UpdateSettings(ctx, &req)
 	if err != nil {

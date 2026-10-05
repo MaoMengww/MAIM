@@ -27,6 +27,7 @@ type MessageConfig struct {
 	RecallWindowSeconds int `json:"recallWindowSeconds" default:"120"`
 	EditWindowSeconds   int `json:"editWindowSeconds" default:"120"`
 	MaxPageSize         int `json:"maxPageSize" default:"100"`
+	InboxRetentionDays  int `json:"inboxRetentionDays,default=30"`
 }
 
 type SnowflakeConfig struct {

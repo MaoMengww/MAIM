@@ -300,7 +300,7 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	if err := d.conversationMessage("bot.reply.read", owner, reply); err != nil {
 		return err
 	}
-	if err := d.conversationSync("bot.reply.sync", owner, conv.ID, sent.Seq, reply); err != nil {
+	if err := d.conversationSync("bot.reply.sync", owner, conv.ID, reply); err != nil {
 		return err
 	}
 	if crossInstance {
