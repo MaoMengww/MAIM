@@ -17,12 +17,9 @@ export function useMessages(convId: string | undefined): UseMessagesResult {
 
     setVersion(0);
 
-    // 初始化同步引擎（IndexedDB + 增量拉取）
-    messageSync.init(convId);
-
     // 订阅变更通知
     const unsub = messageSync.subscribe((id: string) => {
-      if (id === convId) {
+      if (id === convId || id === '*') {
         setVersion((v) => v + 1);
       }
     });
@@ -40,7 +37,7 @@ export function useMessages(convId: string | undefined): UseMessagesResult {
   const error = state?.error ?? null;
 
   const reSync = useCallback(() => {
-    if (convId) messageSync.reSync(convId);
+    void messageSync.reSync();
   }, [convId]);
 
   return { messages, loading, error, reSync };

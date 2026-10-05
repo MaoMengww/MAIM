@@ -16,7 +16,10 @@ import {
 import { Badge, Popover, List, Button, Empty, Typography } from 'antd';
 import { useAuthStore } from '@/stores/auth';
 import { useUIStore } from '@/stores/ui';
-import { wsConnect, wsDisconnect } from '@/services/ws';
+import { wsConnect, wsDisconnect, wsOn } from '@/services/ws';
+import { messageSync } from '@/services/messageSync';
+import { useWSStore } from '@/stores/ws';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNotifications } from '@/hooks/useNotifications';
 import { Avatar } from '@/components/common/Avatar';
 
@@ -41,12 +44,37 @@ export function MainLayout() {
   const notifications = listQuery.data?.list ?? [];
   const unreadCount = notifications.filter((n: any) => !n.is_read).length;
 
+  const queryClient = useQueryClient();
+  const wsStatus = useWSStore((s) => s.status);
+  const accountId = isAuthenticated && user ? String(user.id) : null;
   useEffect(() => {
-    if (isAuthenticated) {
-      wsConnect();
-    }
-    return () => wsDisconnect();
-  }, [isAuthenticated]);
+    if (!accountId) return;
+    messageSync.start(accountId);
+    const unsubscribe = messageSync.subscribe((_id, snapshotChanged) => {
+      if (!snapshotChanged) return;
+      const conversations = messageSync.getConversations();
+      void queryClient.cancelQueries({ queryKey: ['conversations'] });
+      queryClient.setQueryData(['conversations'], { list: conversations, total: conversations.length });
+    });
+    const unsubscribeNew = wsOn('message.new', (payload) => {
+      if (payload.conv_id != null && payload.message) {
+        messageSync.onWsMessage(String(payload.conv_id), payload.message);
+      }
+    });
+    wsConnect();
+    return () => {
+      unsubscribe();
+      unsubscribeNew();
+      wsDisconnect();
+      messageSync.reset();
+      queryClient.clear();
+    };
+  }, [accountId, queryClient]);
+
+  useEffect(() => {
+    // Establish live delivery before taking the HTTP snapshot, closing the login gap.
+    if (accountId && wsStatus === 'connected') void messageSync.reSync();
+  }, [accountId, wsStatus]);
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

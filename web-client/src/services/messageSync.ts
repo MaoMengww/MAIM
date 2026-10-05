@@ -1,276 +1,210 @@
-import { loadMessageCache, saveMessageCache, appendMessageToCache, updateMessageInCache, removeMessageFromCache } from './storage';
-import { msgApi, normalizeRealtimeMessageContent } from './message';
+import { loadUserSyncCache, commitUserSyncCache, updateUserSyncCache, type UserSyncCache } from './storage';
+import { msgApi, normalizeRealtimeMessageContent, type UserSyncPage } from './message';
 import type { Message } from '@/types/model';
 
-type Listener = (convId: string) => void;
-
+type Listener = (convId: string, snapshotChanged: boolean) => void;
 interface ConvState {
   messages: Message[];
-  maxSeq: number;
-  initialized: boolean;
   loading: boolean;
   error: string | null;
 }
+type Mutation = (messages: Record<string, Message[]>) => void;
+
+function mergeMessage(messages: Record<string, Message[]>, convId: string, msg: Message) {
+  const list = messages[convId] ?? [];
+  const index = list.findIndex((m) => String(m.message_id) === String(msg.message_id));
+  messages[convId] = index < 0 ? [...list, msg] : list.map((m, i) => i === index ? msg : m);
+  messages[convId].sort((a, b) => a.seq - b.seq);
+}
 
 class MessageSyncEngine {
-  private states = new Map<string, ConvState>();
+  private userId: string | null = null;
+  private generation = 0;
+  private cache: UserSyncCache = { position: '0', messages: {}, conversations: [] };
+  private loading = true;
+  private error: string | null = null;
+  private boot: Promise<void> = Promise.resolve();
+  private syncing: Promise<void> | null = null;
+  private syncRequested = false;
+  private hydrated = false;
+  private mutations: Mutation[] = [];
   private listeners = new Set<Listener>();
+  private writes: Promise<void> = Promise.resolve();
+
+  private enqueueWrite(operation: () => Promise<void>): Promise<void> {
+    const result = this.writes.then(operation);
+    // Each caller observes its own failure; subsequent writes must still be able to run.
+    this.writes = result.catch(() => undefined);
+    return result;
+  }
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
 
-  private notify(convId: string) {
-    this.listeners.forEach((fn) => {
-      try {
-        fn(convId);
-      } catch { /* guard */ }
+  private notify(convId = '*', snapshotChanged = false) {
+    this.listeners.forEach((fn) => fn(convId, snapshotChanged));
+  }
+
+  getState(convId: string): ConvState {
+    return { messages: this.cache.messages[convId] ?? [], loading: this.loading, error: this.error };
+  }
+
+  getConversations() {
+    return this.cache.conversations;
+  }
+
+  start(userId: string): void {
+    if (this.userId === userId) return;
+    this.reset();
+    this.userId = userId;
+    const generation = this.generation;
+    this.boot = this.writes.then(() => loadUserSyncCache(userId)).then((cache) => {
+      if (generation !== this.generation) return;
+      const messages = cache?.messages ?? {};
+      this.mutations.forEach((apply) => apply(messages));
+      this.cache = { position: cache?.position ?? '0', conversations: cache?.conversations ?? [], messages };
+      this.hydrated = true;
+      this.notify();
+    });
+    // The sync caller reports failures; observe early cache failures until WS opens.
+    void this.boot.catch((error) => {
+      if (generation !== this.generation) return;
+      this.loading = false;
+      this.error = error instanceof Error ? error.message : String(error);
+      this.notify();
     });
   }
 
-  getState(convId: string): ConvState | undefined {
-    return this.states.get(convId);
+  reset(): void {
+    this.generation++;
+    this.userId = null;
+    this.cache = { position: '0', messages: {}, conversations: [] };
+    this.loading = true;
+    this.error = null;
+    this.syncing = null;
+    this.syncRequested = false;
+    this.mutations = [];
+    this.hydrated = false;
+    this.notify();
   }
 
-  isInitialized(convId: string): boolean {
-    return this.states.get(convId)?.initialized ?? false;
-  }
-
-  isLoading(convId: string): boolean {
-    return this.states.get(convId)?.loading ?? false;
-  }
-
-  getMessages(convId: string): Message[] {
-    return this.states.get(convId)?.messages ?? [];
-  }
-
-  getMaxSeq(convId: string): number {
-    return this.states.get(convId)?.maxSeq ?? 0;
-  }
-
-  /**
-   * 加载会话消息：IndexedDB → 增量同步 → 合并排序 → 持久化
-   */
-  async init(convId: string): Promise<void> {
-    const existing = this.states.get(convId);
-    if (existing?.initialized && !existing.loading) return;
-
-    this.states.set(convId, {
-      messages: [],
-      maxSeq: 0,
-      initialized: false,
-      loading: true,
-      error: null,
+  reSync(): Promise<void> {
+    if (!this.userId) return Promise.resolve();
+    if (this.syncing) {
+      this.syncRequested = true;
+      return this.syncing;
+    }
+    const generation = this.generation;
+    const userId = this.userId;
+    this.loading = true;
+    this.error = null;
+    this.notify();
+    this.syncRequested = false;
+    const run = this.sync(userId, generation).catch((error) => {
+      if (generation !== this.generation) return;
+      this.error = error instanceof Error ? error.message : String(error);
+    }).finally(() => {
+      if (generation !== this.generation) return;
+      this.syncing = null;
+      this.loading = false;
+      this.notify();
+      if (this.syncRequested) void this.reSync();
     });
-    this.notify(convId);
+    this.syncing = run;
+    return run;
+  }
 
-    try {
-      // 1. 从 IndexedDB 加载本地缓存
-      const cache = await loadMessageCache(convId);
-      const cached = cache?.messages ?? [];
-      const cachedMaxSeq = cache?.maxSeq ?? 0;
-
-      // 缓存有数据时立即展示，不等同步完成
-      if (cached.length > 0) {
-        // 合并 init 期间 WS 已推送的消息
-        const inflight = this.states.get(convId)?.messages ?? [];
-        const cachedIds = new Set(cached.map((m) => m.message_id));
-        const merged = [...cached];
-        for (const msg of inflight) {
-          if (!cachedIds.has(msg.message_id)) {
-            merged.push(msg);
-          }
-        }
-        this.states.set(convId, {
-          messages: merged,
-          maxSeq: cachedMaxSeq,
-          initialized: false,
-          loading: true,
-          error: null,
+  private async sync(userId: string, generation: number): Promise<void> {
+    await this.boot;
+    if (generation !== this.generation) return;
+    // A second tab may have committed since this runtime loaded its cache.
+    const durable = await loadUserSyncCache(userId);
+    if (generation !== this.generation) return;
+    if (durable && durable.position !== this.cache.position) {
+      this.mutations.forEach((apply) => apply(durable.messages));
+      this.cache = durable;
+    }
+    let page: UserSyncPage;
+    do {
+      const position = this.cache.position;
+      const requestMutationStart = this.mutations.length;
+      page = await msgApi.sync({ position, limit: 50 });
+      if (generation !== this.generation) return;
+      const messages: Record<string, Message[]> = page.rebuild_required ? {} : { ...this.cache.messages };
+      let conversations = this.cache.conversations;
+      if (page.rebuild_required) {
+        conversations = page.conversations.map((snapshot) => snapshot.conversation);
+        page.conversations.forEach((snapshot) => {
+          messages[String(snapshot.conversation.id)] = snapshot.messages;
         });
-        this.notify(convId);
-      }
-
-      // 2. 增量同步（首次全量拉取）
-      const result = await msgApi.sync({
-        conversation_id: convId as any,
-        from_seq: cachedMaxSeq > 0 ? cachedMaxSeq : undefined,
-      });
-
-      // 3. 合并
-      // init 期间 WS 可能已推送消息到当前 state，合并时需保留
-      const inFlightMsgs = this.states.get(convId)?.messages ?? [];
-
-      let merged: Message[];
-      if (cached.length > 0) {
-        const existingIds = new Set(cached.map((m) => m.message_id));
-        merged = [...cached];
-        for (const msg of result.messages) {
-          if (!existingIds.has(msg.message_id)) {
-            merged.push(msg);
-          }
-        }
       } else {
-        merged = result.messages;
+        page.changes.forEach((change) => mergeMessage(messages, change.conversation_id, change.message));
       }
-
-      // init 期间 WS 推送的消息（尚未在 merged 中的）
-      const mergedIds = new Set(merged.map((m) => m.message_id));
-      for (const msg of inFlightMsgs) {
-        if (!mergedIds.has(msg.message_id)) {
-          merged.push(msg);
-        }
-      }
-
-      // 4. 按 seq 排序
-      merged.sort((a, b) => (a.seq || 0) - (b.seq || 0));
-
-      // 5. 更新状态
-      const newMaxSeq = Math.max(result.max_seq || 0, cachedMaxSeq);
-      this.states.set(convId, {
-        messages: merged,
-        maxSeq: newMaxSeq,
-        initialized: true,
-        loading: false,
-        error: null,
+      // New messages arriving while the request was in flight are not in its snapshot.
+      // Rebuild replaces old state but retains live changes arriving after its request began.
+      const replayLiveChanges = (start: number) => {
+        this.mutations.slice(start).forEach((apply) => apply(messages));
+      };
+      replayLiveChanges(page.rebuild_required ? requestMutationStart : 0);
+      const consumed = this.mutations.length;
+      const next = { position: page.next_position, messages, conversations };
+      await this.enqueueWrite(async () => {
+        if (generation === this.generation) await commitUserSyncCache(userId, next, position);
       });
-
-      // 6. 异步持久化到 IndexedDB
-      saveMessageCache(convId, merged, newMaxSeq);
-      this.notify(convId);
-    } catch (err: any) {
-      // 取当前状态（可能已加载缓存），保留已有消息
-      const current = this.states.get(convId)!;
-      this.states.set(convId, {
-        ...current,
-        initialized: true,
-        loading: false,
-        error: err?.message || String(err),
-      });
-      this.notify(convId);
-    }
+      if (generation !== this.generation) return;
+      this.mutations.splice(0, consumed);
+      replayLiveChanges(0);
+      this.cache = next;
+      this.notify('*', page.rebuild_required);
+    } while (page.has_more);
   }
 
-  /**
-   * 处理 WS 推送的消息
-   */
-  onWsMessage(convId: string, rawPayload: any): void {
-    const msg = normalizeRealtimeMessageContent(rawPayload);
-    if (!msg || !msg.message_id) return;
-
-    const state = this.states.get(convId);
-    if (state) {
-      // 去重
-      if (state.messages.some((m) => m.message_id === msg.message_id)) return;
-      state.messages.push(msg);
-      if ((msg.seq || 0) > state.maxSeq) {
-        state.maxSeq = msg.seq || 0;
-      }
-    }
-
-    // 持久化到 IndexedDB（含内部去重）
-    appendMessageToCache(convId, msg);
+  private mutate(convId: string, apply: Mutation): Promise<void> {
+    if (!this.userId) return Promise.resolve();
+    if (!this.hydrated || this.syncing) this.mutations.push(apply);
+    apply(this.cache.messages);
     this.notify(convId);
-  }
-
-  /**
-   * 手动添加消息（发送成功、Bot 消息完成等场景）
-   */
-  addMessage(convId: string, msg: Message): void {
-    if (!msg || !msg.message_id) return;
-
-    const state = this.states.get(convId);
-    if (state) {
-      if (state.messages.some((m) => m.message_id === msg.message_id)) return;
-      state.messages.push(msg);
-      state.messages.sort((a, b) => (a.seq || 0) - (b.seq || 0));
-      if ((msg.seq || 0) > state.maxSeq) {
-        state.maxSeq = msg.seq || 0;
-      }
-    }
-
-    appendMessageToCache(convId, msg);
-    this.notify(convId);
-  }
-
-  /**
-   * 断线重连后增量同步
-   */
-  async reSync(convId: string): Promise<void> {
-    const state = this.states.get(convId);
-    if (!state) {
-      return this.init(convId);
-    }
-
-    state.loading = true;
-    this.notify(convId);
-
-    try {
-      const result = await msgApi.sync({
-        conversation_id: convId as any,
-        from_seq: state.maxSeq > 0 ? state.maxSeq : undefined,
-      });
-
-      const existingIds = new Set(state.messages.map((m) => m.message_id));
-      for (const msg of result.messages) {
-        if (!existingIds.has(msg.message_id)) {
-          state.messages.push(msg);
-        }
-      }
-
-      state.messages.sort((a, b) => (a.seq || 0) - (b.seq || 0));
-
-      if (result.max_seq > state.maxSeq) {
-        state.maxSeq = result.max_seq;
-      }
-
-      state.loading = false;
-      state.error = null;
-
-      saveMessageCache(convId, state.messages, state.maxSeq);
-      this.notify(convId);
-    } catch (err: any) {
-      state.loading = false;
-      state.error = err?.message || String(err);
-      this.notify(convId);
-    }
-  }
-
-  /**
-   * 更新消息内容（撤回、编辑等场景）
-   */
-  updateMessage(convId: string, messageId: number, updater: (msg: Message) => Message): void {
-    const state = this.states.get(convId);
-    if (!state) return;
-    let changed = false;
-    state.messages = state.messages.map((m) => {
-      if (m.message_id !== messageId) return m;
-      changed = true;
-      return updater(m);
+    const userId = this.userId;
+    const generation = this.generation;
+    const boot = this.boot;
+    return this.enqueueWrite(async () => {
+      await boot;
+      await updateUserSyncCache(userId, apply);
+    }).catch((error) => {
+      if (generation !== this.generation) return;
+      this.error = error instanceof Error ? error.message : String(error);
+      this.notify();
     });
-    if (!changed) return;
-    updateMessageInCache(convId, messageId, updater);
-    this.notify(convId);
   }
 
-  /**
-   * 删除消息
-   */
-  removeMessage(convId: string, messageId: number): void {
-    const state = this.states.get(convId);
-    if (state) {
-      state.messages = state.messages.filter((m) => m.message_id !== messageId);
-    }
-    removeMessageFromCache(convId, messageId);
-    this.notify(convId);
+  onWsMessage(convId: string, rawPayload: unknown): void {
+    const msg = normalizeRealtimeMessageContent(rawPayload);
+    if (!msg?.message_id || String(msg.conversation_id) !== convId) return;
+    void this.addMessage(convId, msg);
   }
 
-  /**
-   * 清理会话状态（切换会话时调用）
-   */
-  cleanup(convId: string): void {
-    this.states.delete(convId);
+  addMessage(convId: string, msg: Message): Promise<void> {
+    if (!msg?.message_id) return Promise.resolve();
+    return this.mutate(convId, (messages) => {
+      // HTTP sync owns current message state; a delayed new-message echo must not
+      // overwrite a recall/edit already present in the authoritative page.
+      if (messages[convId]?.some((m) => String(m.message_id) === String(msg.message_id))) return;
+      mergeMessage(messages, convId, msg);
+    });
+  }
+
+  updateMessage(convId: string, messageId: number | string, updater: (msg: Message) => Message): Promise<void> {
+    return this.mutate(convId, (messages) => {
+      messages[convId] = (messages[convId] ?? []).map((m) => String(m.message_id) === String(messageId) ? updater(m) : m);
+    });
+  }
+
+  removeMessage(convId: string, messageId: number | string): Promise<void> {
+    return this.mutate(convId, (messages) => {
+      messages[convId] = (messages[convId] ?? []).filter((m) => String(m.message_id) !== String(messageId));
+    });
   }
 }
 

@@ -25,14 +25,13 @@ interface GroupInfoDrawerProps {
   isOwner: boolean;
   isAdmin: boolean;
   currentUserId: string;
-  numericUserId: number;
   open: boolean;
   onClose: () => void;
   onMembersChange: () => void;
 }
 
 export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
-  const { conv, members, isOwner, isAdmin, currentUserId, numericUserId, open, onClose } = props;
+  const { conv, members, isOwner, isAdmin, currentUserId, open, onClose } = props;
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const convId = conv?.id;
@@ -182,7 +181,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
   });
 
   const leaveGroupMutation = useMutation({
-    mutationFn: () => convApi.removeMembers(convId!, [numericUserId]),
+    mutationFn: () => convApi.removeMembers(convId!, [currentUserId]),
     onSuccess: () => {
       message.success('已退出群聊');
       navigate('/conversations');

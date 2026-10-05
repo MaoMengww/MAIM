@@ -1,97 +1,50 @@
-import { get, set, del, createStore } from 'idb-keyval';
-import type { Message } from '@/types/model';
+import { createStore, get } from 'idb-keyval';
+import type { Conversation, Message } from '@/types/model';
 
-// Ensure both object stores exist — fixes corrupted DB from early dev versions
-// that left the DB at version 1 without stores (causing NotFoundError on tx).
-{
-  const req = indexedDB.open('aim-message-cache', 2);
-  req.onupgradeneeded = () => {
-    if (!req.result.objectStoreNames.contains('messages')) {
-      req.result.createObjectStore('messages');
-    }
-    if (!req.result.objectStoreNames.contains('meta')) {
-      req.result.createObjectStore('meta');
-    }
-  };
-  req.onerror = () => {}; // silently ignore if unsupported
+const snapshotStore = createStore('aim-user-sync', 'snapshots');
+
+export interface UserSyncCache {
+  position: string;
+  messages: Record<string, Message[]>;
+  conversations: Conversation[];
 }
 
-const msgStore = createStore('aim-message-cache', 'messages');
-const metaStore = createStore('aim-message-cache', 'meta');
-
-interface MessageCache {
-  messages: Message[];
-  maxSeq: number;
-  updatedAt: number;
+export async function loadUserSyncCache(userId: string): Promise<UserSyncCache | null> {
+  return (await get<UserSyncCache>(userId, snapshotStore)) ?? null;
 }
 
-interface ConvMeta {
-  maxSeq: number;
-  preview?: string;
-  updatedAt: number;
+async function writeUserSyncCache(userId: string, update: (current: UserSyncCache) => UserSyncCache): Promise<void> {
+  await snapshotStore('readwrite', (store) => new Promise<void>((resolve, reject) => {
+    const transaction = store.transaction;
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error('用户同步缓存事务已中止'));
+    transaction.onerror = () => reject(transaction.error ?? new Error('用户同步缓存读写失败'));
+    const request = store.get(userId);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      try {
+        const current: UserSyncCache = request.result ?? { position: '0', messages: {}, conversations: [] };
+        const write = store.put(update(current), userId);
+        write.onerror = () => reject(write.error);
+      } catch (error) {
+        reject(error);
+        transaction.abort();
+      }
+    };
+  }));
 }
 
-// ─── Per-conversation message cache ───
-
-export async function loadMessageCache(convId: string): Promise<{ messages: Message[]; maxSeq: number } | null> {
-  const cache = await get<MessageCache>(convId, msgStore);
-  if (!cache) return null;
-  return { messages: cache.messages, maxSeq: cache.maxSeq };
-}
-
-export async function saveMessageCache(convId: string, messages: Message[], maxSeq: number): Promise<void> {
-  const cache: MessageCache = { messages, maxSeq, updatedAt: Date.now() };
-  await set(convId, cache, msgStore);
-  await set(convId, { maxSeq, updatedAt: Date.now() }, metaStore);
-}
-
-export async function appendMessageToCache(convId: string, msg: Message): Promise<void> {
-  const cache = await get<MessageCache>(convId, msgStore);
-  if (!cache) {
-    await saveMessageCache(convId, [msg], msg.seq || 0);
-    return;
-  }
-  if (cache.messages.some((m) => m.message_id === msg.message_id)) return;
-  cache.messages.push(msg);
-  if ((msg.seq || 0) > cache.maxSeq) cache.maxSeq = msg.seq || 0;
-  cache.updatedAt = Date.now();
-  await set(convId, cache, msgStore);
-  await set(convId, { maxSeq: cache.maxSeq, updatedAt: Date.now() }, metaStore);
-}
-
-export async function updateMessageInCache(convId: string, msgId: number, updater: (msg: Message) => Message): Promise<void> {
-  const cache = await get<MessageCache>(convId, msgStore);
-  if (!cache) return;
-  let changed = false;
-  cache.messages = cache.messages.map((m) => {
-    if (m.message_id !== msgId) return m;
-    changed = true;
-    return updater(m);
+export function commitUserSyncCache(userId: string, cache: UserSyncCache, expectedPosition: string): Promise<void> {
+  return writeUserSyncCache(userId, (current) => {
+    if (current.position !== expectedPosition) throw new Error('用户同步缓存位点已变更');
+    return cache;
   });
-  if (!changed) return;
-  cache.updatedAt = Date.now();
-  await set(convId, cache, msgStore);
 }
 
-export async function removeMessageFromCache(convId: string, msgId: number): Promise<void> {
-  const cache = await get<MessageCache>(convId, msgStore);
-  if (!cache) return;
-  cache.messages = cache.messages.filter((m) => m.message_id !== msgId);
-  cache.updatedAt = Date.now();
-  await set(convId, cache, msgStore);
-}
-
-export async function clearMessageCache(convId: string): Promise<void> {
-  await del(convId, msgStore);
-  await del(convId, metaStore);
-}
-
-// ─── Conversation list cache ───
-
-export async function saveConvListMetas(metas: Record<string, ConvMeta>): Promise<void> {
-  await set('conv-list-metas', metas, metaStore);
-}
-
-export async function loadConvListMetas(): Promise<Record<string, ConvMeta> | undefined> {
-  return get<Record<string, ConvMeta>>('conv-list-metas', metaStore);
+// Live changes update the latest durable snapshot without advancing its position.
+export function updateUserSyncCache(userId: string, apply: (messages: Record<string, Message[]>) => void): Promise<void> {
+  return writeUserSyncCache(userId, (current) => {
+    apply(current.messages);
+    return current;
+  });
 }

@@ -62,8 +62,7 @@ export interface SendMsgContent {
 }
 
 export interface SyncMessagesReq {
-  conversation_id: number;
-  from_seq?: number;
+  position?: string;
   limit?: number;
 }
 

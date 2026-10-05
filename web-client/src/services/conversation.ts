@@ -1,15 +1,15 @@
 	import client, { unwrap } from './client';
 	import type { CreateConvReq, UpdateConvReq } from '@/types/api';
 	import type {
-	  APIResponse, Conversation, ConvMember, PageData,
+    APIResponse, Conversation, ConvType, ConvMember, PageData,
 	} from '@/types/model';
 
-	/** Normalize proto ConversationType enum => 'private' | 'group' */
-	function normType(t: number): 'private' | 'group' {
-	  return t === 2 ? 'group' : 'private';
-	}
+  /** Normalize the proto conversation type for client rendering. */
+  function normType(t: number): ConvType {
+    return t === 3 ? 'system' : t === 2 ? 'group' : 'private';
+  }
 
-	function normConv(c: any): Conversation {
+	export function normConv(c: any): Conversation {
 	  if (!c) return c;
 	  return { ...c, type: normType(c.type) };
 	}
@@ -36,10 +36,10 @@
 	        has_more: r.data.data.pagination?.has_more,
 	      })),
 
-	  update: (id: number, data: UpdateConvReq) =>
+    update: (id: number | string, data: UpdateConvReq) =>
 	    client.put<APIResponse<null>>(`/convs/${id}/info`, data).then(unwrap),
 
-	  delete: (id: number) =>
+    delete: (id: number | string) =>
 	    client.delete<APIResponse<null>>(`/convs/${id}`).then(unwrap),
 
 	  getMembers: (id: number) =>
@@ -49,8 +49,17 @@
 	  addMembers: (id: number, memberIds: number[]) =>
 	    client.post<APIResponse<null>>(`/convs/${id}/members/invite`, { user_ids: memberIds }).then(unwrap),
 
-	  removeMembers: (id: number, memberIds: number[]) =>
-	    client.post<APIResponse<null>>(`/convs/${id}/members/kick`, { user_ids: memberIds }).then(unwrap),
+    removeMembers: (id: number | string, memberIds: (number | string)[]) => {
+      const ids = memberIds.map((value) => {
+        if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new Error('成员 ID 已丢失精度');
+        const decimal = String(value);
+        if (!/^[1-9]\d*$/.test(decimal) || BigInt(decimal) > 9223372036854775807n) throw new Error('成员 ID 无效');
+        return decimal;
+      });
+      // gateway binds []int64, so emit exact JSON integer tokens without Number(id).
+      return client.post<APIResponse<null>>(`/convs/${id}/members/kick`, `{"user_ids":[${ids.join(',')}]}`,
+        { headers: { 'Content-Type': 'application/json' } }).then(unwrap);
+    },
 
 	  updateMember: (convId: number, userId: number, data: { role?: number; alias?: string }) =>
 	    client.put<APIResponse<null>>(`/convs/${convId}/members/${userId}/role`, data).then(unwrap),
@@ -85,7 +94,7 @@
 	  getSettings: (id: number) =>
 	    client.get<APIResponse<any>>(`/convs/${id}/settings`).then(unwrap),
 
-	  updateSettings: (id: number, data: Record<string, unknown>) =>
+    updateSettings: (id: number | string, data: Record<string, unknown>) =>
 	    client.put<APIResponse<null>>(`/convs/${id}/settings`, data).then(unwrap),
 
 	  uploadAvatar: (convId: string | number, file: File) => {

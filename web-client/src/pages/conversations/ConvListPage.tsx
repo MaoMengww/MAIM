@@ -102,7 +102,7 @@ export function ConvListPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const searchAreaRef = useRef<HTMLDivElement>(null);
   const [onlineStatus, setOnlineStatus] = useState<Record<string, boolean>>({});
-  const [previewMap, setPreviewMap] = useState<Record<number, string>>({});
+  const [previewMap, setPreviewMap] = useState<Record<string, string>>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ['conversations'],
@@ -118,7 +118,7 @@ export function ConvListPage() {
       if (!convId) return;
       // Clear cached enriched preview so it gets re-fetched with sender name
       setPreviewMap((prev) => {
-        const key = Number(convId);
+        const key = String(convId);
         if (!prev[key]) return prev;
         const next = { ...prev };
         delete next[key];
@@ -129,7 +129,7 @@ export function ConvListPage() {
         return {
           ...old,
           list: old.list.map((c: any) =>
-            Number(c.id) === Number(convId)
+            String(c.id) === String(convId)
               ? {
                   ...c,
                   unread_count: String(convId) === activeId
@@ -150,7 +150,7 @@ export function ConvListPage() {
         return {
           ...old,
           list: old.list.map((c: any) =>
-            Number(c.id) === Number(payload.conv_id)
+            String(c.id) === String(payload.conv_id)
               ? { ...c, unread_count: payload.unread_count ?? 0 }
               : c
           ),
@@ -203,23 +203,23 @@ export function ConvListPage() {
   }, [friends]);
 
   const friendNameMap = useMemo(() => {
-    const map = new Map<number, string>();
+    const map = new Map<string, string>();
     friends.forEach((f: any) => {
-      map.set(f.user_id, f.remark || f.username);
+      map.set(String(f.user_id), f.remark || f.username);
     });
     return map;
   }, [friends]);
 
   // Build a map from conv_id to conversation for search results
-  const convMap = new Map(conversations.map((c: Conversation) => [c.id, c]));
+  const convMap = new Map(conversations.map((c: Conversation) => [String(c.id), c]));
 
   // Enrich previews: fetch last message content for group chats (add sender name)
   useEffect(() => {
     if (!friendsData) return; // wait for friends list (needed for sender name lookup)
 
     const toFetch = conversations.filter(c => {
-      if (!c.last_message_id || c.last_message_id <= 0) return false;
-      if (previewMap[c.id]) return false; // already fetched
+      if (!c.last_message_id || String(c.last_message_id) === '0' || String(c.last_message_id).startsWith('-')) return false;
+      if (previewMap[String(c.id)]) return false; // already fetched
       return c.type === 'group' || !c.last_message_preview;
     }).slice(0, 30);
 
@@ -227,10 +227,10 @@ export function ConvListPage() {
 
     (async () => {
       const results = await Promise.allSettled(
-        toFetch.map(c => msgApi.getById(c.last_message_id))
+        toFetch.map(c => msgApi.getById(String(c.last_message_id)))
       );
 
-      const updates: Record<number, string> = {};
+      const updates: Record<string, string> = {};
       toFetch.forEach((conv, i) => {
         if (results[i].status !== 'fulfilled') return;
         const msg = results[i].value;
@@ -239,11 +239,11 @@ export function ConvListPage() {
         if (!text) return;
 
         if (conv.type === 'group' && msg.from_user_id) {
-          const sender = friends.find((f: any) => Number(f.user_id) === Number(msg.from_user_id));
+          const sender = friends.find((f: any) => String(f.user_id) === String(msg.from_user_id));
           const name = sender?.remark || sender?.username || `用户${msg.from_user_id}`;
-          updates[conv.id] = `${name}: ${text}`;
+          updates[String(conv.id)] = `${name}: ${text}`;
         } else {
-          updates[conv.id] = text;
+          updates[String(conv.id)] = text;
         }
       });
 
@@ -339,7 +339,7 @@ export function ConvListPage() {
   });
 
   const renameMutation = useMutation({
-    mutationFn: ({ id, name }: { id: number; name: string }) =>
+    mutationFn: ({ id, name }: { id: number | string; name: string }) =>
       convApi.update(id, { name }),
     onSuccess: () => {
       message.success('已重命名');
@@ -352,12 +352,12 @@ export function ConvListPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => convApi.delete(id),
+    mutationFn: (id: number | string) => convApi.delete(id),
     onSuccess: (_data, id) => {
       message.success('已删除会话');
       queryClient.setQueryData(['conversations'], (old: any) => {
         if (!old?.list) return old;
-        return { ...old, list: old.list.filter((c: any) => c.id !== id) };
+        return { ...old, list: old.list.filter((c: any) => String(c.id) !== String(id)) };
       });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       navigate('/conversations');
@@ -366,13 +366,13 @@ export function ConvListPage() {
   });
 
   const leaveMutation = useMutation({
-    mutationFn: (convId: number) =>
+    mutationFn: (convId: number | string) =>
       convApi.removeMembers(convId, [currentUserId!]),
     onSuccess: (_data, convId) => {
       message.success('已退出群聊');
       queryClient.setQueryData(['conversations'], (old: any) => {
         if (!old?.list) return old;
-        return { ...old, list: old.list.filter((c: any) => c.id !== convId) };
+        return { ...old, list: old.list.filter((c: any) => String(c.id) !== String(convId)) };
       });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       navigate('/conversations');
@@ -381,7 +381,7 @@ export function ConvListPage() {
   });
 
   const updateSettingMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Record<string, unknown> }) =>
+    mutationFn: ({ id, data }: { id: number | string; data: Record<string, unknown> }) =>
       convApi.updateSettings(id, data),
     onSuccess: (_data, variables) => {
       const action = variables.data.is_pinned !== undefined
@@ -543,9 +543,9 @@ export function ConvListPage() {
                 onPageChange={setSearchPage}
               />
               {searchResults.map((msg: any) => {
-                const conv = convMap.get(msg.conversation_id);
+                const conv = convMap.get(String(msg.conversation_id));
                 const highlight = searchHighlights[String(msg.message_id)];
-                const senderName = friendNameMap.get(msg.from_user_id);
+                const senderName = friendNameMap.get(String(msg.from_user_id));
                 return (
                   <div
                     key={msg.message_id}
@@ -616,7 +616,7 @@ export function ConvListPage() {
                   </div>
                   <div className="conv-item-bottom">
                     <span className="conv-item-preview">
-                      {truncate(previewMap[conv.id] ?? conv.last_message_preview) || (conv.type === 'group' ? `共${conv.member_count}人` : '')}
+                      {truncate(previewMap[String(conv.id)] ?? conv.last_message_preview) || (conv.type === 'group' ? `共${conv.member_count}人` : '')}
                     </span>
                   </div>
                 </div>

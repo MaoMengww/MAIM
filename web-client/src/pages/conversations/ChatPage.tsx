@@ -17,7 +17,6 @@ import { msgApi, normalizeRealtimeMessageContent } from '@/services/message';
 import { fileApi } from '@/services/file';
 import { messageSync } from '@/services/messageSync';
 import { wsOn, wsSend } from '@/services/ws';
-import { useWSStore } from '@/stores/ws';
 import { useAuthStore } from '@/stores/auth';
 import { convToolApi } from '@/services/conversation-tool';
 import { SearchFilterBar } from '@/components/common/SearchFilterBar';
@@ -29,6 +28,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { MsgContentOneof, ConvMember, AudioContent, KnowledgeSource } from '@/types/model';
 import type { SendMsgContent } from '@/types/api';
+import { parseJsonWithExactIntegers } from '@/utils/json';
 
 import './ChatPage.css';
 
@@ -597,7 +597,7 @@ export function ChatPage() {
     };
   }, [convSearchQuery, id, activeConvTypeFilters, convSenderId, convSenderType, convStartTime, convEndTime, convSearchPage]);
 
-  const scrollToMessage = (msgId: number) => {
+  const scrollToMessage = (msgId: string | number) => {
     setConvSearchOpen(false);
     setConvSearchQuery('');
     setTimeout(() => {
@@ -630,8 +630,6 @@ export function ChatPage() {
     });
   };
 
-  const numericUserId = Number(currentUserId);
-  const strUserId = String(currentUserId);
 
   const { data: conv } = useQuery({
     queryKey: ['conversation', id],
@@ -639,21 +637,16 @@ export function ChatPage() {
     enabled: !!id,
   });
 
-  const { messages, loading: msgsLoading, reSync } = useMessages(id);
+  const { messages, loading: msgsLoading, error: msgsError, reSync } = useMessages(id);
 
-  // WS is the real-time source of truth; HTTP sync is only for initial load + reconnect
+  // Message synchronization and new-message delivery are owned by the account lifecycle.
   useEffect(() => {
     if (!id) return;
 
-    const unsubNew = wsOn('message.new', (payload: any) => {
-      // 外层 payload.conv_id 是由后端 strconv.FormatInt 生成的 string，精度无损
-      if (!payload.message || String(payload.conv_id) !== id) return;
-      messageSync.onWsMessage(id!, payload.message);
-    });
 
     const unsubRecalled = wsOn('message.recalled', (payload: any) => {
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
-      const msgId = Number(payload.message_id);
+      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
+      const msgId = String(payload.message_id ?? '');
       if (msgId) messageSync.updateMessage(id!, msgId, (m: any) => ({ ...m, status: 2 }));
     });
 
@@ -661,21 +654,21 @@ export function ChatPage() {
       if (!payload.message) return;
       const edited = normalizeRealtimeMessageContent(payload.message);
       const cid = (edited as any).conv_id ?? edited.conversation_id;
-      if (cid == null || Number(cid) !== Number(id)) return;
-      const msgId = edited?.message_id;
+      if (cid == null || String(cid) !== id) return;
+      const msgId = String(edited?.message_id ?? '');
       if (msgId) messageSync.updateMessage(id!, msgId, () => edited);
     });
 
     // Real-time read status: when someone reads messages in this conversation,
     // refetch members + conv to get updated last_read_seq
     const unsubRead = wsOn('unread_count', (payload: any) => {
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
+      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
       queryClient.invalidateQueries({ queryKey: ['conv-members', id] });
       queryClient.invalidateQueries({ queryKey: ['conversation', id] });
     });
 
     const unsubReadReceipt = wsOn('read_receipt', (payload: any) => {
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
+      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
       queryClient.setQueryData(['conv-members', id], (old: ConvMember[]) => {
         if (!old) return old;
         return old.map((m) =>
@@ -688,8 +681,7 @@ export function ChatPage() {
 
     // Bot streaming: accumulate chunks into a temporary message
     const unsubStreamChunk = wsOn('bot.streaming.chunk', (payload: any) => {
-      // Number 比较避免 int64 Snowflake ID 精度丢失
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
+      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
       const key = `${id}:${payload.bot_id}`;
       setStreamingMap((prev) => {
         const existing = prev[key];
@@ -712,11 +704,11 @@ export function ChatPage() {
 
     // Bot streaming sources: store knowledge source metadata for the streaming message
     const unsubStreamSources = wsOn('bot.streaming.sources', (payload: any) => {
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
+      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
       const key = `${id}:${payload.bot_id}`;
       let sources: KnowledgeSource[] = [];
       try {
-        sources = JSON.parse(payload.content || '[]');
+        sources = parseJsonWithExactIntegers(payload.content || '[]') as KnowledgeSource[];
       } catch { /* ignore parse errors */ }
       if (sources.length === 0) return;
       setStreamingMap((prev) => {
@@ -731,7 +723,7 @@ export function ChatPage() {
 
     // Bot streaming tool_used: record which tools were used
     const unsubStreamToolUsed = wsOn('bot.streaming.tool_used', (payload: any) => {
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
+      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
       const key = `${id}:${payload.bot_id}`;
       const tools = payload.content ? payload.content.split(',').filter(Boolean) : [];
       if (!tools.length) return;
@@ -746,7 +738,7 @@ export function ChatPage() {
 
     // Bot streaming done: transition streaming message into the real message cache
     const unsubStreamDone = wsOn('bot.streaming.done', (payload: any) => {
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
+      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
       const key = `${id}:${payload.bot_id}`;
       // Read accumulated text from ref to avoid React batching race
       const entry = streamingRef.current[key];
@@ -775,7 +767,7 @@ export function ChatPage() {
         : '';
 
       const newMsg = normalizeRealtimeMessageContent({
-        message_id: Number(payload.message_id),
+        message_id: String(payload.message_id),
         conv_id: id,
         from_user_id: String(payload.bot_id),
         type: 9,
@@ -798,11 +790,11 @@ export function ChatPage() {
 
     // Async reply candidates result
     const unsubReplyCandidatesDone = wsOn('conv.reply_candidates.done', (payload: any) => {
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
+      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
       setReplyCandidates(payload.candidates || []);
     });
     const unsubReplyCandidatesFailed = wsOn('conv.reply_candidates.failed', (payload: any) => {
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id)) return;
+      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
       message.error(payload.error || '生成回复建议失败');
     });
 
@@ -819,7 +811,7 @@ export function ChatPage() {
       message.error(payload.error || '翻译失败');
     });
 
-    return () => { unsubNew(); unsubRecalled(); unsubEdited(); unsubRead(); unsubReadReceipt(); unsubStreamChunk(); unsubStreamTool(); unsubStreamSources(); unsubStreamDone(); unsubReplyCandidatesDone(); unsubReplyCandidatesFailed(); unsubTranslateDone(); unsubTranslateFailed(); };
+    return () => { unsubRecalled(); unsubEdited(); unsubRead(); unsubReadReceipt(); unsubStreamChunk(); unsubStreamTool(); unsubStreamSources(); unsubStreamDone(); unsubReplyCandidatesDone(); unsubReplyCandidatesFailed(); unsubTranslateDone(); unsubTranslateFailed(); };
   }, [id, queryClient]);
 
   // Reset scroll state when conversation changes
@@ -827,12 +819,6 @@ export function ChatPage() {
     setIsAtBottom(true);
   }, [id]);
 
-  // Re-sync on WS reconnect to catch up missed messages
-  const wsReconnectVersion = useWSStore((s) => s.reconnectVersion);
-  useEffect(() => {
-    if (!id || wsReconnectVersion === 0) return;
-    messageSync.reSync(id);
-  }, [id, wsReconnectVersion]);
 
   useEffect(() => {
     if (listRef.current && messages.length > 0 && isAtBottom) {
@@ -875,7 +861,7 @@ export function ChatPage() {
 
     const unsubTyping = wsOn('typing', (payload: any) => {
       const userId = String(payload.user_id);
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id) || userId === currentUserId) return;
+      if (payload.conv_id == null || String(payload.conv_id) !== id || userId === currentUserId) return;
       // 群聊不展示 typing 指示器
       if (conv?.type === 'group') return;
 
@@ -890,7 +876,7 @@ export function ChatPage() {
 
     const unsubStop = wsOn('typing.stop', (payload: any) => {
       const userId = String(payload.user_id);
-      if (payload.conv_id == null || Number(payload.conv_id) !== Number(id) || userId === currentUserId) return;
+      if (payload.conv_id == null || String(payload.conv_id) !== id || userId === currentUserId) return;
       // 群聊不展示 typing 指示器
       if (conv?.type === 'group') return;
 
@@ -989,8 +975,8 @@ export function ChatPage() {
     return result;
   }, [id, messages, conv, currentUserId, members]);
 
-  const currentMember = members.find((m) => String(m.user_id) === strUserId);
-  const isOwner = String(conv?.owner_id) === strUserId;
+  const currentMember = members.find((m) => String(m.user_id) === currentUserId);
+  const isOwner = String(conv?.owner_id) === currentUserId;
   const isAdmin = isOwner || currentMember?.role === 'MEMBER_ROLE_ADMIN';
 
   const userMap = useMemo(() => {
@@ -1274,7 +1260,7 @@ export function ChatPage() {
       // Optimistically add the sent message to cache for immediate display
       const now = Math.floor(Date.now() / 1000);
       const newMsg = normalizeRealtimeMessageContent({
-        message_id: result.message_id,
+        message_id: String(result.message_id ?? ''),
         conv_id: id,
         from_user_id: currentUserId,
         type: variables.type,
@@ -1570,8 +1556,9 @@ export function ChatPage() {
 
       <div className="chat-messages-wrapper">
         <div className="chat-messages" ref={listRef} onScroll={handleScroll}>
+          {msgsError && <div className="chat-loading" role="alert">同步失败：{msgsError} <button onClick={reSync}>重试同步</button></div>}
           {msgsLoading && messages.length === 0 && <div className="chat-loading">加载消息中...</div>}
-          {!msgsLoading && messages.length === 0 && <div className="chat-loading">暂无消息，发送第一条消息吧</div>}
+          {!msgsLoading && !msgsError && messages.length === 0 && <div className="chat-loading">暂无消息，发送第一条消息吧</div>}
 
           {messages.map((msg: any) => {
           const isSelf = String(msg.from_user_id) === currentUserId;
@@ -1596,7 +1583,7 @@ export function ChatPage() {
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                     <Button size="small" onClick={() => setEditingMsgId(null)}>取消</Button>
                     <Button size="small" type="primary" onClick={() => {
-                      msgApi.edit(msg.message_id, editText).then(() => {
+                      msgApi.edit(String(msg.message_id), editText).then(() => {
                         setEditingMsgId(null);
                       }).catch(() => message.error('编辑失败'));
                     }}>保存</Button>
@@ -1663,8 +1650,8 @@ export function ChatPage() {
             // 解析操作者和被操作者信息
             const actorInfo = getMsgUserInfo({ from_user_id: sysContent.actor_id }, userMap);
             const actorName = actorInfo?.username || `用户${sysContent.actor_id}`;
-            const relatedIDs: number[] = Array.isArray(sysContent.related_user_ids) ? sysContent.related_user_ids : [];
-            const relatedNames = relatedIDs.map((uid: number) => {
+            const relatedIDs: (string | number)[] = Array.isArray(sysContent.related_user_ids) ? sysContent.related_user_ids : [];
+            const relatedNames = relatedIDs.map((uid) => {
               const info = getMsgUserInfo({ from_user_id: uid }, userMap);
               return info?.username || `用户${uid}`;
             });
@@ -2025,7 +2012,7 @@ export function ChatPage() {
             className="chat-msg-actions-menu"
             style={{ position: 'fixed', left: msgActions.x, top: msgActions.y, zIndex: 1000 }}
           >
-            <div className="chat-msg-action-item" onClick={() => { setReplyTo({ msg_id: msgActions.msg.message_id, preview: extractTextPreview(msgActions.msg.content) }); setMsgActions(null); }}>
+            <div className="chat-msg-action-item" onClick={() => { setReplyTo({ msg_id: String(msgActions.msg.message_id), preview: extractTextPreview(msgActions.msg.content) }); setMsgActions(null); }}>
               回复
             </div>
             <div className="chat-msg-action-item" onClick={() => {
@@ -2041,7 +2028,7 @@ export function ChatPage() {
             {(msgActions.msg.type === 1 || msgActions.msg.type === 9) && (
               <>
                 <div className="chat-msg-action-item" onClick={async () => {
-                  const msgId = msgActions.msg.message_id;
+                  const msgId = String(msgActions.msg.message_id);
                   const convId = id;
                   setMsgActions(null);
                   try {
@@ -2060,7 +2047,7 @@ export function ChatPage() {
                 </div>
                 <div className="chat-msg-action-item" onClick={async () => {
                   const text = extractTextPreview(msgActions.msg.content);
-                  const msgId = msgActions.msg.message_id;
+                  const msgId = String(msgActions.msg.message_id);
                   setMsgActions(null);
                   if (!text) { message.info('无法翻译此消息'); return; }
                   try {
@@ -2081,13 +2068,13 @@ export function ChatPage() {
               </>
             )}
             {String(msgActions.msg.from_user_id) === currentUserId && msgActions.msg.type === 1 && (
-              <div className="chat-msg-action-item" onClick={() => { setEditingMsgId(msgActions.msg.message_id); setEditText(extractTextPreview(msgActions.msg.content)); setMsgActions(null); }}>
+              <div className="chat-msg-action-item" onClick={() => { setEditingMsgId(String(msgActions.msg.message_id)); setEditText(extractTextPreview(msgActions.msg.content)); setMsgActions(null); }}>
                 编辑
               </div>
             )}
             {String(msgActions.msg.from_user_id) === currentUserId && msgActions.msg.status === 1 && (
               <div className="chat-msg-action-item" onClick={() => {
-                const msgId = msgActions.msg.message_id;
+                const msgId = String(msgActions.msg.message_id);
                 setMsgActions(null);
                 msgApi.recall(msgId)
                   .then(() => {})
@@ -2097,7 +2084,7 @@ export function ChatPage() {
               </div>
             )}
             <div className="chat-msg-action-item chat-msg-action-danger" onClick={() => {
-              const msgId = msgActions.msg.message_id;
+              const msgId = String(msgActions.msg.message_id);
               setMsgActions(null);
               msgApi.delete(msgId).then(() => {
                 messageSync.removeMessage(id!, msgId);
@@ -2116,8 +2103,7 @@ export function ChatPage() {
           members={members}
           isOwner={isOwner}
           isAdmin={isAdmin}
-          currentUserId={strUserId}
-          numericUserId={numericUserId}
+          currentUserId={currentUserId}
           open={groupInfoOpen}
           onClose={() => setGroupInfoOpen(false)}
           onMembersChange={() => { refetchMembers(); queryClient.invalidateQueries({ queryKey: ['conversation', id] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }}

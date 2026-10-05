@@ -72,17 +72,17 @@ export interface UserSettings {
 }
 
 // ─── Conversation ───
-export type ConvType = 'private' | 'group';
+export type ConvType = 'private' | 'group' | 'system';
 
 export interface Conversation {
-  id: number;
+  id: number | string;
   type: ConvType;
   name: string;
   avatar: string;
-  owner_id: number;
+  owner_id: number | string;
   member_count: number;
   max_seq: number;
-  last_message_id: number;
+  last_message_id: number | string;
   last_message_preview: string;
   last_read_seq: number;
   unread_count: number;
@@ -137,8 +137,8 @@ export interface BotInConv {
 export type MsgType = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 export interface ReplySummary {
-  message_id: number;
-  sender_id: number;
+  message_id: number | string;
+  sender_id: number | string;
   sender_type: string;
   sender_name: string;
   type: MsgType;
@@ -231,14 +231,14 @@ export type MsgContentOneof =
   | { custom: CustomContent };
 
 export interface Message {
-  message_id: number;
-  conversation_id: number;
+  message_id: number | string;
+  conversation_id: number | string;
   seq: number;
-  from_user_id: number;
+  from_user_id: number | string;
   type: MsgType;
   status: number; // 1=normal, 2=recalled, 3=edited, 4=streaming
   content: MsgContentOneof;
-  reply_to_id?: number;
+  reply_to_id?: number | string;
   reply_to?: ReplySummary;
   edited_at: number;
   edit_count: number;
