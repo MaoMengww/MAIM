@@ -7,8 +7,8 @@ CREATE SCHEMA IF NOT EXISTS bot;
 CREATE SCHEMA IF NOT EXISTS file;
 CREATE SCHEMA IF NOT EXISTS knowledge;
 CREATE SCHEMA IF NOT EXISTS llm;
-CREATE SCHEMA IF NOT EXISTS msg;
-CREATE SCHEMA IF NOT EXISTS notify;
+CREATE SCHEMA IF NOT EXISTS messaging;
+CREATE SCHEMA IF NOT EXISTS realtime;
 CREATE SCHEMA IF NOT EXISTS "user";
 
 -- =========== Migration tracking ===========
@@ -67,9 +67,9 @@ CREATE INDEX IF NOT EXISTS idx_user_devices_user_id ON "user".user_devices(user_
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_blocks_pair ON "user".user_blocks(user_id, blocked_user_id);
 CREATE INDEX IF NOT EXISTS idx_user_blocks_user ON "user".user_blocks(user_id);
 
--- =========== msg domain ===========
+-- =========== messaging domain ===========
 
-CREATE TABLE IF NOT EXISTS msg.messages (
+CREATE TABLE IF NOT EXISTS messaging.messages (
     id              BIGINT PRIMARY KEY,
     conv_id         BIGINT,
     sender_id       BIGINT,
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS msg.messages (
     updated_at      TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS msg.user_inbox (
+CREATE TABLE IF NOT EXISTS messaging.user_inbox (
     user_id       BIGINT NOT NULL,
     conv_id       BIGINT NOT NULL,
     message_id    BIGINT NOT NULL,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS msg.user_inbox (
     PRIMARY KEY (user_id, conv_id, seq)
 );
 
-CREATE TABLE IF NOT EXISTS msg.broadcasts (
+CREATE TABLE IF NOT EXISTS messaging.broadcasts (
     id              BIGINT PRIMARY KEY,
     sender_id       BIGINT NOT NULL,
     content         JSONB DEFAULT '{}'::JSONB NOT NULL,
@@ -105,12 +105,12 @@ CREATE TABLE IF NOT EXISTS msg.broadcasts (
     created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS msg.sequences (
+CREATE TABLE IF NOT EXISTS messaging.sequences (
     conv_id     BIGINT PRIMARY KEY,
     current_seq BIGINT DEFAULT 0 NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS msg.failed_events (
+CREATE TABLE IF NOT EXISTS messaging.failed_events (
     id          BIGINT PRIMARY KEY,
     topic       VARCHAR(64) NOT NULL,
     key         VARCHAR(64) NOT NULL,
@@ -120,10 +120,10 @@ CREATE TABLE IF NOT EXISTS msg.failed_events (
     created_at  TIMESTAMPTZ,
     updated_at  TIMESTAMPTZ
 );
-CREATE SEQUENCE IF NOT EXISTS msg.failed_events_id_seq;
-ALTER SEQUENCE msg.failed_events_id_seq OWNED BY msg.failed_events.id;
+CREATE SEQUENCE IF NOT EXISTS messaging.failed_events_id_seq;
+ALTER SEQUENCE messaging.failed_events_id_seq OWNED BY messaging.failed_events.id;
 
-CREATE TABLE IF NOT EXISTS msg.outbox_events (
+CREATE TABLE IF NOT EXISTS messaging.outbox_events (
     id            BIGINT PRIMARY KEY,
     topic         VARCHAR(64) NOT NULL,
     key           VARCHAR(128) NOT NULL,
@@ -137,18 +137,18 @@ CREATE TABLE IF NOT EXISTS msg.outbox_events (
     dispatched_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_messages_conv_seq ON msg.messages(conv_id, seq);
-CREATE INDEX IF NOT EXISTS idx_messages_sender ON msg.messages(sender_id);
-CREATE INDEX IF NOT EXISTS idx_messages_created ON msg.messages(created_at);
-CREATE INDEX IF NOT EXISTS idx_conv_seq ON msg.messages(conv_id);
-CREATE INDEX IF NOT EXISTS idx_user_inbox_conv ON msg.user_inbox(user_id, conv_id);
-CREATE INDEX IF NOT EXISTS idx_user_inbox_covering ON msg.user_inbox(user_id, conv_id, seq DESC) INCLUDE (message_id, created_at) WHERE (is_deleted = FALSE);
-CREATE INDEX IF NOT EXISTS idx_outbox_pending ON msg.outbox_events(status, next_retry_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_conv_seq ON messaging.messages(conv_id, seq);
+CREATE INDEX IF NOT EXISTS idx_messages_sender ON messaging.messages(sender_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON messaging.messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_conv_seq ON messaging.messages(conv_id);
+CREATE INDEX IF NOT EXISTS idx_user_inbox_conv ON messaging.user_inbox(user_id, conv_id);
+CREATE INDEX IF NOT EXISTS idx_user_inbox_covering ON messaging.user_inbox(user_id, conv_id, seq DESC) INCLUDE (message_id, created_at) WHERE (is_deleted = FALSE);
+CREATE INDEX IF NOT EXISTS idx_outbox_pending ON messaging.outbox_events(status, next_retry_at, created_at);
 
--- =========== msg domain (conversations and membership) ===========
+-- =========== messaging domain (conversations and membership) ===========
 -- Compose executes SQL without recording versions, so an existing conv schema
--- must be left for 009 to inspect and move. Do not manufacture empty msg copies
--- or mask genuine source/target conflicts before that migration runs.
+-- must be left for 009 to inspect and move. Do not manufacture empty messaging
+-- copies or mask genuine source/target conflicts before that migration runs.
 DO $$
 BEGIN
     PERFORM pg_advisory_xact_lock(4278605, 1);
@@ -157,7 +157,7 @@ BEGIN
     END IF;
 
 
-CREATE TABLE IF NOT EXISTS msg.conversations (
+CREATE TABLE IF NOT EXISTS messaging.conversations (
     id                   BIGINT PRIMARY KEY,
     type                 INTEGER,
     name                 TEXT,
@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS msg.conversations (
     updated_at           TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS msg.conv_members (
+CREATE TABLE IF NOT EXISTS messaging.conv_members (
     id          BIGINT PRIMARY KEY,
     conv_id     BIGINT,
     user_id     BIGINT,
@@ -187,7 +187,7 @@ CREATE TABLE IF NOT EXISTS msg.conv_members (
     joined_at   TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS msg.conv_read_seqs (
+CREATE TABLE IF NOT EXISTS messaging.conv_read_seqs (
     id             BIGINT PRIMARY KEY,
     conv_id        BIGINT,
     user_id        BIGINT,
@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS msg.conv_read_seqs (
     read_at        TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS msg.conv_settings (
+CREATE TABLE IF NOT EXISTS messaging.conv_settings (
     id        BIGINT PRIMARY KEY,
     conv_id   BIGINT,
     user_id   BIGINT,
@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS msg.conv_settings (
     is_pinned BOOLEAN
 );
 
-CREATE TABLE IF NOT EXISTS msg.conv_bots (
+CREATE TABLE IF NOT EXISTS messaging.conv_bots (
     id                BIGINT PRIMARY KEY,
     conv_id           BIGINT,
     bot_id            BIGINT,
@@ -212,17 +212,17 @@ CREATE TABLE IF NOT EXISTS msg.conv_bots (
     bot_settings      TEXT,
     created_at        TIMESTAMPTZ
 );
-CREATE SEQUENCE IF NOT EXISTS msg.conv_bots_id_seq;
-ALTER SEQUENCE msg.conv_bots_id_seq OWNED BY msg.conv_bots.id;
+CREATE SEQUENCE IF NOT EXISTS messaging.conv_bots_id_seq;
+ALTER SEQUENCE messaging.conv_bots_id_seq OWNED BY messaging.conv_bots.id;
 
-CREATE INDEX IF NOT EXISTS idx_conv_members_conv ON msg.conv_members(conv_id);
-CREATE INDEX IF NOT EXISTS idx_conv_members_user ON msg.conv_members(user_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_members_pair ON msg.conv_members(conv_id, user_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_read_seqs_pair ON msg.conv_read_seqs(conv_id, user_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_settings_pair ON msg.conv_settings(conv_id, user_id);
-CREATE INDEX IF NOT EXISTS idx_conv_bots_conv ON msg.conv_bots(conv_id);
-CREATE INDEX IF NOT EXISTS idx_conv_bots_bot ON msg.conv_bots(bot_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_bots_pair ON msg.conv_bots(conv_id, bot_id);
+CREATE INDEX IF NOT EXISTS idx_conv_members_conv ON messaging.conv_members(conv_id);
+CREATE INDEX IF NOT EXISTS idx_conv_members_user ON messaging.conv_members(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_members_pair ON messaging.conv_members(conv_id, user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_read_seqs_pair ON messaging.conv_read_seqs(conv_id, user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_settings_pair ON messaging.conv_settings(conv_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_conv_bots_conv ON messaging.conv_bots(conv_id);
+CREATE INDEX IF NOT EXISTS idx_conv_bots_bot ON messaging.conv_bots(bot_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_bots_pair ON messaging.conv_bots(conv_id, bot_id);
 END
 $$;
 
@@ -558,9 +558,9 @@ CREATE INDEX IF NOT EXISTS idx_billing_records_bot ON llm.billing_records(bot_id
 CREATE INDEX IF NOT EXISTS idx_billing_records_owner ON llm.billing_records(owner_id);
 CREATE INDEX IF NOT EXISTS idx_billing_records_time ON llm.billing_records(created_at);
 
--- =========== notify domain ===========
+-- =========== realtime domain ===========
 
-CREATE TABLE IF NOT EXISTS notify.notifications (
+CREATE TABLE IF NOT EXISTS realtime.notifications (
     id           BIGINT PRIMARY KEY,
     user_id      BIGINT,
     type         INTEGER,
@@ -571,7 +571,7 @@ CREATE TABLE IF NOT EXISTS notify.notifications (
     created_at   BIGINT
 );
 
-CREATE TABLE IF NOT EXISTS notify.device_tokens (
+CREATE TABLE IF NOT EXISTS realtime.device_tokens (
     id        BIGINT PRIMARY KEY,
     user_id   BIGINT,
     device_id VARCHAR(128),
@@ -581,9 +581,9 @@ CREATE TABLE IF NOT EXISTS notify.device_tokens (
     created_at BIGINT,
     updated_at BIGINT
 );
-CREATE SEQUENCE IF NOT EXISTS notify.device_tokens_id_seq;
-ALTER SEQUENCE notify.device_tokens_id_seq OWNED BY notify.device_tokens.id;
+CREATE SEQUENCE IF NOT EXISTS realtime.device_tokens_id_seq;
+ALTER SEQUENCE realtime.device_tokens_id_seq OWNED BY realtime.device_tokens.id;
 
-CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notify.notifications(user_id);
-CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notify.notifications(user_id, is_read);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_user_device ON notify.device_tokens(user_id, device_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON realtime.notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON realtime.notifications(user_id, is_read);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_device ON realtime.device_tokens(user_id, device_id);

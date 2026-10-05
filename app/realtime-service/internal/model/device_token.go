@@ -11,4 +11,4 @@ type DeviceToken struct {
 	UpdatedAt int64
 }
 
-func (DeviceToken) TableName() string { return "notify.device_tokens" }
+func (DeviceToken) TableName() string { return "realtime.device_tokens" }

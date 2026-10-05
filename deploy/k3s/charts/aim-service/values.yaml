@@ -62,7 +62,7 @@ environment:
   BOT_RUNTIME_ADDR: "dns:///aim-bot-runtime:50058"
   KNOWLEDGE_BASE_ADDR: "dns:///aim-knowledge-base:50057"
   LLM_GATEWAY_ADDR: "dns:///aim-llm-gateway:50056"
-  REALTIME_SERVICE_ADDR: "dns:///aim-realtime-service:50061"
+  REALTIME_SERVICE_ADDR: "dns:///aim-realtime-service:50059"
 
 
 resources:

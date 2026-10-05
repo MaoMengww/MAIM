@@ -16,7 +16,6 @@ RateLimit:
 Ingest:
   RequestsPerSecond: ${INGEST_REQUESTS_PER_SECOND}
   Concurrency: ${INGEST_CONCURRENCY}
-  HealthPort: 9092
   MetricsPort: 9118
   EmbeddingToken: ${INGEST_EMBEDDING_TOKEN}
 

@@ -7,26 +7,26 @@ scrape_configs:
     static_configs:
       - targets: ['otel-collector:8889']
 
+  # Gateway serves /metrics on its main HTTP listener (router registers the
+  # handler on the same server that listens on 8080); the Metrics.Port config
+  # field is not wired to a separate listener.
   - job_name: 'gateway'
     metrics_path: /metrics
     static_configs:
-      - targets: ['172.27.95.205:8080']
+      - targets: ['aim-gateway:8080']
 
   - job_name: 'realtime-service'
     static_configs:
-      - targets: ['realtime-service:9090']
+      - targets: ['aim-realtime-service:9103']
 
   - job_name: 'rpc-services'
     static_configs:
       - targets:
-        - '172.27.95.205:9094'
-        - '172.27.95.205:9101'
-        - '172.27.95.205:9102'
-        - '172.27.95.205:9103'
-        - '172.27.95.205:9104'
-        - '172.27.95.205:9105'
-        - '172.27.95.205:9106'
-        - '172.27.95.205:9107'
-        - '172.27.95.205:9108'
-        - '172.27.95.205:9109'
-        - '172.27.95.205:9110'
+        - 'aim-user-service:9101'
+        - 'aim-message-service:9102'
+        - 'aim-file-service:9105'
+        - 'aim-llm-gateway:9107'
+        - 'aim-knowledge-base:9108'
+        - 'aim-bot-service:9109'
+        - 'aim-bot-runtime:9119'
+        - 'aim-knowledge-ingest:9118'

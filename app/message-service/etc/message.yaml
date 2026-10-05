@@ -3,7 +3,7 @@ ListenOn: 0.0.0.0:50053
 
 Database:
   driver: postgres
-  dsn: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=msg
+  dsn: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=messaging
   maxOpenConn: 200
   maxIdleConn: 200
   maxLifetime: 3600

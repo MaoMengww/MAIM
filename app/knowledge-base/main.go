@@ -26,7 +26,9 @@ import (
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
+	prommetrics "github.com/maomeng/aim/pkg/metrics"
 	"github.com/zeromicro/go-zero/core/conf"
+	"github.com/zeromicro/go-zero/core/prometheus"
 	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"
@@ -49,7 +51,12 @@ func main() {
 		}
 		c.Name = "knowledge-ingest"
 		c.Telemetry.Name = c.Name
-		c.Prometheus.Port = c.Ingest.MetricsPort
+		// The ingest role serves /health and /metrics from one listener on
+		// Ingest.MetricsPort, so it must not also start go-zero's standalone
+		// prometheus agent. Enable metric collection explicitly, since the
+		// agent is what normally flips the flag.
+		c.Prometheus.Host = ""
+		prometheus.Enable()
 		c.ServiceConf.MustSetUp()
 	}
 	resources := svc.NewServiceContext(c, *role)
@@ -135,25 +142,27 @@ func runIngest(c config.Config, h *handler.DocumentUploadedHandler, logger logx.
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", c.Ingest.HealthPort))
+	mux.Handle("GET /metrics", prommetrics.Handler())
+	// One listener serves both /health and /metrics on the ingest metrics port.
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", c.Ingest.MetricsPort))
 	if err != nil {
-		return fmt.Errorf("listen ingest health: %w", err)
+		return fmt.Errorf("listen ingest metrics: %w", err)
 	}
-	health := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-	healthDone := make(chan error, 1)
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	serverDone := make(chan error, 1)
 	go func() {
-		err := health.Serve(listener)
+		err := server.Serve(listener)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			stop()
 		}
-		healthDone <- err
+		serverDone <- err
 	}()
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = health.Shutdown(shutdownCtx)
+		_ = server.Shutdown(shutdownCtx)
 	}()
-	logger.Infof("starting knowledge-ingest consumer group=%s health_port=%d metrics_port=%d concurrency=%d requests_per_second=%d", c.Kafka.ConsumerGroup, c.Ingest.HealthPort, c.Ingest.MetricsPort, c.Ingest.Concurrency, c.Ingest.RequestsPerSecond)
+	logger.Infof("starting knowledge-ingest consumer group=%s metrics_port=%d concurrency=%d requests_per_second=%d", c.Kafka.ConsumerGroup, c.Ingest.MetricsPort, c.Ingest.Concurrency, c.Ingest.RequestsPerSecond)
 	for ctx.Err() == nil {
 		err := consumer.Consume(ctx, h)
 		h.Ready.Store(false)
@@ -169,7 +178,7 @@ func runIngest(c config.Config, h *handler.DocumentUploadedHandler, logger logx.
 		}
 	}
 	select {
-	case err := <-healthDone:
+	case err := <-serverDone:
 		if !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}

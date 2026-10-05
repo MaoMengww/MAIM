@@ -55,7 +55,7 @@ type OutboxEvent struct {
 }
 
 func (OutboxEvent) TableName() string {
-	return "msg.outbox_events"
+	return "messaging.outbox_events"
 }
 
 // UnmarshalPayload unmarshals the JSONB payload into the given target.

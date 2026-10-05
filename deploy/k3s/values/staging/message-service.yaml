@@ -1,7 +1,7 @@
 replicaCount: 1
 service:
   grpcPort: 50053
-  metricsPort: 9101
+  metricsPort: 9102
 config:
   name: message-service
   configFilename: message

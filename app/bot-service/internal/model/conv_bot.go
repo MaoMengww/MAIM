@@ -12,4 +12,4 @@ type ConvBot struct {
 	CreatedAt   time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 }
 
-func (ConvBot) TableName() string { return "msg.conv_bots" }
+func (ConvBot) TableName() string { return "messaging.conv_bots" }

@@ -26,7 +26,7 @@ APPLICATIONS = {
     "file-service": ("file-service", "file.yaml", "grpc", 50054, []),
     "llm-gateway": ("llm-gateway", "llm-gateway.yaml", "grpc", 50056, []),
     "knowledge-base": ("knowledge-base", "knowledge-base.yaml", "grpc", 50057, []),
-    "knowledge-ingest": ("knowledge-base", "knowledge-base.yaml", "http", 9092, ["-role", "ingest"]),
+    "knowledge-ingest": ("knowledge-base", "knowledge-base.yaml", "http", 9118, ["-role", "ingest"]),
     "bot-service": ("bot-service", "bot.yaml", "grpc", 50058, ["-role", "control"]),
     "bot-runtime": ("bot-service", "bot.yaml", "grpc", 50058, ["-role", "runtime"]),
     "realtime-service": ("realtime-service", "realtime.yaml", "http", 8081, []),

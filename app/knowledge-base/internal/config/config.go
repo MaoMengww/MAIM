@@ -24,7 +24,6 @@ type Config struct {
 type IngestConfig struct {
 	RequestsPerSecond int    `json:"requestsPerSecond,default=5"`
 	Concurrency       int    `json:"concurrency,default=2"`
-	HealthPort        int    `json:"healthPort,default=9092"`
 	MetricsPort       int    `json:"metricsPort,default=9118"`
 	EmbeddingToken    string `json:"embeddingToken,optional"`
 }

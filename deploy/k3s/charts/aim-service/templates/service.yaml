@@ -30,7 +30,9 @@ spec:
       name: ws
       protocol: TCP
     {{- end }}
+    {{- if .Values.service.metricsPort }}
     - port: {{ .Values.service.metricsPort }}
       targetPort: metrics
       name: metrics
       protocol: TCP
+    {{- end }}

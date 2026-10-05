@@ -31,7 +31,7 @@ x-aim-env: &aim-env
   BOT_RUNTIME_ADDR: dns:///bot-runtime:50058
   KNOWLEDGE_BASE_ADDR: dns:///knowledge-base:50057
   LLM_GATEWAY_ADDR: dns:///llm-gateway:50056
-  REALTIME_SERVICE_ADDR: dns:///realtime-service:50061
+  REALTIME_SERVICE_ADDR: dns:///realtime-service:50059
   REALTIME_HEARTBEAT_INTERVAL: ${REALTIME_HEARTBEAT_INTERVAL:-30}
   REALTIME_REGISTRY_TTL_SECONDS: ${REALTIME_REGISTRY_TTL_SECONDS:-90}
   REALTIME_INSTANCE_ID: ${REALTIME_INSTANCE_ID:-}
@@ -483,7 +483,7 @@ services:
     command: ["-f", "/app/etc/realtime.yaml"]
     environment: *aim-env
     ports:
-      - "50061:50061"
+      - "50059:50059"
       - "8081:8081"
     stop_grace_period: 60s
     healthcheck:

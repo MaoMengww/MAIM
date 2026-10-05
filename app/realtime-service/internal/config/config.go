@@ -9,7 +9,7 @@ type Config struct {
 	Name           string                `json:"Name"`
 	Host           string                `json:"Host,default=0.0.0.0"`
 	Port           int                   `json:"Port,default=8081"`
-	ListenOn       string                `json:"ListenOn,default=0.0.0.0:50061"`
+	ListenOn       string                `json:"ListenOn,default=0.0.0.0:50059"`
 	WebSocket      WebSocketConfig       `json:"WebSocket"`
 	JWT            config.JWTConfig      `json:"JWT"`
 	Redis          config.RedisConfig    `json:"Redis"`
@@ -42,7 +42,7 @@ type ShutdownConfig struct {
 	TimeoutSeconds        int `json:"TimeoutSeconds,default=30"`
 }
 type MetricsConfig struct {
-	Port int `json:"Port,default=9090"`
+	Port int `json:"Port,default=9103"`
 }
 type TelemetryConfig struct {
 	Name     string  `json:"Name,optional"`

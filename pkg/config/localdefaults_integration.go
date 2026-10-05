@@ -34,7 +34,7 @@ var localDefaults = map[string]string{
 	"BOT_ENCRYPTION_KEY":                "0123456789abcdef0123456789abcdef",
 	"KNOWLEDGE_BASE_ADDR":               "dns:///localhost:50057",
 	"LLM_GATEWAY_ADDR":                  "dns:///localhost:50056",
-	"REALTIME_SERVICE_ADDR":             "dns:///localhost:50061",
+	"REALTIME_SERVICE_ADDR":             "dns:///localhost:50059",
 	"REALTIME_HEARTBEAT_INTERVAL":       "30",
 	"REALTIME_REGISTRY_TTL_SECONDS":     "90",
 	"REALTIME_INSTANCE_ID":              "",

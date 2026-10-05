@@ -48,9 +48,9 @@ func (r *SequenceRepo) SetCurrentSeq(ctx context.Context, convID int64, seq int6
 func (r *SequenceRepo) NextSeq(ctx context.Context, db *gorm.DB, convID int64) (int64, error) {
 	var nextSeq int64
 	err := db.WithContext(ctx).Raw(`
-		INSERT INTO msg.sequences (conv_id, current_seq)
+		INSERT INTO messaging.sequences (conv_id, current_seq)
 		VALUES (?, 1)
-		ON CONFLICT (conv_id) DO UPDATE SET current_seq = msg.sequences.current_seq + 1
+		ON CONFLICT (conv_id) DO UPDATE SET current_seq = messaging.sequences.current_seq + 1
 		RETURNING current_seq
 	`, convID).Scan(&nextSeq).Error
 	return nextSeq, err

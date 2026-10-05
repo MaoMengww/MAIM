@@ -23,7 +23,7 @@ import (
 func cleanupConversation(t *testing.T, svcCtx *svc.ServiceContext, convID int64) {
 	t.Helper()
 	for _, table := range []string{"conv_bots", "conv_settings", "conv_read_seqs", "conv_members"} {
-		require.NoError(t, svcCtx.DB.Exec("DELETE FROM msg."+table+" WHERE conv_id = ?", convID).Error)
+		require.NoError(t, svcCtx.DB.Exec("DELETE FROM messaging."+table+" WHERE conv_id = ?", convID).Error)
 	}
 	require.NoError(t, svcCtx.ConversationRepo.DeleteConversation(context.Background(), convID))
 }
@@ -250,7 +250,7 @@ func TestConversationReadStatus(t *testing.T) {
 	})
 
 	// A read position cannot advance beyond the conversation's persisted maximum.
-	require.NoError(t, svcCtx.DB.Exec(`UPDATE msg.conversations SET max_seq = ? WHERE id = ?`, int64(100), convID).Error)
+	require.NoError(t, svcCtx.DB.Exec(`UPDATE messaging.conversations SET max_seq = ? WHERE id = ?`, int64(100), convID).Error)
 	// Mark as read
 	readLogic := conversationservice.NewMarkAsReadLogic(ctx, svcCtx)
 	_, err = readLogic.MarkAsRead(&convpb.MarkAsReadReq{

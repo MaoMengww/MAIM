@@ -3,9 +3,9 @@ args: ["-f", "/app/etc/realtime.yaml"]
 terminationGracePeriodSeconds: 60
 service:
   type: ClusterIP
-  grpcPort: 50061
+  grpcPort: 50059
   wsPort: 8081
-  metricsPort: 9090
+  metricsPort: 9103
 probes:
   httpPort: 8081
   readinessPath: /readiness

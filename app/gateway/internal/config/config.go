@@ -28,10 +28,6 @@ type TimeoutConfig struct {
 	BotMs     int `json:"botMs,default=60000"`
 }
 
-type MetricsConfig struct {
-	Port int `json:"port,default=9091"`
-}
-
 type TelemetryConfig struct {
 	Name     string  `json:"name,optional"`
 	Endpoint string  `json:"endpoint,optional"`
@@ -48,7 +44,6 @@ type Config struct {
 	RateLimit RateLimitConfig    `json:"rateLimit"`
 	Timeout   TimeoutConfig      `json:"timeout"`
 	Redis     config.RedisConfig `json:"redis"`
-	Metrics   MetricsConfig      `json:"metrics"`
 	Log       config.LogConfig   `json:"log"`
 	Telemetry TelemetryConfig    `json:"telemetry"`
 }

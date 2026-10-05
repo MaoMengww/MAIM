@@ -31,9 +31,6 @@ Redis:
   DB: 0
   PoolSize: 100
 
-Metrics:
-  Port: 9091
-
 Log:
   Level: info
   Format: console

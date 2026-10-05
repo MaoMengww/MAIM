@@ -1,7 +1,7 @@
 Name: realtime-service
 Host: 0.0.0.0
 Port: 8081
-ListenOn: 0.0.0.0:50061
+ListenOn: 0.0.0.0:50059
 WebSocket:
   ReadBufferSize: 1024
   WriteBufferSize: 1024
@@ -25,7 +25,7 @@ Redis:
   DB: 0
 Database:
   Driver: postgres
-  DSN: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=notify
+  DSN: ${POSTGRES_DSN_BASE}?sslmode=disable&search_path=realtime
   MaxOpenConn: 50
   MaxIdleConn: 10
 Kafka:
@@ -39,7 +39,7 @@ MessageService:
   Target: ${MESSAGE_SERVICE_ADDR}
   NonBlock: true
 Metrics:
-  Port: 9090
+  Port: 9103
 Log:
   Level: info
   Format: json

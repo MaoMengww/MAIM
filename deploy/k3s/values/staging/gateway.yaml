@@ -2,8 +2,11 @@ replicaCount: 1
 service:
   type: ClusterIP
   headless: false
-  grpcPort: 8080
-  httpPort: null
-  metricsPort: 9091
+  # gateway 不提供 gRPC：只用一个 HTTP 监听承载 REST、/metrics 与 /health。
+  grpcPort: null
+  httpPort: 8080
+  metricsPort: null
+probes:
+  httpPort: 8080
 config:
   name: gateway

@@ -45,28 +45,51 @@ deploy_infra() {
   echo "Infrastructure ready"
 }
 
-init_db() {
-  echo "=== Running database migrations ==="
-  PG_POD=$(kubectl get pods -l app=aim-postgres -o jsonpath='{.items[0].metadata.name}')
-  [ -z "$PG_POD" ] && { echo "PostgreSQL not running!"; exit 1; }
-  for f in "$PROJECT_ROOT/migrations/postgres"/*.sql; do
-    echo "Running $f..."
-    kubectl exec "$PG_POD" -- psql -U aim -d aim -f - < "$f" 2>/dev/null
-  done
-  echo "Migrations complete"
-}
-
-
 deploy_services() {
+  # Schema migrations are not replayed from SQL files here: every service runs the
+  # versioned migrations (migrations/postgres, advisory-locked) on startup, so an
+  # untracked replay would only re-apply 000 against an already-migrated database.
   echo "=== Deploying all services ==="
   : "${INGEST_EMBEDDING_TOKEN:?Set the private ingestion quota token before deploying}"
   kubectl create secret generic aim-ingest-embedding \
     --from-literal=token="$INGEST_EMBEDDING_TOKEN" \
     --dry-run=client -o yaml | kubectl apply -f -
-  for svc in "${WORKLOADS[@]}"; do
-    echo "Installing aim-${svc}..."
-    helm install "aim-${svc}" "$K3S_ROOT/charts/aim-service/" \
-      -f "$K3S_ROOT/values/staging/${svc}.yaml" 2>&1 | grep STATUS
+  for wl in "${WORKLOADS[@]}"; do
+    # Secondary roles reuse their domain's values file and are instantiated with
+    # explicit --set overrides instead of a dedicated values file.
+    case "$wl" in
+      bot-runtime)
+        values_file=bot-service.yaml
+        set_args=(
+          --set config.name=bot-runtime
+          --set image.name=bot-service
+          --set 'args={-f,/app/etc/bot.yaml,-role,runtime}'
+          --set service.metricsPort=9119
+          --set config.extraEnv.BOT_METRICS_PORT=9119
+        )
+        ;;
+      knowledge-ingest)
+        values_file=knowledge-base.yaml
+        set_args=(
+          --set config.name=knowledge-ingest
+          --set image.name=knowledge-base
+          --set 'args={-f,/app/etc/knowledge-base.yaml,-role,ingest}'
+          --set service.grpcPort=null
+          --set service.httpPort=9118
+          --set service.metricsPort=9118
+          --set probes.httpPort=9118
+          --set config.secretEnv.INGEST_EMBEDDING_TOKEN.name=aim-ingest-embedding
+          --set config.secretEnv.INGEST_EMBEDDING_TOKEN.key=token
+        )
+        ;;
+      *)
+        values_file="${wl}.yaml"
+        set_args=()
+        ;;
+    esac
+    echo "Installing aim-${wl}..."
+    helm install "aim-${wl}" "$K3S_ROOT/charts/aim-service/" \
+      -f "$K3S_ROOT/values/staging/${values_file}" "${set_args[@]}" 2>&1 | grep STATUS
   done
   echo "All services deployed"
   echo ""
@@ -101,7 +124,6 @@ case "$ACTION" in
   deploy)
     deploy_infra
     sleep 5
-    init_db
     deploy_services
     deploy_ingress
     start_forwards
@@ -111,7 +133,6 @@ case "$ACTION" in
     import_images
     deploy_infra
     sleep 5
-    init_db
     deploy_services
     deploy_ingress
     start_forwards

@@ -112,20 +112,56 @@ releases:
     values:
       - values/{{ .Environment.Name }}/knowledge-base.yaml
 
+  # Ingest role: same knowledge-base image/values, overridden to run as a
+  # gRPC-less worker whose single HTTP listener serves both /health and /metrics.
   - name: aim-knowledge-ingest
     chart: ./charts/aim-service
     values:
-      - values/{{ .Environment.Name }}/knowledge-ingest.yaml
+      - values/{{ .Environment.Name }}/knowledge-base.yaml
+      - config:
+          name: knowledge-ingest
+          secretEnv:
+            INGEST_EMBEDDING_TOKEN:
+              name: aim-ingest-embedding
+              key: token
+        image:
+          name: knowledge-base
+        args:
+          - "-f"
+          - "/app/etc/knowledge-base.yaml"
+          - "-role"
+          - "ingest"
+        service:
+          grpcPort: null
+          httpPort: 9118
+          metricsPort: 9118
+        probes:
+          httpPort: 9118
 
   - name: aim-bot-service
     chart: ./charts/aim-service
     values:
       - values/{{ .Environment.Name }}/bot-service.yaml
 
+  # Runtime side of the bot domain: same bot-service image/values, overridden to
+  # run the runtime role on its own metrics port.
   - name: aim-bot-runtime
     chart: ./charts/aim-service
     values:
-      - values/{{ .Environment.Name }}/bot-runtime.yaml
+      - values/{{ .Environment.Name }}/bot-service.yaml
+      - config:
+          name: bot-runtime
+          extraEnv:
+            BOT_METRICS_PORT: "9119"
+        image:
+          name: bot-service
+        args:
+          - "-f"
+          - "/app/etc/bot.yaml"
+          - "-role"
+          - "runtime"
+        service:
+          metricsPort: 9119
 
   - name: aim-realtime-service
     chart: ./charts/aim-service

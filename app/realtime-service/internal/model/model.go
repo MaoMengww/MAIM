@@ -11,4 +11,4 @@ type Notification struct {
 	CreatedAt   int64
 }
 
-func (Notification) TableName() string { return "notify.notifications" }
+func (Notification) TableName() string { return "realtime.notifications" }

@@ -40,9 +40,11 @@ spec:
               name: ws
               protocol: TCP
             {{- end }}
+            {{- if .Values.service.metricsPort }}
             - containerPort: {{ .Values.service.metricsPort }}
               name: metrics
               protocol: TCP
+            {{- end }}
           env:
             {{- range $k, $v := .Values.environment }}
             - name: {{ $k }}

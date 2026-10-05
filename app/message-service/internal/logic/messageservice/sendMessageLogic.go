@@ -38,7 +38,7 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 
 	// 1. 幂等校验
 	if in.ClientMsgId != "" {
-		key := fmt.Sprintf("msg:idempotent:%s", in.ClientMsgId)
+		key := fmt.Sprintf("messaging:idempotent:%s", in.ClientMsgId)
 		ok, err := l.svcCtx.Redis.SetNX(ctx, key, "1", consts.MsgIdempotentTTL).Result()
 		if err != nil {
 			l.Errorf("idempotent check failed: %v", err)

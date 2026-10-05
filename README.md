@@ -1,16 +1,17 @@
-# MAIM
+# AIM
 
-> **AI-Native Instant Messaging Platform** — 微服务架构 · LLM Bot 引擎 · RAG 知识库 · k3s 集群部署
+> **AI-Native Instant Messaging Platform** — IM 平台 · LLM Bot 引擎 · RAG 知识库 · k3s 集群部署
 
 ---
 
 ## 项目概要
 
-MAIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型深度融入实时通讯场景。当前由 **8 个 Go 服务、10 个业务工作负载** 构成；Bot 控制面与运行时同属 bot-service，在线检索与入库同属 knowledge-base，两者分别保留独立进程与副本。realtime-service 统一长连接、连接登记、定向投递与离线推送，通过 **Helmfile + k3s** 声明式部署。
+AIM 是一个面向 AI 时代的即时通讯后端平台，将大语言模型深度融入实时通讯场景。当前由 **8 个 domain 服务、10 个业务工作负载** 构成；Bot 控制面与运行时同属 bot-service，在线检索与入库同属 knowledge-base，两者分别保留独立工作负载与副本。realtime-service 统一长连接、连接登记、定向投递与离线推送，通过 **Helmfile + k3s** 声明式部署。
 
 - **定位**：IM 平台 + AI Bot 引擎 + 知识库 RAG，三者一体化
 - **规模**：8 个 Go 服务，gRPC + Kafka 通信；账号与好友关系同属 user-service，会话聚合、消息与扇出同属 message-service
-- **部署**：Docker Compose 或 k3s，平台 DNS 发现，YAML 模板 + 环境变量配置
+- **部署**：Docker Compose 或 k3s，平台 DNS 发现，单一 YAML 模板 + 环境变量配置
+- **前端**：`web-client/`（React + Vite），只经 gateway REST 与 realtime WebSocket 访问后端
 
 ---
 
@@ -46,41 +47,82 @@ realtime-service ◀── Kafka delivery.requested ◀── message / bot / kn
 
 ---
 
+## 服务与端口
+
+8 个 domain 服务对应 8 个可独立部署的进程；其中 bot 与 knowledge 各有一个同镜像的**第二角色工作负载**，合计 10 个工作负载。Compose 服务名、Helmfile release 名（`aim-<service>`）与工作负载一一对应。
+
+| domain 服务 | Compose / Helm 工作负载 | gRPC | HTTP | metrics |
+|------|------|------|------|------|
+| user-service | user-service | `50051` | — | `9101` |
+| message-service | message-service | `50053` | — | `9102` |
+| file-service | file-service | `50054` | — | `9105` |
+| llm-gateway | llm-gateway | `50056` | — | `9107` |
+| knowledge-base | knowledge-base（`-role online`） | `50057` | — | `9108` |
+| knowledge-base | knowledge-ingest（`-role ingest`） | — | `9118`（`/health` + `/metrics`） | `9118` |
+| bot-service | bot-service（`-role control`） | `50058` | — | `9109` |
+| bot-service | bot-runtime（`-role runtime`） | `50058` | — | `9119` |
+| realtime-service | realtime-service | `50059` | `8081`（WebSocket + `/readiness`） | `9103` |
+| gateway | gateway | — | `8080`（REST + `/metrics` + `/health`） | — |
+
+**端口规则**（见 ADR-0008）：
+
+- 业务域 gRPC 占 `5005x`，业务域 metrics 占 `91xx`；两者都取该族当前未占用的下一个值，**不复用**合并后释放的空号。
+- 同一 domain 的第二角色 metrics = 基准 `+10`：knowledge-ingest `9118`（在线 `9108`）、bot-runtime `9119`（控制面 `9109`）。
+- 面向客户端的 HTTP/WS 只有两个：gateway `8080`、realtime `8081`；其余工作负载不对外暴露业务 HTTP。
+- 没有对外业务 HTTP 的工作负载把 `/health` 与 `/metrics` 放在**同一个监听**上，不再单开健康检查端口；knowledge-ingest 因此只有 `9118` 一个 HTTP 端口。
+
+### 数据 schema
+
+每个拥有持久化状态的 domain 对应一个同名 PostgreSQL schema（ADR-0002），通过各服务 DSN 的 `search_path` 指定；显式带 schema 前缀的模型（如 `messaging.conv_bots`、`realtime.notifications`）在代码中写全名。
+
+| schema | 归属 |
+|--------|------|
+| `messaging` | message-service：会话与群组、消息、收件箱、seq、outbox |
+| `realtime` | realtime-service：通知与设备令牌 |
+| `user` | user-service：账号、资料、好友关系与黑名单 |
+| `bot` | bot-service：Bot 配置、MCP、记忆与摘要 |
+| `file` | file-service：文件元数据 |
+| `knowledge` | knowledge-base：知识库、文档与分块 |
+| `llm` | llm-gateway：模型注册与计费 |
+
+---
+
 ## 项目结构
 
 ```
 AIM/
-├── app/                              # 8 个 Go 服务
-│   ├── gateway/                      # REST API 网关 (Gin BFF, JWT + 限流)
-│   ├── realtime-service/             # 长连接、连接登记、定向投递、在线状态与离线推送
+├── app/                              # 8 个 domain 服务
+│   ├── gateway/                      # HTTP 入口 (Gin, JWT + 限流 + 协议转换)
 │   ├── user-service/                 # 账号、资料、好友关系、分组与黑名单
-│   ├── message-service/              # 消息域 (会话与群组、消息、收件箱、已读未读)
+│   ├── message-service/              # 消息域 (会话与群组、消息、收件箱、seq、已读未读)
 │   ├── file-service/                 # 文件管理 (MinIO Presigned URL)
-│   ├── llm-gateway/                  # LLM 模型网关 (多厂商路由 + 计费)
+│   ├── llm-gateway/                  # LLM 模型网关 (多厂商路由 + 计费 + 限流)
+│   ├── knowledge-base/               # RAG 在线检索与入库，online/ingest 独立工作负载
 │   ├── bot-service/                  # Bot 控制面 + Eino Agent/MCP/记忆，control/runtime 独立工作负载
-│   └── knowledge-base/               # RAG 在线检索与入库，online/ingest 独立工作负载
+│   └── realtime-service/             # 长连接、连接登记、定向投递、在线状态与离线推送
 │
 ├── deploy/
-│   ├── docker/                       # Dockerfile (多阶段构建) + 入口脚本
+│   ├── docker/                       # Dockerfile (多阶段构建) 与镜像构建脚本/配置
 │   ├── k3s/                          # k3s 部署清单
-│   │   ├── helmfile.yaml             # 集群级 Helmfile (基础设施 + 应用服务)
+│   │   ├── helmfile.yaml             # 集群级 Helmfile (基础设施 + 10 个工作负载 release)
 │   │   ├── charts/aim-service/       # 通用服务 Helm Chart
 │   │   ├── infrastructure/           # 基础设施 Helm Values
-│   │   ├── values/staging/           # 按环境的服务配置
-│   │   └── scripts/                  # 一键构建/部署脚本
+│   │   ├── values/staging/           # 每 domain 一份 values (共 8 份)
+│   │   └── scripts/deploy.sh         # 一键构建/部署脚本
 │   └── monitoring/                   # Grafana 仪表盘 + Prometheus 告警规则
 │
-├── idl/                              # Protobuf IDL 定义 (16 个 .proto 文件)
-├── pkg/                              # 共享工具包 (20+ 子包)
-├── migrations/postgres/              # 数据库 Schema 迁移 SQL
-├── web-client/                       # React 前端
+├── idl/                              # Protobuf IDL 定义 (8 个 .proto)
+├── pkg/                              # 共享工具包 (16 个子包)
+├── migrations/postgres/              # PostgreSQL Schema 迁移 SQL
+├── tests/e2e/                        # 端到端验收 harness (run.py + 验收客户端/外部 provider)
+├── web-client/                       # React 前端 (Vite)
 ├── go.mod                            # Go 1.25.0, go-zero v1.10.1
-└── docker-compose.yml                # 本地开发中间件编排
+└── docker-compose.yml                # 本地开发编排 (中间件 + 应用服务)
 ```
 
 ### go-zero RPC 服务统一布局
 
-每个 go-zero 服务遵循统一目录模式：
+每个 go-zero RPC 服务遵循统一目录模式：
 
 ```
 app/<service>/
@@ -99,11 +141,11 @@ app/<service>/
 
 ### 配置与服务发现
 
-每个服务只保留 `app/<service>/etc/` 的一份 YAML 模板；入口统一通过 `conf.MustLoad(..., conf.UseEnv())` 加载。Compose 的 `x-aim-env` 与 Helm Chart 的 `environment` 提供部署环境，模板不再由启动脚本或 `sed` 改写。
+配置是「**单一 YAML 模板 + `${ENV}` 插值**」：每个服务只保留 `app/<service>/etc/` 的一份模板，入口统一通过 `conf.MustLoad(..., conf.UseEnv())` 加载；Compose 的 `x-aim-env` 与 Helm Chart 的 `environment` 提供部署环境，模板不再由启动脚本或 `sed` 改写，也没有远程配置中心（ADR-0003）。服务发现用平台原生 DNS，不使用 etcd。
 
 - 本地直接启动：参考 `.env.example` 设置环境变量，再执行 `go run ./app/<service> -f app/<service>/etc/<filename>.yaml`；文件名以各服务 `etc/` 为准。
-- Compose：准备 `.env` 中的 Postgres、MinIO、Neo4j、`JWT_SECRET` 与 `AIM_ENC_KEY`，执行 `docker compose up -d --build`。`AIM_ENC_KEY` 必须是 base64 编码的 32 字节密钥。改变环境变量后用 `docker compose up -d --force-recreate <service>` 重建容器，不支持热更新。
-- k3s：在环境 values 中覆盖 Chart 的 `environment`，通过 Helmfile 更新；环境变量改变 Pod template 后触发滚动更新。后端 RPC Service 为 Headless，`dns:///aim-<service>:<port>` 返回各副本地址；gateway 保持普通 ClusterIP。
+- Compose：准备 `.env` 中的 Postgres、MinIO、Neo4j、`JWT_SECRET`、`AIM_ENC_KEY` 与 `INGEST_EMBEDDING_TOKEN`，执行 `docker compose up -d --build`。`AIM_ENC_KEY` 必须是 base64 编码的 32 字节密钥。改变环境变量后用 `docker compose up -d --force-recreate <service>` 重建容器，不支持热更新。
+- k3s：在环境 values（`deploy/k3s/values/staging/`，每 domain 一份）中覆盖 Chart 的 `environment`，通过 Helmfile 更新；环境变量改变 Pod template 后触发滚动更新。后端 RPC Service 为 Headless，`dns:///aim-<service>:<port>` 返回各副本地址；gateway 保持普通 ClusterIP。
 - `KAFKA_BROKERS` 与 `ELASTICSEARCH_ADDRESSES` 是 YAML 列表值，例如 `[kafka:9092]`。部署示例中的凭据只用于开发，生产部署必须覆盖。
 - Milvus standalone 使用内嵌 etcd，将元数据保存在自身持久卷 `/var/lib/milvus/etcd`；没有共享 etcd 容器、初始化任务或 AIM 配置中心。它不是可以改用 DNS 替代的服务发现数据。
 
@@ -126,16 +168,45 @@ make proto
 
 入口在生成前检查工具版本，一次生成 `idl/` 及其服务子目录下的全部 `.proto`。输出只由各文件的 `go_package` 与 `go.mod` 的 module 前缀决定：服务协议写入所属 `app/<service>/pb/<package>/`，共享协议写入 `pkg/pb/<package>/`。不要使用 `source_relative` 拼接输出目录，也不要手改 `.pb.go` 或用 `goctl rpc protoc` 重新覆盖现有服务实现、client、配置与业务代码。新增或修改协议后，重复运行同一命令即可。
 
-### 客户端可见面验收
+---
+
+## 部署
+
+### Docker Compose（本地开发/联调）
+
+`docker-compose.yml` 同时编排基础设施与应用服务：Postgres、Redis、MinIO、Kafka（含 `init-kafka-topics` 幂等建 topic）、Milvus、Elasticsearch、Neo4j、otel-collector、Jaeger、Prometheus、Kibana、Grafana，以及 10 个工作负载（`user-service`、`message-service`、`file-service`、`llm-gateway`、`knowledge-base`、`knowledge-ingest`、`bot-service`、`bot-runtime`、`realtime-service`、`gateway`）。
+
+- MinIO 社区版已改为[仅发布源码](https://github.com/minio/minio#source-only-distribution)，Compose 从固定版本源码构建 `aim-minio`，不再拉取不可用的 `minio/minio:latest`；首次构建需要访问 Go module proxy。
+- 消费者服务等待 `init-kafka-topics` 成功后再启动，避免空环境首次启动时因 topic 不存在退出。
+- 应用配置全部来自 `.env` 与环境变量；变更后需要 `--force-recreate`，不支持热更新。
+
+```bash
+cp .env.example .env   # 填写 Postgres/MinIO/Neo4j 凭据、JWT_SECRET、AIM_ENC_KEY、INGEST_EMBEDDING_TOKEN
+docker compose up -d --build
+```
+
+### k3s（集群部署）
+
+声明式部署基于根目录 `Makefile` 之外的 `deploy/k3s/helmfile.yaml` 与 `deploy/k3s/scripts/deploy.sh`：
+
+```bash
+./deploy/k3s/scripts/deploy.sh all      # build 镜像 + import 到 containerd + 部署基础设施与应用
+```
+
+- `helmfile.yaml` 一次声明基础设施、监控、日志与全部 10 个工作负载 release（`aim-<service>`）。
+- `deploy/k3s/values/staging/` 按环境保存 values，**每个 domain 一份共 8 份**：`user-service`、`message-service`、`file-service`、`llm-gateway`、`knowledge-base`、`bot-service`、`realtime-service`、`gateway`。
+- `bot-runtime` 与 `knowledge-ingest` **不再各自持有 values 文件**（原 `bot-runtime.yaml`、`knowledge-ingest.yaml` 已删除）：helmfile 用同域那份 values + 显式覆盖实例化——`aim-bot-runtime` 基于 `bot-service.yaml` 覆盖 `role=runtime`、`metricsPort=9119`、`config.name`；`aim-knowledge-ingest` 基于 `knowledge-base.yaml` 覆盖 `role=ingest`、`httpPort`/`metricsPort`/`probes`=`9118` 与 `secretEnv`。两者仍可独立设置 `replicaCount`，独立伸缩。
+- 后端 RPC Service 为 Headless（`clusterIP: None`），配合 `dns:///aim-<service>:<port>` 做发现；gateway 保持普通 ClusterIP。
+- 生产部署需创建 Helm 引用的 `aim-ingest-embedding` Secret（`token` key），并设置独立随机令牌。
+
+---
+
+## 端到端验收
 
 前置条件：Python 3、Docker Engine、支持 `--wait` 的 Docker Compose 插件及 Buildx。验收只通过 gateway REST 与 WebSocket 驱动真实服务，不替换内部 RPC、Kafka 或数据库。
 
-MinIO 社区版已改为[仅发布源码](https://github.com/minio/minio#source-only-distribution)，Compose 从固定版本源码构建 `aim-minio`，不再拉取不可用的 `minio/minio:latest`。首次构建需要访问 Go module proxy；保留原有 S3 接口、启动参数与真实 `mc ready` 健康检查。
-
-Compose 的 `init-kafka-topics` 在 broker 就绪后幂等创建活跃 topic，消费者服务等待它成功后启动，避免空环境首次启动时消费者因 topic 不存在退出。验收失败时按服务分别保留有界日志，避免 Kafka 等高日志量服务截掉投递诊断。
-
 ```bash
-python3 tests/e2e/run.py --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --scenario all --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p5 --artifacts /tmp/aim-e2e-artifacts
@@ -150,13 +221,13 @@ python3 tests/e2e/run.py --scenario stage-p6 --artifacts /tmp/aim-e2e-artifacts
 
 `stage-p6` 覆盖 P3/P4 主链路、跨实例 Bot 回复和流式输出、发送方其它设备回显、非成员隔离、撤回/编辑/删除与未读同步。验收通过 `presence.query` 查询设备所在实例，并真实执行强制终止、TTL 自然失效、TTL 内投递失败负反馈、重启恢复，以及 readiness 摘流量后的多连接平滑排空；故障期间遗漏的消息按会话 `seq` 补拉。`--artifacts` 保留检查点与服务日志。
 
-Bot 使用同一镜像：`bot-service -role control` 提供外部入口，运行时调用转发到 `BOT_RUNTIME_ADDR`；`bot-runtime -role runtime` 消费消息并执行 Agent，直接读取同域配置，不依赖控制面 RPC。两个工作负载分别暴露 9109/9119 指标，可独立调整副本。Knowledge 使用同一镜像：`-role online` 仅提供查询/管理 RPC，`-role ingest` 仅消费上传事件，提供独立健康检查与 9118 指标。Compose 和 Helm 均为独立工作负载配置资源；Helm 的 `bot-runtime.yaml`、`knowledge-ingest.yaml` 可单独设置 `replicaCount`。
+Bot 使用同一镜像：`bot-service -role control` 提供外部入口，运行时调用转发到 `BOT_RUNTIME_ADDR`；`bot-runtime -role runtime` 消费消息并执行 Agent，直接读取同域配置，不依赖控制面 RPC。两个工作负载分别暴露 9109/9119 指标，可独立调整副本。Knowledge 使用同一镜像：`-role online` 仅提供查询/管理 RPC，`-role ingest` 仅消费上传事件，只监听一个 `9118` HTTP 端口同时服务 `/health` 与 `/metrics`。Compose 与 Helm 都把两者作为独立工作负载配置资源，可单独设置 `replicaCount`；Helm 侧不另建 values 文件，由同域 values 覆盖生成。
 
 Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且相互隔离；仅入库 worker 持有 `INGEST_EMBEDDING_TOKEN`，llm-gateway 校验凭据后才允许使用入库池。在线请求超额立即拒绝，入库任务在 RPC 截止时间内等待可用配额；Redis 故障不放行。生产部署需创建 Helm 引用的 `aim-ingest-embedding` Secret（`token` key），并设置独立随机令牌；不要把令牌注入在线检索进程。
 
 ---
 
-## 微服务详解
+## 服务详解
 
 ### 消息引擎 — 不重复·不丢失·不乱序
 
@@ -233,16 +304,16 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 | 环节 | 机制 | 保证 |
 |------|------|------|
 | Seq 生成 | PostgreSQL UPSERT + RETURNING | 同一会话内 seq 严格递增（`INSERT ... ON CONFLICT DO UPDATE SET current_seq = current_seq + 1 RETURNING current_seq`），与消息写入同事务 |
-| 消息存储 | `messages` 表 `idx_conv_seq (conv_id, seq)` 索引 | 所有查询 `ORDER BY seq`，天然有序 |
-| Inbox 存储 | `user_inbox` 包含 `seq` | `GetByUserAndConv` 查询 `ORDER BY seq ASC` |
+| 消息存储 | `messaging.messages` 表 `idx_conv_seq (conv_id, seq)` 索引 | 所有查询 `ORDER BY seq`，天然有序 |
+| Inbox 存储 | `messaging.user_inbox` 包含 `seq` | `GetByUserAndConv` 查询 `ORDER BY seq ASC` |
 | 增量同步 | `SyncMessages: WHERE seq > from_seq ORDER BY seq ASC` | 客户端按 seq 顺序接收，不会乱序 |
 | 游标分页 | `GetMessages: WHERE seq < cursor ORDER BY seq DESC` | 基于 seq，不会跨页乱序 |
 
-**关键设计**：每个会话拥有独立的 seq 空间（表 `msg.sequences` 中每 conv 一行），不同会话的 seq 互不影响。PostgreSQL UPSERT 的原子性保证了同一事务内 seq 的严格递增。
+**关键设计**：每个会话拥有独立的 seq 空间（`messaging.sequences` 表每 conv 一行），不同会话的 seq 互不影响。PostgreSQL UPSERT 的原子性保证了同一事务内 seq 的严格递增。
 
 #### Inbox 写扩散模型
 
-每条消息为每个成员生成一条 `user_inbox` 记录，支持：
+每条消息为每个成员生成一条 `messaging.user_inbox` 记录，支持：
 
 - **每用户独立的已读位置** (`last_read_seq`)
 - **每用户独立的删除状态** (`is_deleted`) — 删除仅对当前用户生效
@@ -390,7 +461,7 @@ llm-gateway 是所有 LLM 调用的统一入口，提供多 Provider 抽象、�
 
 ### 知识库服务
 
-知识库支持 **RAG 检索**，满足不同场景的知识管理需求。上传文档后经解析、分块、Embedding 管线处理。
+知识库支持 **RAG 检索**，满足不同场景的知识管理需求。上传文档后经解析、分块、Embedding 管线处理。在线检索（`-role online`）与入库（`-role ingest`）是两个独立工作负载，同镜像不同角色。
 
 ---
 
@@ -555,11 +626,3 @@ Parent 块（~4096 字符）  ─────── 提供 LLM 上下文窗口
 | 服务治理 | 超时控制、限流、熔断、重试，YAML + 环境变量配置 |
 | 可观测性 | Jaeger 分布式追踪、Prometheus 监控、Grafana 仪表盘、EFK 日志 |
 | 部署运维 | k3s 集群，Helmfile 声明式，一键部署脚本 |
-
----
-
-## 可能开展的活动
-
-1. 强大 Bot 记忆层
-2. 实现 Bot 市场与知识库市场
-

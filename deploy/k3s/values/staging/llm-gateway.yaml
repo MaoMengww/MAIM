@@ -1,7 +1,7 @@
 replicaCount: 1
 service:
   grpcPort: 50056
-  metricsPort: 9101
+  metricsPort: 9107
 config:
   name: llm-gateway
   secretEnv:
