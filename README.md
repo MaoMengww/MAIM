@@ -211,11 +211,14 @@ python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p5 --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p6 --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifacts
 ```
 
 每次使用独立 Compose project、网络与数据卷，无宿主端口映射。全部中间件与应用就绪后才施加流量；realtime 的两个实例分别可寻址，但共用一个 Kafka 消费组。成功或失败后均清理该 project 的容器与数据卷；`--artifacts` 保留诊断日志。
 
 默认 `all` 检查关系链、同实例与 A/B 跨实例双向投递；`--scenario` 可选择单个场景。P6 已用连接登记取代旧的单实例 gRPC 推送目标，同实例与跨实例走同一条 Redis 定向投递路径。
+
+`broadcasts` 检查 `user/group/all` 范围、并发首次广播只创建一个用户系统会话、后续复用与递增 `seq`、两副本上的普通 `message.new` 投递，以及离线账号经收件箱增量和会话历史读取广播。广播无需客户端专用事件分支。
 
 `stage-p5` 在 P4 场景上追加 Bot 配置/令牌、真实网络 MCP 工具发现与调用、Kafka 回复及 WS/REST 精确内容核对，以及四个大文档并发入库期间的检索和失败隔离。OpenAI/MCP 外部协议由 `e2e-provider` 提供；AIM 内部 RPC、Kafka、PostgreSQL、Milvus 不替换。在线查询每次硬截止 5 秒；入库总截止 10 分钟，容纳默认 20 RPM 预算，不提高配额或缩小文档负载。
 

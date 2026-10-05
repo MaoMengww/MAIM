@@ -74,16 +74,6 @@ type ConversationReadUpdatedEvent struct {
 	LastReadSeq int64 `json:"last_read_seq"`
 }
 
-// BroadcastCreatedEvent is produced on message.created topic for broadcast messages.
-type BroadcastCreatedEvent struct {
-	BroadcastID   int64  `json:"broadcast_id"`
-	SenderID      int64  `json:"sender_id"`
-	Content       string `json:"content"`
-	Scope         string `json:"scope"`
-	ScopeTargetID int64  `json:"scope_target_id"`
-	CreatedAt     int64  `json:"created_at"`
-}
-
 // WebhookPayload is the JSON body sent to third-party webhook callback URLs.
 type WebhookPayload struct {
 	EventType    string         `json:"event_type"`

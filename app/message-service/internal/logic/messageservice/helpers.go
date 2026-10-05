@@ -99,6 +99,9 @@ func modelToPbMessage(msg *model.Message) *message.Message {
 			Action:         c.Action,
 			Detail:         c.Detail,
 			RelatedUserIds: c.RelatedUserIDs,
+			ActorId:        c.ActorID,
+			ActorType:      c.ActorType,
+			Payload:        c.Payload,
 		}}
 	case model.MsgTypeBot:
 		c := model.ParseBotContent(content)

@@ -11,6 +11,7 @@ const (
 const (
 	ConvTypePrivate int32 = 1
 	ConvTypeGroup   int32 = 2
+	ConvTypeSystem  int32 = 3
 )
 
 type Conversation struct {

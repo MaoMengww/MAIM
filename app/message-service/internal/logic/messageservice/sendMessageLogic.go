@@ -111,36 +111,11 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 			}
 		}
 
-		seq, err = l.svcCtx.SequenceRepo.NextSeq(ctx, tx, in.ConversationId)
-		if err != nil {
+		if err := persistMessage(ctx, l.svcCtx, tx, msg, senderName); err != nil {
 			return err
 		}
-		msg.Seq = seq
-
-		if err := tx.Create(msg).Error; err != nil {
-			return err
-		}
-
-		outboxID, err := l.svcCtx.Snowflake.Generate()
-		if err != nil {
-			return err
-		}
-		outboxEvent := &model.OutboxEvent{
-			ID:         outboxID,
-			Topic:      consts.KafkaTopicMessageCreated,
-			Key:        fmt.Sprintf("%d", msgID),
-			MaxRetries: model.DefaultMaxRetries,
-		}
-		if err := outboxEvent.SetPayload(buildMessageCreatedPayload(msg, senderName)); err != nil {
-			return err
-		}
-		if err := l.svcCtx.OutboxRepo.Insert(ctx, tx, outboxEvent); err != nil {
-			return err
-		}
-
-		// 同一事务内推进会话的最新消息、最大 seq 与 updated_at
-		return l.svcCtx.ConversationRepo.TouchLastMessage(ctx, tx, in.ConversationId, msgID, seq,
-			extractTextPreview(int32(in.Type), contentJSON))
+		seq = msg.Seq
+		return nil
 	})
 	if err != nil {
 		if stderrors.Is(err, gorm.ErrRecordNotFound) {
@@ -253,6 +228,7 @@ func buildMessageCreatedPayload(msg *model.Message, senderName string) map[strin
 		"message_id":      msg.ID,
 		"conv_id":         msg.ConvID,
 		"sender_id":       msg.SenderID,
+		"sender_type":     msg.SenderType,
 		"msg_type":        int64(msg.MsgType),
 		"content":         msg.Content,
 		"seq":             msg.Seq,
@@ -261,4 +237,33 @@ func buildMessageCreatedPayload(msg *model.Message, senderName string) map[strin
 		"sender_name":     senderName,
 		"preview_text":    extractTextPreview(msg.MsgType, msg.Content),
 	}
+}
+
+// persistMessage commits the content, publication intent and conversation tail
+// together. The caller holds the conversation lock through transaction commit.
+func persistMessage(ctx context.Context, svcCtx *svc.ServiceContext, tx *gorm.DB, msg *model.Message, senderName string) error {
+	seq, err := svcCtx.SequenceRepo.NextSeq(ctx, tx, msg.ConvID)
+	if err != nil {
+		return err
+	}
+	msg.Seq = seq
+	if err := tx.Create(msg).Error; err != nil {
+		return err
+	}
+	outboxID, err := svcCtx.Snowflake.Generate()
+	if err != nil {
+		return err
+	}
+	outboxEvent := &model.OutboxEvent{
+		ID: outboxID, Topic: consts.KafkaTopicMessageCreated,
+		Key: fmt.Sprintf("%d", msg.ID), MaxRetries: model.DefaultMaxRetries,
+	}
+	if err := outboxEvent.SetPayload(buildMessageCreatedPayload(msg, senderName)); err != nil {
+		return err
+	}
+	if err := svcCtx.OutboxRepo.Insert(ctx, tx, outboxEvent); err != nil {
+		return err
+	}
+	return svcCtx.ConversationRepo.TouchLastMessage(ctx, tx, msg.ConvID, msg.ID, seq,
+		extractTextPreview(msg.MsgType, msg.Content))
 }

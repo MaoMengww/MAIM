@@ -73,16 +73,7 @@ func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) err
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return err
 	}
-	// Broadcasts still use this topic until issue11; they have no conversation
-	// and must never enter the user synchronization stream.
-	if payload.ConvID == 0 {
-		var broadcast event.BroadcastCreatedEvent
-		if err := json.Unmarshal(data, &broadcast); err != nil {
-			return err
-		}
-		if broadcast.BroadcastID > 0 {
-			return nil
-		}
+	if payload.ConvID <= 0 {
 		return errors.New("new message requires a conversation")
 	}
 

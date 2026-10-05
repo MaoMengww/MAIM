@@ -398,6 +398,7 @@ func (h *MessageHandler) GetAroundSeq(c *gin.Context) {
 	seq, _ := strconv.ParseInt(seqStr, 10, 64)
 	req := &msgclient.GetAroundSeqReq{
 		ConversationId: parseInt64(c.Param("id")),
+		UserId:         c.GetInt64(middleware.CtxKeyUserID),
 		Seq:            seq,
 	}
 	ctx := middleware.WithGRPCMetadata(c)

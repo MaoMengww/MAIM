@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/json"
 
@@ -91,11 +92,13 @@ func (j *JSONContent) Scan(value any) error {
 		*j = nil
 		return nil
 	}
-	bytes, ok := value.([]byte)
+	raw, ok := value.([]byte)
 	if !ok {
 		return nil
 	}
-	return json.Unmarshal(bytes, j)
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	return decoder.Decode(j)
 }
 
 type JSONArray []map[string]any
@@ -183,7 +186,11 @@ func marshalFrom(from any) JSONContent {
 		return JSONContent{}
 	}
 	var jc JSONContent
-	json.Unmarshal(b, &jc)
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.UseNumber()
+	if err := decoder.Decode(&jc); err != nil {
+		return JSONContent{}
+	}
 	return jc
 }
 
@@ -248,11 +255,13 @@ func (j *JSONArray) Scan(value any) error {
 		*j = nil
 		return nil
 	}
-	bytes, ok := value.([]byte)
+	raw, ok := value.([]byte)
 	if !ok {
 		return nil
 	}
-	return json.Unmarshal(bytes, j)
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	return decoder.Decode(j)
 }
 
 const (

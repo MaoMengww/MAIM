@@ -3,6 +3,7 @@ package conversationservice
 import (
 	"context"
 
+	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/consts"
@@ -22,6 +23,13 @@ func NewRemoveMembersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Rem
 }
 
 func (l *RemoveMembersLogic) RemoveMembers(in *conversation.RemoveMembersReq) (*common.BaseResponse, error) {
+	conv, err := l.svcCtx.ConversationRepo.GetConversation(l.ctx, in.ConversationId)
+	if err != nil {
+		return nil, err
+	}
+	if conv.Type == model.ConvTypeSystem {
+		return nil, pkg_errors.ErrForbidden
+	}
 	// Self-leave: any member can remove themselves from a conversation.
 	allSelf := true
 	for _, uid := range in.UserIds {

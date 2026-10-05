@@ -153,6 +153,7 @@ const (
 	ConversationType_CONVERSATION_TYPE_UNSPECIFIED ConversationType = 0
 	ConversationType_CONVERSATION_TYPE_PRIVATE     ConversationType = 1
 	ConversationType_CONVERSATION_TYPE_GROUP       ConversationType = 2
+	ConversationType_CONVERSATION_TYPE_SYSTEM      ConversationType = 3
 )
 
 // Enum value maps for ConversationType.
@@ -161,11 +162,13 @@ var (
 		0: "CONVERSATION_TYPE_UNSPECIFIED",
 		1: "CONVERSATION_TYPE_PRIVATE",
 		2: "CONVERSATION_TYPE_GROUP",
+		3: "CONVERSATION_TYPE_SYSTEM",
 	}
 	ConversationType_value = map[string]int32{
 		"CONVERSATION_TYPE_UNSPECIFIED": 0,
 		"CONVERSATION_TYPE_PRIVATE":     1,
 		"CONVERSATION_TYPE_GROUP":       2,
+		"CONVERSATION_TYPE_SYSTEM":      3,
 	}
 )
 
@@ -2569,7 +2572,7 @@ type SendBroadcastReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SenderId      int64                  `protobuf:"varint,1,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
 	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"` // JSON: flexible content structure
-	Scope         string                 `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`     // "all" or "group"
+	Scope         string                 `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`     // "all", "group", or "user"
 	ScopeTargetId *int64                 `protobuf:"varint,4,opt,name=scope_target_id,json=scopeTargetId,proto3,oneof" json:"scope_target_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -5864,11 +5867,12 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\x15MESSAGE_STATUS_NORMAL\x10\x01\x12\x1b\n" +
 	"\x17MESSAGE_STATUS_RECALLED\x10\x02\x12\x19\n" +
 	"\x15MESSAGE_STATUS_EDITED\x10\x03\x12\x1c\n" +
-	"\x18MESSAGE_STATUS_STREAMING\x10\x04*q\n" +
+	"\x18MESSAGE_STATUS_STREAMING\x10\x04*\x8f\x01\n" +
 	"\x10ConversationType\x12!\n" +
 	"\x1dCONVERSATION_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19CONVERSATION_TYPE_PRIVATE\x10\x01\x12\x1b\n" +
-	"\x17CONVERSATION_TYPE_GROUP\x10\x02*o\n" +
+	"\x17CONVERSATION_TYPE_GROUP\x10\x02\x12\x1c\n" +
+	"\x18CONVERSATION_TYPE_SYSTEM\x10\x03*o\n" +
 	"\n" +
 	"MemberRole\x12\x1b\n" +
 	"\x17MEMBER_ROLE_UNSPECIFIED\x10\x00\x12\x15\n" +

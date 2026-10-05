@@ -138,7 +138,7 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://realtime-service:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
@@ -160,6 +160,7 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{
 			{"relationships", "", ""},
 			{"conversations", *realtimeA, *realtimeA},
+			{"broadcasts", *realtimeA, *realtimeB},
 			{"same-instance-a", *realtimeA, *realtimeA},
 			{"same-instance-b", *realtimeB, *realtimeB},
 			{"bot-runtime", *realtimeA, *realtimeA},
@@ -183,6 +184,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"knowledge-ingest", "", ""}}
 	case "conversations", "conversation-unread":
 		scenarios = []scenarioSpec{{*selected, *realtimeA, *realtimeA}}
+	case "broadcasts":
+		scenarios = []scenarioSpec{{"broadcasts", *realtimeA, *realtimeB}}
 	case "relationships":
 		scenarios = []scenarioSpec{{"relationships", "", ""}}
 	case "same-instance-a":
@@ -192,7 +195,7 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|same-instance-a|same-instance-b|cross-instance")
 	}
 	if *cross && *selected != "all" && *selected != "cross-instance" && *selected != "stage-p6" {
 		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
@@ -212,7 +215,7 @@ func run(args []string) error {
 			}
 		}
 	}
-	if (*selected == "all" || *selected == "cross-instance" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
+	if (*selected == "all" || *selected == "cross-instance" || *selected == "broadcasts" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
 		return errors.New("realtime A/B 必须使用不同地址，不能将单实例冒充两实例")
 	}
 	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout,
@@ -226,6 +229,8 @@ func run(args []string) error {
 			err = d.relationships()
 		case "conversations", "conversation-unread":
 			err = d.conversations(scenario.a, scenario.name == "conversation-unread")
+		case "broadcasts":
+			err = d.broadcasts(scenario.a, scenario.b)
 		case "bot-runtime":
 			err = d.botRuntime(scenario.a, scenario.b)
 		case "knowledge-ingest":
@@ -241,6 +246,8 @@ func run(args []string) error {
 			failures = append(failures, failure)
 		} else if scenario.name == "relationships" {
 			fmt.Println("E2E PASS: relationships 请求 → 接受/拒绝/取消 → 双向好友 → 备注/分组 → 删除 → 拉黑/解除")
+		} else if scenario.name == "broadcasts" {
+			fmt.Println("E2E PASS: broadcasts user/group/all → 并发首播唯一系统会话 → 普通 message.new 跨实例投递 → 离线增量/历史 → 范围隔离")
 		} else if scenario.name == "bot-runtime" {
 			fmt.Println("E2E PASS: bot-runtime CRUD/配置 → 网络 MCP 发现/调用 → token 验证 → Kafka Bot 精确回复 → 同实例 WS/REST读取 → 删除")
 		} else if scenario.name == "knowledge-ingest" {

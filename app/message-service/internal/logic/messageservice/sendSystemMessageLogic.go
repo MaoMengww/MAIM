@@ -3,14 +3,12 @@ package messageservicelogic
 import (
 	"context"
 	stderrors "errors"
-	"fmt"
 	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/metrics"
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -61,16 +59,6 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 	}
 
 	// 锁会话 + seq + 消息 + outbox + 最新消息（同一 PG 事务，原子提交）
-	previewText := extractTextPreview(msg.MsgType, msg.Content)
-	senderName := in.ActorType
-	contentMap := map[string]any{
-		"action":           in.Action,
-		"detail":           in.Detail,
-		"related_user_ids": in.RelatedUserIds,
-		"actor_id":         in.ActorId,
-		"actor_type":       in.ActorType,
-		"payload":          in.Payload,
-	}
 
 	var seq int64
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
@@ -81,45 +69,11 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 			return err
 		}
 
-		s, err := l.svcCtx.SequenceRepo.NextSeq(l.ctx, tx, in.ConversationId)
-		if err != nil {
+		if err := persistMessage(l.ctx, l.svcCtx, tx, msg, in.ActorType); err != nil {
 			return err
 		}
-		seq = s
-		msg.Seq = seq
-
-		if err := tx.Create(msg).Error; err != nil {
-			return err
-		}
-
-		outboxID, err := l.svcCtx.Snowflake.Generate()
-		if err != nil {
-			return err
-		}
-		outboxEvent := &model.OutboxEvent{
-			ID:         outboxID,
-			Topic:      consts.KafkaTopicMessageCreated,
-			Key:        fmt.Sprintf("%d", msgID),
-			MaxRetries: model.DefaultMaxRetries,
-		}
-		if err := outboxEvent.SetPayload(map[string]any{
-			"message_id":  msgID,
-			"conv_id":     in.ConversationId,
-			"sender_id":   in.ActorId,
-			"msg_type":    int64(model.MsgTypeSystem),
-			"content":     contentMap,
-			"seq":         seq,
-			"created_at":  now.Unix(),
-			"sender_name": senderName,
-		}); err != nil {
-			return err
-		}
-		if err := l.svcCtx.OutboxRepo.Insert(l.ctx, tx, outboxEvent); err != nil {
-			return err
-		}
-
-		// 同一事务内推进会话的最新消息、最大 seq 与 updated_at
-		return l.svcCtx.ConversationRepo.TouchLastMessage(l.ctx, tx, in.ConversationId, msgID, seq, previewText)
+		seq = msg.Seq
+		return nil
 	})
 	if err != nil {
 		if stderrors.Is(err, gorm.ErrRecordNotFound) {

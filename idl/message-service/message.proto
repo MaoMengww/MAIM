@@ -347,7 +347,7 @@ message SearchMessagesResp {
 message SendBroadcastReq {
   int64 sender_id = 1;
   string content = 2;            // JSON: flexible content structure
-  string scope = 3;              // "all" or "group"
+  string scope = 3;              // "all", "group", or "user"
   optional int64 scope_target_id = 4;
 }
 
@@ -388,6 +388,7 @@ enum ConversationType {
   CONVERSATION_TYPE_UNSPECIFIED = 0;
   CONVERSATION_TYPE_PRIVATE = 1;
   CONVERSATION_TYPE_GROUP = 2;
+  CONVERSATION_TYPE_SYSTEM = 3;
 }
 
 enum MemberRole {
