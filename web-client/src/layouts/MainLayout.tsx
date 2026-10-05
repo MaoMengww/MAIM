@@ -55,16 +55,27 @@ export function MainLayout() {
       const conversations = messageSync.getConversations();
       void queryClient.cancelQueries({ queryKey: ['conversations'] });
       queryClient.setQueryData(['conversations'], { list: conversations, total: conversations.length });
-    });
-    const unsubscribeNew = wsOn('message.new', (payload) => {
-      if (payload.conv_id != null && payload.message) {
-        messageSync.onWsMessage(String(payload.conv_id), payload.message);
+      void queryClient.cancelQueries({ queryKey: ['conversation'] });
+      const ids = new Set(conversations.map((conversation) => String(conversation.id)));
+      for (const [key] of queryClient.getQueriesData({ queryKey: ['conversation'] })) {
+        if (!ids.has(String(key[1]))) {
+          queryClient.removeQueries({ queryKey: key, exact: true });
+          queryClient.removeQueries({ queryKey: ['conv-members', key[1]], exact: true });
+        }
       }
+      for (const conversation of conversations) {
+        queryClient.setQueryData(['conversation', String(conversation.id)], conversation);
+      }
+      void queryClient.invalidateQueries({ queryKey: ['conv-members'] });
     });
+    // Realtime is a wake-up hint. Online and offline changes use the same
+    // validated, ordered HTTP page and atomic cache commit.
+    const unsubscribeChanges = ['message.new', 'inbox.changed'].map((type) =>
+      wsOn(type, () => { void messageSync.reSync(); }));
     wsConnect();
     return () => {
       unsubscribe();
-      unsubscribeNew();
+      unsubscribeChanges.forEach((unsubscribeChange) => unsubscribeChange());
       wsDisconnect();
       messageSync.reset();
       queryClient.clear();
@@ -75,6 +86,13 @@ export function MainLayout() {
     // Establish live delivery before taking the HTTP snapshot, closing the login gap.
     if (accountId && wsStatus === 'connected') void messageSync.reSync();
   }, [accountId, wsStatus]);
+
+  useEffect(() => messageSync.subscribe((_id, _snapshotChanged, removedConversations) => {
+    const active = window.location.pathname.match(/^\/conversations\/(\d+)$/)?.[1];
+    if (active && removedConversations.includes(active)) {
+      navigate('/conversations', { replace: true });
+    }
+  }), [navigate]);
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

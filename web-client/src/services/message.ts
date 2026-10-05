@@ -4,12 +4,18 @@ import type { APIResponse, Conversation, Message } from '@/types/model';
 import { normConv } from './conversation';
 import { parseJsonWithExactIntegers } from '@/utils/json';
 
-export interface InboxChange {
+interface InboxChangeBase {
   position: string;
   conversation_id: string;
-  kind: string;
-  message: Message;
 }
+
+export type InboxChange = InboxChangeBase & (
+  | { kind: 'message.new' | 'message.edited' | 'message.recalled'; message: Message; conversation?: Conversation }
+  | { kind: 'message.deleted'; message_id: string; conversation?: Conversation }
+  | { kind: 'conversation.upsert'; conversation: Conversation }
+  | { kind: 'conversation.removed' }
+  | { kind: 'read.updated'; last_read_seq: number; conversation: Conversation }
+);
 
 export interface ConversationSnapshot {
   conversation: Conversation;
@@ -323,13 +329,30 @@ function normalizeUserSyncPage(value: unknown, requestedPosition: string): UserS
       throw new Error('同步变更位点重复、倒序或超出当前页范围');
     }
     previousPosition = BigInt(position);
-    if (change.kind !== 'message.new') throw new Error('同步变更类型不支持');
     const conversationId = syncDecimal(change.conversation_id, 'change.conversation_id', true);
-    const message = syncMessage(change.message, conversationId);
-    const id = String(message.message_id);
-    if (messageIds.has(id)) throw new Error('同步页包含重复消息');
-    messageIds.add(id);
-    return { position, conversation_id: conversationId, kind: change.kind, message };
+    const base = { position, conversation_id: conversationId };
+    const conversation = change.conversation === undefined ? undefined : syncConversation(change.conversation);
+    if (conversation && String(conversation.id) !== conversationId) throw new Error('同步会话 ID 与变更不一致');
+    switch (change.kind) {
+      case 'message.new':
+      case 'message.edited':
+      case 'message.recalled':
+        return { ...base, kind: change.kind, message: syncMessage(change.message, conversationId), conversation };
+      case 'message.deleted':
+        return { ...base, kind: change.kind, message_id: syncDecimal(change.message_id, 'change.message_id', true), conversation };
+      case 'conversation.upsert':
+        if (!conversation) throw new Error('同步会话变更缺少完整快照');
+        return { ...base, kind: change.kind, conversation };
+      case 'conversation.removed':
+        return { ...base, kind: change.kind };
+      case 'read.updated': {
+        const lastReadSeq = syncInteger(change.last_read_seq === undefined ? 0 : change.last_read_seq, 'change.last_read_seq');
+        if (!conversation || lastReadSeq !== conversation.last_read_seq) throw new Error('同步已读位点与会话不一致');
+        return { ...base, kind: change.kind, last_read_seq: lastReadSeq, conversation };
+      }
+      default:
+        throw new Error('同步变更类型不支持');
+    }
   });
   const conversationIds = new Set<string>();
   const normalizedConversations = conversations.map((value): ConversationSnapshot => {

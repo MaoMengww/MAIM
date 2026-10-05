@@ -40,45 +40,40 @@ func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*commo
 		return nil, ErrDeleteNotSender
 	}
 
-	convID := in.ConversationId
-	if convID == 0 {
-		convID = msg.ConvID
+	if in.ConversationId != 0 && in.ConversationId != msg.ConvID {
+		return nil, errors.New(errors.CodeInvalidParam, "conversation does not match message")
 	}
-
-	// 构造 outbox 事件
-	outboxID, err := l.svcCtx.Snowflake.Generate()
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "generate outbox id failed", err)
-	}
-	outboxEvent := &model.OutboxEvent{
-		ID:         outboxID,
-		Topic:      consts.KafkaTopicMessageDeleted,
-		Key:        fmt.Sprintf("delete:%d", in.MessageId),
-		MaxRetries: model.DefaultMaxRetries,
-	}
-	if err := outboxEvent.SetPayload(map[string]any{
-		"message_id":     in.MessageId,
-		"conv_id":        convID,
-		"user_id":        in.UserId,
-		"delete_for_all": in.DeleteForAll,
-	}); err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "marshal outbox payload failed", err)
-	}
-
-	// 事务写: 删除/标记 + 插入 outbox
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
 		if in.DeleteForAll {
-			if err := msgRepo.DeleteWithTx(l.ctx, tx, in.MessageId); err != nil {
+			current, err := lockMutableMessage(l.ctx, l.svcCtx, tx, msg.ConvID, msg.ID, in.UserId)
+			if err != nil {
 				return err
 			}
-		} else {
-			if err := l.svcCtx.InboxRepo.MarkDeleted(l.ctx, tx, in.UserId, convID, in.MessageId); err != nil {
+			if err := msgRepo.DeleteWithTx(l.ctx, tx, current.ID); err != nil {
 				return err
 			}
+			return publishMessageChange(l.ctx, l.svcCtx, tx, current, model.InboxMessageDeleted)
 		}
-		return l.svcCtx.OutboxRepo.Insert(l.ctx, tx, outboxEvent)
+		// Personal deletion remains on the existing path until issue09.
+		if err := l.svcCtx.InboxRepo.MarkDeleted(l.ctx, tx, in.UserId, msg.ConvID, in.MessageId); err != nil {
+			return err
+		}
+		id, err := l.svcCtx.Snowflake.Generate()
+		if err != nil {
+			return err
+		}
+		evt := &model.OutboxEvent{ID: id, Topic: consts.KafkaTopicMessageDeleted,
+			Key: fmt.Sprintf("%d", msg.ConvID), MaxRetries: model.DefaultMaxRetries}
+		if err := evt.SetPayload(map[string]any{"message_id": msg.ID, "conv_id": msg.ConvID,
+			"user_id": in.UserId, "delete_for_all": false}); err != nil {
+			return err
+		}
+		return l.svcCtx.OutboxRepo.Insert(l.ctx, tx, evt)
 	})
 	if err != nil {
+		if _, ok := errors.IsBizError(err); ok {
+			return nil, err
+		}
 		return nil, errors.Wrap(errors.CodeInternal, "delete operation failed", err)
 	}
 

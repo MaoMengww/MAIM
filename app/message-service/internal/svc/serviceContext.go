@@ -26,27 +26,24 @@ import (
 // the outbox and the unread read model. Everything the send and read paths need
 // — membership, members, conversation ids, latest message, unread — is local.
 type ServiceContext struct {
-	Config                  config.Config
-	DB                      *database.DB
-	Redis                   *goredis.Client
-	MessageCreatedProducer  *kafka.Producer
-	MessageRecalledProducer *kafka.Producer
-	MessageEditedProducer   *kafka.Producer
-	MessageDeletedProducer  *kafka.Producer
-	BotEventProducer        *kafka.Producer
-	ReadUpdatedProducer     *kafka.Producer
-	DeliveryPublisher       *delivery.Publisher
-	ESClient                *es.Client
-	Snowflake               *snowflake.Node
-	Logger                  logx.Logger
-	MessageRepo             *repo.MessageRepo
-	InboxRepo               *repo.InboxRepo
-	BroadcastRepo           *repo.BroadcastRepo
-	SequenceRepo            *repo.SequenceRepo
-	OutboxRepo              *repo.OutboxRepo
-	OutboxDispatcher        *dispatcher.OutboxDispatcher
-	ConversationRepo        *repo.ConversationRepo
-	ProfileRepo             *repo.ProfileRepo
+	Config                 config.Config
+	DB                     *database.DB
+	Redis                  *goredis.Client
+	MessageCreatedProducer *kafka.Producer
+	MessageDeletedProducer *kafka.Producer
+	BotEventProducer       *kafka.Producer
+	DeliveryPublisher      *delivery.Publisher
+	ESClient               *es.Client
+	Snowflake              *snowflake.Node
+	Logger                 logx.Logger
+	MessageRepo            *repo.MessageRepo
+	InboxRepo              *repo.InboxRepo
+	BroadcastRepo          *repo.BroadcastRepo
+	SequenceRepo           *repo.SequenceRepo
+	OutboxRepo             *repo.OutboxRepo
+	OutboxDispatcher       *dispatcher.OutboxDispatcher
+	ConversationRepo       *repo.ConversationRepo
+	ProfileRepo            *repo.ProfileRepo
 
 	// SendSystemMessage emits a system message through the same in-process send
 	// path as a user message. It is injected by main so the conversation logic
@@ -90,14 +87,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		panic(fmt.Sprintf("kafka message.created producer init failed: %v", err))
 	}
-	kpRecalled, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageRecalled, logger)
-	if err != nil {
-		panic(fmt.Sprintf("kafka message.recalled producer init failed: %v", err))
-	}
-	kpEdited, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageEdited, logger)
-	if err != nil {
-		panic(fmt.Sprintf("kafka message.edited producer init failed: %v", err))
-	}
 	kpDeleted, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageDeleted, logger)
 	if err != nil {
 		panic(fmt.Sprintf("kafka message.deleted producer init failed: %v", err))
@@ -108,14 +97,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		botEventProducer, err = kafka.NewProducer(c.Kafka, consts.KafkaTopicConvBotAdded, logger)
 		if err != nil {
 			logger.Errorf("init bot event producer failed: %v", err)
-		}
-	}
-
-	var readUpdatedProducer *kafka.Producer
-	if len(c.Kafka.Brokers) > 0 {
-		readUpdatedProducer, err = kafka.NewProducer(c.Kafka, consts.KafkaTopicConversationReadUpdated, logger)
-		if err != nil {
-			logger.Errorf("init read-updated producer failed: %v", err)
 		}
 	}
 
@@ -160,33 +141,28 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 
 	return &ServiceContext{
-		Config:                  c,
-		DB:                      db,
-		Redis:                   rdb,
-		MessageCreatedProducer:  kpCreated,
-		MessageRecalledProducer: kpRecalled,
-		MessageEditedProducer:   kpEdited,
-		MessageDeletedProducer:  kpDeleted,
-		BotEventProducer:        botEventProducer,
-		ReadUpdatedProducer:     readUpdatedProducer,
-		DeliveryPublisher:       deliveryPublisher,
-		ESClient:                esClient,
-		Snowflake:               sf,
-		Logger:                  logger,
-		MessageRepo:             repo.NewMessageRepo(db),
-		InboxRepo:               repo.NewInboxRepo(db),
-		BroadcastRepo:           repo.NewBroadcastRepo(db),
-		SequenceRepo:            repo.NewSequenceRepo(db),
-		OutboxRepo:              repo.NewOutboxRepo(db),
-		ConversationRepo:        repo.NewConversationRepo(db),
-		ProfileRepo:             repo.NewProfileRepo(db),
+		Config:                 c,
+		DB:                     db,
+		Redis:                  rdb,
+		MessageCreatedProducer: kpCreated,
+		MessageDeletedProducer: kpDeleted,
+		BotEventProducer:       botEventProducer,
+		DeliveryPublisher:      deliveryPublisher,
+		ESClient:               esClient,
+		Snowflake:              sf,
+		Logger:                 logger,
+		MessageRepo:            repo.NewMessageRepo(db),
+		InboxRepo:              repo.NewInboxRepo(db),
+		BroadcastRepo:          repo.NewBroadcastRepo(db),
+		SequenceRepo:           repo.NewSequenceRepo(db),
+		OutboxRepo:             repo.NewOutboxRepo(db),
+		ConversationRepo:       repo.NewConversationRepo(db),
+		ProfileRepo:            repo.NewProfileRepo(db),
 		OutboxDispatcher: dispatcher.NewOutboxDispatcher(
 			repo.NewOutboxRepo(db),
 			map[string]*kafka.Producer{
-				consts.KafkaTopicMessageCreated:  kpCreated,
-				consts.KafkaTopicMessageEdited:   kpEdited,
-				consts.KafkaTopicMessageRecalled: kpRecalled,
-				consts.KafkaTopicMessageDeleted:  kpDeleted,
+				consts.KafkaTopicMessageCreated: kpCreated,
+				consts.KafkaTopicMessageDeleted: kpDeleted,
 			},
 			logger,
 		),
@@ -197,7 +173,7 @@ func (s *ServiceContext) Close() {
 	if s.DeliveryPublisher != nil {
 		_ = s.DeliveryPublisher.Close()
 	}
-	for _, p := range []*kafka.Producer{s.MessageCreatedProducer, s.MessageRecalledProducer, s.MessageEditedProducer, s.MessageDeletedProducer, s.BotEventProducer, s.ReadUpdatedProducer} {
+	for _, p := range []*kafka.Producer{s.MessageCreatedProducer, s.MessageDeletedProducer, s.BotEventProducer} {
 		if p != nil {
 			_ = p.Close()
 		}

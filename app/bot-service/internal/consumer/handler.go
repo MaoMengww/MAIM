@@ -85,9 +85,13 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 	event, msgID, err := parseEvent(raw)
 	var source struct {
 		SenderType string `json:"sender_type"`
+		Kind       string `json:"kind"`
 	}
 	if err := json.Unmarshal(raw, &source); err != nil {
 		return err
+	}
+	if source.Kind != "" && source.Kind != "message.new" {
+		return nil
 	}
 	if source.SenderType == "bot" || source.SenderType == "system" {
 		return nil

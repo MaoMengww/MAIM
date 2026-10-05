@@ -225,6 +225,7 @@ func extractSendContent(req *message.SendMessageReq) model.JSONContent {
 // buildMessageCreatedPayload builds the Kafka event payload for a new message.
 func buildMessageCreatedPayload(msg *model.Message, senderName string) map[string]any {
 	return map[string]any{
+		"kind":            model.InboxMessageNew,
 		"message_id":      msg.ID,
 		"conv_id":         msg.ConvID,
 		"sender_id":       msg.SenderID,
@@ -234,6 +235,9 @@ func buildMessageCreatedPayload(msg *model.Message, senderName string) map[strin
 		"seq":             msg.Seq,
 		"reply_to_msg_id": msg.ReplyToMsgID,
 		"created_at":      msg.CreatedAt.Unix(),
+		"status":          msg.Status,
+		"edit_count":      msg.EditCount,
+		"updated_at":      msg.UpdatedAt.Unix(),
 		"sender_name":     senderName,
 		"preview_text":    extractTextPreview(msg.MsgType, msg.Content),
 	}
@@ -250,18 +254,7 @@ func persistMessage(ctx context.Context, svcCtx *svc.ServiceContext, tx *gorm.DB
 	if err := tx.Create(msg).Error; err != nil {
 		return err
 	}
-	outboxID, err := svcCtx.Snowflake.Generate()
-	if err != nil {
-		return err
-	}
-	outboxEvent := &model.OutboxEvent{
-		ID: outboxID, Topic: consts.KafkaTopicMessageCreated,
-		Key: fmt.Sprintf("%d", msg.ID), MaxRetries: model.DefaultMaxRetries,
-	}
-	if err := outboxEvent.SetPayload(buildMessageCreatedPayload(msg, senderName)); err != nil {
-		return err
-	}
-	if err := svcCtx.OutboxRepo.Insert(ctx, tx, outboxEvent); err != nil {
+	if err := svcCtx.PublishInboxChange(ctx, tx, buildMessageCreatedPayload(msg, senderName)); err != nil {
 		return err
 	}
 	return svcCtx.ConversationRepo.TouchLastMessage(ctx, tx, msg.ConvID, msg.ID, seq,

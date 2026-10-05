@@ -38,12 +38,24 @@ func NewThirdPartyHandler(bots *repo.BotRepo, bindings *repo.ConvBotRepo, publis
 
 func (h *ThirdPartyHandler) Handle(ctx context.Context, topic string, raw []byte) error {
 	var evt struct {
-		ConvID   int64 `json:"conv_id"`
-		BotID    int64 `json:"bot_id"`
-		SenderID int64 `json:"sender_id"`
+		ConvID   int64  `json:"conv_id"`
+		BotID    int64  `json:"bot_id"`
+		SenderID int64  `json:"sender_id"`
+		Kind     string `json:"kind"`
 	}
 	if err := json.Unmarshal(raw, &evt); err != nil {
 		return err
+	}
+	if topic == consts.KafkaTopicMessageCreated {
+		switch evt.Kind {
+		case "message.new":
+		case "message.edited":
+			topic = consts.KafkaTopicMessageEdited
+		case "message.recalled":
+			topic = consts.KafkaTopicMessageRecalled
+		default:
+			return nil
+		}
 	}
 	bindings, err := h.bindings.FindByConv(ctx, evt.ConvID)
 	if err != nil {
@@ -91,7 +103,7 @@ func externalBotPayload(topic string, raw []byte, botID, convID int64) (json.Raw
 	base := map[string]any{"type": topic, "conv_id": strconv.FormatInt(convID, 10), "bot_id": strconv.FormatInt(botID, 10), "event": map[string]any{"ts": time.Now().Unix(), "version": "1.0"}}
 	switch topic {
 	case consts.KafkaTopicMessageCreated:
-		var msg event.MessageCreatedEvent
+		var msg event.InboxChangeEvent
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			return nil, err
 		}

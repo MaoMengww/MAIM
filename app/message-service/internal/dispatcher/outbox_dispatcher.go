@@ -64,37 +64,49 @@ func (d *OutboxDispatcher) Run(ctx context.Context) {
 }
 
 func (d *OutboxDispatcher) dispatchBatch(ctx context.Context) {
-	events, err := d.outboxRepo.FetchPending(ctx, d.batchSize)
-	if err != nil {
-		d.logger.WithContext(ctx).Errorf("outbox dispatcher fetch failed: %v", err)
-		return
-	}
-
-	for _, evt := range events {
-		producer, ok := d.producers[evt.Topic]
-		if !ok {
-			d.logger.WithContext(ctx).Errorf("outbox dispatcher: no producer for topic %s", evt.Topic)
-			_ = d.outboxRepo.MarkFailed(ctx, evt.ID, fmt.Sprintf("no producer for topic %s", evt.Topic))
-			metrics.OutboxFailedCount.Set(1, evt.Topic)
-			continue
-		}
-
-		if err := producer.Send(ctx, evt.Key, []byte(evt.Payload)); err != nil {
-			metrics.OutboxSendFailureTotal.Inc(evt.Topic)
-			if evt.RetryCount+1 >= evt.MaxRetries {
-				_ = d.outboxRepo.MarkFailed(ctx, evt.ID, err.Error())
-				metrics.OutboxFailedCount.Set(1, evt.Topic)
-				d.logger.WithContext(ctx).Errorf("outbox dispatcher: event %d exhausted retries, marked failed: %v", evt.ID, err)
-			} else {
-				nextRetry := time.Now().Add(exponentialBackoff(evt.RetryCount + 1))
-				_ = d.outboxRepo.MarkRetry(ctx, evt.ID, nextRetry, err.Error())
+	err := d.outboxRepo.InTransaction(ctx, func(outbox *repo.OutboxRepo) error {
+		for dispatched := 0; dispatched < d.batchSize; {
+			events, err := outbox.FetchPending(ctx, d.batchSize-dispatched)
+			if err != nil {
+				return err
 			}
-		} else {
-			metrics.OutboxSendSuccessTotal.Inc(evt.Topic)
-			_ = d.outboxRepo.MarkSent(ctx, evt.ID)
-			latency := time.Since(evt.CreatedAt).Seconds()
-			metrics.OutboxDispatchLatencySeconds.Observe(latency, evt.Topic)
+			if len(events) == 0 {
+				return nil
+			}
+			for _, evt := range events {
+				dispatched++
+				producer, ok := d.producers[evt.Topic]
+				if !ok {
+					if err := outbox.MarkFailed(ctx, evt.ID, fmt.Sprintf("no producer for topic %s", evt.Topic)); err != nil {
+						return err
+					}
+					metrics.OutboxFailedCount.Set(1, evt.Topic)
+					continue
+				}
+				if err := producer.Send(ctx, evt.Key, []byte(evt.Payload)); err != nil {
+					metrics.OutboxSendFailureTotal.Inc(evt.Topic)
+					if evt.RetryCount+1 >= evt.MaxRetries {
+						if err := outbox.MarkFailed(ctx, evt.ID, err.Error()); err != nil {
+							return err
+						}
+						metrics.OutboxFailedCount.Set(1, evt.Topic)
+						d.logger.WithContext(ctx).Errorf("outbox event %d exhausted retries; ordered key %s is blocked: %v", evt.ID, evt.Key, err)
+					} else if err := outbox.MarkRetry(ctx, evt.ID, time.Now().Add(exponentialBackoff(evt.RetryCount+1)), err.Error()); err != nil {
+						return err
+					}
+				} else {
+					if err := outbox.MarkSent(ctx, evt.ID); err != nil {
+						return err
+					}
+					metrics.OutboxSendSuccessTotal.Inc(evt.Topic)
+					metrics.OutboxDispatchLatencySeconds.Observe(time.Since(evt.CreatedAt).Seconds(), evt.Topic)
+				}
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		d.logger.WithContext(ctx).Errorf("outbox dispatch transaction failed: %v", err)
 	}
 }
 

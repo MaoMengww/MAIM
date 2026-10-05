@@ -3,13 +3,11 @@ package messageservicelogic
 import (
 	"context"
 	stderrors "errors"
-	"fmt"
 	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -49,6 +47,7 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		ConvID:       in.ConversationId,
 		SenderID:     in.BotId,
 		MsgType:      model.MsgTypeBot,
+		SenderType:   "bot",
 		Content:      content.ToJSONContent(),
 		ReplyToMsgID: in.GetReplyToId(),
 		Status:       model.MessageStatusNormal,
@@ -61,13 +60,6 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 	replyToMap := map[string]any{}
 	if replyToID := in.GetReplyToId(); replyToID != 0 {
 		replyToMap = buildReplyToMap(l.ctx, l.svcCtx, replyToID)
-	}
-	contentMap := map[string]any{
-		"bot_id":      in.BotId,
-		"bot_name":    content.BotName,
-		"bot_avatar":  content.BotAvatar,
-		"text":        in.Text,
-		"raw_payload": in.RawPayload,
 	}
 	previewText := extractTextPreview(int32(model.MsgTypeBot), model.JSONContent{"text": in.Text})
 
@@ -92,36 +84,11 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 			return err
 		}
 
-		outboxID, err := l.svcCtx.Snowflake.Generate()
-		if err != nil {
-			return err
-		}
-		outboxEvent := &model.OutboxEvent{
-			ID:         outboxID,
-			Topic:      consts.KafkaTopicMessageCreated,
-			Key:        fmt.Sprintf("%d", msgID),
-			MaxRetries: model.DefaultMaxRetries,
-		}
-		payload := map[string]any{
-			"message_id":      msgID,
-			"conv_id":         in.ConversationId,
-			"sender_id":       in.BotId,
-			"sender_type":     "bot",
-			"msg_type":        int64(model.MsgTypeBot),
-			"content":         contentMap,
-			"seq":             seq,
-			"reply_to_msg_id": in.GetReplyToId(),
-			"created_at":      now.Unix(),
-			"sender_name":     content.BotName,
-			"preview_text":    previewText,
-		}
+		payload := buildMessageCreatedPayload(msg, content.BotName)
 		if len(replyToMap) > 0 {
 			payload["reply_to"] = replyToMap
 		}
-		if err := outboxEvent.SetPayload(payload); err != nil {
-			return err
-		}
-		if err := l.svcCtx.OutboxRepo.Insert(l.ctx, tx, outboxEvent); err != nil {
+		if err := l.svcCtx.PublishInboxChange(l.ctx, tx, payload); err != nil {
 			return err
 		}
 

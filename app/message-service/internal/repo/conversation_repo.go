@@ -42,7 +42,7 @@ type ConversationStore interface {
 	IsMember(ctx context.Context, convID, userID int64) (bool, error)
 	MuteMember(ctx context.Context, convID, userID int64, muteUntil int64) error
 	UnmuteMember(ctx context.Context, convID, userID int64) error
-	UpsertReadSeq(ctx context.Context, convID, userID int64, seq int64, id int64) (int64, error)
+	UpsertReadSeq(ctx context.Context, tx *gorm.DB, convID, userID int64, seq int64, id int64) (lastReadSeq int64, advanced bool, err error)
 	UnreadCounts(ctx context.Context, convID int64, userIDs []int64) (map[int64]int32, error)
 	UnreadCountsByUser(ctx context.Context, userID int64, convIDs []int64) (map[int64]int32, error)
 	UnreadCount(ctx context.Context, convID, userID int64) (int32, error)
@@ -344,37 +344,50 @@ func (r *ConversationRepo) UnmuteMember(ctx context.Context, convID, userID int6
 
 // ========== Read Status ==========
 
-// UpsertReadSeq advances a member's read position. The position never regresses
-// (a stale client cannot un-read) and never exceeds the conversation's max_seq.
-// It returns the persisted position, including for stale or out-of-range requests.
-func (r *ConversationRepo) UpsertReadSeq(ctx context.Context, convID, userID int64, seq int64, id int64) (int64, error) {
+// UpsertReadSeq advances a member's read position in the caller's transaction.
+// The conversation lock serializes changes with outbox publication; membership
+// stays valid until commit, and the position never regresses or exceeds max_seq.
+// Only an actual advance changes read_at and requires an inbox change.
+func (r *ConversationRepo) UpsertReadSeq(ctx context.Context, tx *gorm.DB, convID, userID int64, seq int64, id int64) (lastReadSeq int64, advanced bool, err error) {
+	var conv struct {
+		MaxSeq int64 `gorm:"column:max_seq"`
+	}
+	db := tx.WithContext(ctx)
+	locked := db.Raw(`
+		SELECT c.max_seq
+		FROM conversations c
+		JOIN conv_members m ON m.conv_id = c.id
+		WHERE c.id = ? AND m.user_id = ?
+		FOR UPDATE OF c FOR SHARE OF m`, convID, userID).Scan(&conv)
+	if locked.Error != nil {
+		return 0, false, locked.Error
+	}
+	if locked.RowsAffected == 0 {
+		return 0, false, gorm.ErrRecordNotFound
+	}
+	seq = min(max(seq, 0), conv.MaxSeq)
 	var stored struct {
 		LastReadSeq int64 `gorm:"column:last_read_seq"`
 	}
-	result := r.DB.WithContext(ctx).Raw(`
-		WITH member AS (
-			SELECT c.id AS conv_id, m.user_id, c.max_seq
-			FROM conversations c
-			JOIN conv_members m ON m.conv_id = c.id
-			WHERE c.id = ? AND m.user_id = ?
-			FOR SHARE OF c, m
-		)
+	result := db.Raw(`
 		INSERT INTO conv_read_seqs (id, conv_id, user_id, last_read_seq, read_at)
-		SELECT ?, conv_id, user_id, LEAST(GREATEST(?, 0), max_seq), NOW()
-		FROM member
-		WHERE TRUE
+		VALUES (?, ?, ?, ?, NOW())
 		ON CONFLICT (conv_id, user_id) DO UPDATE
-		SET last_read_seq = GREATEST(conv_read_seqs.last_read_seq, EXCLUDED.last_read_seq),
-		    read_at = CASE WHEN conv_read_seqs.last_read_seq < EXCLUDED.last_read_seq
-		                   THEN EXCLUDED.read_at ELSE conv_read_seqs.read_at END
-		RETURNING last_read_seq`, convID, userID, id, seq).Scan(&stored)
+		SET last_read_seq = EXCLUDED.last_read_seq, read_at = EXCLUDED.read_at
+		WHERE conv_read_seqs.last_read_seq < EXCLUDED.last_read_seq
+		RETURNING last_read_seq`, id, convID, userID, seq).Scan(&stored)
 	if result.Error != nil {
-		return 0, result.Error
+		return 0, false, result.Error
 	}
-	if result.RowsAffected == 0 {
-		return 0, gorm.ErrRecordNotFound
+	if result.RowsAffected != 0 {
+		return stored.LastReadSeq, stored.LastReadSeq > 0, nil
 	}
-	return stored.LastReadSeq, nil
+	// A stale request did not mutate the row. Read the same persisted input used
+	// by conversation lists, details and receipts, without emitting a new change.
+	err = db.Model(&model.ConvReadSeq{}).
+		Select("last_read_seq").Where("conv_id = ? AND user_id = ?", convID, userID).
+		Scan(&stored).Error
+	return stored.LastReadSeq, false, err
 }
 
 // UnreadCounts returns, for each requested member of the conversation, how many

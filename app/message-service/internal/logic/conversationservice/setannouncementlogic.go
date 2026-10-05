@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	messagepb "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type SetAnnouncementLogic struct {
@@ -22,18 +25,18 @@ func NewSetAnnouncementLogic(ctx context.Context, svcCtx *svc.ServiceContext) *S
 }
 
 func (l *SetAnnouncementLogic) SetAnnouncement(in *conversation.SetAnnouncementReq) (*common.BaseResponse, error) {
-	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.OperatorId, adminRole); err != nil {
-		return nil, err
-	}
-
-	// 读取旧公告（用于系统消息 payload）
 	oldContent := ""
-	if conv, err := l.svcCtx.ConversationRepo.GetConversation(l.ctx, in.ConversationId); err == nil && conv != nil {
+	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
+			return err
+		}
 		oldContent = conv.Announcement
-	}
-
-	if err := l.svcCtx.ConversationRepo.UpdateConversationAnnouncement(l.ctx, in.ConversationId, in.Content); err != nil {
-		l.Logger.Errorf("set announcement failed: %v", err)
+		if err := r.UpdateConversationAnnouncement(l.ctx, conv.ID, in.Content); err != nil {
+			return err
+		}
+		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)
+	})
+	if err != nil {
 		return nil, err
 	}
 

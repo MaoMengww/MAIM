@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -47,9 +48,18 @@ func (w *InboxWriter) ConsumeClaim(session sarama.ConsumerGroupSession, claim sa
 				return nil
 			}
 			ctx := kafka.ExtractTraceContext(session.Context(), msg.Headers)
-			if err := w.handle(ctx, msg.Topic, msg.Value); err != nil {
-				if retryErr := w.retry(ctx, msg.Topic, msg.Value); retryErr != nil {
-					logger.Errorf("inbox writer failed after retries: key=%s err=%v", string(msg.Key), err)
+			for {
+				if err := w.handle(ctx, msg.Topic, msg.Value); err == nil {
+					break
+				}
+				if retryErr := w.retry(ctx, msg.Topic, msg.Value); retryErr == nil {
+					break
+				}
+				logger.Errorf("inbox writer blocked on failed event: key=%s", string(msg.Key))
+				select {
+				case <-session.Context().Done():
+					return nil
+				case <-time.After(time.Second):
 				}
 			}
 			session.MarkMessage(msg, "")
@@ -69,46 +79,61 @@ func (w *InboxWriter) handle(ctx context.Context, topic string, data []byte) err
 func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) error {
 	logger := w.logger.WithContext(ctx)
 
-	var payload event.MessageCreatedEvent
+	var payload event.InboxChangeEvent
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return err
 	}
-	if payload.ConvID <= 0 {
-		return errors.New("new message requires a conversation")
+	if payload.ConvID <= 0 || payload.ChangeID <= 0 {
+		return errors.New("inbox change requires a conversation and event id")
 	}
-
-	logger.Infof("inbox writer: processing message: conv_id=%d seq=%d", payload.ConvID, payload.Seq)
-
-	members, err := w.fanout.UserIDs(ctx, payload.ConvID)
-	if err != nil {
-		logger.Errorf("get conv members failed: conv=%d err=%v", payload.ConvID, err)
-		return err
+	var recipients []int64
+	switch payload.Kind {
+	case model.InboxConversationRemoved:
+		// A removed user's final change must survive loss of membership.
+		recipients = payload.RecipientIDs
+	case model.InboxReadUpdated:
+		if payload.UserID <= 0 {
+			return errors.New("read change requires a user")
+		}
+		members, err := w.fanout.UserIDs(ctx, payload.ConvID)
+		if err != nil {
+			return err
+		}
+		if slices.Contains(members, payload.UserID) {
+			recipients = []int64{payload.UserID}
+		}
+	case model.InboxConversationUpsert, model.InboxMessageNew, model.InboxMessageEdited, model.InboxMessageRecalled, model.InboxMessageDeleted:
+		members, err := w.fanout.UserIDs(ctx, payload.ConvID)
+		if err != nil {
+			return err
+		}
+		for _, uid := range payload.RecipientIDs {
+			if slices.Contains(members, uid) {
+				recipients = append(recipients, uid)
+			}
+		}
+	default:
+		return errors.New("unknown inbox change kind")
 	}
-
 	now := time.Now()
-	inboxes := make([]model.UserInbox, 0, len(members))
-
-	for _, uid := range members {
-		inboxes = append(inboxes, model.UserInbox{
-			UserID:    uid,
-			ConvID:    payload.ConvID,
-			MessageID: payload.MessageID,
-			Kind:      model.InboxMessageNew,
-			CreatedAt: now,
-		})
+	inboxes := make([]model.UserInbox, 0, len(recipients))
+	for _, uid := range recipients {
+		inboxes = append(inboxes, model.UserInbox{UserID: uid, ConvID: payload.ConvID,
+			MessageID: payload.MessageID, Kind: payload.Kind, ChangeID: payload.ChangeID,
+			LastReadSeq: payload.LastReadSeq, CreatedAt: now})
 	}
-
-	if len(inboxes) == 0 {
-		return nil
-	}
-
 	if err := w.inboxRepo.BatchInsert(ctx, inboxes); err != nil {
 		logger.Errorf("batch insert inbox failed: %v", err)
 		return err
 	}
-
-	logger.Infof("inbox writer: wrote %d inbox entries: conv_id=%d seq=%d", len(inboxes), payload.ConvID, payload.Seq)
-	return w.fanout.MessageCreated(ctx, payload, data, members)
+	// No live change is published before the durable stream transaction commits.
+	if err := w.fanout.ChangeCommitted(ctx, payload, data, recipients); err != nil {
+		return err
+	}
+	if payload.Kind == model.InboxReadUpdated {
+		return w.fanout.Handle(ctx, consts.KafkaTopicConversationReadUpdated, data)
+	}
+	return nil
 }
 
 func (w *InboxWriter) retry(ctx context.Context, topic string, data []byte) error {

@@ -7,6 +7,7 @@ import { MoreOutlined, PushpinOutlined, BellOutlined, SettingOutlined, TeamOutli
 import { SearchFilterBar } from '@/components/common/SearchFilterBar';
 import { convApi } from '@/services/conversation';
 import { msgApi } from '@/services/message';
+import { messageSync } from '@/services/messageSync';
 import { friendApi } from '@/services/friend';
 import { Avatar } from '@/components/common/Avatar';
 import { PresenceDot } from '@/components/common/PresenceDot';
@@ -111,62 +112,11 @@ export function ConvListPage() {
 
   const conversations = data?.list ?? [];
 
-  // Real-time conv list updates via WebSocket
-  useEffect(() => {
-    const unsubMsg = wsOn('message.new', (payload: any) => {
-      const convId = payload.message?.conv_id ?? payload.conversation_id;
-      if (!convId) return;
-      // Clear cached enriched preview so it gets re-fetched with sender name
-      setPreviewMap((prev) => {
-        const key = String(convId);
-        if (!prev[key]) return prev;
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      queryClient.setQueryData(['conversations'], (old: any) => {
-        if (!old?.list) return old;
-        return {
-          ...old,
-          list: old.list.map((c: any) =>
-            String(c.id) === String(convId)
-              ? {
-                  ...c,
-                  unread_count: String(convId) === activeId
-                    ? 0
-                    : (payload.unread_count ?? c.unread_count),
-                  last_message_preview: payload.preview ?? c.last_message_preview,
-                  updated_at: Math.floor(Date.now() / 1000),
-                }
-              : c
-          ),
-        };
-      });
-    });
-
-    const unsubRead = wsOn('unread_count', (payload: any) => {
-      queryClient.setQueryData(['conversations'], (old: any) => {
-        if (!old?.list) return old;
-        return {
-          ...old,
-          list: old.list.map((c: any) =>
-            String(c.id) === String(payload.conv_id)
-              ? { ...c, unread_count: payload.unread_count ?? 0 }
-              : c
-          ),
-        };
-      });
-    });
-
-    return () => { unsubMsg(); unsubRead(); };
-  }, [queryClient, activeId]);
-
-  // Re-sync conversations on WS reconnect
-  const wsReconnectVersion = useWSStore((s) => s.reconnectVersion);
-  useEffect(() => {
-    if (wsReconnectVersion === 0) return;
-    queryClient.invalidateQueries({ queryKey: ['conversations'] });
-  }, [wsReconnectVersion, queryClient]);
+  // The account-level inbox owns previews, unread counts and conversation state.
+  // Discard enriched previews only after its authoritative snapshot is committed.
+  useEffect(() => messageSync.subscribe((_convId, snapshotChanged) => {
+    if (snapshotChanged) setPreviewMap({});
+  }), []);
 
   // Subscribe to presence for private conversation peers
   const wsStatus = useWSStore((s) => s.status);

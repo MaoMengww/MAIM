@@ -46,8 +46,8 @@ func TestInboxCrossConversationPositions(t *testing.T) {
 	for i, convID := range []int64{firstConv, secondConv} {
 		require.NoError(t, db.Exec("INSERT INTO messaging.messages (id, conv_id, seq) VALUES (?, ?, 1)", firstMsg+int64(i), convID).Error)
 	}
-	first := model.UserInbox{UserID: userID, ConvID: firstConv, MessageID: firstMsg}
-	second := model.UserInbox{UserID: userID, ConvID: secondConv, MessageID: secondMsg}
+	first := model.UserInbox{UserID: userID, ConvID: firstConv, MessageID: firstMsg, ChangeID: firstMsg, Kind: model.InboxMessageNew}
+	second := model.UserInbox{UserID: userID, ConvID: secondConv, MessageID: secondMsg, ChangeID: secondMsg, Kind: model.InboxMessageNew}
 	require.NoError(t, r.BatchInsert(ctx, []model.UserInbox{first}))
 	require.NoError(t, r.BatchInsert(ctx, []model.UserInbox{second}))
 	// Replay cannot append another entry or advance the committed position.
@@ -90,8 +90,8 @@ func TestInboxConcurrentFanoutAndReplay(t *testing.T) {
 			}
 			messageID := userID + 100 + int64(i%16)
 			entries := []model.UserInbox{
-				{UserID: userID, ConvID: convID, MessageID: messageID},
-				{UserID: otherUser, ConvID: convID, MessageID: messageID},
+				{UserID: userID, ConvID: convID, MessageID: messageID, ChangeID: messageID, Kind: model.InboxMessageNew},
+				{UserID: otherUser, ConvID: convID, MessageID: messageID, ChangeID: messageID, Kind: model.InboxMessageNew},
 			}
 			if i%2 != 0 {
 				entries[0], entries[1] = entries[1], entries[0]
@@ -118,12 +118,11 @@ func TestInboxConcurrentFanoutAndReplay(t *testing.T) {
 func TestInboxRejectsConversationlessAndRollsBack(t *testing.T) {
 	db, userID, convID, _ := inboxIntegrationDB(t)
 	r := NewInboxRepo(db)
-	valid := model.UserInbox{UserID: userID, ConvID: convID, MessageID: userID + 100}
-	invalid := model.UserInbox{UserID: userID, MessageID: userID + 101}
+	valid := model.UserInbox{UserID: userID, ConvID: convID, MessageID: userID + 100, ChangeID: userID + 100, Kind: model.InboxMessageNew}
+	invalid := model.UserInbox{UserID: userID, MessageID: userID + 101, ChangeID: userID + 101, Kind: model.InboxMessageNew}
 	require.Error(t, r.BatchInsert(t.Context(), []model.UserInbox{valid, invalid}))
-	// A positive but nonexistent conversation reaches the database constraint;
-	// neither the valid sibling nor its allocated position may survive failure.
-	invalid.ConvID = userID + 1000
+	// Unknown changes must reject the entire batch before allocation.
+	invalid.ConvID, invalid.Kind = convID, "unknown"
 	require.Error(t, r.BatchInsert(t.Context(), []model.UserInbox{valid, invalid}))
 	require.NoError(t, r.BatchInsert(t.Context(), []model.UserInbox{valid}))
 	var positions []int64

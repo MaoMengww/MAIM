@@ -47,7 +47,7 @@ func syncIntegrationContext(t *testing.T) (*svc.ServiceContext, int64, []int64) 
 func syncAppend(t *testing.T, s *svc.ServiceContext, uid, conv, id int64, text string) {
 	t.Helper()
 	require.NoError(t, s.MessageRepo.Insert(t.Context(), &model.Message{ID: id, ConvID: conv, Seq: id, MsgType: model.MsgTypeText, Content: model.JSONContent{"text": text}}))
-	require.NoError(t, s.InboxRepo.BatchInsert(t.Context(), []model.UserInbox{{UserID: uid, ConvID: conv, MessageID: id}}))
+	require.NoError(t, s.InboxRepo.BatchInsert(t.Context(), []model.UserInbox{{UserID: uid, ConvID: conv, MessageID: id, ChangeID: id, Kind: model.InboxMessageNew}}))
 }
 
 func TestUserSyncCrossConversationPagination(t *testing.T) {
@@ -155,7 +155,7 @@ func TestUserSyncDoesNotSkipUncommittedChanges(t *testing.T) {
 	require.Equal(t, initial.NextPosition, before.page.NextPosition)
 	later := make(chan error, 1)
 	go func() {
-		later <- s.InboxRepo.BatchInsert(t.Context(), []model.UserInbox{{UserID: uid, ConvID: convs[1], MessageID: uid + 11}})
+		later <- s.InboxRepo.BatchInsert(t.Context(), []model.UserInbox{{UserID: uid, ConvID: convs[1], MessageID: uid + 11, ChangeID: uid + 11, Kind: model.InboxMessageNew}})
 	}()
 	require.NoError(t, tx.Commit().Error)
 	require.NoError(t, <-later)
@@ -190,7 +190,9 @@ func TestUserSyncUnavailableReferencesStillAdvance(t *testing.T) {
 	require.True(t, second.HasMore)
 	last, err := NewSyncMessagesLogic(t.Context(), s).SyncMessages(&message.SyncMessagesReq{UserId: uid, Position: second.NextPosition, Limit: 1})
 	require.NoError(t, err)
-	require.Empty(t, last.Changes)
+	require.Equal(t, model.InboxMessageDeleted, last.Changes[0].Kind)
+	require.Equal(t, uid+12, last.Changes[0].MessageId)
+	require.Nil(t, last.Changes[0].Message)
 	require.False(t, last.HasMore)
 	require.Greater(t, last.NextPosition, second.NextPosition)
 }

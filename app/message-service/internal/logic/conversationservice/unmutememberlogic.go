@@ -3,10 +3,13 @@ package conversationservice
 import (
 	"context"
 
+	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type UnmuteMemberLogic struct {
@@ -20,14 +23,19 @@ func NewUnmuteMemberLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Unmu
 }
 
 func (l *UnmuteMemberLogic) UnmuteMember(in *conversation.UnmuteMemberReq) (*common.BaseResponse, error) {
-	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.OperatorId, adminRole); err != nil {
-		return nil, err
-	}
-	if err := verifyTargetNotHigher(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.UserId, in.OperatorId); err != nil {
-		return nil, err
-	}
-	if err := l.svcCtx.ConversationRepo.UnmuteMember(l.ctx, in.ConversationId, in.UserId); err != nil {
-		l.Logger.Errorf("unmute member failed: %v", err)
+	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
+			return err
+		}
+		if err := verifyTargetNotHigher(l.ctx, r, conv.ID, in.UserId, in.OperatorId); err != nil {
+			return err
+		}
+		if err := r.UnmuteMember(l.ctx, conv.ID, in.UserId); err != nil {
+			return err
+		}
+		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)
+	})
+	if err != nil {
 		return nil, err
 	}
 

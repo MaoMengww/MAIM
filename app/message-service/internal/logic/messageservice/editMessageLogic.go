@@ -2,14 +2,12 @@ package messageservicelogic
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/metrics"
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
 
@@ -51,48 +49,35 @@ func (l *EditMessageLogic) EditMessage(in *message.EditMessageReq) (*common.Base
 		return nil, ErrEditNotText
 	}
 
-	editHistory := msg.EditHistory
-	if editHistory == nil {
-		editHistory = model.JSONArray{}
+	if in.ConversationId != 0 && in.ConversationId != msg.ConvID {
+		return nil, errors.New(errors.CodeInvalidParam, "conversation does not match message")
 	}
-	editHistory = append(editHistory, msg.Content)
-
-	newContent := model.TextContent{
-		Text:           in.Text.GetText(),
-		MentionUserIDs: in.Text.GetMentionUserIds(),
-		MentionAll:     in.Text.GetMentionAll(),
-	}.ToJSONContent()
-
-	editCount := msg.EditCount + 1
-
-	// 构造 outbox 事件
-	outboxID, err := l.svcCtx.Snowflake.Generate()
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "generate outbox id failed", err)
-	}
-	outboxEvent := &model.OutboxEvent{
-		ID:         outboxID,
-		Topic:      consts.KafkaTopicMessageEdited,
-		Key:        fmt.Sprintf("edit:%d", in.MessageId),
-		MaxRetries: model.DefaultMaxRetries,
-	}
-	if err := outboxEvent.SetPayload(map[string]any{
-		"message_id":  in.MessageId,
-		"conv_id":     msg.ConvID,
-		"user_id":     in.UserId,
-		"new_content": newContent,
-	}); err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "marshal outbox payload failed", err)
-	}
-
-	// 事务写: 更新消息 + 插入 outbox
+	newContent := model.TextContent{Text: in.Text.GetText(), MentionUserIDs: in.Text.GetMentionUserIds(),
+		MentionAll: in.Text.GetMentionAll()}.ToJSONContent()
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
-		if err := msgRepo.UpdateContentWithTx(l.ctx, tx, in.MessageId, newContent, editHistory, editCount); err != nil {
+		current, err := lockMutableMessage(l.ctx, l.svcCtx, tx, msg.ConvID, msg.ID, in.UserId)
+		if err != nil {
 			return err
 		}
-		return l.svcCtx.OutboxRepo.Insert(l.ctx, tx, outboxEvent)
+		if time.Since(current.CreatedAt) > window {
+			return ErrEditWindowExpired
+		}
+		if current.Status == model.MessageStatusRecalled {
+			return errors.New(errors.CodeForbidden, "recalled message cannot be edited")
+		}
+		history := append(current.EditHistory, current.Content)
+		if err := msgRepo.UpdateContentWithTx(l.ctx, tx, current.ID, newContent, history, current.EditCount+1); err != nil {
+			return err
+		}
+		current.Content, current.EditHistory = newContent, history
+		current.EditCount++
+		current.Status, current.UpdatedAt = model.MessageStatusEdited, time.Now()
+		return publishMessageChange(l.ctx, l.svcCtx, tx, current, model.InboxMessageEdited)
 	})
 	if err != nil {
+		if _, ok := errors.IsBizError(err); ok {
+			return nil, err
+		}
 		return nil, errors.Wrap(errors.CodeInternal, "update content failed", err)
 	}
 

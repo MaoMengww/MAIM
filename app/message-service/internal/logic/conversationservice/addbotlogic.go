@@ -3,14 +3,17 @@ package conversationservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type AddBotLogic struct {
@@ -61,9 +64,27 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 		JoinedAt:   time.Now(),
 	}
 
-	if err := l.svcCtx.ConversationRepo.AddBotWithMember(l.ctx, cb, member); err != nil {
-		l.Errorf("add bot with member failed: conv_id=%d, bot_id=%d, err=%v", in.ConversationId, in.BotId, err)
-		return nil, ErrMemberAddFailed
+	err = withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
+			return err
+		}
+		added, _, err := r.AddMembersWithinLimit(l.ctx, conv.ID, []model.ConversationMember{*member}, l.svcCtx.Config.Conv.MaxMemberCount)
+		if err != nil {
+			return err
+		}
+		if len(added) == 0 {
+			return ErrMemberAddFailed
+		}
+		if err := r.AddBot(l.ctx, cb); err != nil {
+			return err
+		}
+		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)
+	})
+	if errors.Is(err, repo.ErrMemberLimitReached) {
+		return nil, ErrConvMaxMembers
+	}
+	if err != nil {
+		return nil, err
 	}
 	// Notify bot-service via Kafka
 	if l.svcCtx.BotEventProducer != nil && l.svcCtx.BotEventProducer.SyncProducer != nil {

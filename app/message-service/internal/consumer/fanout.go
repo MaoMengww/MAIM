@@ -43,17 +43,10 @@ func (f *Fanout) send(ctx context.Context, convID int64, users []int64, payload 
 	return f.publisher.Publish(ctx, convID, delivery.Intent{UserIDs: users, Payload: raw, Notification: notification})
 }
 
-func (f *Fanout) MessageCreated(ctx context.Context, evt event.MessageCreatedEvent, raw []byte, users []int64) error {
-	counts, err := f.conversations.UnreadCounts(ctx, evt.ConvID, users)
-	if err != nil {
-		return err
-	}
-	message, err := clientMessage(raw)
-	if err != nil {
-		return err
-	}
-	preview := messagePreview(evt)
-	convID := strconv.FormatInt(evt.ConvID, 10)
+// ChangeCommitted persists every durable change through the user stream and
+// emits the same ordered invalidation hint. New messages additionally retain
+// the existing full realtime payload for immediate rendering.
+func (f *Fanout) ChangeCommitted(ctx context.Context, evt event.InboxChangeEvent, raw []byte, users []int64) error {
 	title := "新消息"
 	var names struct {
 		SenderName string `json:"sender_name"`
@@ -64,13 +57,39 @@ func (f *Fanout) MessageCreated(ctx context.Context, evt event.MessageCreatedEve
 	if names.SenderName != "" {
 		title = names.SenderName + " 发来消息"
 	}
-	for _, uid := range users {
-		envelope := map[string]any{"type": consts.EventMessageNew, "message": message, "preview": preview, "conv_id": convID, "unread_count": counts[uid]}
-		var notification *delivery.Notification
-		if evt.SenderType == "bot" || uid != evt.SenderID {
-			notification = &delivery.Notification{Title: title, Body: preview, Data: map[string]string{"conv_id": convID, "preview": preview}}
+	convID := strconv.FormatInt(evt.ConvID, 10)
+	preview := ""
+	var counts map[int64]int32
+	var message json.RawMessage
+	if evt.Kind == model.InboxMessageNew {
+		var err error
+		counts, err = f.conversations.UnreadCounts(ctx, evt.ConvID, users)
+		if err != nil {
+			return err
 		}
-		if err := f.send(ctx, evt.ConvID, []int64{uid}, envelope, notification); err != nil {
+		message, err = clientMessage(raw)
+		if err != nil {
+			return err
+		}
+		preview = messagePreview(evt)
+	}
+	for _, uid := range users {
+		var notification *delivery.Notification
+		if evt.Kind == model.InboxMessageNew && (evt.SenderType == "bot" || uid != evt.SenderID) {
+			notification = &delivery.Notification{Title: title, Body: preview,
+				Data: map[string]string{"conv_id": convID, "preview": preview}}
+		}
+		if evt.Kind == model.InboxMessageNew {
+			if err := f.send(ctx, evt.ConvID, []int64{uid}, map[string]any{
+				"type": consts.EventMessageNew, "message": message, "preview": preview,
+				"conv_id": convID, "unread_count": counts[uid],
+			}, notification); err != nil {
+				return err
+			}
+		}
+		if err := f.send(ctx, evt.ConvID, []int64{uid}, map[string]any{
+			"type": "inbox.changed", "conv_id": convID, "kind": evt.Kind,
+		}, nil); err != nil {
 			return err
 		}
 	}
@@ -93,21 +112,13 @@ func (f *Fanout) Handle(ctx context.Context, topic string, raw []byte) error {
 		return err
 	}
 	switch topic {
-	case consts.KafkaTopicMessageRecalled:
-		return f.send(ctx, evt.ConvID, users, map[string]any{"type": consts.EventMessageRecalled, "message_id": strconv.FormatInt(evt.MessageID, 10), "conv_id": strconv.FormatInt(evt.ConvID, 10)}, nil)
-	case consts.KafkaTopicMessageEdited:
-		msg, err := clientMessage(raw)
-		if err != nil {
-			return err
-		}
-		return f.send(ctx, evt.ConvID, users, map[string]any{"type": consts.EventMessageEdited, "message": msg}, nil)
 	case consts.KafkaTopicMessageDeleted:
 		msg, err := clientMessage(raw)
 		if err != nil {
 			return err
 		}
 		if evt.DeleteForAll {
-			return f.send(ctx, evt.ConvID, users, map[string]any{"type": "message.deleted", "message": msg}, nil)
+			return nil
 		}
 		// A personal deletion only synchronizes the actor's devices.
 		for _, uid := range users {
@@ -176,7 +187,7 @@ func stringifyIDs(value any) {
 	}
 }
 
-func messagePreview(evt event.MessageCreatedEvent) string {
+func messagePreview(evt event.InboxChangeEvent) string {
 	text, _ := evt.Content["text"].(string)
 	switch evt.MsgType {
 	case 1:

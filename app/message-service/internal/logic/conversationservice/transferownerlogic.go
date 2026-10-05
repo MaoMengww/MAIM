@@ -3,11 +3,13 @@ package conversationservice
 import (
 	"context"
 
+	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
-	pkg_errors "github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type TransferOwnerLogic struct {
@@ -21,18 +23,29 @@ func NewTransferOwnerLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Tra
 }
 
 func (l *TransferOwnerLogic) TransferOwner(in *conversation.TransferOwnerReq) (*common.BaseResponse, error) {
-	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.OperatorId, ownerRole); err != nil {
+	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, ownerRole); err != nil {
+			return err
+		}
+		if _, err := r.GetMember(l.ctx, conv.ID, in.NewOwnerId); err != nil {
+			return err
+		}
+		if in.NewOwnerId == in.OperatorId {
+			return nil
+		}
+		if err := r.UpdateConversationOwner(l.ctx, conv.ID, in.NewOwnerId); err != nil {
+			return err
+		}
+		if err := r.UpdateMemberRole(l.ctx, conv.ID, in.NewOwnerId, ownerRole); err != nil {
+			return err
+		}
+		if err := r.UpdateMemberRole(l.ctx, conv.ID, in.OperatorId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
+			return err
+		}
+		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)
+	})
+	if err != nil {
 		return nil, err
-	}
-	if err := l.svcCtx.ConversationRepo.UpdateConversationOwner(l.ctx, in.ConversationId, in.NewOwnerId); err != nil {
-		l.Logger.Errorf("transfer owner failed: %v", err)
-		return nil, pkg_errors.Wrap(pkg_errors.CodeInternal, "failed to transfer owner", err)
-	}
-	if err := l.svcCtx.ConversationRepo.UpdateMemberRole(l.ctx, in.ConversationId, in.NewOwnerId, ownerRole); err != nil {
-		l.Logger.Errorf("update new owner role failed: conv=%d user=%d err=%v", in.ConversationId, in.NewOwnerId, err)
-	}
-	if err := l.svcCtx.ConversationRepo.UpdateMemberRole(l.ctx, in.ConversationId, in.OperatorId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
-		l.Logger.Errorf("demote old owner role failed: conv=%d user=%d err=%v", in.ConversationId, in.OperatorId, err)
 	}
 	// 发送系统消息
 	emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "conversation.owner.transferred", "转让了群主身份", []int64{in.NewOwnerId})

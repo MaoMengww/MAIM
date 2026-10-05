@@ -2,14 +2,12 @@ package messageservicelogic
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/metrics"
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
 
@@ -47,38 +45,30 @@ func (l *RecallMessageLogic) RecallMessage(in *message.RecallMessageReq) (*commo
 		return nil, ErrRecallWindowExpired
 	}
 
-	convID := in.ConversationId
-	if convID == 0 {
-		convID = msg.ConvID
+	if in.ConversationId != 0 && in.ConversationId != msg.ConvID {
+		return nil, errors.New(errors.CodeInvalidParam, "conversation does not match message")
 	}
-
-	// 构造 outbox 事件
-	outboxID, err := l.svcCtx.Snowflake.Generate()
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "generate outbox id failed", err)
-	}
-	outboxEvent := &model.OutboxEvent{
-		ID:         outboxID,
-		Topic:      consts.KafkaTopicMessageRecalled,
-		Key:        fmt.Sprintf("recall:%d", in.MessageId),
-		MaxRetries: model.DefaultMaxRetries,
-	}
-	if err := outboxEvent.SetPayload(map[string]any{
-		"message_id": in.MessageId,
-		"conv_id":    convID,
-		"user_id":    in.UserId,
-	}); err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "marshal outbox payload failed", err)
-	}
-
-	// 事务写: 更新状态 + 插入 outbox
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
-		if err := msgRepo.UpdateStatusWithTx(l.ctx, tx, in.MessageId, model.MessageStatusRecalled); err != nil {
+		current, err := lockMutableMessage(l.ctx, l.svcCtx, tx, msg.ConvID, msg.ID, in.UserId)
+		if err != nil {
 			return err
 		}
-		return l.svcCtx.OutboxRepo.Insert(l.ctx, tx, outboxEvent)
+		if time.Since(current.CreatedAt) > window {
+			return ErrRecallWindowExpired
+		}
+		if current.Status == model.MessageStatusRecalled {
+			return nil
+		}
+		if err := msgRepo.UpdateStatusWithTx(l.ctx, tx, current.ID, model.MessageStatusRecalled); err != nil {
+			return err
+		}
+		current.Status, current.UpdatedAt = model.MessageStatusRecalled, time.Now()
+		return publishMessageChange(l.ctx, l.svcCtx, tx, current, model.InboxMessageRecalled)
 	})
 	if err != nil {
+		if _, ok := errors.IsBizError(err); ok {
+			return nil, err
+		}
 		return nil, errors.Wrap(errors.CodeInternal, "update status failed", err)
 	}
 

@@ -12,6 +12,7 @@ import (
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type AddMembersLogic struct {
@@ -26,9 +27,6 @@ func NewAddMembersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AddMem
 
 func (l *AddMembersLogic) AddMembers(in *conversation.AddMembersReq) (*conversation.AddMembersResp, error) {
 	now := time.Now()
-	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.OperatorId, adminRole); err != nil {
-		return nil, err
-	}
 	memberRole := int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)
 	members := make([]model.ConversationMember, 0, len(in.UserIds))
 
@@ -47,7 +45,18 @@ func (l *AddMembersLogic) AddMembers(in *conversation.AddMembersReq) (*conversat
 		})
 	}
 
-	added, failed, err := l.svcCtx.ConversationRepo.AddMembersWithinLimit(l.ctx, in.ConversationId, members, l.svcCtx.Config.Conv.MaxMemberCount)
+	var added, failed []int64
+	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
+			return err
+		}
+		var err error
+		added, failed, err = r.AddMembersWithinLimit(l.ctx, conv.ID, members, l.svcCtx.Config.Conv.MaxMemberCount)
+		if err != nil || len(added) == 0 {
+			return err
+		}
+		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)
+	})
 	if errors.Is(err, repo.ErrMemberLimitReached) {
 		return nil, ErrConvMaxMembers
 	}

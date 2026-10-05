@@ -644,20 +644,6 @@ export function ChatPage() {
     if (!id) return;
 
 
-    const unsubRecalled = wsOn('message.recalled', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
-      const msgId = String(payload.message_id ?? '');
-      if (msgId) messageSync.updateMessage(id!, msgId, (m: any) => ({ ...m, status: 2 }));
-    });
-
-    const unsubEdited = wsOn('message.edited', (payload: any) => {
-      if (!payload.message) return;
-      const edited = normalizeRealtimeMessageContent(payload.message);
-      const cid = (edited as any).conv_id ?? edited.conversation_id;
-      if (cid == null || String(cid) !== id) return;
-      const msgId = String(edited?.message_id ?? '');
-      if (msgId) messageSync.updateMessage(id!, msgId, () => edited);
-    });
 
     // Real-time read status: when someone reads messages in this conversation,
     // refetch members + conv to get updated last_read_seq
@@ -673,7 +659,7 @@ export function ChatPage() {
         if (!old) return old;
         return old.map((m) =>
           String(m.user_id) === String(payload.user_id)
-            ? { ...m, last_read_seq: payload.last_read_seq }
+            ? { ...m, last_read_seq: Math.max(m.last_read_seq || 0, payload.last_read_seq || 0) }
             : m,
         );
       });
@@ -751,35 +737,9 @@ export function ChatPage() {
         return;
       }
 
-      const now = Math.floor(Date.now() / 1000);
-      let replyToObj: { msg_id: string; preview: string } | undefined;
-      if (entry.replyToMsgId) {
-        const syncState = messageSync.getState(id!);
-        const replyMsg = syncState?.messages?.find((m: any) => String(m.message_id) === entry.replyToMsgId);
-        replyToObj = {
-          msg_id: entry.replyToMsgId,
-          preview: replyMsg ? extractTextPreview(replyMsg.content) : '[消息]',
-        };
-      }
-
-      const rawPayload = entry.sources?.length || entry.tools?.length
-        ? JSON.stringify({ kb_sources: entry.sources || [], tool_names: entry.tools || [] })
-        : '';
-
-      const newMsg = normalizeRealtimeMessageContent({
-        message_id: String(payload.message_id),
-        conv_id: id,
-        from_user_id: String(payload.bot_id),
-        type: 9,
-        content: { bot: { bot_id: payload.bot_id, text: entry.text, raw_payload: rawPayload } },
-        status: 1,
-        created_at: now,
-        reply_to: replyToObj,
-      });
-
-      if (newMsg?.message_id) {
-        messageSync.addMessage(id!, newMsg);
-      }
+      // The completion payload is not authoritative: another device may have
+      // edited or deleted this message before this delayed callback arrives.
+      void messageSync.reSync();
 
       setStreamingMap((prev) => {
         const next = { ...prev };
@@ -811,7 +771,7 @@ export function ChatPage() {
       message.error(payload.error || '翻译失败');
     });
 
-    return () => { unsubRecalled(); unsubEdited(); unsubRead(); unsubReadReceipt(); unsubStreamChunk(); unsubStreamTool(); unsubStreamSources(); unsubStreamDone(); unsubReplyCandidatesDone(); unsubReplyCandidatesFailed(); unsubTranslateDone(); unsubTranslateFailed(); };
+    return () => { unsubRead(); unsubReadReceipt(); unsubStreamChunk(); unsubStreamTool(); unsubStreamSources(); unsubStreamDone(); unsubReplyCandidatesDone(); unsubReplyCandidatesFailed(); unsubTranslateDone(); unsubTranslateFailed(); };
   }, [id, queryClient]);
 
   // Reset scroll state when conversation changes
@@ -931,15 +891,6 @@ export function ChatPage() {
     const maxSeq = Math.max(...messages.map((m: any) => m.seq || 0));
     if (maxSeq > 0 && maxSeq > lastMarkedSeqRef.current) {
       lastMarkedSeqRef.current = maxSeq;
-      queryClient.setQueryData(['conversations'], (old: any) => {
-        if (!old?.list) return old;
-        return {
-          ...old,
-          list: old.list.map((c: any) =>
-            String(c.id) === id ? { ...c, unread_count: 0 } : c,
-          ),
-        };
-      });
       convApi.markRead(id as any, maxSeq)
         .catch(() => {
           queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -1254,26 +1205,12 @@ export function ChatPage() {
         ...data,
         reply_to_msg_id: replyTo?.msg_id as any,
       }),
-    onSuccess: (result: any, variables) => {
+    onSuccess: () => {
       setInput('');
       setReplyTo(null);
-      // Optimistically add the sent message to cache for immediate display
-      const now = Math.floor(Date.now() / 1000);
-      const newMsg = normalizeRealtimeMessageContent({
-        message_id: String(result.message_id ?? ''),
-        conv_id: id,
-        from_user_id: currentUserId,
-        type: variables.type,
-        content: variables.content,
-        seq: result.seq,
-        status: 1,
-        created_at: result.created_at ?? now,
-        reply_to: replyTo ? { msg_id: replyTo.msg_id, preview: replyTo.preview } : undefined,
-      });
-      if (newMsg?.message_id && id) {
-        messageSync.addMessage(id, newMsg);
-      }
-      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      // A delayed send acknowledgement must not resurrect an already deleted
+      // message. Re-read its current state through the ordered user stream.
+      void messageSync.reSync();
     },
     onError: () => message.error('发送失败'),
   });

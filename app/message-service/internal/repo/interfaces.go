@@ -54,7 +54,7 @@ type SequenceRepoInterface interface {
 type OutboxRepoInterface interface {
 	// Insert inserts an outbox event within an existing transaction.
 	Insert(ctx context.Context, tx *gorm.DB, event *model.OutboxEvent) error
-	// FetchPending returns pending events ordered by created_at ASC, using SKIP LOCKED.
+	// FetchPending returns each ordered key's oldest unsent event; call within a transaction to retain its lock.
 	FetchPending(ctx context.Context, limit int) ([]model.OutboxEvent, error)
 	MarkSent(ctx context.Context, id int64) error
 	MarkRetry(ctx context.Context, id int64, nextRetryAt time.Time, lastError string) error

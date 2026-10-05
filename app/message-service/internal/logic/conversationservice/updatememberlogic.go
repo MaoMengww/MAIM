@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 
+	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
+	pkg_errors "github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -22,26 +25,45 @@ func NewUpdateMemberLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Upda
 }
 
 func (l *UpdateMemberLogic) UpdateMember(in *conversation.UpdateMemberReq) (*common.BaseResponse, error) {
-	if in.Role != nil {
-		if err := l.svcCtx.ConversationRepo.UpdateMemberRole(l.ctx, in.ConversationId, in.UserId, int32(in.GetRole())); err != nil {
-			l.Logger.Errorf("update role failed: %v", err)
-			return nil, err
+	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
+			return err
 		}
-	}
-	if in.Alias != nil {
-		member, err := l.svcCtx.ConversationRepo.GetMember(l.ctx, in.ConversationId, in.UserId)
+		member, err := r.GetMember(l.ctx, conv.ID, in.UserId)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrMemberNotFound
+		}
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, ErrMemberNotFound
+			return err
+		}
+		if in.Role != nil {
+			if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, ownerRole); err != nil {
+				return err
 			}
-			l.Logger.Errorf("get member failed: %v", err)
-			return nil, err
+			role := int32(in.GetRole())
+			if member.Role == ownerRole || role < adminRole || role > int32(conversation.MemberRole_MEMBER_ROLE_MEMBER) {
+				return pkg_errors.New(pkg_errors.CodeForbidden, "ownership changes require transfer owner")
+			}
+			member.Role = role
 		}
-		member.Alias = in.GetAlias()
-		if err := l.svcCtx.ConversationRepo.UpdateMember(l.ctx, member); err != nil {
-			l.Logger.Errorf("update alias failed: %v", err)
-			return nil, err
+		if in.Alias != nil {
+			if in.UserId != in.OperatorId {
+				if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
+					return err
+				}
+				if err := verifyTargetNotHigher(l.ctx, r, conv.ID, in.UserId, in.OperatorId); err != nil {
+					return err
+				}
+			}
+			member.Alias = in.GetAlias()
 		}
+		if err := r.UpdateMember(l.ctx, member); err != nil {
+			return err
+		}
+		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)
+	})
+	if err != nil {
+		return nil, err
 	}
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

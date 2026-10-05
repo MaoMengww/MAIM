@@ -244,7 +244,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
   → [事务] messages + outbox_events + seq (PostgreSQL)
   → OutboxDispatcher (后台轮询)
   → Kafka message.created → 消息域收件箱与扇出 → delivery.requested
-  → realtime → Redis 实例专用通道 → WebSocket（best-effort；seq 补拉兜底）
+  → realtime → Redis 实例专用通道 → WebSocket（best-effort；用户同步位点补拉兜底）
 ```
 
 #### 不重复（持久化 effectively-once 语义）
@@ -254,7 +254,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 | 层级 | 机制 | 实现方式 |
 |------|------|---------|
 | 发送端 | 客户端幂等 key | `client_msg_id` + Redis `SetNX("msg:idempotent:{client_msg_id}", TTL=2小时)`，重复请求直接返回 `ErrDuplicateMessage` |
-| Inbox 写入 | 用户流事务 + 唯一约束 | `BatchInsert` 按用户 ID 顺序锁定 `inbox_streams`，去重后分配位置并与 `inbox_entries` 同事务提交；唯一键 `(user_id, conv_id, message_id, kind)` 保证重放不重复写入 |
+| Inbox 写入 | 用户流事务 + 事件幂等账本 | `BatchInsert` 按用户 ID 顺序锁定 `inbox_streams`，以 `(user_id, change_id)` 去重后分配位置；账本与记录同事务提交，已读合并或记录过期后重放也不增加位置 |
 | Kafka 消费 | 先持久化再投递 | InboxWriter 对同一批人类收件人先写收件箱再发布投递意图；重放不增加同步位置，但仍允许 best-effort 推送重放 |
 
 #### 不丢失（零消息丢失）
@@ -312,6 +312,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 | Seq 生成 | PostgreSQL UPSERT + RETURNING | 同一会话内 seq 严格递增（`INSERT ... ON CONFLICT DO UPDATE SET current_seq = current_seq + 1 RETURNING current_seq`），与消息写入同事务 |
 | 消息存储 | `messaging.messages` 表 `idx_conv_seq (conv_id, seq)` 索引 | 所有查询 `ORDER BY seq`，天然有序 |
 | Inbox 存储 | `messaging.inbox_entries` 主键 `(user_id, position)` | 每个用户一条跨会话流；分配器 `inbox_streams.position` 是已提交末端，与记录同事务提交，较小位置不会晚于较大位置出现 |
+| 变化发布 | 会话锁 + 单一 Kafka 通道 | 消息、会话与自己的已读变化同业务事务写 outbox，`message.created` 以会话 ID 为键；dispatcher 持锁发送，每个 topic/key 的未发送首项阻断后继，消费失败不越过当前记录 |
 | 增量同步 | `SyncMessages: WHERE position > $request_position ORDER BY position ASC` | 跨会话变化按用户 position 顺序分页；有后续页时 `next_position` 只到本页末位置，末页可到同一快照中的已提交末端；已删除或失去成员资格的引用不会泄露正文 |
 | 游标分页 | `GetMessages: WHERE seq < cursor ORDER BY seq DESC` | 基于 seq，不会跨页乱序 |
 
@@ -319,17 +320,17 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 
 #### Inbox 写扩散模型
 
-每条新消息（含系统消息与 Bot 回复）为每个人类收件人生成一条 `messaging.inbox_entries` 记录，包含会话、消息 ID 与变更种类，不复制正文。`014_user_inbox_stream.sql` 迁移有效消息引用后删除旧 `user_inbox` 表；广播不再写入无会话记录。
+新消息（含系统消息与 Bot 回复）、编辑、撤回、全员删除、会话与成员变化、个人会话设置、自己的已读位点均经同一用户流重放。记录仅保存引用与变更种类，不复制正文；变更 `change_id` 在持会话锁的业务事务中生成。消费前冻结的收件人集合与当前成员资格求交，移除标识仍投给原成员。`017_inbox_changes.sql` 移除会话外键以保留解散/删除标识，增加事件幂等账本与自己的已读合并索引。
 
 - **用户同步位置**：由 `messaging.inbox_streams` 独立分配，跨会话且不由会话 `seq` 推导；位置分配与收件箱写入要么一起提交，要么一起回滚。
-- **同步协议**：`SyncMessages` 请求包含 `user_id`、`position` 与 `limit`；HTTP 用户 ID 仅从鉴权上下文读取，不接受请求 UID。响应 `changes` 中每条包含 `position`、`conversation_id`、`kind` 与消息正文 `message`。旧会话级同步入口已移除；会话历史 `GetMessages` 与 `GetAroundSeq` 保持不变。
+- **同步协议**：`SyncMessages` 请求包含 `user_id`、`position` 与 `limit`；HTTP 用户 ID 仅从鉴权上下文读取。每条 `changes` 包含 `position`、`conversation_id`、`kind`：`message.new/edited/recalled` 返回完整当前 `message`，`message.deleted` 返回 `message_id`；消息变化同时附当前完整 `conversation`。`conversation.upsert` 返回当前会话快照，`conversation.removed` 移除会话与缓存。`read.updated` 返回自己的 `last_read_seq` 与当前会话，按用户/会话只保留最新一条并移动到新位点。同一页可多次引用同一消息，客户端严格按位点顺序应用。旧会话级同步入口已移除；历史与 around-seq 接口不变。
 - **重建协议**：省略位点或 `position=0` 返回 `rebuild_required=true`、`rebuild_reason=new_device`；未知位点（含负位点）返回 `unknown_position`；超出收件箱保留期返回 `expired_position`。重建包含完整当前会话列表（含个人设置）与每会话最近 `limit` 条历史，并返回可继续增量的正 `next_position`，即使用户流为空也不静默从最新开始。
 - **参数边界**：`position` 必须可解析为有符号 64 位整数，`limit` 必须可解析为非负有符号 32 位整数；显式空值、格式错误、溢出或负 `limit` 返回参数错误。省略 `limit` 或传 `0` 默认 50，上限为 `Message.MaxPageSize`（默认 100）；重建时每会话使用同一 `limit`。负 `position` 交给重建逻辑而非拒绝请求。
 - **收件箱保留期**：配置 `Message.inboxRetentionDays`（正整数，默认 30 天），启动时及随后每小时回收过期前缀；`inbox_streams.retained_position` 与删除同事务更新，已提交末端不回退。历史读取不受影响；同步时直接按记录年龄判断过期位点，不依赖回收 worker 是否已运行。
 - **重建可观测性**：Prometheus `aim_service_inbox_sync_rebuild_total{reason="new_device|unknown_position|expired_position"}` 统计成功重建次数；标签只有三种固定原因，不包含用户或设备 ID。
-- **个人删除**：暂保留 `is_deleted` 标记，issue09 再迁移为独立覆盖层；其它变更写入见 issue07/08。
+- **个人删除**：暂保留 `is_deleted` 标记及旧投递路径，issue09 再迁移为独立覆盖层，不受本轮变更影响。
 
-已读位点不在收件箱里：`messaging.conv_read_seqs` 是每个用户在会话内已读位点的唯一真相源（收件箱上的 `last_read_seq` 死列已由 `006_drop_inbox_read_seq.sql` 删除），未读数由消息域用「`seq` 大于该用户已读位点、且发送者不是该用户」在本地计算。
+`messaging.conv_read_seqs` 是每个用户在会话内已读位点的唯一真相源；标记已读与 outbox 同事务提交，位置不能回退且截断到会话最新 `seq`。列表、详情和回执读取同一值，未读数按「消息 `seq` 大于已读位点、且发送者不是该用户」计算。他人的回执与未读计数仅实时投递，不写收件箱。WebSocket `inbox.changed` 只唤起用户同步；在线与离线变化共用整页校验、按序应用、快照与位点原子落盘路径，新消息同时保留原 `message.new` 实时载荷。
 
 ### AI Bot 执行引擎
 

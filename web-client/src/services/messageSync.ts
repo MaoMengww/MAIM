@@ -1,8 +1,8 @@
 import { loadUserSyncCache, commitUserSyncCache, updateUserSyncCache, type UserSyncCache } from './storage';
-import { msgApi, normalizeRealtimeMessageContent, type UserSyncPage } from './message';
+import { msgApi, normalizeRealtimeMessageContent, type InboxChange, type UserSyncPage } from './message';
 import type { Message } from '@/types/model';
 
-type Listener = (convId: string, snapshotChanged: boolean) => void;
+type Listener = (convId: string, snapshotChanged: boolean, removedConversations: readonly string[]) => void;
 interface ConvState {
   messages: Message[];
   loading: boolean;
@@ -15,6 +15,32 @@ function mergeMessage(messages: Record<string, Message[]>, convId: string, msg: 
   const index = list.findIndex((m) => String(m.message_id) === String(msg.message_id));
   messages[convId] = index < 0 ? [...list, msg] : list.map((m, i) => i === index ? msg : m);
   messages[convId].sort((a, b) => a.seq - b.seq);
+}
+
+function applyChange(cache: UserSyncCache, change: InboxChange) {
+  const convId = change.conversation_id;
+  if (change.kind === 'conversation.removed') {
+    cache.conversations = cache.conversations.filter((conv) => String(conv.id) !== convId);
+    delete cache.messages[convId];
+    return;
+  }
+  if (change.conversation) {
+    const conversation = change.conversation;
+    const index = cache.conversations.findIndex((conv) => String(conv.id) === convId);
+    cache.conversations = index < 0
+      ? [...cache.conversations, conversation]
+      : cache.conversations.map((conv, i) => i === index ? conversation : conv);
+  }
+  switch (change.kind) {
+    case 'message.new':
+    case 'message.edited':
+    case 'message.recalled':
+      mergeMessage(cache.messages, convId, change.message);
+      break;
+    case 'message.deleted':
+      cache.messages[convId] = (cache.messages[convId] ?? []).filter((msg) => String(msg.message_id) !== change.message_id);
+      break;
+  }
 }
 
 class MessageSyncEngine {
@@ -43,8 +69,8 @@ class MessageSyncEngine {
     return () => this.listeners.delete(fn);
   }
 
-  private notify(convId = '*', snapshotChanged = false) {
-    this.listeners.forEach((fn) => fn(convId, snapshotChanged));
+  private notify(convId = '*', snapshotChanged = false, removedConversations: readonly string[] = []) {
+    this.listeners.forEach((fn) => fn(convId, snapshotChanged, removedConversations));
   }
 
   getState(convId: string): ConvState {
@@ -66,7 +92,7 @@ class MessageSyncEngine {
       this.mutations.forEach((apply) => apply(messages));
       this.cache = { position: cache?.position ?? '0', conversations: cache?.conversations ?? [], messages };
       this.hydrated = true;
-      this.notify();
+      this.notify('*', true);
     });
     // The sync caller reports failures; observe early cache failures until WS opens.
     void this.boot.catch((error) => {
@@ -139,17 +165,32 @@ class MessageSyncEngine {
         page.conversations.forEach((snapshot) => {
           messages[String(snapshot.conversation.id)] = snapshot.messages;
         });
-      } else {
-        page.changes.forEach((change) => mergeMessage(messages, change.conversation_id, change.message));
+      }
+      const next: UserSyncCache = { position: page.next_position, messages, conversations };
+      if (!page.rebuild_required) page.changes.forEach((change) => applyChange(next, change));
+      const removedConversations = new Set<string>();
+      page.changes.forEach((change) => {
+        if (change.kind === 'conversation.removed') removedConversations.add(change.conversation_id);
+        else if (change.conversation) removedConversations.delete(change.conversation_id);
+      });
+      if (page.rebuild_required) {
+        const rebuiltIds = new Set(next.conversations.map((conversation) => String(conversation.id)));
+        this.cache.conversations.forEach((conversation) => {
+          if (!rebuiltIds.has(String(conversation.id))) removedConversations.add(String(conversation.id));
+        });
       }
       // New messages arriving while the request was in flight are not in its snapshot.
       // Rebuild replaces old state but retains live changes arriving after its request began.
       const replayLiveChanges = (start: number) => {
         this.mutations.slice(start).forEach((apply) => apply(messages));
+        // Live echoes cannot revive messages or conversations removed by this page.
+        page.changes.forEach((change) => {
+          if (change.kind === 'message.deleted'
+            || (change.kind === 'conversation.removed' && removedConversations.has(change.conversation_id))) applyChange(next, change);
+        });
       };
       replayLiveChanges(page.rebuild_required ? requestMutationStart : 0);
       const consumed = this.mutations.length;
-      const next = { position: page.next_position, messages, conversations };
       await this.enqueueWrite(async () => {
         if (generation === this.generation) await commitUserSyncCache(userId, next, position);
       });
@@ -157,7 +198,7 @@ class MessageSyncEngine {
       this.mutations.splice(0, consumed);
       replayLiveChanges(0);
       this.cache = next;
-      this.notify('*', page.rebuild_required);
+      this.notify('*', page.rebuild_required || page.changes.length > 0, [...removedConversations]);
     } while (page.has_more);
   }
 

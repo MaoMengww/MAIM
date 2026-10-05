@@ -55,7 +55,7 @@ func TestEditMessage_NotSender(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "only the sender can edit")
+	assert.ErrorIs(t, err, ErrEditNotSender)
 	assert.Nil(t, resp)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -88,7 +88,7 @@ func TestEditMessage_EditWindowExpired(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "edit window expired")
+	assert.ErrorIs(t, err, ErrEditWindowExpired)
 	assert.Nil(t, resp)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -121,7 +121,7 @@ func TestEditMessage_NotTextType(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "only text messages can be edited")
+	assert.ErrorIs(t, err, ErrEditNotText)
 	assert.Nil(t, resp)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -147,7 +147,7 @@ func TestEditMessage_NotFound(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "message not found")
+	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	assert.Nil(t, resp)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

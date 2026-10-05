@@ -232,6 +232,9 @@ func run(args []string) error {
 			err = d.relationships()
 		case "user-sync":
 			err = d.userSync()
+			if err == nil {
+				err = d.inboxChanges(*realtimeA, *realtimeB)
+			}
 		case "conversations", "conversation-unread":
 			err = d.conversations(scenario.a, scenario.name == "conversation-unread")
 		case "broadcasts":
@@ -253,6 +256,7 @@ func run(args []string) error {
 			fmt.Println("E2E PASS: relationships 请求 → 接受/拒绝/取消 → 双向好友 → 备注/分组 → 删除 → 拉黑/解除")
 		} else if scenario.name == "user-sync" {
 			fmt.Println("E2E PASS: user-sync 双账号注册/登录 → 空流正位点重建 → 单位点跨单聊/群聊limit=1分页正文/无遗漏/隔离 → 最近2条历史与置顶免打扰重建 → 续增量 → 未知/负位点显式重建 → 非法参数HTTP400")
+			fmt.Println("E2E PASS: inbox-changes 双realtime离线编辑两次/撤回/全删 → 完整状态重放/重复读取 → 在线变更提示 → 会话元数据/私有设置 → 自己已读合并/边界/列表详情回执一致 → 他人已读不入流 → 移除后无消息/重加入/解散")
 		} else if scenario.name == "broadcasts" {
 			fmt.Println("E2E PASS: broadcasts 并发首播唯一系统会话 → user/group/all范围 → 跨实例普通message.new → 会话复用/seq → 离线同步/重建/history → 非成员拒读")
 		} else if scenario.name == "bot-runtime" {

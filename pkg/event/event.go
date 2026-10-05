@@ -39,8 +39,13 @@ func MarshalRealtimeEvent(evt RealtimeEvent) ([]byte, error) {
 	return json.Marshal(evt)
 }
 
-// MessageCreatedEvent is shared by the inbox writer and AI handler.
-type MessageCreatedEvent struct {
+// InboxChangeEvent carries all durable changes on the conversation-keyed channel.
+type InboxChangeEvent struct {
+	ChangeID     int64          `json:"change_id"`
+	Kind         string         `json:"kind"`
+	RecipientIDs []int64        `json:"recipient_ids,omitempty"`
+	UserID       int64          `json:"user_id,omitzero"`
+	LastReadSeq  int64          `json:"last_read_seq,omitzero"`
 	MessageID    int64          `json:"message_id"`
 	ConvID       int64          `json:"conv_id"`
 	SenderID     int64          `json:"sender_id"`
@@ -50,28 +55,6 @@ type MessageCreatedEvent struct {
 	Seq          int64          `json:"seq"`
 	ReplyToMsgID int64          `json:"reply_to_msg_id"`
 	CreatedAt    int64          `json:"created_at"`
-}
-
-// MessageRecalledEvent is produced on message.recalled topic.
-type MessageRecalledEvent struct {
-	MessageID int64 `json:"message_id"`
-	ConvID    int64 `json:"conv_id"`
-	UserID    int64 `json:"user_id"`
-}
-
-// MessageEditedEvent is produced on message.edited topic.
-type MessageEditedEvent struct {
-	MessageID  int64          `json:"message_id"`
-	ConvID     int64          `json:"conv_id"`
-	UserID     int64          `json:"user_id"`
-	NewContent map[string]any `json:"new_content"`
-}
-
-// ConversationReadUpdatedEvent is produced on conversation.read.updated topic.
-type ConversationReadUpdatedEvent struct {
-	ConvID      int64 `json:"conv_id"`
-	UserID      int64 `json:"user_id"`
-	LastReadSeq int64 `json:"last_read_seq"`
 }
 
 // WebhookPayload is the JSON body sent to third-party webhook callback URLs.

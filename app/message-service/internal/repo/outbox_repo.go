@@ -22,12 +22,23 @@ func (r *OutboxRepo) Insert(ctx context.Context, tx *gorm.DB, event *model.Outbo
 	return tx.WithContext(ctx).Create(event).Error
 }
 
+// InTransaction keeps publication row locks until Kafka sends and their status
+// changes commit, preventing another dispatcher from overtaking this batch.
+func (r *OutboxRepo) InTransaction(ctx context.Context, fn func(*OutboxRepo) error) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(NewOutboxRepo(&database.DB{DB: tx}))
+	})
+}
+
 func (r *OutboxRepo) FetchPending(ctx context.Context, limit int) ([]model.OutboxEvent, error) {
 	var events []model.OutboxEvent
 	err := r.db.WithContext(ctx).
 		Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 		Where("status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)", model.OutboxStatusPending, time.Now()).
-		Order("created_at ASC").
+		Where(`NOT EXISTS (SELECT 1 FROM messaging.outbox_events older
+			WHERE older.topic = outbox_events.topic AND older.key = outbox_events.key
+			AND older.status <> ? AND (older.created_at, older.id) < (outbox_events.created_at, outbox_events.id))`, model.OutboxStatusSent).
+		Order("created_at ASC, id ASC").
 		Limit(limit).
 		Find(&events).Error
 	return events, err

@@ -51,7 +51,7 @@ BEGIN
             ORDER BY old.user_id, old.conv_id, old.message_id, old.created_at, old.seq
         ) old
         JOIN messaging.inbox_streams stream ON stream.user_id = old.user_id
-        ON CONFLICT (user_id, conv_id, message_id, kind) DO NOTHING;
+        ON CONFLICT DO NOTHING;
 
         UPDATE messaging.inbox_streams stream
         SET position = GREATEST(stream.position, latest.position)

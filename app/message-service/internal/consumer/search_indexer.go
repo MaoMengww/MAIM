@@ -60,30 +60,26 @@ func (i *SearchIndexer) ConsumeClaim(session sarama.ConsumerGroupSession, claim 
 }
 
 func (i *SearchIndexer) handleMessage(ctx context.Context, topic string, data []byte) error {
-	switch topic {
-	case consts.KafkaTopicMessageCreated:
-		return i.handleMessageCreated(ctx, data)
-	case consts.KafkaTopicMessageEdited:
-		return i.handleMessageEdited(ctx, data)
-	case consts.KafkaTopicMessageRecalled:
-		return i.handleMessageRecalled(ctx, data)
-	case consts.KafkaTopicMessageDeleted:
-		// 删除是 per-user 操作，不影响 ES 索引
+	if topic != consts.KafkaTopicMessageCreated {
 		return nil
+	}
+	var evt event.InboxChangeEvent
+	if err := json.Unmarshal(data, &evt); err != nil {
+		return err
+	}
+	switch evt.Kind {
+	case "message.new", "message.edited":
+		return i.indexMessage(ctx, evt)
+	case "message.recalled", "message.deleted":
+		return i.es.Delete(ctx, consts.ESIndexMessages, fmt.Sprintf("%d", evt.MessageID))
 	default:
+		// Conversation/read changes are never message documents.
 		return nil
 	}
 }
 
-func (i *SearchIndexer) handleMessageCreated(ctx context.Context, data []byte) error {
+func (i *SearchIndexer) indexMessage(ctx context.Context, evt event.InboxChangeEvent) error {
 	logger := i.logger.WithContext(ctx)
-
-	var evt event.MessageCreatedEvent
-	if err := json.Unmarshal(data, &evt); err != nil {
-		return err
-	}
-
-	logger.Infof("search indexer: indexing message: msg_id=%d conv_id=%d", evt.MessageID, evt.ConvID)
 
 	msgIDStr := fmt.Sprintf("%d", evt.MessageID)
 	doc := ESMessageDoc{
@@ -102,46 +98,6 @@ func (i *SearchIndexer) handleMessageCreated(ctx context.Context, data []byte) e
 	}
 
 	logger.Infof("search indexer: indexed message: msg_id=%d conv_id=%d", evt.MessageID, evt.ConvID)
-	return nil
-}
-
-func (i *SearchIndexer) handleMessageEdited(ctx context.Context, data []byte) error {
-	logger := i.logger.WithContext(ctx)
-
-	var evt event.MessageEditedEvent
-	if err := json.Unmarshal(data, &evt); err != nil {
-		return err
-	}
-
-	msgIDStr := fmt.Sprintf("%d", evt.MessageID)
-	doc := ESMessageDoc{
-		MessageID: msgIDStr,
-		Content:   evt.NewContent,
-		Text:      extractSearchText(evt.NewContent),
-	}
-
-	if err := i.es.Index(ctx, consts.ESIndexMessages, msgIDStr, doc); err != nil {
-		return fmt.Errorf("es update failed: msg_id=%d err=%w", evt.MessageID, err)
-	}
-
-	logger.Infof("search indexer: updated message: msg_id=%d conv_id=%d", evt.MessageID, evt.ConvID)
-	return nil
-}
-
-func (i *SearchIndexer) handleMessageRecalled(ctx context.Context, data []byte) error {
-	logger := i.logger.WithContext(ctx)
-
-	var evt event.MessageRecalledEvent
-	if err := json.Unmarshal(data, &evt); err != nil {
-		return err
-	}
-
-	msgIDStr := fmt.Sprintf("%d", evt.MessageID)
-	if err := i.es.Delete(ctx, consts.ESIndexMessages, msgIDStr); err != nil {
-		return fmt.Errorf("es delete failed: msg_id=%d err=%w", evt.MessageID, err)
-	}
-
-	logger.Infof("search indexer: deleted recalled message: msg_id=%d conv_id=%d", evt.MessageID, evt.ConvID)
 	return nil
 }
 

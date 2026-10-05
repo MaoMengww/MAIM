@@ -67,7 +67,7 @@ func main() {
 	var thirdPartyConsumer *kafka.Consumer
 	if c.Role != "runtime" {
 		var err error
-		thirdPartyConsumer, err = kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated, consts.KafkaTopicMessageEdited, consts.KafkaTopicMessageRecalled, consts.KafkaTopicConvBotAdded}, c.Kafka.ConsumerGroup+"-third-party", logger)
+		thirdPartyConsumer, err = kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated, consts.KafkaTopicConvBotAdded}, c.Kafka.ConsumerGroup+"-third-party", logger)
 		if err != nil {
 			panic(fmt.Sprintf("third-party consumer init failed: %v", err))
 		}

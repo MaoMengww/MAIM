@@ -74,10 +74,21 @@ func (l *ListConversationsLogic) ListConversations(in *conversation.ListConversa
 		return nil, err
 	}
 
+	var settings []model.ConvSettings
+	if len(convIDs) > 0 {
+		if err := l.svcCtx.DB.WithContext(l.ctx).Where("user_id = ? AND conv_id IN ?", in.UserId, convIDs).Find(&settings).Error; err != nil {
+			return nil, err
+		}
+	}
+	settingsByConv := make(map[int64]model.ConvSettings, len(settings))
+	for _, setting := range settings {
+		settingsByConv[setting.ConvID] = setting
+	}
 	pbConvs := make([]*conversation.Conversation, len(convs))
 	for i := range convs {
 		lastReadSeq := readSeqMap[convs[i].ID]
-		pbConvs[i] = toProtoConv(&convs[i], lastReadSeq, unreadByConv[convs[i].ID], false, false)
+		setting := settingsByConv[convs[i].ID]
+		pbConvs[i] = toProtoConv(&convs[i], lastReadSeq, unreadByConv[convs[i].ID], setting.IsMuted, setting.IsPinned)
 	}
 
 	// Resolve peer info for private conversations

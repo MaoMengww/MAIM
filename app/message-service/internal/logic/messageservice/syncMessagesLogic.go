@@ -86,7 +86,9 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 		}
 		msgIDs := make([]int64, 0, len(page.Entries))
 		for _, entry := range page.Entries {
-			msgIDs = append(msgIDs, entry.MessageID)
+			if entry.MessageID > 0 {
+				msgIDs = append(msgIDs, entry.MessageID)
+			}
 		}
 		msgs, err := snapshot.MessageRepo.BatchGetByIDs(l.ctx, msgIDs)
 		if err != nil {
@@ -97,10 +99,12 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 			msgMap[m.ID] = m
 		}
 		membership := make(map[int64]bool)
+		conversations := make(map[int64]*message.Conversation)
 		pbMsgs := make([]*message.Message, 0, len(page.Entries))
 		for _, entry := range page.Entries {
-			m, ok := msgMap[entry.MessageID]
-			if !ok || m.ConvID != entry.ConvID || entry.IsDeleted {
+			change := &message.InboxChange{Position: entry.Position, ConversationId: entry.ConvID, Kind: entry.Kind}
+			if entry.Kind == model.InboxConversationRemoved {
+				resp.Changes = append(resp.Changes, change)
 				continue
 			}
 			member, checked := membership[entry.ConvID]
@@ -114,10 +118,38 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 			if !member {
 				continue
 			}
-			msg := modelToPbMessage(&m)
-			pbMsgs = append(pbMsgs, msg)
-			resp.Changes = append(resp.Changes, &message.InboxChange{Position: entry.Position,
-				ConversationId: entry.ConvID, Kind: entry.Kind, Message: msg})
+			conv := conversations[entry.ConvID]
+			if conv == nil {
+				current, err := conversationlogic.NewGetConversationLogic(l.ctx, &snapshot).GetConversation(
+					&message.GetConversationReq{ConversationId: entry.ConvID, UserId: in.UserId})
+				if err != nil {
+					return err
+				}
+				conv = current.Conversation
+				conversations[entry.ConvID] = conv
+			}
+			change.Conversation = conv
+			switch entry.Kind {
+			case model.InboxConversationUpsert:
+			case model.InboxReadUpdated:
+				change.LastReadSeq = conv.LastReadSeq
+			case model.InboxMessageNew, model.InboxMessageEdited, model.InboxMessageRecalled, model.InboxMessageDeleted:
+				m, exists := msgMap[entry.MessageID]
+				if entry.IsDeleted {
+					continue
+				} // Existing personal deletion path; issue09 owns its replacement.
+				if entry.Kind == model.InboxMessageDeleted || !exists || m.ConvID != entry.ConvID {
+					// Old new/edit references converge even after physical message deletion.
+					change.Kind = model.InboxMessageDeleted
+					change.MessageId = entry.MessageID
+				} else {
+					change.Message = modelToPbMessage(&m)
+					pbMsgs = append(pbMsgs, change.Message)
+				}
+			default:
+				return errors.New(errors.CodeInternal, "unknown persisted inbox kind")
+			}
+			resp.Changes = append(resp.Changes, change)
 		}
 		hydrateReplySummaries(l.ctx, snapshot.MessageRepo, snapshot.ProfileRepo, snapshot.ConversationRepo, pbMsgs)
 		return nil

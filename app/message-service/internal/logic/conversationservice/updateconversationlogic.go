@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	pkg_errors "github.com/maomeng/aim/pkg/errors"
@@ -24,36 +26,32 @@ func NewUpdateConversationLogic(ctx context.Context, svcCtx *svc.ServiceContext)
 }
 
 func (l *UpdateConversationLogic) UpdateConversation(in *conversation.UpdateConversationReq) (*common.BaseResponse, error) {
-	conv, err := l.svcCtx.ConversationRepo.GetConversation(l.ctx, in.ConversationId)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrConvNotFound
+	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+		if conv.Type != int32(conversation.ConversationType_CONVERSATION_TYPE_GROUP) {
+			return pkg_errors.New(pkg_errors.CodeForbidden, "only group conversations can be updated")
 		}
-		l.Logger.Errorf("get conversation failed: %v", err)
-		return nil, err
+		if err := requireRole(l.ctx, r, in.ConversationId, in.UserId, adminRole); err != nil {
+			return err
+		}
+		if in.Name != nil {
+			conv.Name = in.GetName()
+		}
+		if in.Avatar != nil {
+			conv.Avatar = in.GetAvatar()
+		}
+		if in.Background != nil {
+			conv.Background = in.GetBackground()
+		}
+		conv.UpdatedAt = time.Now()
+		if err := r.UpdateConversation(l.ctx, conv); err != nil {
+			return err
+		}
+		return publishConversationChange(l.ctx, l.svcCtx, tx, in.ConversationId, nil, nil)
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrConvNotFound
 	}
-
-	// Only group conversations can be updated
-	if conv.Type != int32(conversation.ConversationType_CONVERSATION_TYPE_GROUP) {
-		return nil, pkg_errors.New(pkg_errors.CodeForbidden, "only group conversations can be updated")
-	}
-	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.UserId, adminRole); err != nil {
-		return nil, err
-	}
-
-	if in.Name != nil {
-		conv.Name = in.GetName()
-	}
-	if in.Avatar != nil {
-		conv.Avatar = in.GetAvatar()
-	}
-	if in.Background != nil {
-		conv.Background = in.GetBackground()
-	}
-	conv.UpdatedAt = time.Now()
-
-	if err := l.svcCtx.ConversationRepo.UpdateConversation(l.ctx, conv); err != nil {
-		l.Logger.Errorf("update conversation failed: %v", err)
+	if err != nil {
 		return nil, err
 	}
 

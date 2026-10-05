@@ -44,7 +44,7 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 			}, nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			l.Logger.Errorf("find private conv failed: %v", err)
+			return nil, err
 		}
 	}
 
@@ -68,118 +68,70 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 		conv.Avatar = in.GetAvatar()
 	}
 
-	if err := l.svcCtx.ConversationRepo.CreateConversation(l.ctx, conv); err != nil {
-		l.Logger.Errorf("create conversation failed: %v", err)
+	members := make([]model.ConversationMember, 0, len(in.MemberIds)+2)
+	seen := make(map[int64]bool, len(in.MemberIds)+2)
+	addMember := func(uid int64, role int32, memberType string) error {
+		if seen[uid] {
+			return nil
+		}
+		memberID, err := l.svcCtx.Snowflake.Generate()
+		if err != nil {
+			return fmt.Errorf("generate member id failed: %w", err)
+		}
+		member := model.ConversationMember{
+			ID: memberID, ConvID: id, UserID: uid, MemberType: memberType,
+			Role: role, JoinedAt: now,
+		}
+		if memberType == model.MemberTypeBot {
+			member.BotID = uid
+		}
+		members = append(members, member)
+		seen[uid] = true
+		return nil
+	}
+	if err := addMember(in.CreatorId, ownerRole, model.MemberTypeUser); err != nil {
 		return nil, err
 	}
-
-	ownerID, err := l.svcCtx.Snowflake.Generate()
-	if err != nil {
-		return nil, fmt.Errorf("generate owner id failed: %w", err)
-	}
-	ownerRole := int32(conversation.MemberRole_MEMBER_ROLE_OWNER)
-	owner := model.ConversationMember{
-		ID:         ownerID,
-		ConvID:     id,
-		UserID:     in.CreatorId,
-		MemberType: model.MemberTypeUser,
-		Role:       ownerRole,
-		JoinedAt:   now,
-	}
-	if err := l.svcCtx.ConversationRepo.AddMember(l.ctx, &owner); err != nil {
-		l.Logger.Errorf("add owner failed: %v", err)
-		return nil, err
-	}
-
-	if in.PeerUserId != nil {
-		// Check if peer is a bot → create conv_bot + member with member_type="bot"
-		bot, botErr := l.svcCtx.ConversationRepo.GetBot(l.ctx, in.GetPeerUserId())
-		if botErr == nil {
-			cbID, err := l.svcCtx.Snowflake.Generate()
+	var convBot *model.ConvBot
+	if in.PeerUserId != nil && !seen[in.GetPeerUserId()] {
+		memberType := model.MemberTypeUser
+		bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, in.GetPeerUserId())
+		if err == nil {
+			memberType = model.MemberTypeBot
+			botID, err := l.svcCtx.Snowflake.Generate()
 			if err != nil {
 				return nil, fmt.Errorf("generate conv bot id failed: %w", err)
 			}
-			cb := &model.ConvBot{
-				ID:        cbID,
-				ConvID:    id,
-				BotID:     bot.Id,
-				AddedBy:   in.CreatorId,
-				CreatedAt: now,
-			}
-			botMemberID, err := l.svcCtx.Snowflake.Generate()
-			if err != nil {
-				return nil, fmt.Errorf("generate bot member id failed: %w", err)
-			}
-			botMember := &model.ConversationMember{
-				ID:         botMemberID,
-				ConvID:     id,
-				UserID:     bot.Id,
-				MemberType: model.MemberTypeBot,
-				BotID:      bot.Id,
-				Role:       int32(conversation.MemberRole_MEMBER_ROLE_MEMBER),
-				JoinedAt:   now,
-			}
-			if err := l.svcCtx.ConversationRepo.AddBotWithMember(l.ctx, cb, botMember); err != nil {
-				l.Logger.Errorf("add bot conv_bot failed: conv=%d, bot_id=%d, err=%v", id, bot.Id, err)
-				return nil, err
-			}
-		} else {
-			peerRole := int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)
-			peerID, err := l.svcCtx.Snowflake.Generate()
-			if err != nil {
-				return nil, fmt.Errorf("generate peer id failed: %w", err)
-			}
-			peer := model.ConversationMember{
-				ID:         peerID,
-				ConvID:     id,
-				UserID:     in.GetPeerUserId(),
-				MemberType: model.MemberTypeUser,
-				Role:       peerRole,
-				JoinedAt:   now,
-			}
-			if err := l.svcCtx.ConversationRepo.AddMember(l.ctx, &peer); err != nil {
-				l.Logger.Errorf("add peer failed: %v", err)
-				return nil, err
-			}
+			convBot = &model.ConvBot{ID: botID, ConvID: id, BotID: bot.Id, AddedBy: in.CreatorId, CreatedAt: now}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
 		}
-		if err := l.svcCtx.ConversationRepo.IncrementMemberCount(l.ctx, id, 1); err != nil {
-			l.Logger.Errorf("increment member count failed: conv=%d, err=%v", id, err)
+		if err := addMember(in.GetPeerUserId(), int32(conversation.MemberRole_MEMBER_ROLE_MEMBER), memberType); err != nil {
+			return nil, err
 		}
 	}
-
-	if len(in.MemberIds) > 0 {
-		memberRole := int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)
-		var members []model.ConversationMember
-		for _, uid := range in.MemberIds {
-			if uid == in.CreatorId {
-				continue
-			}
-			memberID, err := l.svcCtx.Snowflake.Generate()
-			if err != nil {
-				return nil, fmt.Errorf("generate member id failed: %w", err)
-			}
-			members = append(members, model.ConversationMember{
-				ID:         memberID,
-				ConvID:     id,
-				UserID:     uid,
-				MemberType: model.MemberTypeUser,
-				Role:       memberRole,
-				JoinedAt:   now,
-			})
-		}
-		if len(members) > 0 {
-			if err := l.svcCtx.ConversationRepo.AddMembersBatch(l.ctx, members); err != nil {
-				l.Logger.Errorf("add members failed: %v", err)
-				return nil, err
-			}
-			if err := l.svcCtx.ConversationRepo.IncrementMemberCount(l.ctx, id, len(members)); err != nil {
-				l.Logger.Errorf("increment member count failed: conv=%d, delta=%d, err=%v", id, len(members), err)
-			}
+	for _, uid := range in.MemberIds {
+		if err := addMember(uid, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER), model.MemberTypeUser); err != nil {
+			return nil, err
 		}
 	}
-
-	if err := l.svcCtx.ConversationRepo.IncrementMemberCount(l.ctx, id, 1); err != nil {
-		l.Logger.Errorf("increment member count failed: conv=%d, err=%v", id, err)
+	conv.MemberCount = int32(len(members))
+	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(conv).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&members).Error; err != nil {
+			return err
+		}
+		if convBot != nil {
+			if err := tx.Create(convBot).Error; err != nil {
+				return err
+			}
+		}
+		return publishConversationChange(l.ctx, l.svcCtx, tx, id, nil, nil)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	l.Infof("conversation created: conv_id=%d type=%d", id, conv.Type)
@@ -189,17 +141,7 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 		convTypeLabel = "group"
 	}
 	metrics.ConversationsCreatedTotal.Inc(convTypeLabel)
-	// totalMembers includes the owner and all added members
-	totalMembers := 1 // owner
-	if in.PeerUserId != nil {
-		totalMembers++
-	}
-	for _, uid := range in.MemberIds {
-		if uid != in.CreatorId {
-			totalMembers++
-		}
-	}
-	metrics.ConvMembersTotal.Add(float64(totalMembers))
+	metrics.ConvMembersTotal.Add(float64(len(members)))
 
 	pbConv := toProtoConv(conv, 0, 0, false, false)
 	l.resolvePrivatePeerInfo(pbConv, in.CreatorId)

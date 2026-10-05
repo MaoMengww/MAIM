@@ -294,6 +294,9 @@ message InboxChange {
   int64 conversation_id = 2;
   string kind = 3;
   Message message = 4;
+  int64 message_id = 5;
+  Conversation conversation = 6;
+  int64 last_read_seq = 7;
 }
 
 message ConversationSnapshot {

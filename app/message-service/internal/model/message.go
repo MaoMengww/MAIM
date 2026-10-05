@@ -30,18 +30,28 @@ func (Message) TableName() string {
 	return "messages"
 }
 
-const InboxMessageNew = "message.new"
+const (
+	InboxMessageNew          = "message.new"
+	InboxMessageEdited       = "message.edited"
+	InboxMessageRecalled     = "message.recalled"
+	InboxMessageDeleted      = "message.deleted"
+	InboxConversationUpsert  = "conversation.upsert"
+	InboxConversationRemoved = "conversation.removed"
+	InboxReadUpdated         = "read.updated"
+)
 
 // UserInbox stores a change reference; Position is assigned by InboxRepo, not
 // by the caller or the conversation's message sequence.
 type UserInbox struct {
-	UserID    int64     `gorm:"primaryKey;autoIncrement:false;column:user_id" json:"user_id"`
-	Position  int64     `gorm:"primaryKey;autoIncrement:false;column:position" json:"position"`
-	ConvID    int64     `gorm:"column:conv_id" json:"conv_id"`
-	MessageID int64     `gorm:"column:message_id" json:"message_id"`
-	Kind      string    `gorm:"column:kind" json:"kind"`
-	IsDeleted bool      `gorm:"column:is_deleted" json:"is_deleted"`
-	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
+	UserID      int64     `gorm:"primaryKey;autoIncrement:false;column:user_id" json:"user_id"`
+	Position    int64     `gorm:"primaryKey;autoIncrement:false;column:position" json:"position"`
+	ConvID      int64     `gorm:"column:conv_id" json:"conv_id"`
+	MessageID   int64     `gorm:"column:message_id" json:"message_id"`
+	Kind        string    `gorm:"column:kind" json:"kind"`
+	ChangeID    int64     `gorm:"column:change_id" json:"change_id"`
+	LastReadSeq int64     `gorm:"column:last_read_seq" json:"last_read_seq"`
+	IsDeleted   bool      `gorm:"column:is_deleted" json:"is_deleted"`
+	CreatedAt   time.Time `gorm:"column:created_at" json:"created_at"`
 }
 
 func (UserInbox) TableName() string {
@@ -59,6 +69,14 @@ type InboxStream struct {
 func (InboxStream) TableName() string {
 	return "inbox_streams"
 }
+
+// InboxAppliedChange survives read coalescing and inbox retention for replay deduplication.
+type InboxAppliedChange struct {
+	UserID   int64 `gorm:"primaryKey;autoIncrement:false;column:user_id"`
+	ChangeID int64 `gorm:"primaryKey;autoIncrement:false;column:change_id"`
+}
+
+func (InboxAppliedChange) TableName() string { return "inbox_applied_changes" }
 
 type Broadcast struct {
 	ID            int64       `gorm:"primaryKey;column:id" json:"id"`

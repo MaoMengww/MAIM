@@ -3,10 +3,13 @@ package conversationservice
 import (
 	"context"
 
+	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type UnmuteAllLogic struct {
@@ -20,11 +23,16 @@ func NewUnmuteAllLogic(ctx context.Context, svcCtx *svc.ServiceContext) *UnmuteA
 }
 
 func (l *UnmuteAllLogic) UnmuteAll(in *conversation.UnmuteAllReq) (*common.BaseResponse, error) {
-	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.OperatorId, adminRole); err != nil {
-		return nil, err
-	}
-	if err := l.svcCtx.ConversationRepo.UpdateConversationMutedAll(l.ctx, in.ConversationId, false); err != nil {
-		l.Logger.Errorf("unmute all failed: %v", err)
+	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
+			return err
+		}
+		if err := r.UpdateConversationMutedAll(l.ctx, conv.ID, false); err != nil {
+			return err
+		}
+		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)
+	})
+	if err != nil {
 		return nil, err
 	}
 

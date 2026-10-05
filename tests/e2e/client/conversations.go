@@ -30,6 +30,9 @@ type storedMessage struct {
 	ConvID    decimal `json:"conversation_id"`
 	SenderID  decimal `json:"from_user_id"`
 	Seq       decimal `json:"seq"`
+	Type      int32   `json:"type"`
+	Status    int32   `json:"status"`
+	EditCount int32   `json:"edit_count"`
 	Text      struct {
 		Text string `json:"text"`
 	} `json:"text"`

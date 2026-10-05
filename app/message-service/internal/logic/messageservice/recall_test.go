@@ -54,7 +54,7 @@ func TestRecallMessage_NotSender(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "only the sender can recall")
+	assert.ErrorIs(t, err, ErrRecallNotSender)
 	assert.Nil(t, resp)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -86,7 +86,7 @@ func TestRecallMessage_RecallWindowExpired(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "recall window expired")
+	assert.ErrorIs(t, err, ErrRecallWindowExpired)
 	assert.Nil(t, resp)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -111,7 +111,7 @@ func TestRecallMessage_NotFound(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "message not found")
+	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	assert.Nil(t, resp)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

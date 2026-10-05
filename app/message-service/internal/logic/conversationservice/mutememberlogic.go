@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/gorm"
 )
 
 type MuteMemberLogic struct {
@@ -22,18 +25,23 @@ func NewMuteMemberLogic(ctx context.Context, svcCtx *svc.ServiceContext) *MuteMe
 }
 
 func (l *MuteMemberLogic) MuteMember(in *conversation.MuteMemberReq) (*common.BaseResponse, error) {
-	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.OperatorId, adminRole); err != nil {
-		return nil, err
-	}
-	if err := verifyTargetNotHigher(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.UserId, in.OperatorId); err != nil {
-		return nil, err
-	}
-	muteUntil := int64(0)
-	if in.DurationSeconds > 0 {
-		muteUntil = time.Now().Unix() + in.DurationSeconds
-	}
-	if err := l.svcCtx.ConversationRepo.MuteMember(l.ctx, in.ConversationId, in.UserId, muteUntil); err != nil {
-		l.Logger.Errorf("mute member failed: %v", err)
+	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
+			return err
+		}
+		if err := verifyTargetNotHigher(l.ctx, r, conv.ID, in.UserId, in.OperatorId); err != nil {
+			return err
+		}
+		muteUntil := int64(0)
+		if in.DurationSeconds > 0 {
+			muteUntil = time.Now().Unix() + in.DurationSeconds
+		}
+		if err := r.MuteMember(l.ctx, conv.ID, in.UserId, muteUntil); err != nil {
+			return err
+		}
+		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)
+	})
+	if err != nil {
 		return nil, err
 	}
 

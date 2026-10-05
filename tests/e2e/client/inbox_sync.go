@@ -9,19 +9,26 @@ import (
 
 // Public HTTP shapes only; exact decimal positions must never pass through float64.
 type inboxChange struct {
-	Position       decimal       `json:"position"`
-	ConversationID decimal       `json:"conversation_id"`
-	Kind           string        `json:"kind"`
-	Message        storedMessage `json:"message"`
+	Position       decimal            `json:"position"`
+	ConversationID decimal            `json:"conversation_id"`
+	Kind           string             `json:"kind"`
+	Message        storedMessage      `json:"message"`
+	MessageID      decimal            `json:"message_id"`
+	Conversation   *inboxConversation `json:"conversation"`
+	LastReadSeq    decimal            `json:"last_read_seq"`
+}
+
+type inboxConversation struct {
+	conversationView
+	IsMuted      bool   `json:"is_muted"`
+	IsPinned     bool   `json:"is_pinned"`
+	Avatar       string `json:"avatar"`
+	Announcement string `json:"announcement"`
 }
 
 type inboxSnapshot struct {
-	Conversation struct {
-		conversationView
-		IsMuted  bool `json:"is_muted"`
-		IsPinned bool `json:"is_pinned"`
-	} `json:"conversation"`
-	Messages []storedMessage `json:"messages"`
+	Conversation inboxConversation `json:"conversation"`
+	Messages     []storedMessage   `json:"messages"`
 }
 
 type inboxSyncResult struct {
@@ -53,8 +60,25 @@ func (d *driver) inboxRead(step string, caller account, position decimal, limit 
 	}
 	previous := position
 	for _, change := range result.Changes {
-		if change.Position <= previous || change.ConversationID <= 0 || change.Message.ConvID != change.ConversationID || change.Message.MessageID <= 0 || change.Kind == "" {
-			return result, fmt.Errorf("user-sync.%s: 变化位点必须递增且包含匹配会话的完整消息", step)
+		if change.Position <= previous || change.ConversationID <= 0 {
+			return result, fmt.Errorf("user-sync.%s: 变化位点必须递增且包含会话", step)
+		}
+		switch change.Kind {
+		case "message.new", "message.edited", "message.recalled":
+			if change.Message.ConvID != change.ConversationID || change.Message.MessageID <= 0 {
+				return result, fmt.Errorf("user-sync.%s: 消息变更缺少完整消息", step)
+			}
+		case "message.deleted":
+			if change.MessageID <= 0 {
+				return result, fmt.Errorf("user-sync.%s: 删除缺少message_id", step)
+			}
+		case "conversation.upsert", "read.updated":
+			if change.Conversation == nil || change.Conversation.ID != change.ConversationID {
+				return result, fmt.Errorf("user-sync.%s: 会话变更缺少完整会话", step)
+			}
+		case "conversation.removed":
+		default:
+			return result, fmt.Errorf("user-sync.%s: 未知变化kind=%s", step, change.Kind)
 		}
 		previous = change.Position
 	}
@@ -104,6 +128,9 @@ func (d *driver) inboxDrain(step string, caller account, position decimal, expec
 			return position, fmt.Errorf("user-sync.%s: 无过滤fixture的next_position必须等于本页末变化", step)
 		}
 		for _, change := range page.Changes {
+			if change.Kind == "conversation.upsert" {
+				continue
+			}
 			message, ok := pending[change.Message.MessageID]
 			if !ok || seen[change.Message.MessageID] || change.Kind != "message.new" {
 				return position, fmt.Errorf("user-sync.%s: 收到非本用户预期消息、重复消息或错误 kind（message_id=%s conv_id=%s）", step, change.Message.MessageID, change.ConversationID)
@@ -302,4 +329,338 @@ func (d *driver) userSync() error {
 	}
 	_, err = d.inboxDrain("unknown-rebuild-resume", receiver, unknown.NextPosition, nil, false)
 	return err
+}
+
+// inboxChanges exercises the public reconnect contract, not database internals.
+func (d *driver) inboxChanges(addressA, addressB string) error {
+	suffix, err := randomSuffix()
+	if err != nil {
+		return err
+	}
+	owner, err := d.register("changes_owner", suffix)
+	if err != nil {
+		return err
+	}
+	member, err := d.register("changes_member", suffix)
+	if err != nil {
+		return err
+	}
+	initial, err := d.inboxRead("changes-initial", member, 0, 50)
+	if err != nil {
+		return err
+	}
+	position := initial.NextPosition
+	var created struct {
+		ID decimal `json:"conversation_id"`
+	}
+	if err := d.request(http.MethodPost, "/convs", owner.token, map[string]any{
+		"type": "group", "group_name": "changes_" + suffix, "member_ids": []string{member.id.String()},
+	}, &created); err != nil {
+		return err
+	}
+	convID := created.ID
+	path := "/convs/" + convID.String()
+	collect := func(step string, matches func([]inboxChange) bool) ([]inboxChange, error) {
+		var changes []inboxChange
+		deadline := time.Now().Add(d.timeout)
+		for time.Now().Before(deadline) {
+			page, err := d.inboxRead(step, member, position, 50)
+			if err != nil {
+				return nil, err
+			}
+			if page.RebuildRequired {
+				return nil, fmt.Errorf("%s: valid checkpoint rebuilt", step)
+			}
+			position = page.NextPosition
+			changes = append(changes, page.Changes...)
+			if !page.HasMore && matches(changes) {
+				return changes, nil
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return nil, fmt.Errorf("%s: expected changes did not converge", step)
+	}
+	has := func(kind string, id decimal) func([]inboxChange) bool {
+		return func(changes []inboxChange) bool {
+			for _, change := range changes {
+				if change.Kind == kind && change.ConversationID == convID && (id == 0 || change.Message.MessageID == id || change.MessageID == id) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	if _, err := collect("offline-created", has("conversation.upsert", 0)); err != nil {
+		return err
+	}
+	connOwner, err := d.connect(addressB, owner)
+	if err != nil {
+		return err
+	}
+	defer connOwner.Close()
+	connMember, err := d.connect(addressA, member)
+	if err != nil {
+		return err
+	}
+	if err := d.ready(connMember); err != nil {
+		connMember.Close()
+		return err
+	}
+	connMember.Close() // Member A is offline while B sends and mutates messages.
+	var sent []sentMessage
+	seq := decimal(0)
+	for i := range 3 {
+		msg, err := d.sendMessage(owner, convID, fmt.Sprintf("%s_offline_%d", suffix, i), seq)
+		if err != nil {
+			return err
+		}
+		sent = append(sent, msg)
+		seq = msg.Seq
+	}
+	if err := d.request(http.MethodPut, "/messages/"+sent[0].MessageID.String(), owner.token, map[string]any{"text": "edited_" + suffix}, nil); err != nil {
+		return err
+	}
+	if err := d.request(http.MethodPut, "/messages/"+sent[0].MessageID.String(), owner.token, map[string]any{"text": "edited_twice_" + suffix}, nil); err != nil {
+		return err
+	}
+	if err := d.request(http.MethodPost, "/messages/"+sent[1].MessageID.String()+"/recall", owner.token, map[string]any{}, nil); err != nil {
+		return err
+	}
+	if err := d.request(http.MethodDelete, "/messages/"+sent[2].MessageID.String(), owner.token, map[string]any{"delete_for_all": true}, nil); err != nil {
+		return err
+	}
+	offlinePosition := position
+	connMember, err = d.connect(addressA, member)
+	if err != nil {
+		return err
+	}
+	defer connMember.Close()
+	if err := d.ready(connMember); err != nil {
+		return err
+	}
+	changes, err := collect("offline-message-mutations", func(changes []inboxChange) bool {
+		return has("message.edited", sent[0].MessageID)(changes) && has("message.recalled", sent[1].MessageID)(changes) && has("message.deleted", sent[2].MessageID)(changes)
+	})
+	if err != nil {
+		return err
+	}
+	edits := 0
+	for _, change := range changes {
+		if change.Kind == "message.edited" && change.Message.MessageID == sent[0].MessageID {
+			edits++
+			if change.Message.Text.Text != "edited_twice_"+suffix || change.Message.Type != 1 || change.Message.SenderID != owner.id || change.Message.EditCount != 2 {
+				return errors.New("offline edit lost full message fields or latest body")
+			}
+		}
+		if change.Kind == "message.recalled" && change.Message.Status != 2 {
+			return errors.New("offline recall did not replay recalled status")
+		}
+	}
+	if edits != 2 {
+		return fmt.Errorf("two edits must have distinct replay entries, got %d", edits)
+	}
+	replay, err := d.inboxRead("mutation-replay-idempotent", member, offlinePosition, 50)
+	if err != nil {
+		return err
+	}
+	if replay.NextPosition != position || len(replay.Changes) != len(changes) {
+		return errors.New("re-reading changes altered the user stream")
+	}
+	// Online mutation emits a wakeup; its authoritative body is the same sync page.
+	if err := d.request(http.MethodPut, "/messages/"+sent[0].MessageID.String(), owner.token, map[string]any{"text": "online_" + suffix}, nil); err != nil {
+		return err
+	}
+	if err := connMember.SetReadDeadline(time.Now().Add(d.timeout)); err != nil {
+		return err
+	}
+	for {
+		evt, err := readEvent(connMember)
+		if err != nil {
+			return err
+		}
+		if evt.Type == "inbox.changed" {
+			break
+		}
+	}
+	if _, err := collect("online-edit", func(changes []inboxChange) bool {
+		for _, change := range changes {
+			if change.Kind == "message.edited" && change.Message.Text.Text == "online_"+suffix {
+				return true
+			}
+		}
+		return false
+	}); err != nil {
+		return err
+	}
+	connMember.Close()
+	if err := d.request(http.MethodPut, path+"/info", owner.token, map[string]any{"name": "renamed_" + suffix, "avatar": "https://example.org/avatar.png"}, nil); err != nil {
+		return err
+	}
+	if err := d.request(http.MethodPut, path+"/announcement", owner.token, map[string]any{"content": "notice_" + suffix}, nil); err != nil {
+		return err
+	}
+	if err := d.request(http.MethodPut, path+"/settings", member.token, map[string]any{"is_muted": true, "is_pinned": true}, nil); err != nil {
+		return err
+	}
+	if _, err := collect("offline-metadata-settings", func(changes []inboxChange) bool {
+		for _, change := range changes {
+			if change.Kind == "conversation.upsert" && change.Conversation != nil && change.Conversation.Name == "renamed_"+suffix && change.Conversation.Announcement == "notice_"+suffix && change.Conversation.Avatar == "https://example.org/avatar.png" && change.Conversation.IsMuted && change.Conversation.IsPinned {
+				return true
+			}
+		}
+		return false
+	}); err != nil {
+		return err
+	}
+	snapshot, err := d.inboxRead("metadata-current-state", member, 0, 50)
+	if err != nil {
+		return err
+	}
+	if len(snapshot.Conversations) != 1 || !snapshot.Conversations[0].Conversation.IsMuted || !snapshot.Conversations[0].Conversation.IsPinned {
+		return errors.New("settings did not converge in rebuild")
+	}
+	// One conversation keeps only the latest own-read entry, including stale input.
+	readPosition := position
+	for _, read := range []decimal{1, 2, 1, 999} {
+		if err := d.request(http.MethodPut, path+"/read", member.token, map[string]any{"seq": read}, nil); err != nil {
+			return err
+		}
+	}
+	// A later own-message is an observable fence after all read events; it does
+	// not add unread messages, and leaves the persisted read position unchanged.
+	var readState struct {
+		Conversation conversationView `json:"conversation"`
+	}
+	if err := d.request(http.MethodGet, path, member.token, nil, &readState); err != nil {
+		return err
+	}
+	readSeq := readState.Conversation.LastReadSeq
+	if readSeq <= 0 || readSeq > readState.Conversation.MaxSeq {
+		return errors.New("read position exceeded current conversation tail")
+	}
+	if err := d.request(http.MethodPut, path+"/read", member.token, map[string]any{"seq": 1}, nil); err != nil {
+		return err
+	}
+	var staleRead struct {
+		Conversation conversationView `json:"conversation"`
+	}
+	if err := d.request(http.MethodGet, path, member.token, nil, &staleRead); err != nil {
+		return err
+	}
+	if staleRead.Conversation.LastReadSeq != readSeq {
+		return errors.New("read position moved backwards")
+	}
+	readFence, err := d.sendMessage(member, convID, suffix+"_read_fence", seq)
+	if err != nil {
+		return err
+	}
+	seq = readFence.Seq
+	if _, err := collect("own-read-converged", func(changes []inboxChange) bool {
+		return has("message.new", readFence.MessageID)(changes)
+	}); err != nil {
+		return err
+	}
+	merged, err := d.inboxRead("own-read-merged", member, readPosition, 50)
+	if err != nil {
+		return err
+	}
+	readEntries := 0
+	for _, change := range merged.Changes {
+		if change.Kind == "read.updated" {
+			readEntries++
+			if change.LastReadSeq != readSeq || change.Conversation == nil || change.Conversation.LastReadSeq != readSeq || change.Conversation.UnreadCount != 0 {
+				return errors.New("read position/unread snapshot disagree")
+			}
+		}
+	}
+	if readEntries != 1 {
+		return fmt.Errorf("own reads must compact to one entry, got %d", readEntries)
+	}
+	var detail struct {
+		Conversation conversationView `json:"conversation"`
+	}
+	if err := d.request(http.MethodGet, path, member.token, nil, &detail); err != nil {
+		return err
+	}
+	listed, err := d.conversationList("own-read-list", member, convID, true)
+	if err != nil {
+		return err
+	}
+	if detail.Conversation.LastReadSeq != readSeq || detail.Conversation.UnreadCount != 0 || listed.LastReadSeq != readSeq || listed.UnreadCount != 0 {
+		return errors.New("list/detail/read positions disagree")
+	}
+	var receipt struct {
+		Users []struct {
+			UserID      decimal `json:"user_id"`
+			LastReadSeq decimal `json:"last_read_seq"`
+		} `json:"read_users"`
+	}
+	if err := d.request(http.MethodGet, path+"/read_status/"+sent[0].MessageID.String(), member.token, nil, &receipt); err != nil {
+		return err
+	}
+	foundRead := false
+	for _, user := range receipt.Users {
+		if user.UserID == member.id && user.LastReadSeq == readSeq {
+			foundRead = true
+		}
+	}
+	if !foundRead {
+		return errors.New("read receipt disagrees with list/detail")
+	}
+	if err := d.request(http.MethodPut, path+"/read", owner.token, map[string]any{"seq": seq}, nil); err != nil {
+		return err
+	}
+	// Publish a later message to establish that the owner's read was consumed.
+	marker, err := d.sendMessage(owner, convID, suffix+"_after_other_read", seq)
+	if err != nil {
+		return err
+	}
+	otherChanges, err := collect("other-read-not-in-inbox", has("message.new", marker.MessageID))
+	if err != nil {
+		return err
+	}
+	for _, change := range otherChanges {
+		if change.Kind == "read.updated" {
+			return errors.New("another user's read entered own inbox")
+		}
+	}
+	// Removal reaches the removed recipient, then later messages do not.
+	if err := d.request(http.MethodPost, path+"/members/kick", owner.token, map[string]any{"user_ids": []int64{int64(member.id)}}, nil); err != nil {
+		return err
+	}
+	if _, err := collect("offline-removed", has("conversation.removed", 0)); err != nil {
+		return err
+	}
+	removedPosition := position
+	ownerState, err := d.inboxRead("owner-tail", owner, 0, 50)
+	if err != nil {
+		return err
+	}
+	afterRemoval, err := d.sendMessage(owner, convID, suffix+"_after_removal", marker.Seq)
+	if err != nil {
+		return err
+	}
+	if _, err := d.inboxDrain("after-removal-published", owner, ownerState.NextPosition, []sentMessage{afterRemoval}, false); err != nil {
+		return err
+	}
+	removed, err := d.inboxRead("removed-no-further-message", member, removedPosition, 50)
+	if err != nil {
+		return err
+	}
+	if len(removed.Changes) != 0 {
+		return errors.New("removed member received conversation increments")
+	}
+	if err := d.request(http.MethodPost, path+"/members/invite", owner.token, map[string]any{"user_ids": []int64{int64(member.id)}}, nil); err != nil {
+		return err
+	}
+	if _, err := collect("offline-rejoined", has("conversation.upsert", 0)); err != nil {
+		return err
+	}
+	if err := d.request(http.MethodDelete, path, owner.token, nil, nil); err != nil {
+		return err
+	}
+	if _, err := collect("offline-dissolved", has("conversation.removed", 0)); err != nil {
+		return err
+	}
+	return nil
 }
