@@ -215,7 +215,7 @@ python3 tests/e2e/run.py --scenario user-sync --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifacts
 ```
 
-每次使用独立 Compose project、网络与数据卷，无宿主端口映射。全部中间件与应用就绪后才施加流量；realtime 的两个实例分别可寻址，但共用一个 Kafka 消费组。成功或失败后均清理该 project 的容器与数据卷；`--artifacts` 保留诊断日志。
+每次使用独立 Compose project、网络与数据卷，无宿主端口映射。全部中间件与应用就绪后才施加流量；realtime 的两个实例分别可寻址，但共用一个 Kafka 消费组。成功或失败后均清理该 project 的容器、数据卷与本次构建的镜像，并回收超过保留窗口的 BuildKit 缓存（`run.py` 的 `BUILD_CACHE_MAX_AGE`）；`--artifacts` 保留诊断日志。
 
 默认 `all` 检查关系链、同实例与 A/B 跨实例双向投递；`--scenario` 可选择单个场景。P6 已用连接登记取代旧的单实例 gRPC 推送目标，同实例与跨实例走同一条 Redis 定向投递路径。
 

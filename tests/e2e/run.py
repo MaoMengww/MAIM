@@ -45,6 +45,11 @@ CREDENTIALS = {
     "INGEST_EMBEDDING_TOKEN": "e2e-isolated-ingest-budget-token",
 }
 TAIL_BYTES = 64 * 1024
+# Every run builds with tags unique to its project, so BuildKit cache records pile
+# up run after run. Drop what no recent run can reuse, keeping a day of warm layers
+# so repeated runs stay fast. `--max-used-space` is not usable here: buildx measures
+# it against private cache only and leaves shared layers (the bulk) untouched.
+BUILD_CACHE_MAX_AGE = "24h"
 
 
 class LayerFailure(Exception):
@@ -80,6 +85,8 @@ class Runner:
         self.prefix = ["docker", "compose", "--env-file", str(self.envfile),
                        "--project-directory", str(self.repo), "--project-name", self.project]
         self.model = None
+        self.builds = []
+        self.built_images = []
         self.sequence = 0
         self.compose_written = False
         self.artifacts = None
@@ -287,6 +294,11 @@ class Runner:
                 {"type": "volume", "source": "e2e_probe", "target": "/e2e"},
             ],
         }
+        # Tags are unique to this project, so cleanup can drop exactly the images
+        # this run built — including the explicitly named provider and client —
+        # without touching any image another project still references.
+        self.builds = sorted(name for name, service in services.items() if service.get("build"))
+        self.built_images = sorted(services[name]["image"] for name in self.builds)
         self.model = model
         self.composefile.write_text(json.dumps(model, indent=2) + "\n")
         self.compose_written = True
@@ -297,10 +309,9 @@ class Runner:
 
     def run(self):
         self.prepare()
-        builds = sorted(name for name, service in self.model["services"].items() if service.get("build"))
         # BuildKit bake schedules targets independently of Compose --parallel.
         # Serialize service builds so the full stack fits developer machines.
-        for name in builds:
+        for name in self.builds:
             self.compose("build-" + name, "build", name,
                          timeout=self.args.build_timeout)
         self.compose("pull", "pull", "--ignore-buildable",
@@ -436,6 +447,15 @@ class Runner:
         if self.compose_written:
             self.compose("cleanup", "down", "--volumes", "--remove-orphans",
                          "--timeout", "10", timeout=120)
+        # `compose down` removes this project's containers, networks and volumes but
+        # keeps the images it built here. Without these two steps every run leaves a
+        # full image set and its matching BuildKit cache on the host for good.
+        if self.built_images:
+            self.command("cleanup-images", ["docker", "image", "rm", "--force", *self.built_images],
+                         timeout=300, required=False)
+        self.command("cleanup-build-cache", ["docker", "builder", "prune", "--force",
+                                             "--filter", f"until={BUILD_CACHE_MAX_AGE}"],
+                     timeout=600, required=False)
         if self.artifacts:
             self.emit(f"[artifacts] bounded logs and resolved model: {self.artifacts}")
 
