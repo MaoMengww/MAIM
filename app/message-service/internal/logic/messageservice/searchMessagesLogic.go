@@ -216,7 +216,21 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 		convIDs = ids
 	}
 
+	if isConvSearch {
+		convIDs = []int64{in.GetConversationId()}
+	}
+	if len(convIDs) == 0 {
+		return &message.SearchMessagesResp{Pagination: &common.PaginationResp{Page: int32(page), PageSize: int32(pageSize)}}, nil
+	}
+	deletedIDs, err := l.svcCtx.MessageRepo.PersonalDeletedIDs(l.ctx, in.GetUserId(), convIDs)
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeInternal, "read deletion overlay failed", err)
+	}
 	esQuery := buildESQuery(in, page, pageSize, convIDs)
+	if len(deletedIDs) > 0 {
+		boolQuery := esQuery["query"].(map[string]any)["bool"].(map[string]any)
+		boolQuery["must_not"] = []map[string]any{{"terms": map[string]any{"message_id": deletedIDs}}}
+	}
 	raw, err := l.svcCtx.ESClient.Search(l.ctx, consts.ESIndexMessages, esQuery)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "es search failed", err)
@@ -246,10 +260,18 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 
 	var pbMsgs []*message.Message
 	if len(msgIDs) > 0 {
-		msgs, err := l.svcCtx.MessageRepo.GetByIDs(l.ctx, msgIDs)
+		msgs, err := l.svcCtx.MessageRepo.ForUser(in.GetUserId()).GetByIDs(l.ctx, msgIDs)
 		if err != nil {
 			return nil, errors.Wrap(errors.CodeInternal, "fetch messages failed", err)
 		}
+		visibleHighlights := make(map[string]string, len(msgs))
+		for _, msg := range msgs {
+			id := fmt.Sprintf("%d", msg.ID)
+			if highlight, ok := highlights[id]; ok {
+				visibleHighlights[id] = highlight
+			}
+		}
+		highlights = visibleHighlights
 
 		msgMap := make(map[int64]*model.Message, len(msgs))
 		for i := range msgs {
@@ -261,7 +283,7 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 			}
 		}
 
-		hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)
+		hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo.ForUser(in.GetUserId()), l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)
 	}
 
 	totalPages := int32(total / int64(pageSize))

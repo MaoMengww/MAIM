@@ -70,6 +70,7 @@ type account struct {
 	username string
 	device   string
 	token    string
+	password string
 }
 
 type sentMessage struct {
@@ -161,7 +162,7 @@ func run(args []string) error {
 			{"relationships", "", ""},
 			{"conversations", *realtimeA, *realtimeA},
 			{"broadcasts", *realtimeA, *realtimeB},
-			{"user-sync", "", ""},
+			{"user-sync", *realtimeA, *realtimeB},
 			{"same-instance-a", *realtimeA, *realtimeA},
 			{"same-instance-b", *realtimeB, *realtimeB},
 			{"bot-runtime", *realtimeA, *realtimeA},
@@ -190,7 +191,7 @@ func run(args []string) error {
 	case "relationships":
 		scenarios = []scenarioSpec{{"relationships", "", ""}}
 	case "user-sync":
-		scenarios = []scenarioSpec{{"user-sync", "", ""}}
+		scenarios = []scenarioSpec{{"user-sync", *realtimeA, *realtimeB}}
 	case "same-instance-a":
 		scenarios = []scenarioSpec{{"same-instance-a", *realtimeA, *realtimeA}}
 	case "same-instance-b":
@@ -209,7 +210,7 @@ func run(args []string) error {
 				return fmt.Errorf("配置外部 provider: %w", err)
 			}
 		}
-		if scenario.name == "relationships" || scenario.name == "knowledge-ingest" || scenario.name == "user-sync" {
+		if scenario.name == "relationships" || scenario.name == "knowledge-ingest" {
 			continue
 		}
 		for _, address := range []string{scenario.a, scenario.b} {
@@ -218,7 +219,7 @@ func run(args []string) error {
 			}
 		}
 	}
-	if (*selected == "all" || *selected == "cross-instance" || *selected == "broadcasts" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
+	if (*selected == "all" || *selected == "user-sync" || *selected == "cross-instance" || *selected == "broadcasts" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
 		return errors.New("realtime A/B 必须使用不同地址，不能将单实例冒充两实例")
 	}
 	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout,
@@ -231,9 +232,9 @@ func run(args []string) error {
 		case "relationships":
 			err = d.relationships()
 		case "user-sync":
-			err = d.userSync()
+			err = d.userSync(scenario.a, scenario.b)
 			if err == nil {
-				err = d.inboxChanges(*realtimeA, *realtimeB)
+				err = d.inboxChanges(scenario.a, scenario.b)
 			}
 		case "conversations", "conversation-unread":
 			err = d.conversations(scenario.a, scenario.name == "conversation-unread")
@@ -257,6 +258,7 @@ func run(args []string) error {
 		} else if scenario.name == "user-sync" {
 			fmt.Println("E2E PASS: user-sync 双账号注册/登录 → 空流正位点重建 → 单位点跨单聊/群聊limit=1分页正文/无遗漏/隔离 → 最近2条历史与置顶免打扰重建 → 续增量 → 未知/负位点显式重建 → 非法参数HTTP400")
 			fmt.Println("E2E PASS: inbox-changes 双realtime离线编辑两次/撤回/全删 → 完整状态重放/重复读取 → 在线变更提示 → 会话元数据/私有设置 → 自己已读合并/边界/列表详情回执一致 → 他人已读不入流 → 移除后无消息/重加入/解散")
+			fmt.Println("E2E PASS: personal-deletion 他人消息个人删除 → 同账号双设备跨实例tombstone/删除前位点重放 → 原发送者不受影响 → byID/around历史/search计数与摘要隔离 → 会话预览回退 → 新设备/未知位点重建不复活 → 旧会话同步URL HTTP404")
 		} else if scenario.name == "broadcasts" {
 			fmt.Println("E2E PASS: broadcasts 并发首播唯一系统会话 → user/group/all范围 → 跨实例普通message.new → 会话复用/seq → 离线同步/重建/history → 非成员拒读")
 		} else if scenario.name == "bot-runtime" {
@@ -376,6 +378,7 @@ func (d *driver) register(label, suffix string) (account, error) {
 		return a, err
 	}
 	password := "E2e!" + passwordSuffix
+	a.password = password
 	var registered authResult
 	if err := d.request(http.MethodPost, "/auth/register", "", map[string]string{
 		"username": a.username, "password": password, "device_id": a.device, "platform": "web",

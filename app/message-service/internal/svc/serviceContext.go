@@ -30,7 +30,6 @@ type ServiceContext struct {
 	DB                     *database.DB
 	Redis                  *goredis.Client
 	MessageCreatedProducer *kafka.Producer
-	MessageDeletedProducer *kafka.Producer
 	BotEventProducer       *kafka.Producer
 	DeliveryPublisher      *delivery.Publisher
 	ESClient               *es.Client
@@ -87,10 +86,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		panic(fmt.Sprintf("kafka message.created producer init failed: %v", err))
 	}
-	kpDeleted, err := kafka.NewProducer(c.Kafka, consts.KafkaTopicMessageDeleted, logger)
-	if err != nil {
-		panic(fmt.Sprintf("kafka message.deleted producer init failed: %v", err))
-	}
 
 	var botEventProducer *kafka.Producer
 	if len(c.Kafka.Brokers) > 0 {
@@ -145,7 +140,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		DB:                     db,
 		Redis:                  rdb,
 		MessageCreatedProducer: kpCreated,
-		MessageDeletedProducer: kpDeleted,
 		BotEventProducer:       botEventProducer,
 		DeliveryPublisher:      deliveryPublisher,
 		ESClient:               esClient,
@@ -154,7 +148,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		MessageRepo:            repo.NewMessageRepo(db),
 		InboxRepo:              repo.NewInboxRepo(db),
 		BroadcastRepo:          repo.NewBroadcastRepo(db),
-		SequenceRepo:           repo.NewSequenceRepo(db),
+		SequenceRepo:           &repo.SequenceRepo{},
 		OutboxRepo:             repo.NewOutboxRepo(db),
 		ConversationRepo:       repo.NewConversationRepo(db),
 		ProfileRepo:            repo.NewProfileRepo(db),
@@ -162,7 +156,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			repo.NewOutboxRepo(db),
 			map[string]*kafka.Producer{
 				consts.KafkaTopicMessageCreated: kpCreated,
-				consts.KafkaTopicMessageDeleted: kpDeleted,
 			},
 			logger,
 		),
@@ -173,7 +166,7 @@ func (s *ServiceContext) Close() {
 	if s.DeliveryPublisher != nil {
 		_ = s.DeliveryPublisher.Close()
 	}
-	for _, p := range []*kafka.Producer{s.MessageCreatedProducer, s.MessageDeletedProducer, s.BotEventProducer} {
+	for _, p := range []*kafka.Producer{s.MessageCreatedProducer, s.BotEventProducer} {
 		if p != nil {
 			_ = p.Close()
 		}

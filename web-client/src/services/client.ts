@@ -134,8 +134,8 @@ client.interceptors.response.use(
 );
 
 // ─── Helper: unwrap { code, message, data } => data ───
-export function unwrap<T>(resp: { data: { data?: T } }): T | null {
-  return resp.data?.data ?? null;
+export function unwrap<T>(resp: { data: { data: T } }): T {
+  return resp.data.data;
 }
 
 export default client;

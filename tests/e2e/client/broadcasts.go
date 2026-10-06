@@ -402,10 +402,24 @@ func (d *driver) broadcastIncremental(caller, sender account, position, convID d
 		previous := position
 		for _, change := range page.Changes {
 			msg := change.Message
-			if change.Position <= previous || change.ConvID <= 0 || msg.MessageID <= 0 || msg.Seq <= 0 || msg.ConvID != change.ConvID || change.Kind != "message.new" {
-				return false, errors.New("broadcasts.sync: 普通收件箱位点/会话/消息/seq/kind 无效，广播不能脱离会话")
+			if change.Position <= previous || change.ConvID <= 0 {
+				return false, fmt.Errorf("broadcasts.sync: 收件箱位点或会话无效: position=%s previous=%s conv_id=%s", change.Position, previous, change.ConvID)
 			}
 			previous = change.Position
+			switch change.Kind {
+			case "message.new":
+			case "conversation.upsert", "read.updated", "conversation.removed":
+				// The cross-conversation stream also carries conversation-level
+				// changes, such as this broadcast's own system conversation. Only a
+				// message.new change can be broadcast content.
+				continue
+			default:
+				return false, fmt.Errorf("broadcasts.sync: 未知变化kind=%s", change.Kind)
+			}
+			if msg.MessageID <= 0 || msg.Seq <= 0 || msg.ConvID != change.ConvID {
+				return false, fmt.Errorf("broadcasts.sync: 广播消息缺少正消息/seq或脱离会话: message_id=%s message_conv_id=%s seq=%s conv_id=%s",
+					msg.MessageID, msg.ConvID, msg.Seq, change.ConvID)
+			}
 			if msg.System.Action != "broadcast" {
 				continue
 			}

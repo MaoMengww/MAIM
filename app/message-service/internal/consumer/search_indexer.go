@@ -70,7 +70,13 @@ func (i *SearchIndexer) handleMessage(ctx context.Context, topic string, data []
 	switch evt.Kind {
 	case "message.new", "message.edited":
 		return i.indexMessage(ctx, evt)
-	case "message.recalled", "message.deleted":
+	case "message.deleted":
+		// Personal tombstones never remove another member's search document.
+		if !evt.DeleteForAll {
+			return nil
+		}
+		return i.es.Delete(ctx, consts.ESIndexMessages, fmt.Sprintf("%d", evt.MessageID))
+	case "message.recalled":
 		return i.es.Delete(ctx, consts.ESIndexMessages, fmt.Sprintf("%d", evt.MessageID))
 	default:
 		// Conversation/read changes are never message documents.

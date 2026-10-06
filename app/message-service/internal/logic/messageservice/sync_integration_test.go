@@ -4,19 +4,25 @@ package messageservicelogic
 
 import (
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/config"
+	conversationlogic "github.com/maomeng/aim/app/message-service/internal/logic/conversationservice"
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/migrations/postgres"
 	pkgconfig "github.com/maomeng/aim/pkg/config"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/database"
+	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/pb/common"
+	"github.com/maomeng/aim/pkg/snowflake"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func syncIntegrationContext(t *testing.T) (*svc.ServiceContext, int64, []int64) {
@@ -39,6 +45,9 @@ func syncIntegrationContext(t *testing.T) (*svc.ServiceContext, int64, []int64) 
 		require.NoError(t, db.Exec("DELETE FROM messaging.conversations WHERE id IN ?", convs).Error)
 		require.NoError(t, db.Exec("DELETE FROM messaging.messages WHERE conv_id IN ?", convs).Error)
 		require.NoError(t, db.Exec("DELETE FROM messaging.inbox_streams WHERE user_id = ?", uid).Error)
+		require.NoError(t, db.Exec("DELETE FROM messaging.personal_message_deletions WHERE user_id = ?", uid).Error)
+		require.NoError(t, db.Exec("DELETE FROM messaging.inbox_applied_changes WHERE user_id = ?", uid).Error)
+		require.NoError(t, db.Exec("DELETE FROM messaging.outbox_events WHERE key IN ?", []string{strconv.FormatInt(convs[0], 10), strconv.FormatInt(convs[1], 10)}).Error)
 	})
 	return &svc.ServiceContext{Config: config.Config{Message: config.MessageConfig{MaxPageSize: 100}}, DB: db,
 		InboxRepo: repo.NewInboxRepo(db), MessageRepo: repo.NewMessageRepo(db), ConversationRepo: repo.NewConversationRepo(db), ProfileRepo: repo.NewProfileRepo(db)}, uid, convs
@@ -46,7 +55,7 @@ func syncIntegrationContext(t *testing.T) (*svc.ServiceContext, int64, []int64) 
 
 func syncAppend(t *testing.T, s *svc.ServiceContext, uid, conv, id int64, text string) {
 	t.Helper()
-	require.NoError(t, s.MessageRepo.Insert(t.Context(), &model.Message{ID: id, ConvID: conv, Seq: id, MsgType: model.MsgTypeText, Content: model.JSONContent{"text": text}}))
+	require.NoError(t, s.DB.WithContext(t.Context()).Create(&model.Message{ID: id, ConvID: conv, Seq: id, MsgType: model.MsgTypeText, Content: model.JSONContent{"text": text}}).Error)
 	require.NoError(t, s.InboxRepo.BatchInsert(t.Context(), []model.UserInbox{{UserID: uid, ConvID: conv, MessageID: id, ChangeID: id, Kind: model.InboxMessageNew}}))
 }
 
@@ -125,8 +134,10 @@ func TestUserSyncDoesNotSkipUncommittedChanges(t *testing.T) {
 	s, uid, convs := syncIntegrationContext(t)
 	initial, err := NewSyncMessagesLogic(t.Context(), s).SyncMessages(&message.SyncMessagesReq{UserId: uid})
 	require.NoError(t, err)
-	require.NoError(t, s.MessageRepo.Insert(t.Context(), &model.Message{ID: uid + 10, ConvID: convs[0], Seq: 1, MsgType: model.MsgTypeText, Content: model.JSONContent{"text": "delayed"}}))
-	require.NoError(t, s.MessageRepo.Insert(t.Context(), &model.Message{ID: uid + 11, ConvID: convs[1], Seq: 1, MsgType: model.MsgTypeText, Content: model.JSONContent{"text": "later writer"}}))
+	require.NoError(t, s.DB.WithContext(t.Context()).Create(&[]model.Message{
+		{ID: uid + 10, ConvID: convs[0], Seq: 1, MsgType: model.MsgTypeText, Content: model.JSONContent{"text": "delayed"}},
+		{ID: uid + 11, ConvID: convs[1], Seq: 1, MsgType: model.MsgTypeText, Content: model.JSONContent{"text": "later writer"}},
+	}).Error)
 	tx := s.DB.Begin()
 	require.NoError(t, tx.Error)
 	defer tx.Rollback()
@@ -178,7 +189,7 @@ func TestUserSyncUnavailableReferencesStillAdvance(t *testing.T) {
 	syncAppend(t, s, uid, convs[1], uid+11, "visible")
 	syncAppend(t, s, uid, convs[1], uid+12, "removed")
 	require.NoError(t, s.ConversationRepo.RemoveMember(t.Context(), convs[0], uid))
-	require.NoError(t, s.MessageRepo.Delete(t.Context(), uid+12))
+	require.NoError(t, s.DB.WithContext(t.Context()).Delete(&model.Message{}, uid+12).Error)
 	first, err := NewSyncMessagesLogic(t.Context(), s).SyncMessages(&message.SyncMessagesReq{UserId: uid, Position: initial.NextPosition, Limit: 1})
 	require.NoError(t, err)
 	require.Empty(t, first.Changes)
@@ -195,4 +206,92 @@ func TestUserSyncUnavailableReferencesStillAdvance(t *testing.T) {
 	require.Nil(t, last.Changes[0].Message)
 	require.False(t, last.HasMore)
 	require.Greater(t, last.NextPosition, second.NextPosition)
+}
+
+// The public logic seam must converge stale new/edit references to tombstones,
+// then keep account state after the entire inbox prefix has been collected.
+func TestPersonalDeletionSurvivesRetentionAndRebuild(t *testing.T) {
+	s, uid, convs := syncIntegrationContext(t)
+	convID, sender := convs[0], uid+20
+	require.NoError(t, s.DB.Exec("INSERT INTO messaging.conv_members (id, conv_id, user_id) VALUES (?, ?, ?)", sender, convID, sender).Error)
+	t.Cleanup(func() {
+		require.NoError(t, s.DB.Exec("DELETE FROM messaging.conv_members WHERE user_id = ?", sender).Error)
+	})
+	s.Snowflake, _ = snowflake.NewNode(1)
+	s.OutboxRepo = repo.NewOutboxRepo(s.DB)
+	initial, err := NewSyncMessagesLogic(t.Context(), s).SyncMessages(&message.SyncMessagesReq{UserId: uid})
+	require.NoError(t, err)
+	syncAppend(t, s, uid, convID, uid+10, "visible fallback")
+	syncAppend(t, s, uid, convID, uid+11, "private deleted tail")
+	require.NoError(t, s.DB.Exec("UPDATE messaging.messages SET sender_id = ? WHERE conv_id = ?", sender, convID).Error)
+	require.NoError(t, s.DB.Exec("UPDATE messaging.conversations SET last_message_id = ?, last_message_preview = 'private deleted tail', max_seq = ? WHERE id = ?", uid+11, uid+11, convID).Error)
+	request := &message.DeleteMessageReq{UserId: uid, ConversationId: convID, MessageId: uid + 11}
+	// A recipient may delete another sender's message personally, never globally.
+	_, err = NewDeleteMessageLogic(t.Context(), s).DeleteMessage(&message.DeleteMessageReq{UserId: uid, ConversationId: convID, MessageId: uid + 11, DeleteForAll: true})
+	require.Error(t, err)
+	_, err = NewDeleteMessageLogic(t.Context(), s).DeleteMessage(request)
+	require.NoError(t, err)
+	_, err = NewDeleteMessageLogic(t.Context(), s).DeleteMessage(request)
+	require.NoError(t, err)
+	var outbox []model.OutboxEvent
+	require.NoError(t, s.DB.Where("key = ?", strconv.FormatInt(convID, 10)).Find(&outbox).Error)
+	require.Len(t, outbox, 1)
+	require.Equal(t, consts.KafkaTopicMessageCreated, outbox[0].Topic)
+	var change event.InboxChangeEvent
+	require.NoError(t, outbox[0].UnmarshalPayload(&change))
+	require.Equal(t, []int64{uid}, change.RecipientIDs)
+	require.False(t, change.DeleteForAll)
+	require.Nil(t, change.Content)
+	entry := model.UserInbox{UserID: uid, ConvID: convID, MessageID: uid + 11, ChangeID: change.ChangeID, Kind: change.Kind}
+	require.NoError(t, s.InboxRepo.BatchInsert(t.Context(), []model.UserInbox{entry}))
+	require.NoError(t, s.InboxRepo.BatchInsert(t.Context(), []model.UserInbox{entry}))
+	delta, err := NewSyncMessagesLogic(t.Context(), s).SyncMessages(&message.SyncMessagesReq{UserId: uid, Position: initial.NextPosition})
+	require.NoError(t, err)
+	require.Len(t, delta.Changes, 3)
+	for _, item := range delta.Changes[1:] {
+		require.Equal(t, model.InboxMessageDeleted, item.Kind)
+		require.Equal(t, uid+11, item.MessageId)
+		require.Nil(t, item.Message)
+	}
+	history, err := NewGetMessagesLogic(t.Context(), s).GetMessages(&message.GetMessagesReq{UserId: uid, ConversationId: convID, Pagination: &common.CursorPagination{Limit: 1}})
+	require.NoError(t, err)
+	require.Len(t, history.Messages, 1)
+	require.Equal(t, uid+10, history.Messages[0].MessageId)
+	require.False(t, history.Pagination.HasMore)
+	conv, err := conversationlogic.NewGetConversationLogic(t.Context(), s).GetConversation(&message.GetConversationReq{UserId: uid, ConversationId: convID})
+	require.NoError(t, err)
+	require.Equal(t, uid+10, conv.Conversation.LastMessageId)
+	require.Equal(t, "visible fallback", conv.Conversation.LastMessagePreview)
+	require.Equal(t, int32(1), conv.Conversation.UnreadCount)
+	peer, err := NewGetMessagesLogic(t.Context(), s).GetMessages(&message.GetMessagesReq{UserId: sender, ConversationId: convID, Pagination: &common.CursorPagination{Limit: 10}})
+	require.NoError(t, err)
+	require.Len(t, peer.Messages, 2)
+	require.Equal(t, "private deleted tail", peer.Messages[0].GetText().Text)
+	require.NoError(t, s.DB.Exec("UPDATE messaging.inbox_entries SET created_at = ? WHERE user_id = ?", time.Now().AddDate(0, 0, -31), uid).Error)
+	removed, err := s.InboxRepo.Prune(t.Context(), time.Now().AddDate(0, 0, -30))
+	require.NoError(t, err)
+	require.Equal(t, int64(3), removed)
+	rebuilt, err := NewSyncMessagesLogic(t.Context(), s).SyncMessages(&message.SyncMessagesReq{UserId: uid, Position: initial.NextPosition})
+	require.NoError(t, err)
+	require.Equal(t, "expired_position", rebuilt.RebuildReason)
+	require.Len(t, rebuilt.Conversations[0].Messages, 1)
+	require.Equal(t, uid+10, rebuilt.Conversations[0].Messages[0].MessageId)
+	// Losing and rejoining membership does not remove account deletion state.
+	require.NoError(t, s.ConversationRepo.RemoveMember(t.Context(), convID, uid))
+	require.NoError(t, s.DB.Exec("INSERT INTO messaging.conv_members (id, conv_id, user_id) VALUES (?, ?, ?)", convID, convID, uid).Error)
+	rebuilt, err = NewSyncMessagesLogic(t.Context(), s).SyncMessages(&message.SyncMessagesReq{UserId: uid})
+	require.NoError(t, err)
+	require.Len(t, rebuilt.Conversations[0].Messages, 1)
+	require.Equal(t, uid+10, rebuilt.Conversations[0].Messages[0].MessageId)
+	// If publication fails, the overlay must roll back with it.
+	s.OutboxRepo = repo.NewOutboxRepo(s.DB)
+	rolledBack := s.DB.WithContext(t.Context()).Transaction(func(tx *gorm.DB) error {
+		inserted, err := s.MessageRepo.InsertPersonalDeletion(t.Context(), tx, uid, convID, uid+10)
+		require.NoError(t, err)
+		require.True(t, inserted)
+		return s.OutboxRepo.Insert(t.Context(), tx, &model.OutboxEvent{ID: outbox[0].ID, Topic: consts.KafkaTopicMessageCreated, Key: strconv.FormatInt(convID, 10), Payload: outbox[0].Payload})
+	})
+	require.Error(t, rolledBack)
+	_, err = s.MessageRepo.ForUser(uid).GetByID(t.Context(), uid+10)
+	require.NoError(t, err)
 }

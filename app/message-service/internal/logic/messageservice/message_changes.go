@@ -39,7 +39,7 @@ func publishMessageChange(ctx context.Context, s *svc.ServiceContext, tx *gorm.D
 		return err
 	}
 	if conv.LastMessageID == msg.ID {
-		lastID, preview := msg.ID, extractTextPreview(msg.MsgType, msg.Content)
+		lastID, preview := msg.ID, model.MessagePreview(msg.MsgType, msg.Content)
 		switch kind {
 		case model.InboxMessageRecalled:
 			preview = "[消息已撤回]"
@@ -50,7 +50,7 @@ func publishMessageChange(ctx context.Context, s *svc.ServiceContext, tx *gorm.D
 			}
 			lastID, preview = latest.ID, ""
 			if latest.ID > 0 {
-				preview = extractTextPreview(latest.MsgType, latest.Content)
+				preview = model.MessagePreview(latest.MsgType, latest.Content)
 				if latest.Status == model.MessageStatusRecalled {
 					preview = "[消息已撤回]"
 				}
@@ -64,6 +64,9 @@ func publishMessageChange(ctx context.Context, s *svc.ServiceContext, tx *gorm.D
 	}
 	payload := buildMessageCreatedPayload(msg, "")
 	payload["kind"] = kind
+	if kind == model.InboxMessageDeleted {
+		payload["delete_for_all"] = true
+	}
 	payload["user_id"] = msg.SenderID
 	return s.PublishInboxChange(ctx, tx, payload)
 }

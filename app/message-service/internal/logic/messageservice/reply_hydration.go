@@ -29,7 +29,7 @@ func hydrateReplySummaries(ctx context.Context, msgRepo *repo.MessageRepo, profi
 	}
 
 	replies, err := msgRepo.GetByIDs(ctx, ids)
-	if err != nil || len(replies) == 0 {
+	if err != nil {
 		return
 	}
 
@@ -98,6 +98,7 @@ func hydrateReplySummaries(ctx context.Context, msgRepo *repo.MessageRepo, profi
 		}
 		reply, ok := replyMap[replyID]
 		if !ok {
+			pbMsg.ReplyTo = &message.ReplyMessageSummary{MessageId: replyID, Deleted: true}
 			continue
 		}
 		status := message.MessageStatus(reply.Status)
@@ -109,7 +110,7 @@ func hydrateReplySummaries(ctx context.Context, msgRepo *repo.MessageRepo, profi
 			SenderType: stype,
 			SenderName: senderNames[reply.SenderID],
 			Type:       message.MessageType(reply.MsgType),
-			Preview:    extractTextPreview(reply.MsgType, reply.Content),
+			Preview:    model.MessagePreview(reply.MsgType, reply.Content),
 			Deleted:    deleted,
 		}
 	}
@@ -172,7 +173,7 @@ func buildReplyToMap(ctx context.Context, svcCtx *svc.ServiceContext, replyToMsg
 		"sender_type": stype,
 		"sender_name": resolveReplySenderName(ctx, svcCtx, replyMsg.SenderID, stype),
 		"type":        replyMsg.MsgType,
-		"preview":     extractTextPreview(replyMsg.MsgType, replyMsg.Content),
+		"preview":     model.MessagePreview(replyMsg.MsgType, replyMsg.Content),
 		"deleted":     replyMsg.Status == model.MessageStatusRecalled,
 	}
 }

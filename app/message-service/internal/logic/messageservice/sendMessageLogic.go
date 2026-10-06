@@ -138,26 +138,6 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 	}, nil
 }
 
-// extractTextPreview 从消息中提取纯文本预览（只存原始文本，由前端格式化展示）
-func extractTextPreview(msgType int32, content model.JSONContent) string {
-	if content == nil {
-		return ""
-	}
-	switch msgType {
-	case 1: // text
-		if text, ok := content["text"].(string); ok && text != "" {
-			runes := []rune(text)
-			if len(runes) > 20 {
-				return string(runes[:20]) + "..."
-			}
-			return text
-		}
-		return "[消息]"
-	default:
-		return "[消息]"
-	}
-}
-
 func extractSendContent(req *message.SendMessageReq) model.JSONContent {
 	c := req.GetContent()
 	if c == nil {
@@ -239,7 +219,7 @@ func buildMessageCreatedPayload(msg *model.Message, senderName string) map[strin
 		"edit_count":      msg.EditCount,
 		"updated_at":      msg.UpdatedAt.Unix(),
 		"sender_name":     senderName,
-		"preview_text":    extractTextPreview(msg.MsgType, msg.Content),
+		"preview_text":    model.MessagePreview(msg.MsgType, msg.Content),
 	}
 }
 
@@ -258,5 +238,5 @@ func persistMessage(ctx context.Context, svcCtx *svc.ServiceContext, tx *gorm.DB
 		return err
 	}
 	return svcCtx.ConversationRepo.TouchLastMessage(ctx, tx, msg.ConvID, msg.ID, seq,
-		extractTextPreview(msg.MsgType, msg.Content))
+		model.MessagePreview(msg.MsgType, msg.Content))
 }

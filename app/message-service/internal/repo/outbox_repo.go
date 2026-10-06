@@ -84,12 +84,3 @@ func (r *OutboxRepo) DeleteSentBefore(ctx context.Context, before time.Time, lim
 		Delete(&model.OutboxEvent{})
 	return result.RowsAffected, result.Error
 }
-
-func (r *OutboxRepo) CountByStatus(ctx context.Context, status int16) (int64, error) {
-	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&model.OutboxEvent{}).
-		Where("status = ?", status).
-		Count(&count).Error
-	return count, err
-}

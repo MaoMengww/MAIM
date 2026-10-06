@@ -50,7 +50,6 @@ type UserInbox struct {
 	Kind        string    `gorm:"column:kind" json:"kind"`
 	ChangeID    int64     `gorm:"column:change_id" json:"change_id"`
 	LastReadSeq int64     `gorm:"column:last_read_seq" json:"last_read_seq"`
-	IsDeleted   bool      `gorm:"column:is_deleted" json:"is_deleted"`
 	CreatedAt   time.Time `gorm:"column:created_at" json:"created_at"`
 }
 
@@ -77,6 +76,34 @@ type InboxAppliedChange struct {
 }
 
 func (InboxAppliedChange) TableName() string { return "inbox_applied_changes" }
+
+// PersonalMessageDeletion is account state, independent of inbox retention and
+// the message's lifetime. No foreign key to inbox entries or message rows.
+type PersonalMessageDeletion struct {
+	UserID    int64     `gorm:"primaryKey;autoIncrement:false;column:user_id"`
+	ConvID    int64     `gorm:"primaryKey;autoIncrement:false;column:conv_id"`
+	MessageID int64     `gorm:"primaryKey;autoIncrement:false;column:message_id"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+}
+
+func (PersonalMessageDeletion) TableName() string { return "personal_message_deletions" }
+
+// MessagePreview is shared by stored tails and account-scoped projections.
+func MessagePreview(msgType int32, content JSONContent) string {
+	if content == nil {
+		return ""
+	}
+	if msgType == MsgTypeText {
+		if text, ok := content["text"].(string); ok && text != "" {
+			runes := []rune(text)
+			if len(runes) > 20 {
+				return string(runes[:20]) + "..."
+			}
+			return text
+		}
+	}
+	return "[消息]"
+}
 
 type Broadcast struct {
 	ID            int64       `gorm:"primaryKey;column:id" json:"id"`

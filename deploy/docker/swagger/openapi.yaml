@@ -4261,6 +4261,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Response'
     delete:
+      description: 默认个人删除，当前成员可删除任意可见消息；仅在本人账号隐藏，跨设备同步且重建不复活，不改变消息本体。delete_for_all=true 仅允许原发送者，删除所有成员可见的消息本体；撤回是独立操作。
       tags:
         - Message
       summary: 删除消息

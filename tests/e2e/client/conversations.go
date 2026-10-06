@@ -33,7 +33,16 @@ type storedMessage struct {
 	Type      int32   `json:"type"`
 	Status    int32   `json:"status"`
 	EditCount int32   `json:"edit_count"`
-	Text      struct {
+	ReplyToID decimal `json:"reply_to_id"`
+	ReplyTo   *struct {
+		MessageID  decimal `json:"message_id"`
+		SenderID   decimal `json:"sender_id"`
+		SenderType string  `json:"sender_type"`
+		SenderName string  `json:"sender_name"`
+		Preview    string  `json:"preview"`
+		Deleted    bool    `json:"deleted"`
+	} `json:"reply_to"`
+	Text struct {
 		Text string `json:"text"`
 	} `json:"text"`
 	Bot *struct {
@@ -331,7 +340,9 @@ func checkStoredMessage(step string, actual storedMessage, expected sentMessage)
 		text = actual.Bot.Text
 	}
 	if actual.MessageID != expected.MessageID || actual.ConvID != expected.ConvID || actual.SenderID != expected.SenderID || actual.Seq != expected.Seq || text != expected.Content.Text {
-		return fmt.Errorf("conversations.%s: 持久化消息与 HTTP 确认不一致，期望 message_id=%s conv_id=%s seq=%s sender_id=%s", step, expected.MessageID, expected.ConvID, expected.Seq, expected.SenderID)
+		return fmt.Errorf("conversations.%s: 持久化消息与 HTTP 确认不一致，期望 message_id=%s conv_id=%s seq=%s sender_id=%s text=%q，实际 message_id=%s conv_id=%s seq=%s sender_id=%s text=%q",
+			step, expected.MessageID, expected.ConvID, expected.Seq, expected.SenderID, expected.Content.Text,
+			actual.MessageID, actual.ConvID, actual.Seq, actual.SenderID, text)
 	}
 	return nil
 }

@@ -14,59 +14,6 @@ import (
 
 var ErrMemberLimitReached = errors.New("conversation member limit reached")
 
-// ConversationStore is the conversation aggregate's persistence contract. It is
-// implemented by ConversationRepo and consumed by the conversation logic; the
-// message hot path uses the same type directly in-process.
-type ConversationStore interface {
-	CreateConversation(ctx context.Context, conv *model.Conversation) error
-	GetConversation(ctx context.Context, id int64) (*model.Conversation, error)
-	ListConversationsByUser(ctx context.Context, userID int64, cursor int64, limit int, typ *int32) ([]model.Conversation, error)
-	ListConversationsByUserPinned(ctx context.Context, userID int64, pinned bool) ([]model.Conversation, error)
-	UpdateConversation(ctx context.Context, conv *model.Conversation) error
-	UpdateConversationAnnouncement(ctx context.Context, id int64, announcement string) error
-	UpdateConversationMutedAll(ctx context.Context, id int64, mutedAll bool) error
-	UpdateConversationOwner(ctx context.Context, id int64, newOwnerID int64) error
-	DeleteConversation(ctx context.Context, id int64) error
-	TouchLastMessage(ctx context.Context, tx *gorm.DB, convID, msgID, seq int64, preview string) error
-	CheckSendPermission(ctx context.Context, tx *gorm.DB, convID, userID int64) (*SendPermission, error)
-	IncrementMemberCount(ctx context.Context, id int64, delta int) error
-	AddMember(ctx context.Context, member *model.ConversationMember) error
-	AddMembersBatch(ctx context.Context, members []model.ConversationMember) error
-	AddMembersWithinLimit(ctx context.Context, convID int64, members []model.ConversationMember, maxMembers int) (added, failed []int64, err error)
-	RemoveMember(ctx context.Context, convID, userID int64) error
-	GetMember(ctx context.Context, convID, userID int64) (*model.ConversationMember, error)
-	GetMembers(ctx context.Context, convID int64, offset, limit int) ([]model.ConversationMember, error)
-	CountMembers(ctx context.Context, convID int64) (int64, error)
-	UpdateMember(ctx context.Context, member *model.ConversationMember) error
-	UpdateMemberRole(ctx context.Context, convID, userID int64, role int32) error
-	IsMember(ctx context.Context, convID, userID int64) (bool, error)
-	MuteMember(ctx context.Context, convID, userID int64, muteUntil int64) error
-	UnmuteMember(ctx context.Context, convID, userID int64) error
-	UpsertReadSeq(ctx context.Context, tx *gorm.DB, convID, userID int64, seq int64, id int64) (lastReadSeq int64, advanced bool, err error)
-	UnreadCounts(ctx context.Context, convID int64, userIDs []int64) (map[int64]int32, error)
-	UnreadCountsByUser(ctx context.Context, userID int64, convIDs []int64) (map[int64]int32, error)
-	UnreadCount(ctx context.Context, convID, userID int64) (int32, error)
-	MemberIDs(ctx context.Context, convID int64) ([]int64, error)
-	ListIDsByUser(ctx context.Context, userID int64) ([]int64, error)
-	GetReadSeqs(ctx context.Context, convID int64) ([]model.ConvReadSeq, error)
-	GetReadSeq(ctx context.Context, convID, userID int64) (*model.ConvReadSeq, error)
-	GetReadSeqsByUser(ctx context.Context, convIDs []int64, userID int64) (map[int64]int64, error)
-	GetSettings(ctx context.Context, convID, userID int64) (*model.ConvSettings, error)
-	UpsertSettings(ctx context.Context, s *model.ConvSettings) error
-
-	FindPrivateConv(ctx context.Context, userID1, userID2 int64) (*model.Conversation, error)
-
-	GetBot(ctx context.Context, botID int64) (*botpb.Bot, error)
-	AddBot(ctx context.Context, bot *model.ConvBot) error
-	RemoveBot(ctx context.Context, convID, botID int64) error
-	UpdateBot(ctx context.Context, convID, botID int64, settings any) error
-	ListBotsByConv(ctx context.Context, convID int64) ([]model.ConvBot, error)
-	GetBotInConv(ctx context.Context, convID, botID int64) (*model.ConvBot, error)
-	AddBotWithMember(ctx context.Context, bot *model.ConvBot, member *model.ConversationMember) error
-	RemoveBotWithMember(ctx context.Context, convID, botID int64) error
-	GetBotsByIDs(ctx context.Context, ids []int64) ([]*botpb.Bot, error)
-}
-
 type ConversationRepo struct {
 	DB *database.DB
 }
@@ -220,17 +167,6 @@ func (r *ConversationRepo) TouchLastMessage(ctx context.Context, tx *gorm.DB, co
 }
 
 // ========== Members ==========
-
-func (r *ConversationRepo) AddMember(ctx context.Context, member *model.ConversationMember) error {
-	return r.DB.WithContext(ctx).Create(member).Error
-}
-
-func (r *ConversationRepo) AddMembersBatch(ctx context.Context, members []model.ConversationMember) error {
-	if len(members) == 0 {
-		return nil
-	}
-	return r.DB.WithContext(ctx).Create(&members).Error
-}
 
 // AddMembersWithinLimit serializes additions on the conversation row and commits
 // the entire new-member batch together with its member count. Existing members,
@@ -411,6 +347,8 @@ func (r *ConversationRepo) UnreadCounts(ctx context.Context, convID int64, userI
 		LEFT JOIN messages msg ON msg.conv_id = m.conv_id
 		     AND msg.seq > COALESCE(r.last_read_seq, 0)
 		     AND msg.sender_id <> m.user_id
+       AND NOT EXISTS (SELECT 1 FROM personal_message_deletions d
+         WHERE d.user_id = m.user_id AND d.conv_id = msg.conv_id AND d.message_id = msg.id)
 		WHERE m.conv_id = ? AND m.user_id IN ?
 		GROUP BY m.user_id`, convID, userIDs).Scan(&rows).Error
 	if err != nil {
@@ -440,6 +378,8 @@ func (r *ConversationRepo) UnreadCountsByUser(ctx context.Context, userID int64,
 		LEFT JOIN messages msg ON msg.conv_id = m.conv_id
 		     AND msg.seq > COALESCE(r.last_read_seq, 0)
 		     AND msg.sender_id <> m.user_id
+       AND NOT EXISTS (SELECT 1 FROM personal_message_deletions d
+         WHERE d.user_id = m.user_id AND d.conv_id = msg.conv_id AND d.message_id = msg.id)
 		WHERE m.user_id = ? AND m.conv_id IN ?
 		GROUP BY m.conv_id`, userID, convIDs).Scan(&rows).Error
 	if err != nil {
@@ -458,14 +398,6 @@ func (r *ConversationRepo) UnreadCount(ctx context.Context, convID, userID int64
 		return 0, err
 	}
 	return counts[userID], nil
-}
-
-// MemberIDs returns every member of a conversation, bots included.
-func (r *ConversationRepo) MemberIDs(ctx context.Context, convID int64) ([]int64, error) {
-	var ids []int64
-	err := r.DB.WithContext(ctx).Model(&model.ConversationMember{}).
-		Where("conv_id = ?", convID).Pluck("user_id", &ids).Error
-	return ids, err
 }
 
 // ListIDsByUser returns the conversations a user belongs to.
@@ -607,15 +539,6 @@ func (r *ConversationRepo) GetBotInConv(ctx context.Context, convID, botID int64
 
 // ========== Bot with Member (transactional) ==========
 
-func (r *ConversationRepo) AddBotWithMember(ctx context.Context, bot *model.ConvBot, member *model.ConversationMember) error {
-	return r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(bot).Error; err != nil {
-			return err
-		}
-		return tx.Create(member).Error
-	})
-}
-
 func (r *ConversationRepo) RemoveBotWithMember(ctx context.Context, convID, botID int64) error {
 	return r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("conv_id = ? AND bot_id = ?", convID, botID).Delete(&model.ConvBot{}).Error; err != nil {
@@ -632,10 +555,4 @@ func (r *ConversationRepo) GetBotsByIDs(ctx context.Context, ids []int64) ([]*bo
 	var bots []*botpb.Bot
 	err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar").Where("id IN ?", ids).Find(&bots).Error
 	return bots, err
-}
-
-// ========== Transaction ==========
-
-func (r *ConversationRepo) BeginTx(ctx context.Context) (*gorm.DB, error) {
-	return r.DB.WithContext(ctx).Begin(), nil
 }

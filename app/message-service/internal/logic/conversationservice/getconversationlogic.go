@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -67,6 +68,11 @@ func (l *GetConversationLogic) GetConversation(in *conversation.GetConversationR
 		unread = count
 	}
 
+	projected := []model.Conversation{*conv}
+	if err := l.svcCtx.MessageRepo.ProjectConversationPreviews(l.ctx, in.UserId, projected); err != nil {
+		return nil, err
+	}
+	conv = &projected[0]
 	pbConv := toProtoConv(conv, lastReadSeq, unread, muted, pinned)
 
 	// Resolve peer info for private conversations.

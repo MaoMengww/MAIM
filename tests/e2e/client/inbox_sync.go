@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"time"
 )
 
@@ -184,7 +187,7 @@ func checkInboxSnapshots(step string, result inboxSyncResult, expected map[decim
 	return nil
 }
 
-func (d *driver) userSync() error {
+func (d *driver) userSync(addressA, addressB string) error {
 	suffix, err := randomSuffix()
 	if err != nil {
 		return err
@@ -327,8 +330,394 @@ func (d *driver) userSync() error {
 	if err := checkInboxSnapshots("unknown-position", unknown, latest, groupID, groupName); err != nil {
 		return err
 	}
-	_, err = d.inboxDrain("unknown-rebuild-resume", receiver, unknown.NextPosition, nil, false)
-	return err
+	if _, err := d.inboxDrain("unknown-rebuild-resume", receiver, unknown.NextPosition, nil, false); err != nil {
+		return err
+	}
+	return d.personalDeletion(addressA, addressB, sender, receiver, history[singleID][2])
+}
+
+// Each device authenticates independently; no database/Kafka side channel is used.
+func (d *driver) inboxLoginDevice(user account, label string) (account, error) {
+	device := user
+	device.device += "_" + label
+	var result authResult
+	if err := d.request(http.MethodPost, "/auth/login", "", map[string]string{
+		"account": user.username, "password": user.password, "device_id": device.device, "platform": "web",
+	}, &result); err != nil {
+		return device, fmt.Errorf("personal-deletion.login-device: %w", err)
+	}
+	if result.UserID != user.id || result.User.ID != user.id || result.User.Username != user.username || result.Tokens.AccessToken == "" {
+		return device, errors.New("personal-deletion.login-device: 第二设备未取得同账号独立鉴权身份")
+	}
+	device.token = result.Tokens.AccessToken
+	return device, nil
+}
+
+func (d *driver) inboxLegacySyncAbsent(user account, convID decimal) error {
+	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
+	defer cancel()
+	// The removed route may return a plain-text 404, unlike the API envelope.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.gateway+"/api/v1/messages/"+convID.String()+"/sync?last_seq=0", nil)
+	if err != nil {
+		return errors.New("personal-deletion.legacy-sync: 无法创建请求")
+	}
+	req.Header.Set("Authorization", "Bearer "+user.token)
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("personal-deletion.legacy-sync: %s", transportFailure(err))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("personal-deletion.legacy-sync: 旧会话同步URL期望HTTP404，实际%d", resp.StatusCode)
+	}
+	return nil
+}
+
+type inboxSearchResult struct {
+	Messages   []storedMessage   `json:"messages"`
+	Highlights map[string]string `json:"highlights"`
+	Pagination struct {
+		Total decimal `json:"total"`
+	} `json:"pagination"`
+	TypeCounts []struct {
+		Count decimal `json:"count"`
+	} `json:"type_counts"`
+}
+
+func (d *driver) inboxSearch(user account, convID decimal, keyword string) (inboxSearchResult, error) {
+	var result inboxSearchResult
+	path := "/messages/search?conversation_id=" + convID.String() + "&keyword=" + url.QueryEscape(keyword) + "&page=1&page_size=1"
+	err := d.request(http.MethodGet, path, user.token, nil, &result)
+	return result, err
+}
+
+func (d *driver) inboxSearchVisible(user account, expected sentMessage) (storedMessage, error) {
+	deadline := time.Now().Add(d.timeout)
+	for time.Now().Before(deadline) {
+		bounded := *d
+		bounded.timeout = time.Until(deadline)
+		result, err := bounded.inboxSearch(user, expected.ConvID, expected.Content.Text)
+		if err != nil {
+			return storedMessage{}, err
+		}
+		if len(result.Messages) != 0 {
+			if len(result.Messages) != 1 || result.Pagination.Total != 1 {
+				observed := make([]string, 0, len(result.Messages))
+				for _, message := range result.Messages {
+					observed = append(observed, message.MessageID.String()+":"+message.Text.Text)
+				}
+				return storedMessage{}, fmt.Errorf("personal-deletion.search: 唯一原文关键词 %q 的搜索结果/总数不精确: messages=%d total=%s hits=%v",
+					expected.Content.Text, len(result.Messages), result.Pagination.Total, observed)
+			}
+			if err := checkStoredMessage("personal-deletion.search", result.Messages[0], expected); err != nil {
+				return storedMessage{}, err
+			}
+			return result.Messages[0], nil
+		}
+		time.Sleep(min(100*time.Millisecond, max(0, time.Until(deadline))))
+	}
+	return storedMessage{}, errors.New("personal-deletion.search: 已确认消息未进入公开搜索结果")
+}
+
+func (d *driver) inboxMessageAbsent(step string, user account, messageID decimal) error {
+	err := d.request(http.MethodGet, "/messages/"+messageID.String(), user.token, nil, nil)
+	var rejected *apiError
+	if !errors.As(err, &rejected) || rejected.status != http.StatusNotFound {
+		return fmt.Errorf("personal-deletion.%s: 已删除消息byID期望HTTP404，实际%v", step, err)
+	}
+	return nil
+}
+
+func checkPersonalMessages(step string, messages []storedMessage, hidden sentMessage) error {
+	for _, message := range messages {
+		if message.MessageID == hidden.MessageID {
+			return fmt.Errorf("personal-deletion.%s: 个人删除消息正文复活 message_id=%s", step, hidden.MessageID)
+		}
+		if reply := message.ReplyTo; reply != nil && reply.MessageID == hidden.MessageID {
+			if !reply.Deleted || reply.Preview != "" || reply.SenderID != 0 || reply.SenderName != "" || reply.SenderType != "" {
+				return fmt.Errorf("personal-deletion.%s: 回复摘要泄露已个人删除的原文/发送者", step)
+			}
+		}
+	}
+	return nil
+}
+
+func (d *driver) inboxPersonalCatchup(user account, position decimal, hidden sentMessage) (decimal, error) {
+	deadline := time.Now().Add(d.timeout)
+	deleted := false
+	for time.Now().Before(deadline) {
+		bounded := *d
+		bounded.timeout = time.Until(deadline)
+		page, err := bounded.inboxRead("personal-delete-catchup", user, position, 1)
+		if err != nil {
+			return position, err
+		}
+		if page.RebuildRequired {
+			return position, errors.New("personal-deletion.catchup: 删除前有效位点意外触发重建")
+		}
+		for _, change := range page.Changes {
+			if err := checkPersonalMessages("catchup", []storedMessage{change.Message}, hidden); err != nil {
+				return position, err
+			}
+			if change.Conversation != nil && change.Conversation.LastMessageID == hidden.MessageID {
+				return position, errors.New("personal-deletion.catchup: 会话变化预览仍引用个人删除消息")
+			}
+			deleted = deleted || (change.Kind == "message.deleted" && change.ConversationID == hidden.ConvID && change.MessageID == hidden.MessageID)
+		}
+		position = page.NextPosition
+		if !page.HasMore && deleted {
+			return position, nil
+		}
+		time.Sleep(min(50*time.Millisecond, max(0, time.Until(deadline))))
+	}
+	return position, errors.New("personal-deletion.catchup: 删除前位点未收到message.deleted tombstone")
+}
+
+func (d *driver) personalDeletion(addressA, addressB string, sender, receiver account, fallback sentMessage) error {
+	convID := fallback.ConvID
+	if err := d.inboxLegacySyncAbsent(receiver, convID); err != nil {
+		return err
+	}
+	mirror, err := d.inboxLoginDevice(receiver, "mirror")
+	if err != nil {
+		return err
+	}
+	var sockets []*p6Socket
+	for _, target := range []struct {
+		user    account
+		address string
+	}{{receiver, addressA}, {mirror, addressB}, {sender, addressB}} {
+		socket, err := d.p6Connect(target.address, target.user)
+		if err != nil {
+			return err
+		}
+		defer socket.close()
+		sockets = append(sockets, socket)
+	}
+	before, err := d.inboxRead("personal-before-send", receiver, 0, 50)
+	if err != nil {
+		return err
+	}
+	senderBefore, err := d.inboxRead("personal-sender-before-send", sender, 0, 50)
+	if err != nil {
+		return err
+	}
+	// The fences below search by message text and require exactly one hit, and the
+	// stored preview is compared as a whole. The deployed ik_max_word analyzer
+	// splits code-like text into single-character tokens, so a hex or digit
+	// keyword also matches every sibling fixture message; word tokens keep each
+	// keyword unique, and short words stay inside the stored preview length.
+	baseline, err := d.sendMessage(sender, convID, "保留基线", fallback.Seq)
+	if err != nil {
+		return err
+	}
+	hidden, err := d.sendMessage(sender, convID, "隐藏原文", baseline.Seq)
+	if err != nil {
+		return err
+	}
+	for _, socket := range sockets[:2] {
+		if _, err := d.p6Message(socket, hidden); err != nil {
+			return err
+		}
+	}
+	// A positive search on both accounts fences asynchronous indexing, so absence
+	// after deletion cannot pass merely because Elasticsearch missed the message.
+	for _, user := range []account{sender, receiver} {
+		if _, err := d.inboxSearchVisible(user, hidden); err != nil {
+			return err
+		}
+	}
+	position, err := d.inboxDrain("personal-before-delete", receiver, before.NextPosition, []sentMessage{baseline, hidden}, false)
+	if err != nil {
+		return err
+	}
+	senderPosition, err := d.inboxDrain("personal-sender-before-delete", sender, senderBefore.NextPosition, []sentMessage{baseline, hidden}, false)
+	if err != nil {
+		return err
+	}
+	messagePath := "/messages/" + hidden.MessageID.String()
+	if err := d.conversationForbidden("personal.non-sender-global-delete", http.MethodDelete, messagePath, receiver, map[string]bool{"delete_for_all": true}); err != nil {
+		return err
+	}
+	if err := d.conversationMessage("personal.global-denial-unchanged", receiver, hidden); err != nil {
+		return err
+	}
+	var cursors []int
+	for _, socket := range sockets {
+		cursors = append(cursors, socket.cursor())
+	}
+	if err := d.request(http.MethodDelete, messagePath, receiver.token, map[string]bool{"delete_for_all": false}, nil); err != nil {
+		return fmt.Errorf("personal-deletion.delete-other-sender: %w", err)
+	}
+	for i, socket := range sockets[:2] {
+		if _, err := d.p6Wait(socket, cursors[i], "personal-delete", func(e p6Event) bool {
+			return e.Type == "message.deleted" && e.ConvID == convID && (e.MessageID == hidden.MessageID || e.Message.MessageID == hidden.MessageID)
+		}); err != nil {
+			return err
+		}
+	}
+	for _, checkpoint := range []struct {
+		user     account
+		position decimal
+	}{{mirror, position}, {receiver, before.NextPosition}, {mirror, position}} {
+		if _, err := d.inboxPersonalCatchup(checkpoint.user, checkpoint.position, hidden); err != nil {
+			return err
+		}
+	}
+	for _, user := range []account{receiver, mirror} {
+		if err := d.inboxMessageAbsent("same-account-by-id", user, hidden.MessageID); err != nil {
+			return err
+		}
+		result, err := d.inboxSearch(user, convID, hidden.Content.Text)
+		if err != nil {
+			return err
+		}
+		if len(result.Messages) != 0 || result.Pagination.Total != 0 || len(result.Highlights) != 0 || slices.ContainsFunc(result.TypeCounts, func(count struct {
+			Count decimal `json:"count"`
+		}) bool {
+			return count.Count != 0
+		}) {
+			return fmt.Errorf("personal-deletion.search: 个人删除后关键词 %q 仍返回 messages=%d total=%s highlights=%d type_counts=%d",
+				hidden.Content.Text, len(result.Messages), result.Pagination.Total, len(result.Highlights), len(result.TypeCounts))
+		}
+	}
+	for _, expected := range []struct {
+		user    account
+		message sentMessage
+	}{{receiver, baseline}, {mirror, baseline}, {sender, hidden}} {
+		row, err := d.conversationList("personal-preview", expected.user, convID, true)
+		if err != nil {
+			return err
+		}
+		var detail struct {
+			Conversation conversationView `json:"conversation"`
+		}
+		if err := d.request(http.MethodGet, "/convs/"+convID.String(), expected.user.token, nil, &detail); err != nil {
+			return err
+		}
+		for _, view := range []conversationView{row, detail.Conversation} {
+			if view.LastMessageID != expected.message.MessageID || view.LastMessagePreview != expected.message.Content.Text || view.MaxSeq != hidden.Seq {
+				return errors.New("personal-deletion.preview: 列表/详情未按用户回退预览，或错误改变会话seq")
+			}
+		}
+	}
+	if err := d.conversationMessage("personal.sender-still-visible", sender, hidden); err != nil {
+		return err
+	}
+	if _, err := d.inboxSearchVisible(sender, hidden); err != nil {
+		return err
+	}
+	// The sender still sees the original and may reply. The receiver must see the
+	// reply itself, but never its personally hidden original via a cached summary.
+	// The reply text is a search keyword of its own and the asserted rebuild tail,
+	// so it stays a distinct word token inside the stored preview length.
+	var reply sentMessage
+	text := "引用回复"
+	if err := d.request(http.MethodPost, "/messages/send", sender.token, map[string]any{
+		"conversation_id": convID.String(), "client_msg_id": text, "content": map[string]string{"text": text}, "reply_to_msg_id": hidden.MessageID.String(),
+	}, &reply); err != nil {
+		return err
+	}
+	if reply.MessageID <= 0 || reply.ConvID != convID || reply.Seq <= hidden.Seq || reply.SenderID != sender.id || reply.Content.Text != text {
+		return errors.New("personal-deletion.reply: 回复HTTP确认身份/正文/seq不符合请求")
+	}
+	for _, user := range []account{receiver, mirror, sender} {
+		var direct struct {
+			Message storedMessage `json:"message"`
+		}
+		if err := d.request(http.MethodGet, "/messages/"+reply.MessageID.String(), user.token, nil, &direct); err != nil {
+			return err
+		}
+		if err := checkStoredMessage("personal.reply", direct.Message, reply); err != nil {
+			return err
+		}
+		if direct.Message.ReplyToID != hidden.MessageID || direct.Message.ReplyTo == nil || direct.Message.ReplyTo.MessageID != hidden.MessageID {
+			return errors.New("personal-deletion.reply: 回复摘要缺失，无法验证隔离")
+		}
+		searched, err := d.inboxSearchVisible(user, reply)
+		if err != nil {
+			return err
+		}
+		var around struct {
+			Messages []storedMessage `json:"messages"`
+		}
+		if err := d.request(http.MethodGet, "/messages/"+convID.String()+"/around/"+hidden.Seq.String(), user.token, nil, &around); err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(around.Messages, func(message storedMessage) bool { return message.MessageID == reply.MessageID }) {
+			return errors.New("personal-deletion.around: 隐藏锚点附近的可见回复也被错误过滤")
+		}
+		if user.id == receiver.id {
+			messages := append(around.Messages, direct.Message, searched)
+			if err := checkPersonalMessages("by-id/search/around-history", messages, hidden); err != nil {
+				return err
+			}
+		} else if direct.Message.ReplyTo.Deleted || direct.Message.ReplyTo.Preview != hidden.Content.Text || !slices.ContainsFunc(around.Messages, func(message storedMessage) bool { return message.MessageID == hidden.MessageID }) {
+			return errors.New("personal-deletion.sender: 原发送者的历史/回复摘要被其他人的个人删除改变")
+		}
+	}
+	fresh, err := d.inboxLoginDevice(receiver, "new_device")
+	if err != nil {
+		return err
+	}
+	if err := d.inboxMessageAbsent("new-device-by-id", fresh, hidden.MessageID); err != nil {
+		return err
+	}
+	for _, request := range []struct {
+		user     account
+		position decimal
+		reason   string
+	}{{fresh, 0, "new_device"}, {receiver, decimal(1<<63 - 1), "unknown_position"}, {sender, 0, "new_device"}} {
+		result, err := d.inboxRead("personal-rebuild", request.user, request.position, 50)
+		if err != nil {
+			return err
+		}
+		if err := checkInboxRebuild("personal-rebuild", request.reason, result); err != nil {
+			return err
+		}
+		found := false
+		for _, snapshot := range result.Conversations {
+			if snapshot.Conversation.ID != convID {
+				continue
+			}
+			if snapshot.Conversation.LastMessageID != reply.MessageID || snapshot.Conversation.LastMessagePreview != reply.Content.Text || snapshot.Conversation.MaxSeq != reply.Seq {
+				return errors.New("personal-deletion.rebuild: 重建预览/seq与可见回复不一致")
+			}
+			found = slices.ContainsFunc(snapshot.Messages, func(message storedMessage) bool { return message.MessageID == reply.MessageID })
+			if request.user.id == receiver.id {
+				if err := checkPersonalMessages("rebuild-history", snapshot.Messages, hidden); err != nil {
+					return err
+				}
+			} else if !slices.ContainsFunc(snapshot.Messages, func(message storedMessage) bool { return message.MessageID == hidden.MessageID }) {
+				return errors.New("personal-deletion.rebuild: 个人删除影响原发送者重建历史")
+			}
+		}
+		if !found {
+			return errors.New("personal-deletion.rebuild: 可见回复缺失，不能以空历史证明不复活")
+		}
+		if _, err := d.inboxDrain("personal-rebuild-resume", request.user, result.NextPosition, nil, false); err != nil {
+			return err
+		}
+	}
+	// Observe the sender's own stream through the same public publication fence.
+	if _, err := d.inboxDrain("personal-sender-isolation", sender, senderPosition, []sentMessage{reply}, false); err != nil {
+		return err
+	}
+	if _, err := d.inboxPersonalCatchup(mirror, position, hidden); err != nil {
+		return err
+	}
+	time.Sleep(time.Second)
+	sockets[2].mu.Lock()
+	defer sockets[2].mu.Unlock()
+	if !sockets[2].closedAt.IsZero() {
+		return errors.New("personal-deletion.sender-ws: 观察连接已关闭，不能证明隔离")
+	}
+	for _, evt := range sockets[2].events[cursors[2]:] {
+		if evt.Type == "message.deleted" && (evt.MessageID == hidden.MessageID || evt.Message.MessageID == hidden.MessageID) {
+			return errors.New("personal-deletion.sender-ws: 个人删除被错误扇出给原发送者")
+		}
+	}
+	return nil
 }
 
 // inboxChanges exercises the public reconnect contract, not database internals.
@@ -458,6 +847,22 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 	}
 	if edits != 2 {
 		return fmt.Errorf("two edits must have distinct replay entries, got %d", edits)
+	}
+	// Recall keeps a visible recalled entity for both accounts; global deletion
+	// hides the body for both, unlike the receiver-only personal overlay above.
+	for _, user := range []account{owner, member} {
+		var recalled struct {
+			Message storedMessage `json:"message"`
+		}
+		if err := d.request(http.MethodGet, "/messages/"+sent[1].MessageID.String(), user.token, nil, &recalled); err != nil {
+			return err
+		}
+		if recalled.Message.MessageID != sent[1].MessageID || recalled.Message.Status != 2 {
+			return errors.New("inbox-changes.recall: 撤回必须仍是可读取的撤回状态实体，而非个人/全员删除")
+		}
+		if err := d.inboxMessageAbsent("global-delete-both-accounts", user, sent[2].MessageID); err != nil {
+			return err
+		}
 	}
 	replay, err := d.inboxRead("mutation-replay-idempotent", member, offlinePosition, 50)
 	if err != nil {

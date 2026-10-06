@@ -19,6 +19,9 @@ func (s *ServiceContext) PublishInboxChange(ctx context.Context, tx *gorm.DB, pa
 	}
 	switch payload["kind"] {
 	case model.InboxMessageNew, model.InboxMessageEdited, model.InboxMessageRecalled, model.InboxMessageDeleted:
+		if _, scoped := payload["recipient_ids"]; scoped {
+			break
+		}
 		// Snapshot recipients under the mutation's conversation lock. A retry after
 		// someone joins must not allocate a fresh position for an old event.
 		var recipients []int64

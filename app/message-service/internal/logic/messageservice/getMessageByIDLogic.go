@@ -25,17 +25,18 @@ func NewGetMessageByIDLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Ge
 }
 
 func (l *GetMessageByIDLogic) GetMessageByID(in *message.GetMessageByIDReq) (*message.GetMessageByIDResp, error) {
-	msgRepo := l.svcCtx.MessageRepo
-	msg, err := msgRepo.GetByID(l.ctx, in.MessageId)
+	callerID := callerUserID(l.ctx)
+	if callerID == 0 {
+		return nil, ErrUserIDMissing
+	}
+	// Authorization precedes account visibility: a non-member is forbidden, while a
+	// member whose own deletion overlay hides the message must see it as absent.
+	msg, err := l.svcCtx.MessageRepo.GetByID(l.ctx, in.MessageId)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeNotFound, "message not found", err)
 	}
 
 	// 读取前校验：调用者必须是该消息所属会话的成员
-	callerID := callerUserID(l.ctx)
-	if callerID == 0 {
-		return nil, ErrUserIDMissing
-	}
 	isMember, err := l.svcCtx.ConversationRepo.IsMember(l.ctx, msg.ConvID, callerID)
 	if err != nil {
 		return nil, ErrMemberCheckFailed
@@ -44,8 +45,14 @@ func (l *GetMessageByIDLogic) GetMessageByID(in *message.GetMessageByIDReq) (*me
 		return nil, ErrNotMember
 	}
 
+	msgRepo := l.svcCtx.MessageRepo.ForUser(callerID)
+	msg, err = msgRepo.GetByID(l.ctx, in.MessageId)
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeNotFound, "message not found", err)
+	}
+
 	pbMsg := modelToPbMessage(msg)
-	hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, []*message.Message{pbMsg})
+	hydrateReplySummaries(l.ctx, msgRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, []*message.Message{pbMsg})
 	return &message.GetMessageByIDResp{
 		Message: pbMsg,
 	}, nil

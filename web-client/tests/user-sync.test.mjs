@@ -190,3 +190,24 @@ test('a new conversation realtime message arriving during rebuild is retained ac
   engine.reset(); engine.start(account); pages.push({ next_position: '20' }); await engine.reSync();
   assert.equal(engine.getState('202').messages[0].content.text.text, 'message-2001');
 });
+
+test('account deletion redacts cached reply summaries atomically and survives reopening', async () => {
+  const original = msg(1001, 101, 1, 'private original');
+  const reply = { ...msg(1002, 101, 2, 'visible reply'), reply_to_id: '1001',
+    reply_to: { message_id: '1001', sender_id: '2', sender_type: 'user', sender_name: 'Alice', type: 1, preview: 'private original', deleted: false } };
+  const account = await start(rebuild(10, [snapshot(101, [original, reply])]));
+  pages.push({ next_position: '11', changes: [{ position: '11', conversation_id: '101', kind: 'message.deleted', message_id: '1001' }] });
+  await engine.reSync();
+  const assertRedacted = () => {
+    const remaining = engine.getState('101').messages;
+    assert.deepEqual(remaining.map((m) => String(m.message_id)), ['1002']);
+    assert.equal(remaining[0].content.text.text, 'visible reply');
+    assert.equal(remaining[0].reply_to.deleted, true);
+    assert.equal(remaining[0].reply_to.preview, '');
+    assert.equal(remaining[0].reply_to.sender_id, '0');
+    assert.equal(remaining[0].reply_to.sender_name, '');
+  };
+  assertRedacted();
+  engine.reset(); engine.start(account); pages.push({ next_position: '11' }); await engine.reSync();
+  assertRedacted();
+});

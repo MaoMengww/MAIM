@@ -2,17 +2,16 @@ package messageservicelogic
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type DeleteMessageLogic struct {
@@ -30,13 +29,16 @@ func NewDeleteMessageLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Del
 }
 
 func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*common.BaseResponse, error) {
+	if in.UserId <= 0 || in.MessageId <= 0 {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid deletion request")
+	}
 	msgRepo := l.svcCtx.MessageRepo
 	msg, err := msgRepo.GetByID(l.ctx, in.MessageId)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeNotFound, "message not found", err)
 	}
 
-	if msg.SenderID != in.UserId {
+	if in.DeleteForAll && msg.SenderID != in.UserId {
 		return nil, ErrDeleteNotSender
 	}
 
@@ -54,21 +56,26 @@ func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*commo
 			}
 			return publishMessageChange(l.ctx, l.svcCtx, tx, current, model.InboxMessageDeleted)
 		}
-		// Personal deletion remains on the existing path until issue09.
-		if err := l.svcCtx.InboxRepo.MarkDeleted(l.ctx, tx, in.UserId, msg.ConvID, in.MessageId); err != nil {
-			return err
-		}
-		id, err := l.svcCtx.Snowflake.Generate()
+		permission, err := l.svcCtx.ConversationRepo.CheckSendPermission(l.ctx, tx, msg.ConvID, in.UserId)
 		if err != nil {
 			return err
 		}
-		evt := &model.OutboxEvent{ID: id, Topic: consts.KafkaTopicMessageDeleted,
-			Key: fmt.Sprintf("%d", msg.ConvID), MaxRetries: model.DefaultMaxRetries}
-		if err := evt.SetPayload(map[string]any{"message_id": msg.ID, "conv_id": msg.ConvID,
-			"user_id": in.UserId, "delete_for_all": false}); err != nil {
+		if !permission.IsMember {
+			return ErrNotMember
+		}
+		var current model.Message
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND conv_id = ?", msg.ID, msg.ConvID).Take(&current).Error; err != nil {
 			return err
 		}
-		return l.svcCtx.OutboxRepo.Insert(l.ctx, tx, evt)
+		inserted, err := msgRepo.InsertPersonalDeletion(l.ctx, tx, in.UserId, current.ConvID, current.ID)
+		if err != nil || !inserted {
+			return err
+		}
+		// A tombstone contains no content and targets only the actor's account.
+		return l.svcCtx.PublishInboxChange(l.ctx, tx, map[string]any{
+			"kind": model.InboxMessageDeleted, "conv_id": current.ConvID, "message_id": current.ID,
+			"user_id": in.UserId, "recipient_ids": []int64{in.UserId},
+		})
 	})
 	if err != nil {
 		if _, ok := errors.IsBizError(err); ok {

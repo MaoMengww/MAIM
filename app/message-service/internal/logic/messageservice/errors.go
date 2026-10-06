@@ -19,7 +19,6 @@ var (
 	ErrUpdateContentFailed      = errors.New(errors.CodeInternal, "update content failed")
 	ErrDeleteNotSender          = errors.New(errors.CodeForbidden, "only the sender can delete this message")
 	ErrDeleteMessageFailed      = errors.New(errors.CodeInternal, "delete message failed")
-	ErrMarkDeletedFailed        = errors.New(errors.CodeInternal, "mark deleted failed")
 	ErrForwardNoIDs             = errors.New(errors.CodeInvalidParam, "message_ids is required")
 	ErrForwardSrcNotFound       = errors.New(errors.CodeNotFound, "source messages not found")
 	ErrForwardFailed            = errors.New(errors.CodeInternal, "forward messages failed")

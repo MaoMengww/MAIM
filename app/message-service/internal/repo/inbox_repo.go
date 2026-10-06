@@ -102,12 +102,6 @@ func (r *InboxRepo) BatchInsert(ctx context.Context, inboxes []model.UserInbox) 
 	})
 }
 
-func (r *InboxRepo) MarkDeleted(ctx context.Context, tx *gorm.DB, userID, convID, messageID int64) error {
-	return tx.WithContext(ctx).Model(&model.UserInbox{}).
-		Where("user_id = ? AND conv_id = ? AND message_id = ?", userID, convID, messageID).
-		Update("is_deleted", true).Error
-}
-
 // EnsureStream reserves a positive checkpoint even before the first change.
 // This runs before the read snapshot, not inside a read-only transaction.
 func (r *InboxRepo) EnsureStream(ctx context.Context, userID int64) error {

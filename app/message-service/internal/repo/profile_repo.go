@@ -83,32 +83,3 @@ func (r *ProfileRepo) AllUserIDs(ctx context.Context) ([]int64, error) {
 	err := r.DB.WithContext(ctx).Table(`"user".users`).Pluck("id", &ids).Error
 	return ids, err
 }
-
-// IsBlocked reports whether either side has blocked the other, matching the
-// relationship domain's definition of a blocked pair.
-func (r *ProfileRepo) IsBlocked(ctx context.Context, userID, targetID int64) (bool, error) {
-	if userID == 0 || targetID == 0 {
-		return false, nil
-	}
-	var count int64
-	err := r.DB.WithContext(ctx).Table(`"user".user_blocks`).
-		Where("(user_id = ? AND blocked_user_id = ?) OR (user_id = ? AND blocked_user_id = ?)",
-			userID, targetID, targetID, userID).
-		Count(&count).Error
-	return count > 0, err
-}
-
-// IsBlockedAny reports whether any of the targets forms a blocked pair with the
-// user.
-func (r *ProfileRepo) IsBlockedAny(ctx context.Context, userID int64, targetIDs []int64) (bool, error) {
-	for _, targetID := range targetIDs {
-		blocked, err := r.IsBlocked(ctx, userID, targetID)
-		if err != nil {
-			return false, err
-		}
-		if blocked {
-			return true, nil
-		}
-	}
-	return false, nil
-}

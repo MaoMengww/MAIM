@@ -219,7 +219,7 @@ python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifact
 
 默认 `all` 检查关系链、同实例与 A/B 跨实例双向投递；`--scenario` 可选择单个场景。P6 已用连接登记取代旧的单实例 gRPC 推送目标，同实例与跨实例走同一条 Redis 定向投递路径。
 
-`user-sync` 检查空流重建、单个位点跨会话分页、消息正文与账号隔离、新设备最近历史及置顶/免打扰设置、未知位点重建和续增量；过期回收与并发未提交写入窗口由真实 PostgreSQL 的 `TestUserSync` 集成回归覆盖。
+`user-sync` 检查空流重建、单个位点跨会话分页、消息正文与账号隔离、新设备最近历史及置顶/免打扰设置、未知位点重建和续增量；同账号两设备个人删除他人消息后同步隐藏，原发送者仍可读取，搜索/历史/回复摘要/会话预览及新设备重建不泄露正文。过期回收后不复活与并发未提交写入窗口由真实 PostgreSQL 的集成回归覆盖。
 
 `broadcasts` 检查 `user/group/all` 范围、并发首次广播只创建一个用户系统会话、后续复用与递增 `seq`、两副本上的普通 `message.new` 投递，以及离线账号经用户收件箱增量/重建和会话历史读取广播。广播无需客户端专用事件分支。
 
@@ -328,7 +328,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 - **参数边界**：`position` 必须可解析为有符号 64 位整数，`limit` 必须可解析为非负有符号 32 位整数；显式空值、格式错误、溢出或负 `limit` 返回参数错误。省略 `limit` 或传 `0` 默认 50，上限为 `Message.MaxPageSize`（默认 100）；重建时每会话使用同一 `limit`。负 `position` 交给重建逻辑而非拒绝请求。
 - **收件箱保留期**：配置 `Message.inboxRetentionDays`（正整数，默认 30 天），启动时及随后每小时回收过期前缀；`inbox_streams.retained_position` 与删除同事务更新，已提交末端不回退。历史读取不受影响；同步时直接按记录年龄判断过期位点，不依赖回收 worker 是否已运行。
 - **重建可观测性**：Prometheus `aim_service_inbox_sync_rebuild_total{reason="new_device|unknown_position|expired_position"}` 统计成功重建次数；标签只有三种固定原因，不包含用户或设备 ID。
-- **个人删除**：暂保留 `is_deleted` 标记及旧投递路径，issue09 再迁移为独立覆盖层，不受本轮变更影响。
+- **个人删除**：持久状态存于 `messaging.personal_message_deletions`，键为 `(user_id, conv_id, message_id)`，不受收件箱保留期、退群重入或重建影响。当前成员可个人删除任意可见消息；覆盖与仅投给本人的删除变更 outbox 同事务提交，经 `message.created` 统一通道重放 `message.deleted` 标识。历史分页、单条/批量、搜索及其计数/高亮、回复摘要、同步/重建、会话预览与未读数均按该账号过滤；不改消息本体，不影响其他成员。全员删除仍仅允许发送者并物理删除本体，撤回保留撤回状态实体。
 
 `messaging.conv_read_seqs` 是每个用户在会话内已读位点的唯一真相源；标记已读与 outbox 同事务提交，位置不能回退且截断到会话最新 `seq`。列表、详情和回执读取同一值，未读数按「消息 `seq` 大于已读位点、且发送者不是该用户」计算。他人的回执与未读计数仅实时投递，不写收件箱。WebSocket `inbox.changed` 只唤起用户同步；在线与离线变化共用整页校验、按序应用、快照与位点原子落盘路径，新消息同时保留原 `message.new` 实时载荷。
 

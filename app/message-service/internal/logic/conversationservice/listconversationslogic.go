@@ -56,6 +56,9 @@ func (l *ListConversationsLogic) ListConversations(in *conversation.ListConversa
 		convs = append(convs, rest...)
 	}
 
+	if err := l.svcCtx.MessageRepo.ProjectConversationPreviews(l.ctx, in.UserId, convs); err != nil {
+		return nil, err
+	}
 	// 批量查询已读序列（避免 N+1）
 	convIDs := make([]int64, len(convs))
 	for i := range convs {

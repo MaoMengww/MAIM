@@ -86,15 +86,6 @@ CREATE TABLE IF NOT EXISTS messaging.messages (
     updated_at      TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS messaging.user_inbox (
-    user_id       BIGINT NOT NULL,
-    conv_id       BIGINT NOT NULL,
-    message_id    BIGINT NOT NULL,
-    seq           BIGINT NOT NULL,
-    is_deleted    BOOLEAN DEFAULT FALSE NOT NULL,
-    created_at    TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-    PRIMARY KEY (user_id, conv_id, seq)
-);
 
 CREATE TABLE IF NOT EXISTS messaging.broadcasts (
     id              BIGINT PRIMARY KEY,
@@ -141,8 +132,6 @@ CREATE INDEX IF NOT EXISTS idx_messages_conv_seq ON messaging.messages(conv_id, 
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messaging.messages(sender_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created ON messaging.messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_conv_seq ON messaging.messages(conv_id);
-CREATE INDEX IF NOT EXISTS idx_user_inbox_conv ON messaging.user_inbox(user_id, conv_id);
-CREATE INDEX IF NOT EXISTS idx_user_inbox_covering ON messaging.user_inbox(user_id, conv_id, seq DESC) INCLUDE (message_id, created_at) WHERE (is_deleted = FALSE);
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON messaging.outbox_events(status, next_retry_at, created_at);
 
 -- =========== messaging domain (conversations and membership) ===========

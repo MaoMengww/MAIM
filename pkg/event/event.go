@@ -46,6 +46,7 @@ type InboxChangeEvent struct {
 	RecipientIDs []int64        `json:"recipient_ids,omitempty"`
 	UserID       int64          `json:"user_id,omitzero"`
 	LastReadSeq  int64          `json:"last_read_seq,omitzero"`
+	DeleteForAll bool           `json:"delete_for_all,omitzero"`
 	MessageID    int64          `json:"message_id"`
 	ConvID       int64          `json:"conv_id"`
 	SenderID     int64          `json:"sender_id"`

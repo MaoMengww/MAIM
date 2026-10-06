@@ -61,6 +61,23 @@ func (f *Fanout) ChangeCommitted(ctx context.Context, evt event.InboxChangeEvent
 	preview := ""
 	var counts map[int64]int32
 	var message json.RawMessage
+	var hidden, hiddenReplies map[int64]bool
+	var tombstones []model.PersonalMessageDeletion
+	if evt.Kind == model.InboxMessageNew && len(users) > 0 {
+		hidden = make(map[int64]bool)
+		hiddenReplies = make(map[int64]bool)
+		if err := f.conversations.DB.WithContext(ctx).Where("user_id IN ? AND message_id IN ?", users, []int64{evt.MessageID, evt.ReplyToMsgID}).Find(&tombstones).Error; err != nil {
+			return err
+		}
+		for _, d := range tombstones {
+			if d.MessageID == evt.MessageID {
+				hidden[d.UserID] = true
+			}
+			if d.MessageID == evt.ReplyToMsgID {
+				hiddenReplies[d.UserID] = true
+			}
+		}
+	}
 	if evt.Kind == model.InboxMessageNew {
 		var err error
 		counts, err = f.conversations.UnreadCounts(ctx, evt.ConvID, users)
@@ -75,15 +92,38 @@ func (f *Fanout) ChangeCommitted(ctx context.Context, evt event.InboxChangeEvent
 	}
 	for _, uid := range users {
 		var notification *delivery.Notification
-		if evt.Kind == model.InboxMessageNew && (evt.SenderType == "bot" || uid != evt.SenderID) {
+		if evt.Kind == model.InboxMessageNew && !hidden[uid] && (evt.SenderType == "bot" || uid != evt.SenderID) {
 			notification = &delivery.Notification{Title: title, Body: preview,
 				Data: map[string]string{"conv_id": convID, "preview": preview}}
 		}
-		if evt.Kind == model.InboxMessageNew {
+		if evt.Kind == model.InboxMessageNew && !hidden[uid] {
+			visibleMessage := message
+			if hiddenReplies[uid] {
+				var value map[string]any
+				decoder := json.NewDecoder(bytes.NewReader(message))
+				decoder.UseNumber()
+				if err := decoder.Decode(&value); err != nil {
+					return err
+				}
+				value["reply_to"] = map[string]any{"message_id": strconv.FormatInt(evt.ReplyToMsgID, 10), "deleted": true}
+				var err error
+				visibleMessage, err = json.Marshal(value)
+				if err != nil {
+					return err
+				}
+			}
 			if err := f.send(ctx, evt.ConvID, []int64{uid}, map[string]any{
-				"type": consts.EventMessageNew, "message": message, "preview": preview,
+				"type": consts.EventMessageNew, "message": visibleMessage, "preview": preview,
 				"conv_id": convID, "unread_count": counts[uid],
 			}, notification); err != nil {
+				return err
+			}
+		}
+		if evt.Kind == model.InboxMessageDeleted {
+			if err := f.send(ctx, evt.ConvID, []int64{uid}, map[string]any{
+				"type": "message.deleted", "conv_id": convID, "message_id": strconv.FormatInt(evt.MessageID, 10),
+				"message": map[string]any{"message_id": strconv.FormatInt(evt.MessageID, 10), "conv_id": convID},
+			}, nil); err != nil {
 				return err
 			}
 		}
@@ -98,11 +138,9 @@ func (f *Fanout) ChangeCommitted(ctx context.Context, evt event.InboxChangeEvent
 
 func (f *Fanout) Handle(ctx context.Context, topic string, raw []byte) error {
 	var evt struct {
-		ConvID       int64 `json:"conv_id"`
-		MessageID    int64 `json:"message_id"`
-		UserID       int64 `json:"user_id"`
-		LastReadSeq  int64 `json:"last_read_seq"`
-		DeleteForAll bool  `json:"delete_for_all"`
+		ConvID      int64 `json:"conv_id"`
+		UserID      int64 `json:"user_id"`
+		LastReadSeq int64 `json:"last_read_seq"`
 	}
 	if err := json.Unmarshal(raw, &evt); err != nil {
 		return err
@@ -112,20 +150,6 @@ func (f *Fanout) Handle(ctx context.Context, topic string, raw []byte) error {
 		return err
 	}
 	switch topic {
-	case consts.KafkaTopicMessageDeleted:
-		msg, err := clientMessage(raw)
-		if err != nil {
-			return err
-		}
-		if evt.DeleteForAll {
-			return nil
-		}
-		// A personal deletion only synchronizes the actor's devices.
-		for _, uid := range users {
-			if uid == evt.UserID {
-				return f.send(ctx, evt.ConvID, []int64{uid}, map[string]any{"type": "message.deleted", "message": msg}, nil)
-			}
-		}
 	case consts.KafkaTopicConversationReadUpdated:
 		counts, err := f.conversations.UnreadCounts(ctx, evt.ConvID, users)
 		if err != nil {

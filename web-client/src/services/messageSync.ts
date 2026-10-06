@@ -17,6 +17,14 @@ function mergeMessage(messages: Record<string, Message[]>, convId: string, msg: 
   messages[convId].sort((a, b) => a.seq - b.seq);
 }
 
+function removeMessageAndRedactReplies(messages: Record<string, Message[]>, convId: string, messageId: string) {
+  messages[convId] = (messages[convId] ?? []).filter((msg) => String(msg.message_id) !== messageId).map((msg) => {
+    if (String(msg.reply_to_id) !== messageId && String(msg.reply_to?.message_id) !== messageId) return msg;
+    return { ...msg, reply_to: { message_id: messageId, deleted: true, sender_id: '0',
+      sender_type: '', sender_name: '', type: 0, preview: '' } };
+  });
+}
+
 function applyChange(cache: UserSyncCache, change: InboxChange) {
   const convId = change.conversation_id;
   if (change.kind === 'conversation.removed') {
@@ -38,7 +46,7 @@ function applyChange(cache: UserSyncCache, change: InboxChange) {
       mergeMessage(cache.messages, convId, change.message);
       break;
     case 'message.deleted':
-      cache.messages[convId] = (cache.messages[convId] ?? []).filter((msg) => String(msg.message_id) !== change.message_id);
+      removeMessageAndRedactReplies(cache.messages, convId, change.message_id);
       break;
   }
 }
@@ -244,7 +252,7 @@ class MessageSyncEngine {
 
   removeMessage(convId: string, messageId: number | string): Promise<void> {
     return this.mutate(convId, (messages) => {
-      messages[convId] = (messages[convId] ?? []).filter((m) => String(m.message_id) !== String(messageId));
+      removeMessageAndRedactReplies(messages, convId, String(messageId));
     });
   }
 }

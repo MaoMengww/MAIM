@@ -70,7 +70,7 @@ func (l *GetMessagesLogic) GetMessages(in *message.GetMessagesReq) (*message.Get
 		return nil, ErrNotMember
 	}
 
-	msgRepo := l.svcCtx.MessageRepo
+	msgRepo := l.svcCtx.MessageRepo.ForUser(in.UserId)
 	msgs, err := msgRepo.GetByConvID(l.ctx, in.ConversationId, limit+1, cursor, beforeTime, afterTime, filterTypes)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "get messages failed", err)
@@ -85,7 +85,7 @@ func (l *GetMessagesLogic) GetMessages(in *message.GetMessagesReq) (*message.Get
 	for i := range msgs {
 		pbMsgs = append(pbMsgs, modelToPbMessage(&msgs[i]))
 	}
-	hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)
+	hydrateReplySummaries(l.ctx, msgRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)
 
 	resp := &message.GetMessagesResp{
 		Messages: pbMsgs,

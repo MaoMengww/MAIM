@@ -38,7 +38,7 @@ func newConvSvcCtx(t *testing.T) *svc.ServiceContext {
 	svcCtx := svc.NewServiceContext(c)
 	t.Cleanup(func() {
 		for _, producer := range []*kafka.Producer{
-			svcCtx.MessageCreatedProducer, svcCtx.MessageDeletedProducer, svcCtx.BotEventProducer,
+			svcCtx.MessageCreatedProducer, svcCtx.BotEventProducer,
 		} {
 			if producer != nil {
 				assert.NoError(t, producer.Close())

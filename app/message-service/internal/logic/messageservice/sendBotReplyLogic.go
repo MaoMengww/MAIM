@@ -61,7 +61,7 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 	if replyToID := in.GetReplyToId(); replyToID != 0 {
 		replyToMap = buildReplyToMap(l.ctx, l.svcCtx, replyToID)
 	}
-	previewText := extractTextPreview(int32(model.MsgTypeBot), model.JSONContent{"text": in.Text})
+	previewText := model.MessagePreview(int32(model.MsgTypeBot), model.JSONContent{"text": in.Text})
 
 	// 事务：锁会话 + 成员校验 + seq + 消息 + outbox + 最新消息（原子提交）
 	var seq int64

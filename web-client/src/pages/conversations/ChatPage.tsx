@@ -957,7 +957,7 @@ export function ChatPage() {
   }, [members, conv]);
 
   const memberRoleMap = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, ConvMember['role']>();
     if (members?.length) {
       members.forEach((m: ConvMember) => {
         map.set(String(m.user_id), m.role);
@@ -1726,7 +1726,7 @@ export function ChatPage() {
                   </div>
                 )}
                 {msg.reply_to && (
-                  <div className="chat-msg-reply">回复: {msg.reply_to.preview}</div>
+                  <div className="chat-msg-reply">回复: {msg.reply_to.preview || '消息不可用'}</div>
                 )}
                 <div className={`chat-msg-bubble-wrapper${isMediaMsg ? ' chat-msg-bubble-wrapper-media' : ''}`}>
                   <div className={`chat-msg-bubble${isMediaMsg ? ' chat-msg-bubble-media' : ''} ${msg.status === 2 ? 'recalled' : ''}`}>

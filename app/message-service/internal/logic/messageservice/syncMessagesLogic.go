@@ -53,7 +53,7 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 		snapshot := *l.svcCtx
 		snapshot.DB = db
 		snapshot.InboxRepo = repo.NewInboxRepo(db)
-		snapshot.MessageRepo = repo.NewMessageRepo(db)
+		snapshot.MessageRepo = repo.NewMessageRepo(db).ForUser(in.UserId)
 		snapshot.ConversationRepo = repo.NewConversationRepo(db)
 		snapshot.ProfileRepo = repo.NewProfileRepo(db)
 		page, err := snapshot.InboxRepo.ReadPage(l.ctx, in.UserId, in.Position, limit, cutoff)
@@ -90,7 +90,7 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 				msgIDs = append(msgIDs, entry.MessageID)
 			}
 		}
-		msgs, err := snapshot.MessageRepo.BatchGetByIDs(l.ctx, msgIDs)
+		msgs, err := snapshot.MessageRepo.GetByIDs(l.ctx, msgIDs)
 		if err != nil {
 			return err
 		}
@@ -135,9 +135,6 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 				change.LastReadSeq = conv.LastReadSeq
 			case model.InboxMessageNew, model.InboxMessageEdited, model.InboxMessageRecalled, model.InboxMessageDeleted:
 				m, exists := msgMap[entry.MessageID]
-				if entry.IsDeleted {
-					continue
-				} // Existing personal deletion path; issue09 owns its replacement.
 				if entry.Kind == model.InboxMessageDeleted || !exists || m.ConvID != entry.ConvID {
 					// Old new/edit references converge even after physical message deletion.
 					change.Kind = model.InboxMessageDeleted

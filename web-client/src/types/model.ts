@@ -141,7 +141,7 @@ export interface ReplySummary {
   sender_id: number | string;
   sender_type: string;
   sender_name: string;
-  type: MsgType;
+  type: MsgType | 0;
   preview: string;
   deleted: boolean;
 }

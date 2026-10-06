@@ -29,7 +29,11 @@ func (l *BatchGetMessagesLogic) BatchGetMessages(in *message.BatchGetMessagesReq
 		return &message.BatchGetMessagesResp{Messages: []*message.Message{}}, nil
 	}
 
-	msgRepo := l.svcCtx.MessageRepo
+	callerID := callerUserID(l.ctx)
+	if callerID == 0 {
+		return nil, ErrUserIDMissing
+	}
+	msgRepo := l.svcCtx.MessageRepo.ForUser(callerID)
 	msgs, err := msgRepo.GetByIDs(l.ctx, in.MessageIds)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "batch get messages failed", err)
@@ -39,6 +43,7 @@ func (l *BatchGetMessagesLogic) BatchGetMessages(in *message.BatchGetMessagesReq
 	for i := range msgs {
 		pbMsgs = append(pbMsgs, modelToPbMessage(&msgs[i]))
 	}
+	hydrateReplySummaries(l.ctx, msgRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)
 
 	return &message.BatchGetMessagesResp{Messages: pbMsgs}, nil
 }

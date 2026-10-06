@@ -39,7 +39,7 @@ func (l *GetAroundSeqLogic) GetAroundSeq(in *message.GetAroundSeqReq) (*message.
 		return nil, ErrNotMember
 	}
 
-	msgRepo := l.svcCtx.MessageRepo
+	msgRepo := l.svcCtx.MessageRepo.ForUser(in.UserId)
 	msgs, err := msgRepo.GetAroundSeq(l.ctx, in.ConversationId, in.Seq, limit)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "get around seq failed", err)
@@ -49,7 +49,7 @@ func (l *GetAroundSeqLogic) GetAroundSeq(in *message.GetAroundSeqReq) (*message.
 	for i := range msgs {
 		pbMsgs = append(pbMsgs, modelToPbMessage(&msgs[i]))
 	}
-	hydrateReplySummaries(l.ctx, l.svcCtx.MessageRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)
+	hydrateReplySummaries(l.ctx, msgRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)
 
 	return &message.GetMessagesResp{Messages: pbMsgs}, nil
 }

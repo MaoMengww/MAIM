@@ -132,33 +132,25 @@ func TestInboxRejectsConversationlessAndRollsBack(t *testing.T) {
 	require.Error(t, db.Exec("INSERT INTO messaging.inbox_entries (user_id, position, conv_id, message_id, kind) VALUES (?, 2, 0, ?, 'message.new')", userID, userID+102).Error)
 }
 
-func TestInboxMigrationPreservesValidReferences(t *testing.T) {
+func TestPersonalDeletionMigrationSurvivesInboxRetention(t *testing.T) {
 	db, userID, convID, _ := inboxIntegrationDB(t)
 	messageID := userID + 100
-	require.NoError(t, db.Exec("INSERT INTO messaging.messages (id, conv_id, seq) VALUES (?, ?, 99)", messageID, convID).Error)
-	// Roll this fixture back so it can coexist with any integration test.
 	tx := db.Begin()
 	require.NoError(t, tx.Error)
 	t.Cleanup(func() { require.NoError(t, tx.Rollback().Error) })
-	require.NoError(t, tx.Exec(`CREATE TABLE messaging.user_inbox (user_id BIGINT, conv_id BIGINT, message_id BIGINT, seq BIGINT, is_deleted BOOLEAN, created_at TIMESTAMPTZ)`).Error)
-	require.NoError(t, tx.Exec(`INSERT INTO messaging.user_inbox VALUES (?, ?, ?, 99, TRUE, NOW()), (?, 0, ?, 100, FALSE, NOW())`, userID, convID, messageID, userID, messageID+1).Error)
-	migration, err := postgres.FS.ReadFile("014_user_inbox_stream.sql")
+	require.NoError(t, tx.Exec(`ALTER TABLE messaging.inbox_entries ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE`).Error)
+	require.NoError(t, tx.Exec(`INSERT INTO messaging.inbox_streams (user_id) VALUES (?)`, userID).Error)
+	require.NoError(t, tx.Exec(`INSERT INTO messaging.inbox_entries (user_id, position, conv_id, message_id, kind, change_id, is_deleted)
+  VALUES (?, 1, ?, ?, 'message.new', ?, TRUE), (?, 2, ?, ?, 'message.edited', ?, TRUE)`, userID, convID, messageID, messageID, userID, convID, messageID, messageID+1).Error)
+	migration, err := postgres.FS.ReadFile("018_personal_message_deletions.sql")
 	require.NoError(t, err)
 	require.NoError(t, tx.Exec(string(migration)).Error)
 	require.NoError(t, tx.Exec(string(migration)).Error)
-	var entries []model.UserInbox
-	require.NoError(t, tx.Where("user_id = ?", userID).Find(&entries).Error)
-	require.Len(t, entries, 1)
-	require.Equal(t, int64(1), entries[0].Position)
-	require.Equal(t, convID, entries[0].ConvID)
-	require.Equal(t, messageID, entries[0].MessageID)
-	require.Equal(t, "message.new", entries[0].Kind)
-	require.True(t, entries[0].IsDeleted)
-	var position int64
-	require.NoError(t, tx.Raw("SELECT position FROM messaging.inbox_streams WHERE user_id = ?", userID).Scan(&position).Error)
-	require.Equal(t, int64(1), position)
-	// The old model cannot remain a second position truth after cutover.
-	var oldTable *string
-	require.NoError(t, tx.Raw("SELECT to_regclass('messaging.user_inbox')::text").Scan(&oldTable).Error)
-	require.Nil(t, oldTable)
+	require.NoError(t, tx.Exec("DELETE FROM messaging.inbox_entries WHERE user_id = ?", userID).Error)
+	var deletions []model.PersonalMessageDeletion
+	require.NoError(t, tx.Where("user_id = ?", userID).Find(&deletions).Error)
+	require.Len(t, deletions, 1)
+	require.Equal(t, convID, deletions[0].ConvID)
+	require.Equal(t, messageID, deletions[0].MessageID)
+	require.False(t, tx.Migrator().HasColumn(&model.UserInbox{}, "is_deleted"))
 }
