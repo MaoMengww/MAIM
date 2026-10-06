@@ -1,12 +1,11 @@
 package handler
 
 import (
-	"encoding/json"
-
 	"github.com/gin-gonic/gin"
 	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
+	"github.com/maomeng/aim/pkg/identity"
 )
 
 type ConversationToolHandler struct {
@@ -20,8 +19,11 @@ func NewConversationToolHandler(botClient botpb.BotServiceClient) *ConversationT
 }
 
 func (h *ConversationToolHandler) Summarize(c *gin.Context) {
-	convID := parseInt64(c.Param("id"))
-	userID := c.GetInt64(middleware.CtxKeyUserID)
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	convID := c.Param("id")
+	userID := c.GetString(middleware.CtxKeyUserID)
 
 	var body struct {
 		LastMessageCount int32 `json:"last_message_count"`
@@ -29,7 +31,7 @@ func (h *ConversationToolHandler) Summarize(c *gin.Context) {
 		EndTime          int64 `json:"end_time"`
 		All              bool  `json:"all"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	if err := bindJSON(c, &body); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -50,6 +52,9 @@ func (h *ConversationToolHandler) Summarize(c *gin.Context) {
 	}
 
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.SummarizeConversation(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -59,8 +64,11 @@ func (h *ConversationToolHandler) Summarize(c *gin.Context) {
 }
 
 func (h *ConversationToolHandler) GetSummaries(c *gin.Context) {
-	convID := parseInt64(c.Param("id"))
-	userID := c.GetInt64(middleware.CtxKeyUserID)
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	convID := c.Param("id")
+	userID := c.GetString(middleware.CtxKeyUserID)
 
 	req := &botpb.GetConvSummariesReq{
 		ConvId: convID,
@@ -69,6 +77,9 @@ func (h *ConversationToolHandler) GetSummaries(c *gin.Context) {
 	_, _ = userID, req // userID available for future auth
 
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.GetConvSummaries(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -78,13 +89,20 @@ func (h *ConversationToolHandler) GetSummaries(c *gin.Context) {
 }
 
 func (h *ConversationToolHandler) CreateTodo(c *gin.Context) {
-	convID := parseInt64(c.Param("id"))
-	var body struct {
-		SummaryID int64  `json:"summary_id"`
-		Content   string `json:"content"`
+	if !requirePathIdentities(c, "id") {
+		return
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	convID := c.Param("id")
+	var body struct {
+		SummaryID *string `json:"summary_id"`
+		Content   string  `json:"content"`
+	}
+	if err := bindJSON(c, &body); err != nil {
 		response.BadRequest(c, err.Error())
+		return
+	}
+	if body.SummaryID != nil && identity.Validate(*body.SummaryID) != nil {
+		response.BadRequest(c, "invalid summary identity")
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
@@ -101,12 +119,15 @@ func (h *ConversationToolHandler) CreateTodo(c *gin.Context) {
 }
 
 func (h *ConversationToolHandler) UpdateTodo(c *gin.Context) {
-	todoID := parseInt64(c.Param("todoId"))
+	if !requirePathIdentities(c, "id", "todoId") {
+		return
+	}
+	todoID := c.Param("todoId")
 	var body struct {
 		Content string `json:"content"`
 		Done    bool   `json:"done"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	if err := bindJSON(c, &body); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -124,7 +145,10 @@ func (h *ConversationToolHandler) UpdateTodo(c *gin.Context) {
 }
 
 func (h *ConversationToolHandler) DeleteTodo(c *gin.Context) {
-	todoID := parseInt64(c.Param("todoId"))
+	if !requirePathIdentities(c, "id", "todoId") {
+		return
+	}
+	todoID := c.Param("todoId")
 	ctx := middleware.WithGRPCMetadata(c)
 	_, err := h.botClient.DeleteTodo(ctx, &botpb.DeleteTodoReq{TodoId: todoID})
 	if err != nil {
@@ -135,24 +159,30 @@ func (h *ConversationToolHandler) DeleteTodo(c *gin.Context) {
 }
 
 func (h *ConversationToolHandler) ReplyCandidates(c *gin.Context) {
-	convID := parseInt64(c.Param("id"))
-	userID := c.GetInt64(middleware.CtxKeyUserID)
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	convID := c.Param("id")
+	userID := c.GetString(middleware.CtxKeyUserID)
 
 	var body struct {
-		ReplyToMsgID json.Number `json:"reply_to_msg_id"`
+		ReplyToMsgID *string `json:"reply_to_msg_id"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	if err := bindJSON(c, &body); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	replyToMsgID, _ := body.ReplyToMsgID.Int64()
+	if body.ReplyToMsgID != nil && identity.Validate(*body.ReplyToMsgID) != nil {
+		response.BadRequest(c, "invalid reply identity")
+		return
+	}
 
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.botClient.GenerateReplyCandidates(ctx, &botpb.ReplyCandidatesReq{
 		ConvId:       convID,
 		UserId:       userID,
-		ReplyToMsgId: replyToMsgID,
+		ReplyToMsgId: body.ReplyToMsgID,
 	})
 	if err != nil {
 		response.GRPCError(c, err)
@@ -162,12 +192,15 @@ func (h *ConversationToolHandler) ReplyCandidates(c *gin.Context) {
 }
 
 func (h *ConversationToolHandler) Translate(c *gin.Context) {
-	msgID := parseInt64(c.Param("id"))
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	msgID := c.Param("id")
 	var body struct {
 		Text       string `json:"text"`
 		TargetLang string `json:"target_lang"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	if err := bindJSON(c, &body); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -179,7 +212,7 @@ func (h *ConversationToolHandler) Translate(c *gin.Context) {
 	resp, err := h.botClient.TranslateMessage(ctx, &botpb.TranslateMessageReq{
 		Text:       body.Text,
 		TargetLang: body.TargetLang,
-		MsgId:      msgID,
+		MsgId:      &msgID,
 	})
 	if err != nil {
 		response.GRPCError(c, err)

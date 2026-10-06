@@ -4,6 +4,8 @@ package llmgateway;
 
 option go_package = "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway";
 
+import "common/common.proto";
+
 service LLMGateway {
   rpc Chat(ChatReq) returns (ChatResp);
   rpc ChatStream(ChatReq) returns (stream ChatStreamChunk);
@@ -19,13 +21,13 @@ service LLMGateway {
 }
 
 message VlmChatReq {
-  int64 model_id = 1;
+  string model_id = 1 [(common.entity_id) = true];
   string system_prompt = 2;
   string user_prompt = 3;
   string image_data = 4; // base64 data URL e.g. "data:image/png;base64,..."
   double temperature = 5;
   int32 max_tokens = 6;
-  int64 owner_id = 7;
+  optional string owner_id = 7 [(common.entity_id) = true];
 }
 
 message ToolDef {
@@ -35,14 +37,14 @@ message ToolDef {
 }
 
 message ChatReq {
-  int64 model_id = 1;              // model registry ID
+  string model_id = 1 [(common.entity_id) = true];              // model registry ID
   repeated Message messages = 3;
   double temperature = 4;
   int32 max_tokens = 5;
   double top_p = 6;
   repeated string stop = 7;
-  int64 bot_id = 8;
-  int64 owner_id = 9;
+  optional string bot_id = 8 [(common.entity_id) = true];
+  optional string owner_id = 9 [(common.entity_id) = true];
   repeated ToolDef tools = 10;     // tool definitions for function calling
 }
 
@@ -95,10 +97,10 @@ message UsageInfo {
 }
 
 message EmbedReq {
-  int64 model_id = 1;              // model registry ID
+  string model_id = 1 [(common.entity_id) = true];              // model registry ID
   repeated string input = 3;
-  int64 bot_id = 4;
-  int64 owner_id = 5;
+  optional string bot_id = 4 [(common.entity_id) = true];
+  optional string owner_id = 5 [(common.entity_id) = true];
 }
 
 message EmbedResp {
@@ -112,13 +114,13 @@ message EmbedResp {
 }
 
 message RerankReq {
-  int64 model_id = 1;              // model registry ID
+  string model_id = 1 [(common.entity_id) = true];              // model registry ID
   string query = 2;
   repeated string documents = 3;
   int32 top_n = 4;
   bool return_documents = 5;
-  int64 bot_id = 6;
-  int64 owner_id = 7;
+  optional string bot_id = 6 [(common.entity_id) = true];
+  optional string owner_id = 7 [(common.entity_id) = true];
 }
 
 message RerankResp {
@@ -134,7 +136,7 @@ message RerankResp {
 
 message ListModelsReq {
   string capability = 1;
-  int64 owner_id = 2;
+  optional string owner_id = 2 [(common.entity_id) = true];
 }
 
 message ListModelsResp {
@@ -150,11 +152,12 @@ message CreateModelReq {
   string api_key = 5;
   double input_price_per_mtok = 6;
   double output_price_per_mtok = 7;
-  int64 owner_id = 8;
+  optional string owner_id = 8 [(common.entity_id) = true];
+  string owner_type = 9; // platform | user；平台不提供 owner_id，用户所有必须提供有效 owner_id
 }
 
 message UpdateModelReq {
-  int64 model_id = 1;
+  string model_id = 1 [(common.entity_id) = true];
   string model_name = 2;
   string provider = 3;
   string capability = 4;
@@ -165,7 +168,7 @@ message UpdateModelReq {
 }
 
 message DeleteModelReq {
-  int64 model_id = 1;
+  string model_id = 1 [(common.entity_id) = true];
 }
 
 message DeleteModelResp {
@@ -173,21 +176,22 @@ message DeleteModelResp {
 }
 
 message ModelResp {
-  int64 id = 1;
+  string id = 1 [(common.entity_id) = true];
   string model_name = 2;
   string provider = 3;
   string capability = 4;
   string base_url = 5;
-  int64 owner_id = 6;
+  optional string owner_id = 6 [(common.entity_id) = true];
   string status = 7;
   double input_price_per_mtok = 8;
   double output_price_per_mtok = 9;
   string api_key = 10;
+  string owner_type = 11; // platform | user；与 provider、model_name 专用语义键无关
 }
 
 message BillingStatsReq {
-  int64 owner_id = 1;
-  int64 bot_id = 2;
+  string owner_id = 1 [(common.entity_id) = true];
+  optional string bot_id = 2 [(common.entity_id) = true];
 }
 
 message BillingStatsResp {
@@ -206,14 +210,14 @@ message BillingModelStat {
 }
 
 message ListBillingRecordsReq {
-  int64 owner_id = 1;
+  string owner_id = 1 [(common.entity_id) = true];
   int32 page = 2;
   int32 page_size = 3;
 }
 
 message BillingRecordItem {
-  int64 id = 1;
-  int64 bot_id = 2;
+  string id = 1 [(common.entity_id) = true];
+  optional string bot_id = 2 [(common.entity_id) = true];
   string model_name = 3;
   string capability = 4;
   int32 input_tokens = 5;

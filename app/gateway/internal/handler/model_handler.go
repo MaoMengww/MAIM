@@ -2,14 +2,14 @@ package handler
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	llmgateway "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
+	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/protocol"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -23,11 +23,7 @@ func NewModelHandler(conn grpc.ClientConnInterface) *ModelHandler {
 
 func writeProtoJSON(c *gin.Context, msg any) {
 	if pm, ok := msg.(proto.Message); ok {
-		marshaler := protojson.MarshalOptions{
-			EmitUnpopulated: true,
-			UseProtoNames:   true,
-		}
-		data, err := marshaler.Marshal(pm)
+		data, err := protocol.Marshal(pm)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
 			return
@@ -40,9 +36,10 @@ func writeProtoJSON(c *gin.Context, msg any) {
 
 func (h *ModelHandler) ListModels(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
+	ownerID := c.GetString(middleware.CtxKeyUserID)
 	resp, err := h.cli.ListModels(ctx, &llmgateway.ListModelsReq{
 		Capability: c.Query("capability"),
-		OwnerId:    c.GetInt64(middleware.CtxKeyUserID),
+		OwnerId:    &ownerID,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
@@ -53,13 +50,17 @@ func (h *ModelHandler) ListModels(c *gin.Context) {
 
 func (h *ModelHandler) CreateModel(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
-	body, _ := io.ReadAll(c.Request.Body)
 	var req llmgateway.CreateModelReq
-	if err := protojson.Unmarshal(body, &req); err != nil {
+	if err := bindUserOwnedJSON(c, &req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": -1, "msg": err.Error()})
 		return
 	}
-	req.OwnerId = c.GetInt64(middleware.CtxKeyUserID)
+	ownerID := c.GetString(middleware.CtxKeyUserID)
+	req.OwnerId = &ownerID
+	req.OwnerType = "user"
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.cli.CreateModel(ctx, &req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
@@ -69,14 +70,19 @@ func (h *ModelHandler) CreateModel(c *gin.Context) {
 }
 
 func (h *ModelHandler) UpdateModel(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	ctx := middleware.WithGRPCMetadata(c)
-	body, _ := io.ReadAll(c.Request.Body)
 	var req llmgateway.UpdateModelReq
-	if err := protojson.Unmarshal(body, &req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": -1, "msg": err.Error()})
 		return
 	}
-	req.ModelId = parseInt64(c.Param("id"))
+	req.ModelId = c.Param("id")
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	if _, err := h.cli.UpdateModel(ctx, &req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
 		return
@@ -85,9 +91,12 @@ func (h *ModelHandler) UpdateModel(c *gin.Context) {
 }
 
 func (h *ModelHandler) DeleteModel(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.cli.DeleteModel(ctx, &llmgateway.DeleteModelReq{
-		ModelId: parseInt64(c.Param("id")),
+		ModelId: c.Param("id"),
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
@@ -101,7 +110,7 @@ func (h *ModelHandler) ListBillingRecords(c *gin.Context) {
 	page := parseInt64(c.DefaultQuery("page", "1"))
 	pageSize := parseInt64(c.DefaultQuery("page_size", "20"))
 	resp, err := h.cli.ListBillingRecords(ctx, &llmgateway.ListBillingRecordsReq{
-		OwnerId:  c.GetInt64(middleware.CtxKeyUserID),
+		OwnerId:  c.GetString(middleware.CtxKeyUserID),
 		Page:     int32(page),
 		PageSize: int32(pageSize),
 	})
@@ -114,10 +123,19 @@ func (h *ModelHandler) ListBillingRecords(c *gin.Context) {
 
 func (h *ModelHandler) GetBillingStats(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
-	resp, err := h.cli.GetBillingStats(ctx, &llmgateway.BillingStatsReq{
-		OwnerId: c.GetInt64(middleware.CtxKeyUserID),
-		BotId:   parseInt64(c.DefaultQuery("bot_id", "0")),
-	})
+	req := &llmgateway.BillingStatsReq{OwnerId: c.GetString(middleware.CtxKeyUserID)}
+	if c.Request.URL.Query().Has("bot_id") {
+		botID := c.Query("bot_id")
+		if err := identity.Validate(botID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": -1, "msg": "invalid bot identity"})
+			return
+		}
+		req.BotId = &botID
+	}
+	if !requireRequestIdentities(c, req) {
+		return
+	}
+	resp, err := h.cli.GetBillingStats(ctx, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
 		return

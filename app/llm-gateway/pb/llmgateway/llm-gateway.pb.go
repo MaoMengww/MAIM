@@ -7,6 +7,7 @@
 package llmgateway
 
 import (
+	_ "github.com/maomeng/aim/pkg/pb/common"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -23,13 +24,13 @@ const (
 
 type VlmChatReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ModelId       int64                  `protobuf:"varint,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	SystemPrompt  string                 `protobuf:"bytes,2,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
 	UserPrompt    string                 `protobuf:"bytes,3,opt,name=user_prompt,json=userPrompt,proto3" json:"user_prompt,omitempty"`
 	ImageData     string                 `protobuf:"bytes,4,opt,name=image_data,json=imageData,proto3" json:"image_data,omitempty"` // base64 data URL e.g. "data:image/png;base64,..."
 	Temperature   float64                `protobuf:"fixed64,5,opt,name=temperature,proto3" json:"temperature,omitempty"`
 	MaxTokens     int32                  `protobuf:"varint,6,opt,name=max_tokens,json=maxTokens,proto3" json:"max_tokens,omitempty"`
-	OwnerId       int64                  `protobuf:"varint,7,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	OwnerId       *string                `protobuf:"bytes,7,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -64,11 +65,11 @@ func (*VlmChatReq) Descriptor() ([]byte, []int) {
 	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *VlmChatReq) GetModelId() int64 {
+func (x *VlmChatReq) GetModelId() string {
 	if x != nil {
 		return x.ModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *VlmChatReq) GetSystemPrompt() string {
@@ -106,11 +107,11 @@ func (x *VlmChatReq) GetMaxTokens() int32 {
 	return 0
 }
 
-func (x *VlmChatReq) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *VlmChatReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 type ToolDef struct {
@@ -175,14 +176,14 @@ func (x *ToolDef) GetParameters() []byte {
 
 type ChatReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ModelId       int64                  `protobuf:"varint,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
+	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
 	Messages      []*Message             `protobuf:"bytes,3,rep,name=messages,proto3" json:"messages,omitempty"`
 	Temperature   float64                `protobuf:"fixed64,4,opt,name=temperature,proto3" json:"temperature,omitempty"`
 	MaxTokens     int32                  `protobuf:"varint,5,opt,name=max_tokens,json=maxTokens,proto3" json:"max_tokens,omitempty"`
 	TopP          float64                `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3" json:"top_p,omitempty"`
 	Stop          []string               `protobuf:"bytes,7,rep,name=stop,proto3" json:"stop,omitempty"`
-	BotId         int64                  `protobuf:"varint,8,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	OwnerId       int64                  `protobuf:"varint,9,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	BotId         *string                `protobuf:"bytes,8,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	OwnerId       *string                `protobuf:"bytes,9,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	Tools         []*ToolDef             `protobuf:"bytes,10,rep,name=tools,proto3" json:"tools,omitempty"` // tool definitions for function calling
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -218,11 +219,11 @@ func (*ChatReq) Descriptor() ([]byte, []int) {
 	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *ChatReq) GetModelId() int64 {
+func (x *ChatReq) GetModelId() string {
 	if x != nil {
 		return x.ModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *ChatReq) GetMessages() []*Message {
@@ -260,18 +261,18 @@ func (x *ChatReq) GetStop() []string {
 	return nil
 }
 
-func (x *ChatReq) GetBotId() int64 {
-	if x != nil {
-		return x.BotId
+func (x *ChatReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *ChatReq) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *ChatReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 func (x *ChatReq) GetTools() []*ToolDef {
@@ -615,10 +616,10 @@ func (x *UsageInfo) GetTotalTokens() int32 {
 
 type EmbedReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ModelId       int64                  `protobuf:"varint,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
+	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
 	Input         []string               `protobuf:"bytes,3,rep,name=input,proto3" json:"input,omitempty"`
-	BotId         int64                  `protobuf:"varint,4,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	OwnerId       int64                  `protobuf:"varint,5,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	BotId         *string                `protobuf:"bytes,4,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	OwnerId       *string                `protobuf:"bytes,5,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -653,11 +654,11 @@ func (*EmbedReq) Descriptor() ([]byte, []int) {
 	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *EmbedReq) GetModelId() int64 {
+func (x *EmbedReq) GetModelId() string {
 	if x != nil {
 		return x.ModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *EmbedReq) GetInput() []string {
@@ -667,18 +668,18 @@ func (x *EmbedReq) GetInput() []string {
 	return nil
 }
 
-func (x *EmbedReq) GetBotId() int64 {
-	if x != nil {
-		return x.BotId
+func (x *EmbedReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *EmbedReq) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *EmbedReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 type EmbedResp struct {
@@ -743,13 +744,13 @@ func (x *EmbedResp) GetUsage() *UsageInfo {
 
 type RerankReq struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	ModelId         int64                  `protobuf:"varint,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
+	ModelId         string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
 	Query           string                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
 	Documents       []string               `protobuf:"bytes,3,rep,name=documents,proto3" json:"documents,omitempty"`
 	TopN            int32                  `protobuf:"varint,4,opt,name=top_n,json=topN,proto3" json:"top_n,omitempty"`
 	ReturnDocuments bool                   `protobuf:"varint,5,opt,name=return_documents,json=returnDocuments,proto3" json:"return_documents,omitempty"`
-	BotId           int64                  `protobuf:"varint,6,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	OwnerId         int64                  `protobuf:"varint,7,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	BotId           *string                `protobuf:"bytes,6,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	OwnerId         *string                `protobuf:"bytes,7,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -784,11 +785,11 @@ func (*RerankReq) Descriptor() ([]byte, []int) {
 	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *RerankReq) GetModelId() int64 {
+func (x *RerankReq) GetModelId() string {
 	if x != nil {
 		return x.ModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *RerankReq) GetQuery() string {
@@ -819,18 +820,18 @@ func (x *RerankReq) GetReturnDocuments() bool {
 	return false
 }
 
-func (x *RerankReq) GetBotId() int64 {
-	if x != nil {
-		return x.BotId
+func (x *RerankReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *RerankReq) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *RerankReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 type RerankResp struct {
@@ -896,7 +897,7 @@ func (x *RerankResp) GetUsage() *UsageInfo {
 type ListModelsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Capability    string                 `protobuf:"bytes,1,opt,name=capability,proto3" json:"capability,omitempty"`
-	OwnerId       int64                  `protobuf:"varint,2,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	OwnerId       *string                `protobuf:"bytes,2,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -938,11 +939,11 @@ func (x *ListModelsReq) GetCapability() string {
 	return ""
 }
 
-func (x *ListModelsReq) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *ListModelsReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 type ListModelsResp struct {
@@ -1006,7 +1007,8 @@ type CreateModelReq struct {
 	ApiKey             string                 `protobuf:"bytes,5,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
 	InputPricePerMtok  float64                `protobuf:"fixed64,6,opt,name=input_price_per_mtok,json=inputPricePerMtok,proto3" json:"input_price_per_mtok,omitempty"`
 	OutputPricePerMtok float64                `protobuf:"fixed64,7,opt,name=output_price_per_mtok,json=outputPricePerMtok,proto3" json:"output_price_per_mtok,omitempty"`
-	OwnerId            int64                  `protobuf:"varint,8,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	OwnerId            *string                `protobuf:"bytes,8,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
+	OwnerType          string                 `protobuf:"bytes,9,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"` // platform | user；平台不提供 owner_id，用户所有必须提供有效 owner_id
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -1090,16 +1092,23 @@ func (x *CreateModelReq) GetOutputPricePerMtok() float64 {
 	return 0
 }
 
-func (x *CreateModelReq) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *CreateModelReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
+}
+
+func (x *CreateModelReq) GetOwnerType() string {
+	if x != nil {
+		return x.OwnerType
+	}
+	return ""
 }
 
 type UpdateModelReq struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
-	ModelId            int64                  `protobuf:"varint,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId            string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ModelName          string                 `protobuf:"bytes,2,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
 	Provider           string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
 	Capability         string                 `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
@@ -1141,11 +1150,11 @@ func (*UpdateModelReq) Descriptor() ([]byte, []int) {
 	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *UpdateModelReq) GetModelId() int64 {
+func (x *UpdateModelReq) GetModelId() string {
 	if x != nil {
 		return x.ModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateModelReq) GetModelName() string {
@@ -1199,7 +1208,7 @@ func (x *UpdateModelReq) GetOutputPricePerMtok() float64 {
 
 type DeleteModelReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ModelId       int64                  `protobuf:"varint,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1234,11 +1243,11 @@ func (*DeleteModelReq) Descriptor() ([]byte, []int) {
 	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *DeleteModelReq) GetModelId() int64 {
+func (x *DeleteModelReq) GetModelId() string {
 	if x != nil {
 		return x.ModelId
 	}
-	return 0
+	return ""
 }
 
 type DeleteModelResp struct {
@@ -1287,16 +1296,17 @@ func (x *DeleteModelResp) GetSuccess() bool {
 
 type ModelResp struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
-	Id                 int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	ModelName          string                 `protobuf:"bytes,2,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
 	Provider           string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
 	Capability         string                 `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
 	BaseUrl            string                 `protobuf:"bytes,5,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
-	OwnerId            int64                  `protobuf:"varint,6,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	OwnerId            *string                `protobuf:"bytes,6,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	Status             string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
 	InputPricePerMtok  float64                `protobuf:"fixed64,8,opt,name=input_price_per_mtok,json=inputPricePerMtok,proto3" json:"input_price_per_mtok,omitempty"`
 	OutputPricePerMtok float64                `protobuf:"fixed64,9,opt,name=output_price_per_mtok,json=outputPricePerMtok,proto3" json:"output_price_per_mtok,omitempty"`
 	ApiKey             string                 `protobuf:"bytes,10,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	OwnerType          string                 `protobuf:"bytes,11,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"` // platform | user；与 provider、model_name 专用语义键无关
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -1331,11 +1341,11 @@ func (*ModelResp) Descriptor() ([]byte, []int) {
 	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *ModelResp) GetId() int64 {
+func (x *ModelResp) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
 func (x *ModelResp) GetModelName() string {
@@ -1366,11 +1376,11 @@ func (x *ModelResp) GetBaseUrl() string {
 	return ""
 }
 
-func (x *ModelResp) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *ModelResp) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 func (x *ModelResp) GetStatus() string {
@@ -1401,10 +1411,17 @@ func (x *ModelResp) GetApiKey() string {
 	return ""
 }
 
+func (x *ModelResp) GetOwnerType() string {
+	if x != nil {
+		return x.OwnerType
+	}
+	return ""
+}
+
 type BillingStatsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       int64                  `protobuf:"varint,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
-	BotId         int64                  `protobuf:"varint,2,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	BotId         *string                `protobuf:"bytes,2,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1439,18 +1456,18 @@ func (*BillingStatsReq) Descriptor() ([]byte, []int) {
 	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *BillingStatsReq) GetOwnerId() int64 {
+func (x *BillingStatsReq) GetOwnerId() string {
 	if x != nil {
 		return x.OwnerId
 	}
-	return 0
+	return ""
 }
 
-func (x *BillingStatsReq) GetBotId() int64 {
-	if x != nil {
-		return x.BotId
+func (x *BillingStatsReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
 	}
-	return 0
+	return ""
 }
 
 type BillingStatsResp struct {
@@ -1599,7 +1616,7 @@ func (x *BillingModelStat) GetTotalCost() float64 {
 
 type ListBillingRecordsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       int64                  `protobuf:"varint,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	Page          int32                  `protobuf:"varint,2,opt,name=page,proto3" json:"page,omitempty"`
 	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1636,11 +1653,11 @@ func (*ListBillingRecordsReq) Descriptor() ([]byte, []int) {
 	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{22}
 }
 
-func (x *ListBillingRecordsReq) GetOwnerId() int64 {
+func (x *ListBillingRecordsReq) GetOwnerId() string {
 	if x != nil {
 		return x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 func (x *ListBillingRecordsReq) GetPage() int32 {
@@ -1659,8 +1676,8 @@ func (x *ListBillingRecordsReq) GetPageSize() int32 {
 
 type BillingRecordItem struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	BotId         int64                  `protobuf:"varint,2,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	BotId         *string                `protobuf:"bytes,2,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
 	ModelName     string                 `protobuf:"bytes,3,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
 	Capability    string                 `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
 	InputTokens   int32                  `protobuf:"varint,5,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
@@ -1704,18 +1721,18 @@ func (*BillingRecordItem) Descriptor() ([]byte, []int) {
 	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{23}
 }
 
-func (x *BillingRecordItem) GetId() int64 {
+func (x *BillingRecordItem) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *BillingRecordItem) GetBotId() int64 {
-	if x != nil {
-		return x.BotId
+func (x *BillingRecordItem) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
 	}
-	return 0
+	return ""
 }
 
 func (x *BillingRecordItem) GetModelName() string {
@@ -2122,10 +2139,10 @@ var File_llm_gateway_llm_gateway_proto protoreflect.FileDescriptor
 const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\n" +
 	"\x1dllm-gateway/llm-gateway.proto\x12\n" +
-	"llmgateway\"\xe8\x01\n" +
+	"llmgateway\x1a\x13common/common.proto\"\x8a\x02\n" +
 	"\n" +
-	"VlmChatReq\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\x03R\amodelId\x12#\n" +
+	"VlmChatReq\x12!\n" +
+	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12#\n" +
 	"\rsystem_prompt\x18\x02 \x01(\tR\fsystemPrompt\x12\x1f\n" +
 	"\vuser_prompt\x18\x03 \x01(\tR\n" +
 	"userPrompt\x12\x1d\n" +
@@ -2133,26 +2150,29 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"image_data\x18\x04 \x01(\tR\timageData\x12 \n" +
 	"\vtemperature\x18\x05 \x01(\x01R\vtemperature\x12\x1d\n" +
 	"\n" +
-	"max_tokens\x18\x06 \x01(\x05R\tmaxTokens\x12\x19\n" +
-	"\bowner_id\x18\a \x01(\x03R\aownerId\"_\n" +
+	"max_tokens\x18\x06 \x01(\x05R\tmaxTokens\x12&\n" +
+	"\bowner_id\x18\a \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01B\v\n" +
+	"\t_owner_id\"_\n" +
 	"\aToolDef\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x1e\n" +
 	"\n" +
 	"parameters\x18\x03 \x01(\fR\n" +
-	"parameters\"\x9c\x02\n" +
-	"\aChatReq\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\x03R\amodelId\x12/\n" +
+	"parameters\"\xd6\x02\n" +
+	"\aChatReq\x12!\n" +
+	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12/\n" +
 	"\bmessages\x18\x03 \x03(\v2\x13.llmgateway.MessageR\bmessages\x12 \n" +
 	"\vtemperature\x18\x04 \x01(\x01R\vtemperature\x12\x1d\n" +
 	"\n" +
 	"max_tokens\x18\x05 \x01(\x05R\tmaxTokens\x12\x13\n" +
 	"\x05top_p\x18\x06 \x01(\x01R\x04topP\x12\x12\n" +
-	"\x04stop\x18\a \x03(\tR\x04stop\x12\x15\n" +
-	"\x06bot_id\x18\b \x01(\x03R\x05botId\x12\x19\n" +
-	"\bowner_id\x18\t \x01(\x03R\aownerId\x12)\n" +
+	"\x04stop\x18\a \x03(\tR\x04stop\x12\"\n" +
+	"\x06bot_id\x18\b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12&\n" +
+	"\bowner_id\x18\t \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01\x12)\n" +
 	"\x05tools\x18\n" +
-	" \x03(\v2\x13.llmgateway.ToolDefR\x05tools\"\xa2\x01\n" +
+	" \x03(\v2\x13.llmgateway.ToolDefR\x05toolsB\t\n" +
+	"\a_bot_idB\v\n" +
+	"\t_owner_id\"\xa2\x01\n" +
 	"\aMessage\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x12\n" +
@@ -2189,27 +2209,31 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\tUsageInfo\x12#\n" +
 	"\rprompt_tokens\x18\x01 \x01(\x05R\fpromptTokens\x12+\n" +
 	"\x11completion_tokens\x18\x02 \x01(\x05R\x10completionTokens\x12!\n" +
-	"\ftotal_tokens\x18\x03 \x01(\x05R\vtotalTokens\"m\n" +
-	"\bEmbedReq\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\x03R\amodelId\x12\x14\n" +
-	"\x05input\x18\x03 \x03(\tR\x05input\x12\x15\n" +
-	"\x06bot_id\x18\x04 \x01(\x03R\x05botId\x12\x19\n" +
-	"\bowner_id\x18\x05 \x01(\x03R\aownerId\"\xc4\x01\n" +
+	"\ftotal_tokens\x18\x03 \x01(\x05R\vtotalTokens\"\xa7\x01\n" +
+	"\bEmbedReq\x12!\n" +
+	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12\x14\n" +
+	"\x05input\x18\x03 \x03(\tR\x05input\x12\"\n" +
+	"\x06bot_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12&\n" +
+	"\bowner_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01B\t\n" +
+	"\a_bot_idB\v\n" +
+	"\t_owner_id\"\xc4\x01\n" +
 	"\tEmbedResp\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x123\n" +
 	"\x04data\x18\x03 \x03(\v2\x1f.llmgateway.EmbedResp.EmbeddingR\x04data\x12+\n" +
 	"\x05usage\x18\x04 \x01(\v2\x15.llmgateway.UsageInfoR\x05usage\x1a?\n" +
 	"\tEmbedding\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\x05R\x05index\x12\x1c\n" +
-	"\tembedding\x18\x02 \x03(\x02R\tembedding\"\xcc\x01\n" +
-	"\tRerankReq\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\x03R\amodelId\x12\x14\n" +
+	"\tembedding\x18\x02 \x03(\x02R\tembedding\"\x86\x02\n" +
+	"\tRerankReq\x12!\n" +
+	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1c\n" +
 	"\tdocuments\x18\x03 \x03(\tR\tdocuments\x12\x13\n" +
 	"\x05top_n\x18\x04 \x01(\x05R\x04topN\x12)\n" +
-	"\x10return_documents\x18\x05 \x01(\bR\x0freturnDocuments\x12\x15\n" +
-	"\x06bot_id\x18\x06 \x01(\x03R\x05botId\x12\x19\n" +
-	"\bowner_id\x18\a \x01(\x03R\aownerId\"\xed\x01\n" +
+	"\x10return_documents\x18\x05 \x01(\bR\x0freturnDocuments\x12\"\n" +
+	"\x06bot_id\x18\x06 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12&\n" +
+	"\bowner_id\x18\a \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01B\t\n" +
+	"\a_bot_idB\v\n" +
+	"\t_owner_id\"\xed\x01\n" +
 	"\n" +
 	"RerankResp\x127\n" +
 	"\aresults\x18\x01 \x03(\v2\x1d.llmgateway.RerankResp.ResultR\aresults\x12\x14\n" +
@@ -2218,15 +2242,16 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\x06Result\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\x05R\x05index\x12'\n" +
 	"\x0frelevance_score\x18\x02 \x01(\x02R\x0erelevanceScore\x12\x1a\n" +
-	"\bdocument\x18\x03 \x01(\tR\bdocument\"J\n" +
+	"\bdocument\x18\x03 \x01(\tR\bdocument\"d\n" +
 	"\rListModelsReq\x12\x1e\n" +
 	"\n" +
 	"capability\x18\x01 \x01(\tR\n" +
-	"capability\x12\x19\n" +
-	"\bowner_id\x18\x02 \x01(\x03R\aownerId\"S\n" +
+	"capability\x12&\n" +
+	"\bowner_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01B\v\n" +
+	"\t_owner_id\"S\n" +
 	"\x0eListModelsResp\x12+\n" +
 	"\x05items\x18\x01 \x03(\v2\x15.llmgateway.ModelRespR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total\"\x9e\x02\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"\xd7\x02\n" +
 	"\x0eCreateModelReq\x12\x1d\n" +
 	"\n" +
 	"model_name\x18\x01 \x01(\tR\tmodelName\x12\x1a\n" +
@@ -2237,10 +2262,13 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\bbase_url\x18\x04 \x01(\tR\abaseUrl\x12\x17\n" +
 	"\aapi_key\x18\x05 \x01(\tR\x06apiKey\x12/\n" +
 	"\x14input_price_per_mtok\x18\x06 \x01(\x01R\x11inputPricePerMtok\x121\n" +
-	"\x15output_price_per_mtok\x18\a \x01(\x01R\x12outputPricePerMtok\x12\x19\n" +
-	"\bowner_id\x18\b \x01(\x03R\aownerId\"\x9e\x02\n" +
-	"\x0eUpdateModelReq\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\x03R\amodelId\x12\x1d\n" +
+	"\x15output_price_per_mtok\x18\a \x01(\x01R\x12outputPricePerMtok\x12&\n" +
+	"\bowner_id\x18\b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"owner_type\x18\t \x01(\tR\townerTypeB\v\n" +
+	"\t_owner_id\"\xa6\x02\n" +
+	"\x0eUpdateModelReq\x12!\n" +
+	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12\x1d\n" +
 	"\n" +
 	"model_name\x18\x02 \x01(\tR\tmodelName\x12\x1a\n" +
 	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x1e\n" +
@@ -2250,29 +2278,33 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\bbase_url\x18\x05 \x01(\tR\abaseUrl\x12\x17\n" +
 	"\aapi_key\x18\x06 \x01(\tR\x06apiKey\x12/\n" +
 	"\x14input_price_per_mtok\x18\a \x01(\x01R\x11inputPricePerMtok\x121\n" +
-	"\x15output_price_per_mtok\x18\b \x01(\x01R\x12outputPricePerMtok\"+\n" +
-	"\x0eDeleteModelReq\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\x03R\amodelId\"+\n" +
+	"\x15output_price_per_mtok\x18\b \x01(\x01R\x12outputPricePerMtok\"3\n" +
+	"\x0eDeleteModelReq\x12!\n" +
+	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\"+\n" +
 	"\x0fDeleteModelResp\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\"\xc1\x02\n" +
-	"\tModelResp\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1d\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x82\x03\n" +
+	"\tModelResp\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x1d\n" +
 	"\n" +
 	"model_name\x18\x02 \x01(\tR\tmodelName\x12\x1a\n" +
 	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x1e\n" +
 	"\n" +
 	"capability\x18\x04 \x01(\tR\n" +
 	"capability\x12\x19\n" +
-	"\bbase_url\x18\x05 \x01(\tR\abaseUrl\x12\x19\n" +
-	"\bowner_id\x18\x06 \x01(\x03R\aownerId\x12\x16\n" +
+	"\bbase_url\x18\x05 \x01(\tR\abaseUrl\x12&\n" +
+	"\bowner_id\x18\x06 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\x16\n" +
 	"\x06status\x18\a \x01(\tR\x06status\x12/\n" +
 	"\x14input_price_per_mtok\x18\b \x01(\x01R\x11inputPricePerMtok\x121\n" +
 	"\x15output_price_per_mtok\x18\t \x01(\x01R\x12outputPricePerMtok\x12\x17\n" +
 	"\aapi_key\x18\n" +
-	" \x01(\tR\x06apiKey\"C\n" +
-	"\x0fBillingStatsReq\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\x03R\aownerId\x12\x15\n" +
-	"\x06bot_id\x18\x02 \x01(\x03R\x05botId\"\xc8\x01\n" +
+	" \x01(\tR\x06apiKey\x12\x1d\n" +
+	"\n" +
+	"owner_type\x18\v \x01(\tR\townerTypeB\v\n" +
+	"\t_owner_id\"c\n" +
+	"\x0fBillingStatsReq\x12!\n" +
+	"\bowner_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\aownerId\x12\"\n" +
+	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01B\t\n" +
+	"\a_bot_id\"\xc8\x01\n" +
 	"\x10BillingStatsResp\x12,\n" +
 	"\x12total_input_tokens\x18\x01 \x01(\x03R\x10totalInputTokens\x12.\n" +
 	"\x13total_output_tokens\x18\x02 \x01(\x03R\x11totalOutputTokens\x12\x1d\n" +
@@ -2288,14 +2320,14 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\finput_tokens\x18\x03 \x01(\x03R\vinputTokens\x12#\n" +
 	"\routput_tokens\x18\x04 \x01(\x03R\foutputTokens\x12\x1d\n" +
 	"\n" +
-	"total_cost\x18\x05 \x01(\x01R\ttotalCost\"c\n" +
-	"\x15ListBillingRecordsReq\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\x03R\aownerId\x12\x12\n" +
+	"total_cost\x18\x05 \x01(\x01R\ttotalCost\"k\n" +
+	"\x15ListBillingRecordsReq\x12!\n" +
+	"\bowner_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\aownerId\x12\x12\n" +
 	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"\xdb\x02\n" +
-	"\x11BillingRecordItem\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x15\n" +
-	"\x06bot_id\x18\x02 \x01(\x03R\x05botId\x12\x1d\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"\xfb\x02\n" +
+	"\x11BillingRecordItem\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\"\n" +
+	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"model_name\x18\x03 \x01(\tR\tmodelName\x12\x1e\n" +
 	"\n" +
@@ -2312,7 +2344,8 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\bprovider\x18\n" +
 	" \x01(\tR\bprovider\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\v \x01(\tR\tcreatedAt\"c\n" +
+	"created_at\x18\v \x01(\tR\tcreatedAtB\t\n" +
+	"\a_bot_id\"c\n" +
 	"\x16ListBillingRecordsResp\x123\n" +
 	"\x05items\x18\x01 \x03(\v2\x1d.llmgateway.BillingRecordItemR\x05items\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total2\xe5\x05\n" +
@@ -2429,6 +2462,15 @@ func file_llm_gateway_llm_gateway_proto_init() {
 	if File_llm_gateway_llm_gateway_proto != nil {
 		return
 	}
+	file_llm_gateway_llm_gateway_proto_msgTypes[0].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[2].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[8].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[10].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[12].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[14].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[18].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[19].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[23].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

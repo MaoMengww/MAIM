@@ -16,11 +16,11 @@ import (
 // Broadcast acceptance uses the same message.new, conversation and message
 // surfaces as chat. Broadcast creation only acknowledges the administrative ID.
 type broadcastContent struct {
-	Action    string  `json:"action"`
-	Detail    string  `json:"detail"`
-	ActorID   decimal `json:"actor_id"`
-	ActorType string  `json:"actor_type"`
-	Payload   string  `json:"payload"`
+	Action    string   `json:"action"`
+	Detail    string   `json:"detail"`
+	ActorID   entityID `json:"actor_id"`
+	ActorType string   `json:"actor_type"`
+	Payload   string   `json:"payload"`
 }
 
 type broadcastMessage struct {
@@ -36,14 +36,14 @@ type broadcastBody struct {
 
 type broadcastSyncPage struct {
 	Changes []struct {
-		Position decimal          `json:"position"`
-		ConvID   decimal          `json:"conversation_id"`
+		Position sequenceNumber   `json:"position"`
+		ConvID   entityID         `json:"conversation_id"`
 		Kind     string           `json:"kind"`
 		Message  broadcastMessage `json:"message"`
 	} `json:"changes"`
-	HasMore         bool    `json:"has_more"`
-	NextPosition    decimal `json:"next_position"`
-	RebuildRequired bool    `json:"rebuild_required"`
+	HasMore         bool           `json:"has_more"`
+	NextPosition    sequenceNumber `json:"next_position"`
+	RebuildRequired bool           `json:"rebuild_required"`
 	Conversations   []struct {
 		Conversation conversationView   `json:"conversation"`
 		Messages     []broadcastMessage `json:"messages"`
@@ -56,7 +56,7 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 		return err
 	}
 	users := make([]account, 4)
-	positions := make([]decimal, len(users))
+	positions := make([]sequenceNumber, len(users))
 	for i := range users {
 		users[i], err = d.register(fmt.Sprintf("broadcast_%d", i), suffix)
 		if err != nil {
@@ -72,14 +72,14 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 		positions[i] = initial.NextPosition
 	}
 	var group struct {
-		ID decimal `json:"conversation_id"`
+		ID entityID `json:"conversation_id"`
 	}
 	if err := d.request(http.MethodPost, "/convs", users[0].token, map[string]any{
 		"type": "group", "group_name": "broadcast_group_" + suffix, "member_ids": []string{users[1].id.String()},
 	}, &group); err != nil {
 		return err
 	}
-	if group.ID <= 0 {
+	if group.ID == "" {
 		return errors.New("broadcasts.group: 缺少有效群会话 ID")
 	}
 	if err := d.conversationMembers("broadcast.group", users[0], group.ID, users[0].id, users[1].id); err != nil {
@@ -106,7 +106,7 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 	for i, body := range []broadcastBody{first, second} {
 		sends.Go(func() {
 			<-start
-			failures[i] = d.createBroadcast(users[2], "user", users[0].id, body)
+			failures[i] = d.createBroadcast(users[2], "user", &users[0].id, body)
 		})
 	}
 	close(start)
@@ -116,7 +116,7 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 	}
 	expected := make([][]broadcastBody, len(users))
 	expected[0] = []broadcastBody{first, second}
-	convIDs := make([]decimal, len(users))
+	convIDs := make([]entityID, len(users))
 	messages := make([][]broadcastMessage, len(users))
 	if err := d.broadcastState(users, users[2], positions, expected, convIDs, messages); err != nil {
 		return fmt.Errorf("broadcasts.user: %w", err)
@@ -126,11 +126,11 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 	}
 	if err := d.conversationForbidden("broadcast.system.self.remove", http.MethodPost,
 		"/convs/"+convIDs[0].String()+"/members/kick", users[0],
-		map[string]any{"user_ids": []int64{int64(users[0].id)}}); err != nil {
+		map[string]any{"user_ids": []entityID{users[0].id}}); err != nil {
 		return err
 	}
 	groupBody := newBroadcastBody(suffix + "_group")
-	if err := d.createBroadcast(users[2], "group", group.ID, groupBody); err != nil {
+	if err := d.createBroadcast(users[2], "group", &group.ID, groupBody); err != nil {
 		return err
 	}
 	for _, i := range []int{0, 1} {
@@ -148,7 +148,7 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 	// Their ordinary list, sync and history projections above must contain no
 	// targeted broadcast; their WS readers also reject unexpected broadcast IDs.
 	allBody := newBroadcastBody(suffix + "_all")
-	if err := d.createBroadcast(users[2], "all", 0, allBody); err != nil {
+	if err := d.createBroadcast(users[2], "all", nil, allBody); err != nil {
 		return err
 	}
 	for i := range users {
@@ -226,18 +226,18 @@ func newBroadcastBody(text string) broadcastBody {
 	return broadcastBody{text: text + "_通知", payload: "  " + string(raw) + "\n"}
 }
 
-func (d *driver) createBroadcast(sender account, scope string, target decimal, body broadcastBody) error {
+func (d *driver) createBroadcast(sender account, scope string, target *entityID, body broadcastBody) error {
 	request := map[string]any{"sender_id": sender.id.String(), "scope": scope, "content": body.payload}
-	if target > 0 {
-		request["scope_target_id"] = target.String()
+	if target != nil {
+		request["scope_target_id"] = target
 	}
 	var result struct {
-		ID decimal `json:"broadcast_id"`
+		ID entityID `json:"broadcast_id"`
 	}
 	if err := d.request(http.MethodPost, "/broadcasts", sender.token, request, &result); err != nil {
 		return fmt.Errorf("broadcasts.create.%s: %w", scope, err)
 	}
-	if result.ID <= 0 {
+	if result.ID == "" {
 		return errors.New("broadcasts.create: 缺少有效 broadcast_id")
 	}
 	return nil
@@ -262,7 +262,7 @@ func (d *driver) broadcastPoll(step string, observe func(*driver) (bool, error))
 	}
 }
 
-func (d *driver) broadcastState(users []account, sender account, positions []decimal, expected [][]broadcastBody, convIDs []decimal, messages [][]broadcastMessage) error {
+func (d *driver) broadcastState(users []account, sender account, positions []sequenceNumber, expected [][]broadcastBody, convIDs []entityID, messages [][]broadcastMessage) error {
 	// First wait for recipients, then inspect outsiders. This avoids declaring
 	// isolation from an empty projection before legitimate fanout has progressed.
 	for _, visible := range []bool{true, false} {
@@ -287,13 +287,13 @@ func (d *driver) broadcastState(users []account, sender account, positions []dec
 					return false, errors.New("broadcasts.scope: 系统会话重复或范围外用户拥有系统会话")
 				}
 				if !visible {
-					return bounded.broadcastIncremental(caller, sender, positions[i], 0, nil)
+					return bounded.broadcastIncremental(caller, sender, positions[i], "", nil)
 				}
 				if len(system) == 0 {
 					return false, nil
 				}
 				row := system[0]
-				if row.ID <= 0 || row.OwnerID != caller.id || row.MemberCount != 1 || (convIDs[i] != 0 && row.ID != convIDs[i]) {
+				if row.ID == "" || !hasEntityID(row.OwnerID, caller.id) || row.MemberCount != 1 || (convIDs[i] != "" && row.ID != convIDs[i]) {
 					return false, errors.New("broadcasts.conversation: 系统会话 ID/归属/唯一成员/复用不符合契约")
 				}
 				for j, id := range convIDs {
@@ -307,14 +307,14 @@ func (d *driver) broadcastState(users []account, sender account, positions []dec
 				}
 				var members struct {
 					Members []struct {
-						UserID decimal `json:"user_id"`
-						Role   int32   `json:"role"`
+						UserID *entityID `json:"user_id"`
+						Role   int32     `json:"role"`
 					} `json:"members"`
 				}
 				if err := bounded.request(http.MethodGet, "/convs/"+row.ID.String()+"/members", caller.token, nil, &members); err != nil {
 					return false, err
 				}
-				if len(members.Members) != 1 || members.Members[0].UserID != caller.id || members.Members[0].Role != 3 {
+				if len(members.Members) != 1 || !hasEntityID(members.Members[0].UserID, caller.id) || members.Members[0].Role != 3 {
 					return false, errors.New("broadcasts.members: 收件用户必须是唯一 MEMBER，不能拥有群管理角色")
 				}
 				var history struct {
@@ -334,8 +334,8 @@ func (d *driver) broadcastState(users []account, sender account, positions []dec
 					return cmp.Compare(a.Seq, b.Seq)
 				})
 				seen := make(map[string]bool, len(expected[i]))
-				ids := make(map[decimal]bool, len(expected[i]))
-				var previous decimal
+				ids := make(map[entityID]bool, len(expected[i]))
+				var previous sequenceNumber
 				for _, msg := range history.Messages {
 					index := slices.IndexFunc(expected[i], func(body broadcastBody) bool { return msg.System.Detail == body.text })
 					if index < 0 || seen[msg.System.Detail] || ids[msg.MessageID] || msg.ConvID != row.ID || msg.Seq <= previous {
@@ -344,13 +344,13 @@ func (d *driver) broadcastState(users []account, sender account, positions []dec
 					if err := checkBroadcastContent(msg.System, expected[i][index], sender); err != nil {
 						return false, err
 					}
-					if msg.MessageID <= 0 || msg.Type != 7 || msg.SenderID != sender.id {
-						return false, errors.New("broadcasts.history: 缺少正消息 ID 或系统消息类型/发送者错误")
+					if msg.MessageID == "" || msg.Type != 7 || !hasEntityID(msg.SenderID, sender.id) {
+						return false, errors.New("broadcasts.history: 缺少有效消息 ID 或系统消息类型/发送者错误")
 					}
 					seen[msg.System.Detail], ids[msg.MessageID], previous = true, true, msg.Seq
 				}
 				latest := history.Messages[len(history.Messages)-1]
-				if row.MaxSeq != latest.Seq || row.LastMessageID != latest.MessageID {
+				if row.MaxSeq != latest.Seq || !hasEntityID(row.LastMessageID, latest.MessageID) {
 					return false, nil
 				}
 				for _, msg := range messages[i] {
@@ -383,14 +383,14 @@ func checkBroadcastContent(actual broadcastContent, expected broadcastBody, send
 }
 
 func checkBroadcastMessage(actual, expected broadcastMessage, sender account) error {
-	if actual.MessageID != expected.MessageID || actual.ConvID != expected.ConvID || actual.Seq != expected.Seq || actual.SenderID != sender.id || actual.Type != 7 {
+	if actual.MessageID != expected.MessageID || actual.ConvID != expected.ConvID || actual.Seq != expected.Seq || !hasEntityID(actual.SenderID, sender.id) || actual.Type != 7 {
 		return errors.New("broadcasts.message: 普通消息读取的 ID/会话/seq/类型/发送者与历史不一致")
 	}
 	return checkBroadcastContent(actual.System, broadcastBody{text: expected.System.Detail, payload: expected.System.Payload}, sender)
 }
 
-func (d *driver) broadcastIncremental(caller, sender account, position, convID decimal, expected []broadcastMessage) (bool, error) {
-	matched := make(map[decimal]bool, len(expected))
+func (d *driver) broadcastIncremental(caller, sender account, position sequenceNumber, convID entityID, expected []broadcastMessage) (bool, error) {
+	matched := make(map[entityID]bool, len(expected))
 	for {
 		var page broadcastSyncPage
 		if err := d.request(http.MethodGet, "/messages/sync?position="+position.String()+"&limit=50", caller.token, nil, &page); err != nil {
@@ -402,7 +402,7 @@ func (d *driver) broadcastIncremental(caller, sender account, position, convID d
 		previous := position
 		for _, change := range page.Changes {
 			msg := change.Message
-			if change.Position <= previous || change.ConvID <= 0 {
+			if change.Position <= previous || change.ConvID == "" {
 				return false, fmt.Errorf("broadcasts.sync: 收件箱位点或会话无效: position=%s previous=%s conv_id=%s", change.Position, previous, change.ConvID)
 			}
 			previous = change.Position
@@ -416,7 +416,7 @@ func (d *driver) broadcastIncremental(caller, sender account, position, convID d
 			default:
 				return false, fmt.Errorf("broadcasts.sync: 未知变化kind=%s", change.Kind)
 			}
-			if msg.MessageID <= 0 || msg.Seq <= 0 || msg.ConvID != change.ConvID {
+			if msg.MessageID == "" || msg.Seq <= 0 || msg.ConvID != change.ConvID {
 				return false, fmt.Errorf("broadcasts.sync: 广播消息缺少正消息/seq或脱离会话: message_id=%s message_conv_id=%s seq=%s conv_id=%s",
 					msg.MessageID, msg.ConvID, msg.Seq, change.ConvID)
 			}
@@ -446,17 +446,17 @@ func (d *driver) broadcastReceive(conn *websocket.Conn, sender account, expected
 	if err := conn.SetReadDeadline(time.Now().Add(d.timeout)); err != nil {
 		return err
 	}
-	seen := make(map[decimal]bool, len(expected))
+	seen := make(map[entityID]bool, len(expected))
 	for len(seen) < len(expected) {
 		var evt struct {
-			Type    string  `json:"type"`
-			ConvID  decimal `json:"conv_id"`
+			Type    string    `json:"type"`
+			ConvID  *entityID `json:"conv_id"`
 			Message struct {
-				MessageID  decimal          `json:"message_id"`
-				ConvID     decimal          `json:"conv_id"`
-				SenderID   decimal          `json:"sender_id"`
+				MessageID  entityID         `json:"message_id"`
+				ConvID     entityID         `json:"conv_id"`
+				SenderID   *entityID        `json:"sender_id"`
 				SenderType string           `json:"sender_type"`
-				Seq        decimal          `json:"seq"`
+				Seq        sequenceNumber   `json:"seq"`
 				MsgType    int32            `json:"msg_type"`
 				Content    broadcastContent `json:"content"`
 			} `json:"message"`
@@ -476,7 +476,7 @@ func (d *driver) broadcastReceive(conn *websocket.Conn, sender account, expected
 			return errors.New("broadcasts.message.new: 收到范围外/非预期/重复普通消息")
 		}
 		confirmed := expected[index]
-		if evt.ConvID <= 0 || evt.ConvID != confirmed.ConvID || msg.ConvID != confirmed.ConvID || msg.MessageID <= 0 || msg.Seq <= 0 || msg.Seq != confirmed.Seq || msg.SenderID != sender.id || msg.SenderType != "system" || msg.MsgType != 7 {
+		if !hasEntityID(evt.ConvID, confirmed.ConvID) || msg.ConvID != confirmed.ConvID || msg.MessageID == "" || msg.Seq <= 0 || msg.Seq != confirmed.Seq || !hasEntityID(msg.SenderID, sender.id) || msg.SenderType != "system" || msg.MsgType != 7 {
 			return errors.New("broadcasts.message.new: 标准信封 conv/message/seq/type/发送者与 REST 历史不一致")
 		}
 		if err := checkBroadcastContent(msg.Content, broadcastBody{text: confirmed.System.Detail, payload: confirmed.System.Payload}, sender); err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -82,7 +81,7 @@ func (r *Router) Subscribe(ctx context.Context) error {
 					continue
 				}
 				if err := r.receive(ctx, p); err != nil {
-					r.Logger.Errorf("node delivery: kind=%s id=%d device=%s err=%v", p.Route.Kind, p.Route.ID, p.Route.DeviceID, err)
+					r.Logger.Errorf("node delivery: kind=%s id=%s device=%s err=%v", p.Route.Kind, p.Route.ID, p.Route.DeviceID, err)
 				}
 			}
 		}
@@ -108,17 +107,17 @@ func (r *Router) Replace(ctx context.Context, old *registry.Route) {
 		r.Logger.Errorf("replace connection: %v", err)
 	}
 }
-func (r *Router) OfflinePush(ctx context.Context, id int64, n *delivery.Notification) {
+func (r *Router) OfflinePush(ctx context.Context, id string, n *delivery.Notification) {
 	if n == nil {
 		return
 	}
-	r.Logger.WithContext(ctx).Infof("realtime.offline_fallback: kind=user id=%d node=%s", id, r.InstanceID)
+	r.Logger.WithContext(ctx).Infof("realtime.offline_fallback: kind=user id=%s node=%s", id, r.InstanceID)
 	if r.Offline != nil {
-		r.Offline.PushToOfflineUsers(ctx, []int64{id}, n.Title, n.Body, n.Data)
+		r.Offline.PushToOfflineUsers(ctx, []string{id}, n.Title, n.Body, n.Data)
 	}
 }
 func (r *Router) fail(ctx context.Context, p packet, cause error) error {
-	r.Logger.WithContext(ctx).Errorf("realtime.delivery_failed: kind=%s id=%d device=%s node=%s generation=%s reason=%v", p.Route.Kind, p.Route.ID, p.Route.DeviceID, p.Route.InstanceID, p.Route.Generation, cause)
+	r.Logger.WithContext(ctx).Errorf("realtime.delivery_failed: kind=%s id=%s device=%s node=%s generation=%s reason=%v", p.Route.Kind, p.Route.ID, p.Route.DeviceID, p.Route.InstanceID, p.Route.Generation, cause)
 	_, err := r.Registry.Remove(ctx, p.Route)
 	if err != nil {
 		r.Logger.Errorf("remove failed route: %v", err)
@@ -158,8 +157,11 @@ func (r *Router) receive(ctx context.Context, p packet) error {
 
 // Deliver has one path for local and remote devices: registry -> node pub/sub.
 func (r *Router) Deliver(ctx context.Context, intent delivery.Intent) error {
+	if err := intent.Validate(); err != nil {
+		return err
+	}
 	var failures []error
-	send := func(kind registry.Kind, id int64) {
+	send := func(kind registry.Kind, id string) {
 		routes, err := r.Registry.List(ctx, kind, id)
 		if err != nil {
 			failures = append(failures, err)
@@ -171,7 +173,7 @@ func (r *Router) Deliver(ctx context.Context, intent delivery.Intent) error {
 		if kind == registry.User && r.Cache != nil {
 			if streamID, done, ok := streamcache.ShouldCache(intent.Payload); ok {
 				if err := r.Cache.Store(ctx, id, streamID, intent.Payload, done); err != nil {
-					r.Logger.Errorf("stream cache: user=%d err=%v", id, err)
+					r.Logger.Errorf("stream cache: user=%s err=%v", id, err)
 				}
 			}
 		}
@@ -182,7 +184,7 @@ func (r *Router) Deliver(ctx context.Context, intent delivery.Intent) error {
 			return
 		}
 		for _, route := range routes {
-			if kind == registry.User && id == intent.ExcludeUserID && route.DeviceID == intent.ExcludeDeviceID {
+			if kind == registry.User && intent.ExcludeUserID != nil && id == *intent.ExcludeUserID && route.DeviceID == intent.ExcludeDeviceID {
 				continue
 			}
 			p := packet{Route: route, Intent: intent}
@@ -200,14 +202,14 @@ func (r *Router) Deliver(ctx context.Context, intent delivery.Intent) error {
 			}
 		}
 	}
-	users := make(map[int64]struct{}, len(intent.UserIDs))
+	users := make(map[string]struct{}, len(intent.UserIDs))
 	for _, id := range intent.UserIDs {
 		if _, ok := users[id]; !ok {
 			users[id] = struct{}{}
 			send(registry.User, id)
 		}
 	}
-	bots := make(map[int64]struct{}, len(intent.BotIDs))
+	bots := make(map[string]struct{}, len(intent.BotIDs))
 	for _, id := range intent.BotIDs {
 		if _, ok := bots[id]; !ok {
 			bots[id] = struct{}{}
@@ -216,7 +218,7 @@ func (r *Router) Deliver(ctx context.Context, intent delivery.Intent) error {
 	}
 	return errors.Join(failures...)
 }
-func (r *Router) Presence(ctx context.Context, id int64) error {
+func (r *Router) Presence(ctx context.Context, id string) error {
 	ids, err := r.Registry.Subscribers(ctx, id)
 	if err != nil {
 		return err
@@ -225,7 +227,7 @@ func (r *Router) Presence(ctx context.Context, id int64) error {
 	if r.Registry.IsOnline(ctx, id) {
 		status = "online"
 	}
-	payload, err := json.Marshal(map[string]any{"type": "presence", "user_id": strconv.FormatInt(id, 10), "status": status})
+	payload, err := json.Marshal(map[string]any{"type": "presence", "user_id": id, "status": status})
 	if err != nil {
 		return err
 	}
@@ -264,7 +266,7 @@ func (r *Router) Drain(ctx context.Context, duration time.Duration) {
 		case <-timer.C:
 		}
 		if err := s.Restart(r.WriteTimeout); err != nil {
-			r.Logger.Errorf("realtime.drain_close_failed: kind=%s id=%d device=%s reason=%v", s.Route.Kind, s.Route.ID, s.Route.DeviceID, err)
+			r.Logger.Errorf("realtime.drain_close_failed: kind=%s id=%s device=%s reason=%v", s.Route.Kind, s.Route.ID, s.Route.DeviceID, err)
 		}
 	}
 	r.Logger.Infof("connection drain finished: count=%d", len(sessions))

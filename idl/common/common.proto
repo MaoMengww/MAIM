@@ -2,7 +2,25 @@ syntax = "proto3";
 
 package common;
 
+import "google/protobuf/descriptor.proto";
+
 option go_package = "github.com/maomeng/aim/pkg/pb/common";
+
+// 实体由所属 domain 生成 UUIDv7；边界接受标准小写、带连字符且非全零的 UUID。
+// 可选引用通过 presence 表达缺失，不能使用空字符串、"0" 或全零 UUID。
+// 更新引用：未提供且 clear_X=false 表示保持；clear_X=true 表示解除；
+// 同时提供引用和 clear_X=true 必须拒绝，不能把空字符串解释为清除。
+// 所有权 owner_type 为 platform | user：platform 不提供 owner_id，user 必须提供有效 owner_id。
+// 所有权合同不授予调用者创建或修改平台对象的权限，仍执行既有鉴权。
+extend google.protobuf.FieldOptions {
+  // 业务序号保留 int64，范围 0..9007199254740991，HTTP/WS JSON 使用 number。
+  // 零表示初始位置；真实追加位置从 1 开始，禁止越界增长和重置复用。
+  bool safe_sequence = 510000001;
+  // string/repeated string 为实体 UUID；map 字段标注时，其字符串 key 为实体 UUID。
+  bool entity_id = 510000002;
+  // 客户端每次新发送使用规范 UUIDv4；同次重试复用，不代表最终消息身份。
+  bool submission_key = 510000003;
+}
 
 enum Provider {
   PROVIDER_UNSPECIFIED = 0;

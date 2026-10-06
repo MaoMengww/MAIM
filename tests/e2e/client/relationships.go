@@ -7,26 +7,26 @@ import (
 )
 
 type relationshipRequest struct {
-	ID           decimal `json:"request_id"`
-	From         decimal `json:"from_user_id"`
-	To           decimal `json:"to_user_id"`
-	Message      string  `json:"message"`
-	Status       string  `json:"status"`
-	FromUsername string  `json:"from_username"`
+	ID           entityID `json:"request_id"`
+	From         entityID `json:"from_user_id"`
+	To           entityID `json:"to_user_id"`
+	Message      string   `json:"message"`
+	Status       string   `json:"status"`
+	FromUsername string   `json:"from_username"`
 }
 
 type relationshipFriend struct {
-	ID        decimal `json:"user_id"`
-	Username  string  `json:"username"`
-	Remark    string  `json:"remark"`
-	GroupID   decimal `json:"group_id"`
-	GroupName string  `json:"group_name"`
+	ID        entityID  `json:"user_id"`
+	Username  string    `json:"username"`
+	Remark    string    `json:"remark"`
+	GroupID   *entityID `json:"group_id"`
+	GroupName string    `json:"group_name"`
 }
 
 type relationshipGroup struct {
-	ID          decimal `json:"id"`
-	Name        string  `json:"name"`
-	FriendCount int     `json:"friend_count"`
+	ID          entityID `json:"id"`
+	Name        string   `json:"name"`
+	FriendCount int      `json:"friend_count"`
 }
 
 // relationships observes only the public gateway HTTP seam. Fresh accounts make
@@ -92,13 +92,13 @@ func (d *driver) relationships() error {
 	}
 
 	var created struct {
-		ID decimal `json:"group_id"`
+		ID entityID `json:"group_id"`
 	}
 	group := relationshipGroup{Name: "分组_" + suffix}
 	if err := d.relationshipCall("create-group", http.MethodPost, "/friends/groups", a, map[string]string{"name": group.Name}, &created); err != nil {
 		return err
 	}
-	if created.ID <= 0 {
+	if created.ID == "" {
 		return errors.New("relationships.create-group: 没有有效 group_id")
 	}
 	group.ID = created.ID
@@ -122,10 +122,10 @@ func (d *driver) relationships() error {
 	if err := d.relationshipGroups("group-renamed", a, group.ID, &group); err != nil {
 		return err
 	}
-	if err := d.relationshipCall("set-group", http.MethodPut, "/friends/"+b.id.String()+"/group", a, map[string]decimal{"group_id": group.ID}, nil); err != nil {
+	if err := d.relationshipCall("set-group", http.MethodPut, "/friends/"+b.id.String()+"/group", a, map[string]entityID{"group_id": group.ID}, nil); err != nil {
 		return err
 	}
-	friendA.GroupID, friendA.GroupName = group.ID, group.Name
+	friendA.GroupID, friendA.GroupName = &group.ID, group.Name
 	group.FriendCount = 1
 	if err := d.relationshipFriends("group-assigned.A", a, b, &friendA); err != nil {
 		return err
@@ -142,7 +142,7 @@ func (d *driver) relationships() error {
 	if err := d.relationshipGroups("group-deleted", a, group.ID, nil); err != nil {
 		return err
 	}
-	friendA.GroupID, friendA.GroupName = 0, ""
+	friendA.GroupID, friendA.GroupName = nil, ""
 	if err := d.relationshipFriends("deleted-group-unassigned", a, b, &friendA); err != nil {
 		return err
 	}
@@ -259,12 +259,12 @@ func (d *driver) relationshipReject(step, method, path string, caller account, i
 
 func (d *driver) relationshipSend(step string, from, to account, message string) (relationshipRequest, error) {
 	var sent struct {
-		ID decimal `json:"request_id"`
+		ID entityID `json:"request_id"`
 	}
 	if err := d.relationshipCall(step, http.MethodPost, "/friends/requests", from, map[string]any{"to_user_id": to.id, "message": message}, &sent); err != nil {
 		return relationshipRequest{}, err
 	}
-	if sent.ID <= 0 {
+	if sent.ID == "" {
 		return relationshipRequest{}, fmt.Errorf("relationships.%s: 没有有效 request_id", step)
 	}
 	expected := relationshipRequest{ID: sent.ID, From: from.id, To: to.id, Message: message}
@@ -335,13 +335,13 @@ func (d *driver) relationshipFriends(step string, caller, peer account, expected
 		}
 		return nil
 	}
-	if len(result.Friends) != 1 || result.Friends[0] != *expected {
+	if len(result.Friends) != 1 || !sameRelationshipFriend(result.Friends[0], *expected) {
 		return fmt.Errorf("relationships.%s: 好友列表应只有 user_id=%s 且资料、备注、分组一致", step, peer.id)
 	}
 	return nil
 }
 
-func (d *driver) relationshipGroups(step string, caller account, id decimal, expected *relationshipGroup) error {
+func (d *driver) relationshipGroups(step string, caller account, id entityID, expected *relationshipGroup) error {
 	var result struct {
 		Groups []relationshipGroup `json:"groups"`
 	}
@@ -366,8 +366,8 @@ func (d *driver) relationshipGroups(step string, caller account, id decimal, exp
 func (d *driver) relationshipBlacklist(step string, caller, peer account, present bool) error {
 	var result struct {
 		Users []struct {
-			ID       decimal `json:"user_id"`
-			Username string  `json:"username"`
+			ID       entityID `json:"user_id"`
+			Username string   `json:"username"`
 		} `json:"users"`
 	}
 	if err := d.relationshipCall(step, http.MethodGet, "/friends/blacklist", caller, nil, &result); err != nil {
@@ -383,4 +383,12 @@ func (d *driver) relationshipBlacklist(step string, caller, peer account, presen
 		return fmt.Errorf("relationships.%s: 黑名单应且仅应包含目标 user_id=%s 及其正确资料", step, peer.id)
 	}
 	return nil
+}
+
+func sameRelationshipFriend(actual, expected relationshipFriend) bool {
+	groupMatches := actual.GroupID == nil && expected.GroupID == nil
+	if expected.GroupID != nil {
+		groupMatches = hasEntityID(actual.GroupID, *expected.GroupID)
+	}
+	return actual.ID == expected.ID && actual.Username == expected.Username && actual.Remark == expected.Remark && groupMatches && actual.GroupName == expected.GroupName
 }

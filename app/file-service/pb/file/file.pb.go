@@ -131,10 +131,10 @@ func (FileAccess) EnumDescriptor() ([]byte, []int) {
 
 type FileInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"` // unique file ID (snowflake)
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                    // original file name
-	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`                      // object storage key/path
-	Size          int64                  `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`                   // file size in bytes
+	FileId        string                 `protobuf:"bytes,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"` // 文件实体 UUID，由 files domain 分配
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                   // original file name
+	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`                     // object storage key/path
+	Size          int64                  `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`                  // file size in bytes
 	MimeType      string                 `protobuf:"bytes,5,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
 	Ext           string                 `protobuf:"bytes,6,opt,name=ext,proto3" json:"ext,omitempty"`            // file extension
 	Width         int32                  `protobuf:"varint,7,opt,name=width,proto3" json:"width,omitempty"`       // image/video width (0 if N/A)
@@ -143,8 +143,8 @@ type FileInfo struct {
 	Md5           string                 `protobuf:"bytes,10,opt,name=md5,proto3" json:"md5,omitempty"`           // file hash for integrity check
 	Purpose       FilePurpose            `protobuf:"varint,11,opt,name=purpose,proto3,enum=file.FilePurpose" json:"purpose,omitempty"`
 	Access        FileAccess             `protobuf:"varint,12,opt,name=access,proto3,enum=file.FileAccess" json:"access,omitempty"`
-	UploaderId    int64                  `protobuf:"varint,13,opt,name=uploader_id,json=uploaderId,proto3" json:"uploader_id,omitempty"` // user who uploaded
-	Bucket        string                 `protobuf:"bytes,14,opt,name=bucket,proto3" json:"bucket,omitempty"`                            // object storage bucket name
+	UploaderId    string                 `protobuf:"bytes,13,opt,name=uploader_id,json=uploaderId,proto3" json:"uploader_id,omitempty"` // user who uploaded
+	Bucket        string                 `protobuf:"bytes,14,opt,name=bucket,proto3" json:"bucket,omitempty"`                           // object storage bucket name
 	CreatedAt     int64                  `protobuf:"varint,20,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -180,11 +180,11 @@ func (*FileInfo) Descriptor() ([]byte, []int) {
 	return file_file_service_file_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *FileInfo) GetFileId() int64 {
+func (x *FileInfo) GetFileId() string {
 	if x != nil {
 		return x.FileId
 	}
-	return 0
+	return ""
 }
 
 func (x *FileInfo) GetName() string {
@@ -264,11 +264,11 @@ func (x *FileInfo) GetAccess() FileAccess {
 	return FileAccess_FILE_ACCESS_UNSPECIFIED
 }
 
-func (x *FileInfo) GetUploaderId() int64 {
+func (x *FileInfo) GetUploaderId() string {
 	if x != nil {
 		return x.UploaderId
 	}
-	return 0
+	return ""
 }
 
 func (x *FileInfo) GetBucket() string {
@@ -290,7 +290,7 @@ type GetUploadURLReq struct {
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // original file name
 	MimeType      string                 `protobuf:"bytes,2,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
 	Size          int64                  `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"` // expected file size
-	UploaderId    int64                  `protobuf:"varint,4,opt,name=uploader_id,json=uploaderId,proto3" json:"uploader_id,omitempty"`
+	UploaderId    string                 `protobuf:"bytes,4,opt,name=uploader_id,json=uploaderId,proto3" json:"uploader_id,omitempty"`
 	Purpose       FilePurpose            `protobuf:"varint,5,opt,name=purpose,proto3,enum=file.FilePurpose" json:"purpose,omitempty"`
 	Access        FileAccess             `protobuf:"varint,6,opt,name=access,proto3,enum=file.FileAccess" json:"access,omitempty"`
 	ExpiresIn     int32                  `protobuf:"varint,7,opt,name=expires_in,json=expiresIn,proto3" json:"expires_in,omitempty"` // URL expiry in seconds (default 3600)
@@ -349,11 +349,11 @@ func (x *GetUploadURLReq) GetSize() int64 {
 	return 0
 }
 
-func (x *GetUploadURLReq) GetUploaderId() int64 {
+func (x *GetUploadURLReq) GetUploaderId() string {
 	if x != nil {
 		return x.UploaderId
 	}
-	return 0
+	return ""
 }
 
 func (x *GetUploadURLReq) GetPurpose() FilePurpose {
@@ -379,7 +379,7 @@ func (x *GetUploadURLReq) GetExpiresIn() int32 {
 
 type GetUploadURLResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`          // assigned file ID
+	FileId        string                 `protobuf:"bytes,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`           // assigned file ID
 	UploadUrl     string                 `protobuf:"bytes,2,opt,name=upload_url,json=uploadUrl,proto3" json:"upload_url,omitempty"`  // presigned PUT URL
 	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`                               // object storage key
 	ExpiresAt     int64                  `protobuf:"varint,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"` // upload URL expiry timestamp
@@ -417,11 +417,11 @@ func (*GetUploadURLResp) Descriptor() ([]byte, []int) {
 	return file_file_service_file_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *GetUploadURLResp) GetFileId() int64 {
+func (x *GetUploadURLResp) GetFileId() string {
 	if x != nil {
 		return x.FileId
 	}
-	return 0
+	return ""
 }
 
 func (x *GetUploadURLResp) GetUploadUrl() string {
@@ -447,8 +447,8 @@ func (x *GetUploadURLResp) GetExpiresAt() int64 {
 
 type ConfirmUploadReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
-	UploaderId    int64                  `protobuf:"varint,2,opt,name=uploader_id,json=uploaderId,proto3" json:"uploader_id,omitempty"`
+	FileId        string                 `protobuf:"bytes,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
+	UploaderId    string                 `protobuf:"bytes,2,opt,name=uploader_id,json=uploaderId,proto3" json:"uploader_id,omitempty"`
 	Md5           *string                `protobuf:"bytes,3,opt,name=md5,proto3,oneof" json:"md5,omitempty"` // client-computed MD5 for verification
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -484,18 +484,18 @@ func (*ConfirmUploadReq) Descriptor() ([]byte, []int) {
 	return file_file_service_file_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *ConfirmUploadReq) GetFileId() int64 {
+func (x *ConfirmUploadReq) GetFileId() string {
 	if x != nil {
 		return x.FileId
 	}
-	return 0
+	return ""
 }
 
-func (x *ConfirmUploadReq) GetUploaderId() int64 {
+func (x *ConfirmUploadReq) GetUploaderId() string {
 	if x != nil {
 		return x.UploaderId
 	}
-	return 0
+	return ""
 }
 
 func (x *ConfirmUploadReq) GetMd5() string {
@@ -551,8 +551,8 @@ func (x *ConfirmUploadResp) GetFile() *FileInfo {
 
 type GetDownloadURLReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`          // for access check
+	FileId        string                 `protobuf:"bytes,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`           // for access check
 	ExpiresIn     int32                  `protobuf:"varint,3,opt,name=expires_in,json=expiresIn,proto3" json:"expires_in,omitempty"` // URL expiry in seconds (default 3600)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -588,18 +588,18 @@ func (*GetDownloadURLReq) Descriptor() ([]byte, []int) {
 	return file_file_service_file_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *GetDownloadURLReq) GetFileId() int64 {
+func (x *GetDownloadURLReq) GetFileId() string {
 	if x != nil {
 		return x.FileId
 	}
-	return 0
+	return ""
 }
 
-func (x *GetDownloadURLReq) GetUserId() int64 {
+func (x *GetDownloadURLReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *GetDownloadURLReq) GetExpiresIn() int32 {
@@ -671,8 +671,8 @@ func (x *GetDownloadURLResp) GetFile() *FileInfo {
 
 type GetFileInfoReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FileId        string                 `protobuf:"bytes,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -707,18 +707,18 @@ func (*GetFileInfoReq) Descriptor() ([]byte, []int) {
 	return file_file_service_file_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *GetFileInfoReq) GetFileId() int64 {
+func (x *GetFileInfoReq) GetFileId() string {
 	if x != nil {
 		return x.FileId
 	}
-	return 0
+	return ""
 }
 
-func (x *GetFileInfoReq) GetUserId() int64 {
+func (x *GetFileInfoReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type GetFileInfoResp struct {
@@ -767,8 +767,8 @@ func (x *GetFileInfoResp) GetFile() *FileInfo {
 
 type BatchGetFileInfoReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileIds       []int64                `protobuf:"varint,1,rep,packed,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FileIds       []string               `protobuf:"bytes,1,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -803,18 +803,18 @@ func (*BatchGetFileInfoReq) Descriptor() ([]byte, []int) {
 	return file_file_service_file_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *BatchGetFileInfoReq) GetFileIds() []int64 {
+func (x *BatchGetFileInfoReq) GetFileIds() []string {
 	if x != nil {
 		return x.FileIds
 	}
 	return nil
 }
 
-func (x *BatchGetFileInfoReq) GetUserId() int64 {
+func (x *BatchGetFileInfoReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type BatchGetFileInfoResp struct {
@@ -863,8 +863,8 @@ func (x *BatchGetFileInfoResp) GetFiles() []*FileInfo {
 
 type DeleteFileReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FileId        string                 `protobuf:"bytes,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -899,24 +899,24 @@ func (*DeleteFileReq) Descriptor() ([]byte, []int) {
 	return file_file_service_file_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *DeleteFileReq) GetFileId() int64 {
+func (x *DeleteFileReq) GetFileId() string {
 	if x != nil {
 		return x.FileId
 	}
-	return 0
+	return ""
 }
 
-func (x *DeleteFileReq) GetUserId() int64 {
+func (x *DeleteFileReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type BatchDeleteFilesReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileIds       []int64                `protobuf:"varint,1,rep,packed,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FileIds       []string               `protobuf:"bytes,1,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -951,24 +951,24 @@ func (*BatchDeleteFilesReq) Descriptor() ([]byte, []int) {
 	return file_file_service_file_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *BatchDeleteFilesReq) GetFileIds() []int64 {
+func (x *BatchDeleteFilesReq) GetFileIds() []string {
 	if x != nil {
 		return x.FileIds
 	}
 	return nil
 }
 
-func (x *BatchDeleteFilesReq) GetUserId() int64 {
+func (x *BatchDeleteFilesReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type UploadAvatarReq struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Data     []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"` // raw image bytes (server-side upload)
-	UserId   int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId   string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	MimeType string                 `protobuf:"bytes,3,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"` // image/jpeg, image/png, image/webp
 	// optional crop params
 	CropX         *int32 `protobuf:"varint,10,opt,name=crop_x,json=cropX,proto3,oneof" json:"crop_x,omitempty"`
@@ -1017,11 +1017,11 @@ func (x *UploadAvatarReq) GetData() []byte {
 	return nil
 }
 
-func (x *UploadAvatarReq) GetUserId() int64 {
+func (x *UploadAvatarReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *UploadAvatarReq) GetMimeType() string {
@@ -1068,7 +1068,7 @@ func (x *UploadAvatarReq) GetTargetSize() int32 {
 
 type UploadAvatarResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileId        int64                  `protobuf:"varint,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
+	FileId        string                 `protobuf:"bytes,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
 	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`                                       // permanent avatar URL
 	ThumbnailUrl  string                 `protobuf:"bytes,3,opt,name=thumbnail_url,json=thumbnailUrl,proto3" json:"thumbnail_url,omitempty"` // small thumbnail URL
 	Width         int32                  `protobuf:"varint,4,opt,name=width,proto3" json:"width,omitempty"`
@@ -1107,11 +1107,11 @@ func (*UploadAvatarResp) Descriptor() ([]byte, []int) {
 	return file_file_service_file_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *UploadAvatarResp) GetFileId() int64 {
+func (x *UploadAvatarResp) GetFileId() string {
 	if x != nil {
 		return x.FileId
 	}
-	return 0
+	return ""
 }
 
 func (x *UploadAvatarResp) GetUrl() string {
@@ -1146,9 +1146,9 @@ var File_file_service_file_proto protoreflect.FileDescriptor
 
 const file_file_service_file_proto_rawDesc = "" +
 	"\n" +
-	"\x17file-service/file.proto\x12\x04file\x1a\x13common/common.proto\"\x97\x03\n" +
-	"\bFileInfo\x12\x17\n" +
-	"\afile_id\x18\x01 \x01(\x03R\x06fileId\x12\x12\n" +
+	"\x17file-service/file.proto\x12\x04file\x1a\x13common/common.proto\"\xa7\x03\n" +
+	"\bFileInfo\x12\x1f\n" +
+	"\afile_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06fileId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x10\n" +
 	"\x03key\x18\x03 \x01(\tR\x03key\x12\x12\n" +
 	"\x04size\x18\x04 \x01(\x03R\x04size\x12\x1b\n" +
@@ -1160,66 +1160,66 @@ const file_file_service_file_proto_rawDesc = "" +
 	"\x03md5\x18\n" +
 	" \x01(\tR\x03md5\x12+\n" +
 	"\apurpose\x18\v \x01(\x0e2\x11.file.FilePurposeR\apurpose\x12(\n" +
-	"\x06access\x18\f \x01(\x0e2\x10.file.FileAccessR\x06access\x12\x1f\n" +
-	"\vuploader_id\x18\r \x01(\x03R\n" +
+	"\x06access\x18\f \x01(\x0e2\x10.file.FileAccessR\x06access\x12'\n" +
+	"\vuploader_id\x18\r \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\n" +
 	"uploaderId\x12\x16\n" +
 	"\x06bucket\x18\x0e \x01(\tR\x06bucket\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x14 \x01(\x03R\tcreatedAt\"\xed\x01\n" +
+	"created_at\x18\x14 \x01(\x03R\tcreatedAt\"\xf5\x01\n" +
 	"\x0fGetUploadURLReq\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tmime_type\x18\x02 \x01(\tR\bmimeType\x12\x12\n" +
-	"\x04size\x18\x03 \x01(\x03R\x04size\x12\x1f\n" +
-	"\vuploader_id\x18\x04 \x01(\x03R\n" +
+	"\x04size\x18\x03 \x01(\x03R\x04size\x12'\n" +
+	"\vuploader_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\n" +
 	"uploaderId\x12+\n" +
 	"\apurpose\x18\x05 \x01(\x0e2\x11.file.FilePurposeR\apurpose\x12(\n" +
 	"\x06access\x18\x06 \x01(\x0e2\x10.file.FileAccessR\x06access\x12\x1d\n" +
 	"\n" +
-	"expires_in\x18\a \x01(\x05R\texpiresIn\"{\n" +
-	"\x10GetUploadURLResp\x12\x17\n" +
-	"\afile_id\x18\x01 \x01(\x03R\x06fileId\x12\x1d\n" +
+	"expires_in\x18\a \x01(\x05R\texpiresIn\"\x83\x01\n" +
+	"\x10GetUploadURLResp\x12\x1f\n" +
+	"\afile_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06fileId\x12\x1d\n" +
 	"\n" +
 	"upload_url\x18\x02 \x01(\tR\tuploadUrl\x12\x10\n" +
 	"\x03key\x18\x03 \x01(\tR\x03key\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x04 \x01(\x03R\texpiresAt\"k\n" +
-	"\x10ConfirmUploadReq\x12\x17\n" +
-	"\afile_id\x18\x01 \x01(\x03R\x06fileId\x12\x1f\n" +
-	"\vuploader_id\x18\x02 \x01(\x03R\n" +
+	"expires_at\x18\x04 \x01(\x03R\texpiresAt\"{\n" +
+	"\x10ConfirmUploadReq\x12\x1f\n" +
+	"\afile_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06fileId\x12'\n" +
+	"\vuploader_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\n" +
 	"uploaderId\x12\x15\n" +
 	"\x03md5\x18\x03 \x01(\tH\x00R\x03md5\x88\x01\x01B\x06\n" +
 	"\x04_md5\"7\n" +
 	"\x11ConfirmUploadResp\x12\"\n" +
-	"\x04file\x18\x01 \x01(\v2\x0e.file.FileInfoR\x04file\"d\n" +
-	"\x11GetDownloadURLReq\x12\x17\n" +
-	"\afile_id\x18\x01 \x01(\x03R\x06fileId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x1d\n" +
+	"\x04file\x18\x01 \x01(\v2\x0e.file.FileInfoR\x04file\"t\n" +
+	"\x11GetDownloadURLReq\x12\x1f\n" +
+	"\afile_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06fileId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1d\n" +
 	"\n" +
 	"expires_in\x18\x03 \x01(\x05R\texpiresIn\"z\n" +
 	"\x12GetDownloadURLResp\x12!\n" +
 	"\fdownload_url\x18\x01 \x01(\tR\vdownloadUrl\x12\x1d\n" +
 	"\n" +
 	"expires_at\x18\x02 \x01(\x03R\texpiresAt\x12\"\n" +
-	"\x04file\x18\x03 \x01(\v2\x0e.file.FileInfoR\x04file\"B\n" +
-	"\x0eGetFileInfoReq\x12\x17\n" +
-	"\afile_id\x18\x01 \x01(\x03R\x06fileId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"5\n" +
+	"\x04file\x18\x03 \x01(\v2\x0e.file.FileInfoR\x04file\"R\n" +
+	"\x0eGetFileInfoReq\x12\x1f\n" +
+	"\afile_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06fileId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"5\n" +
 	"\x0fGetFileInfoResp\x12\"\n" +
-	"\x04file\x18\x01 \x01(\v2\x0e.file.FileInfoR\x04file\"I\n" +
-	"\x13BatchGetFileInfoReq\x12\x19\n" +
-	"\bfile_ids\x18\x01 \x03(\x03R\afileIds\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"<\n" +
+	"\x04file\x18\x01 \x01(\v2\x0e.file.FileInfoR\x04file\"Y\n" +
+	"\x13BatchGetFileInfoReq\x12!\n" +
+	"\bfile_ids\x18\x01 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\afileIds\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"<\n" +
 	"\x14BatchGetFileInfoResp\x12$\n" +
-	"\x05files\x18\x01 \x03(\v2\x0e.file.FileInfoR\x05files\"A\n" +
-	"\rDeleteFileReq\x12\x17\n" +
-	"\afile_id\x18\x01 \x01(\x03R\x06fileId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"I\n" +
-	"\x13BatchDeleteFilesReq\x12\x19\n" +
-	"\bfile_ids\x18\x01 \x03(\x03R\afileIds\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"\xc8\x02\n" +
+	"\x05files\x18\x01 \x03(\v2\x0e.file.FileInfoR\x05files\"Q\n" +
+	"\rDeleteFileReq\x12\x1f\n" +
+	"\afile_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06fileId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"Y\n" +
+	"\x13BatchDeleteFilesReq\x12!\n" +
+	"\bfile_ids\x18\x01 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\afileIds\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"\xd0\x02\n" +
 	"\x0fUploadAvatarReq\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x1b\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1b\n" +
 	"\tmime_type\x18\x03 \x01(\tR\bmimeType\x12\x1a\n" +
 	"\x06crop_x\x18\n" +
 	" \x01(\x05H\x00R\x05cropX\x88\x01\x01\x12\x1a\n" +
@@ -1234,9 +1234,9 @@ const file_file_service_file_proto_rawDesc = "" +
 	"\a_crop_yB\r\n" +
 	"\v_crop_widthB\x0e\n" +
 	"\f_crop_heightB\x0e\n" +
-	"\f_target_size\"\x90\x01\n" +
-	"\x10UploadAvatarResp\x12\x17\n" +
-	"\afile_id\x18\x01 \x01(\x03R\x06fileId\x12\x10\n" +
+	"\f_target_size\"\x98\x01\n" +
+	"\x10UploadAvatarResp\x12\x1f\n" +
+	"\afile_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06fileId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12#\n" +
 	"\rthumbnail_url\x18\x03 \x01(\tR\fthumbnailUrl\x12\x14\n" +
 	"\x05width\x18\x04 \x01(\x05R\x05width\x12\x16\n" +

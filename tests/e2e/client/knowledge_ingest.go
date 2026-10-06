@@ -20,15 +20,15 @@ const knownKnowledge = "P5_KNOWN_ANCHOR: the launch code is cobalt-47; indexed k
 var errKnownUnavailable = errors.New("knowledge.search: 未命中指定KB中已入库的精确文档内容")
 
 type documentView struct {
-	ID     decimal `json:"id"`
-	KBID   decimal `json:"kb_id"`
-	Title  string  `json:"title"`
-	Status string  `json:"status"`
-	Chunks int     `json:"chunk_count"`
-	Error  string  `json:"error_message"`
+	ID     entityID `json:"id"`
+	KBID   entityID `json:"kb_id"`
+	Title  string   `json:"title"`
+	Status string   `json:"status"`
+	Chunks int      `json:"chunk_count"`
+	Error  string   `json:"error_message"`
 }
 
-func (d *driver) uploadKnowledge(owner account, kbID decimal, filename, title, content string) (documentView, error) {
+func (d *driver) uploadKnowledge(owner account, kbID entityID, filename, title, content string) (documentView, error) {
 	var doc documentView
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
@@ -75,7 +75,7 @@ func (d *driver) uploadKnowledge(owner account, kbID decimal, filename, title, c
 	if err := json.Unmarshal(envelope.Data, &doc); err != nil {
 		return doc, errors.New("knowledge.upload: 无效文档JSON")
 	}
-	if doc.ID <= 0 || doc.KBID != kbID || doc.Title != title || doc.Status != "pending" {
+	if doc.ID == "" || doc.KBID != kbID || doc.Title != title || doc.Status != "pending" {
 		return doc, errors.New("knowledge.upload: 上传未返回指定KB/标题的pending异步文档")
 	}
 	return doc, nil
@@ -112,19 +112,19 @@ func (d *driver) awaitKnowledgeDocument(owner account, expected documentView, st
 	}
 }
 
-func (d *driver) searchKnownKnowledge(owner account, kbID decimal, title string) error {
+func (d *driver) searchKnownKnowledge(owner account, kbID entityID, title string) error {
 	bounded := *d
 	bounded.timeout = d.queryDeadline
 	var response struct {
 		Items []struct {
-			Content string  `json:"content"`
-			KBID    decimal `json:"kb_id"`
-			Title   string  `json:"doc_title"`
+			Content string   `json:"content"`
+			KBID    entityID `json:"kb_id"`
+			Title   string   `json:"doc_title"`
 		} `json:"items"`
 	}
 	started := time.Now()
 	if err := bounded.request(http.MethodPost, "/knowledge/bases/"+kbID.String()+"/search", owner.token,
-		map[string]any{"query": "P5_KNOWN_ANCHOR launch code", "kb_ids": []decimal{kbID}}, &response); err != nil {
+		map[string]any{"query": "P5_KNOWN_ANCHOR launch code", "kb_ids": []entityID{kbID}}, &response); err != nil {
 		return err
 	}
 	if time.Since(started) > d.queryDeadline {
@@ -159,9 +159,10 @@ func (d *driver) knowledgeIngest() (result error) {
 		result = errors.Join(result, d.request(http.MethodDelete, "/models/"+modelID.String(), owner.token, nil, nil))
 	}()
 	var kb struct {
-		ID      decimal `json:"id"`
-		OwnerID decimal `json:"owner_id"`
-		ModelID decimal `json:"embedding_model_id"`
+		OwnerType string    `json:"owner_type"`
+		ID        entityID  `json:"id"`
+		OwnerID   *entityID `json:"owner_id"`
+		ModelID   *entityID `json:"embedding_model_id"`
 	}
 	if err := d.request(http.MethodPost, "/knowledge/bases", owner.token, map[string]any{
 		"name": "p5-knowledge-" + suffix, "mode": "rag", "embedding_model": modelName, "embedding_model_id": modelID,
@@ -173,7 +174,7 @@ func (d *driver) knowledgeIngest() (result error) {
 	}, &kb); err != nil {
 		return err
 	}
-	if kb.ID <= 0 || kb.OwnerID != owner.id || kb.ModelID != modelID {
+	if kb.ID == "" || kb.OwnerType != "user" || !hasEntityID(kb.OwnerID, owner.id) || !hasEntityID(kb.ModelID, modelID) {
 		return errors.New("knowledge.create: KB身份/embedding模型不匹配")
 	}
 	defer func() {

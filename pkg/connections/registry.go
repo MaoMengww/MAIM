@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -20,7 +21,7 @@ const (
 // Route identifies one connection incarnation, not merely a reusable device id.
 type Route struct {
 	Kind       Kind   `json:"kind"`
-	ID         int64  `json:"id,string"`
+	ID         string `json:"id"`
 	DeviceID   string `json:"device_id"`
 	InstanceID string `json:"instance_id"`
 	Generation string `json:"generation"`
@@ -34,11 +35,11 @@ type Store struct {
 func New(client redis.UniversalClient, ttl time.Duration) *Store {
 	return &Store{client: client, ttl: ttl}
 }
-func DeviceKey(kind Kind, id int64, device string) string {
-	return fmt.Sprintf("rt:conn:{%s:%d}:device:%s", kind, id, base64.RawURLEncoding.EncodeToString([]byte(device)))
+func DeviceKey(kind Kind, id string, device string) string {
+	return fmt.Sprintf("rt:conn:{%s:%s}:device:%s", kind, id, base64.RawURLEncoding.EncodeToString([]byte(device)))
 }
-func (s *Store) keys(kind Kind, id int64, device string) (string, string) {
-	return fmt.Sprintf("rt:conn:{%s:%d}:devices", kind, id), DeviceKey(kind, id, device)
+func (s *Store) keys(kind Kind, id string, device string) (string, string) {
+	return fmt.Sprintf("rt:conn:{%s:%s}:devices", kind, id), DeviceKey(kind, id, device)
 }
 
 var registerScript = redis.NewScript(`
@@ -51,6 +52,9 @@ redis.call('PEXPIRE',KEYS[1],ARGV[2])
 return old or ''`)
 
 func (s *Store) Register(ctx context.Context, r Route) (*Route, error) {
+	if err := identity.Validate(r.ID); err != nil {
+		return nil, err
+	}
 	index, key := s.keys(r.Kind, r.ID, r.DeviceID)
 	raw, err := json.Marshal(r)
 	if err != nil {
@@ -77,6 +81,9 @@ local now=redis.call('TIME');local ms=now[1]*1000+math.floor(now[2]/1000)
 route.last_active=tonumber(now[1]);redis.call('SET',KEYS[2],cjson.encode(route),'PX',ARGV[3]);redis.call('ZADD',KEYS[1],ms+ARGV[3],KEYS[2]);redis.call('PEXPIRE',KEYS[1],ARGV[3]);return 1`)
 
 func (s *Store) Refresh(ctx context.Context, r Route) (bool, error) {
+	if err := identity.Validate(r.ID); err != nil {
+		return false, err
+	}
 	index, key := s.keys(r.Kind, r.ID, r.DeviceID)
 	n, err := refreshScript.Run(ctx, s.client, []string{index, key}, r.Generation, r.InstanceID, s.ttl.Milliseconds()).Int()
 	return n == 1, err
@@ -88,6 +95,9 @@ local route=cjson.decode(current);if route.generation~=ARGV[1] or route.instance
 redis.call('DEL',KEYS[2]);redis.call('ZREM',KEYS[1],KEYS[2]);return 1`)
 
 func (s *Store) Remove(ctx context.Context, r Route) (bool, error) {
+	if err := identity.Validate(r.ID); err != nil {
+		return false, err
+	}
 	index, key := s.keys(r.Kind, r.ID, r.DeviceID)
 	n, err := removeScript.Run(ctx, s.client, []string{index, key}, r.Generation, r.InstanceID).Int()
 	return n == 1, err
@@ -100,7 +110,10 @@ local keys=redis.call('ZRANGE',KEYS[1],0,-1);local routes={}
 for _,key in ipairs(keys) do local raw=redis.call('GET',key);if raw then table.insert(routes,raw) else redis.call('ZREM',KEYS[1],key) end end
 return routes`)
 
-func (s *Store) List(ctx context.Context, kind Kind, id int64) ([]Route, error) {
+func (s *Store) List(ctx context.Context, kind Kind, id string) ([]Route, error) {
+	if err := identity.Validate(id); err != nil {
+		return nil, err
+	}
 	index, _ := s.keys(kind, id, "")
 	raw, err := listScript.Run(ctx, s.client, []string{index}).StringSlice()
 	if err != nil {
@@ -117,6 +130,9 @@ func (s *Store) List(ctx context.Context, kind Kind, id int64) ([]Route, error) 
 	return routes, nil
 }
 func (s *Store) Owns(ctx context.Context, r Route) (bool, error) {
+	if err := identity.Validate(r.ID); err != nil {
+		return false, err
+	}
 	_, key := s.keys(r.Kind, r.ID, r.DeviceID)
 	raw, err := s.client.Get(ctx, key).Result()
 	if err == redis.Nil {
@@ -131,27 +147,40 @@ func (s *Store) Owns(ctx context.Context, r Route) (bool, error) {
 	}
 	return current.Generation == r.Generation && current.InstanceID == r.InstanceID, nil
 }
-func (s *Store) IsOnline(ctx context.Context, id int64) bool {
+func (s *Store) IsOnline(ctx context.Context, id string) bool {
 	routes, err := s.List(ctx, User, id)
 	return err == nil && len(routes) > 0
 }
-func (s *Store) Subscribe(ctx context.Context, subscriber, target int64) error {
-	return s.client.SAdd(ctx, fmt.Sprintf("rt:presence:sub:%d", target), subscriber).Err()
+func (s *Store) Subscribe(ctx context.Context, subscriber, target string) error {
+	if err := identity.Validate(subscriber); err != nil {
+		return err
+	}
+	if err := identity.Validate(target); err != nil {
+		return err
+	}
+	return s.client.SAdd(ctx, fmt.Sprintf("rt:presence:sub:%s", target), subscriber).Err()
 }
-func (s *Store) Unsubscribe(ctx context.Context, subscriber, target int64) error {
-	return s.client.SRem(ctx, fmt.Sprintf("rt:presence:sub:%d", target), subscriber).Err()
+func (s *Store) Unsubscribe(ctx context.Context, subscriber, target string) error {
+	if err := identity.Validate(subscriber); err != nil {
+		return err
+	}
+	if err := identity.Validate(target); err != nil {
+		return err
+	}
+	return s.client.SRem(ctx, fmt.Sprintf("rt:presence:sub:%s", target), subscriber).Err()
 }
-func (s *Store) Subscribers(ctx context.Context, target int64) ([]int64, error) {
-	values, err := s.client.SMembers(ctx, fmt.Sprintf("rt:presence:sub:%d", target)).Result()
+func (s *Store) Subscribers(ctx context.Context, target string) ([]string, error) {
+	if err := identity.Validate(target); err != nil {
+		return nil, err
+	}
+	values, err := s.client.SMembers(ctx, fmt.Sprintf("rt:presence:sub:%s", target)).Result()
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]int64, 0, len(values))
-	for _, raw := range values {
-		var id int64
-		if _, err := fmt.Sscan(raw, &id); err == nil {
-			ids = append(ids, id)
+	for _, id := range values {
+		if err := identity.Validate(id); err != nil {
+			return nil, err
 		}
 	}
-	return ids, nil
+	return values, nil
 }

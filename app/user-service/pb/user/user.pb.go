@@ -108,7 +108,7 @@ func (x *RegisterReq) GetPlatform() string {
 
 type RegisterResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Tokens        *TokenPair             `protobuf:"bytes,2,opt,name=tokens,proto3" json:"tokens,omitempty"`
 	User          *UserInfo              `protobuf:"bytes,3,opt,name=user,proto3" json:"user,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -145,11 +145,11 @@ func (*RegisterResp) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *RegisterResp) GetUserId() int64 {
+func (x *RegisterResp) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *RegisterResp) GetTokens() *TokenPair {
@@ -236,7 +236,7 @@ func (x *LoginReq) GetPlatform() string {
 
 type LoginResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Tokens        *TokenPair             `protobuf:"bytes,2,opt,name=tokens,proto3" json:"tokens,omitempty"`
 	User          *UserInfo              `protobuf:"bytes,3,opt,name=user,proto3" json:"user,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -273,11 +273,11 @@ func (*LoginResp) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *LoginResp) GetUserId() int64 {
+func (x *LoginResp) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *LoginResp) GetTokens() *TokenPair {
@@ -549,7 +549,7 @@ func (x *ValidateTokenReq) GetAccessToken() string {
 type ValidateTokenResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Valid         bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        *string                `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"` // valid=false 时不提供
 	DeviceId      string                 `protobuf:"bytes,3,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	ExpiresAt     int64                  `protobuf:"varint,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -593,11 +593,11 @@ func (x *ValidateTokenResp) GetValid() bool {
 	return false
 }
 
-func (x *ValidateTokenResp) GetUserId() int64 {
-	if x != nil {
-		return x.UserId
+func (x *ValidateTokenResp) GetUserId() string {
+	if x != nil && x.UserId != nil {
+		return *x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *ValidateTokenResp) GetDeviceId() string {
@@ -768,7 +768,7 @@ func (x *GetSessionsResp) GetSessions() []*SessionInfo {
 
 type RevokeSessionReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -804,11 +804,11 @@ func (*RevokeSessionReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *RevokeSessionReq) GetUserId() int64 {
+func (x *RevokeSessionReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *RevokeSessionReq) GetSessionId() string {
@@ -888,7 +888,7 @@ func (x *TokenPair) GetRefreshExpire() int64 {
 
 type UserInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
 	Phone         string                 `protobuf:"bytes,3,opt,name=phone,proto3" json:"phone,omitempty"`
 	Email         string                 `protobuf:"bytes,4,opt,name=email,proto3" json:"email,omitempty"`
@@ -933,11 +933,11 @@ func (*UserInfo) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *UserInfo) GetId() int64 {
+func (x *UserInfo) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
 func (x *UserInfo) GetUsername() string {
@@ -1012,7 +1012,7 @@ func (x *UserInfo) GetBalance() float64 {
 
 type UpdateProfileReq struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
-	UserId   int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId   string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Avatar   *string                `protobuf:"bytes,2,opt,name=avatar,proto3,oneof" json:"avatar,omitempty"`
 	Gender   *int32                 `protobuf:"varint,3,opt,name=gender,proto3,oneof" json:"gender,omitempty"`
 	Bio      *string                `protobuf:"bytes,4,opt,name=bio,proto3,oneof" json:"bio,omitempty"`
@@ -1060,11 +1060,11 @@ func (*UpdateProfileReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *UpdateProfileReq) GetUserId() int64 {
+func (x *UpdateProfileReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateProfileReq) GetAvatar() string {
@@ -1295,7 +1295,7 @@ func (x *BindEmailReq) GetEmailCode() string {
 
 type GetUserInfoReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1330,16 +1330,16 @@ func (*GetUserInfoReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *GetUserInfoReq) GetUserId() int64 {
+func (x *GetUserInfoReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type BatchGetUserInfoReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserIds       []int64                `protobuf:"varint,1,rep,packed,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
+	UserIds       []string               `protobuf:"bytes,1,rep,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1374,7 +1374,7 @@ func (*BatchGetUserInfoReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *BatchGetUserInfoReq) GetUserIds() []int64 {
+func (x *BatchGetUserInfoReq) GetUserIds() []string {
 	if x != nil {
 		return x.UserIds
 	}
@@ -1531,7 +1531,7 @@ func (x *SearchUsersResp) GetPagination() *common.PaginationResp {
 
 type ListAllUserIDsResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserIds       []int64                `protobuf:"varint,1,rep,packed,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
+	UserIds       []string               `protobuf:"bytes,1,rep,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1566,7 +1566,7 @@ func (*ListAllUserIDsResp) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{24}
 }
 
-func (x *ListAllUserIDsResp) GetUserIds() []int64 {
+func (x *ListAllUserIDsResp) GetUserIds() []string {
 	if x != nil {
 		return x.UserIds
 	}
@@ -1575,7 +1575,7 @@ func (x *ListAllUserIDsResp) GetUserIds() []int64 {
 
 type BatchGetStatusReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserIds       []int64                `protobuf:"varint,1,rep,packed,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
+	UserIds       []string               `protobuf:"bytes,1,rep,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1610,7 +1610,7 @@ func (*BatchGetStatusReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *BatchGetStatusReq) GetUserIds() []int64 {
+func (x *BatchGetStatusReq) GetUserIds() []string {
 	if x != nil {
 		return x.UserIds
 	}
@@ -1679,7 +1679,7 @@ func (x *DeviceInfo) GetLastActiveAt() int64 {
 
 type UserStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	IsOnline      bool                   `protobuf:"varint,2,opt,name=is_online,json=isOnline,proto3" json:"is_online,omitempty"`
 	Devices       []*DeviceInfo          `protobuf:"bytes,3,rep,name=devices,proto3" json:"devices,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1716,11 +1716,11 @@ func (*UserStatus) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{27}
 }
 
-func (x *UserStatus) GetUserId() int64 {
+func (x *UserStatus) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *UserStatus) GetIsOnline() bool {
@@ -1789,7 +1789,7 @@ type GetSettingsResp struct {
 	VibrationEnabled    bool                   `protobuf:"varint,4,opt,name=vibration_enabled,json=vibrationEnabled,proto3" json:"vibration_enabled,omitempty"`
 	Theme               string                 `protobuf:"bytes,5,opt,name=theme,proto3" json:"theme,omitempty"`                                   // light/dark/auto
 	SettingsJson        string                 `protobuf:"bytes,6,opt,name=settings_json,json=settingsJson,proto3" json:"settings_json,omitempty"` // extensible settings
-	AiModelId           int64                  `protobuf:"varint,7,opt,name=ai_model_id,json=aiModelId,proto3" json:"ai_model_id,omitempty"`
+	AiModelId           *string                `protobuf:"bytes,7,opt,name=ai_model_id,json=aiModelId,proto3,oneof" json:"ai_model_id,omitempty"`
 	AiModelName         string                 `protobuf:"bytes,8,opt,name=ai_model_name,json=aiModelName,proto3" json:"ai_model_name,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
@@ -1867,11 +1867,11 @@ func (x *GetSettingsResp) GetSettingsJson() string {
 	return ""
 }
 
-func (x *GetSettingsResp) GetAiModelId() int64 {
-	if x != nil {
-		return x.AiModelId
+func (x *GetSettingsResp) GetAiModelId() string {
+	if x != nil && x.AiModelId != nil {
+		return *x.AiModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *GetSettingsResp) GetAiModelName() string {
@@ -1883,17 +1883,19 @@ func (x *GetSettingsResp) GetAiModelName() string {
 
 type UpdateSettingsReq struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
-	UserId              int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId              string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Language            *string                `protobuf:"bytes,2,opt,name=language,proto3,oneof" json:"language,omitempty"`
 	NotificationEnabled *bool                  `protobuf:"varint,3,opt,name=notification_enabled,json=notificationEnabled,proto3,oneof" json:"notification_enabled,omitempty"`
 	SoundEnabled        *bool                  `protobuf:"varint,4,opt,name=sound_enabled,json=soundEnabled,proto3,oneof" json:"sound_enabled,omitempty"`
 	VibrationEnabled    *bool                  `protobuf:"varint,5,opt,name=vibration_enabled,json=vibrationEnabled,proto3,oneof" json:"vibration_enabled,omitempty"`
 	Theme               *string                `protobuf:"bytes,6,opt,name=theme,proto3,oneof" json:"theme,omitempty"`
 	SettingsJson        *string                `protobuf:"bytes,7,opt,name=settings_json,json=settingsJson,proto3,oneof" json:"settings_json,omitempty"`
-	AiModelId           *int64                 `protobuf:"varint,8,opt,name=ai_model_id,json=aiModelId,proto3,oneof" json:"ai_model_id,omitempty"`
+	AiModelId           *string                `protobuf:"bytes,8,opt,name=ai_model_id,json=aiModelId,proto3,oneof" json:"ai_model_id,omitempty"`
 	AiModelName         *string                `protobuf:"bytes,9,opt,name=ai_model_name,json=aiModelName,proto3,oneof" json:"ai_model_name,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// 未提供 ai_model_id 且 clear=false：保持；clear=true：解除；同时提供两者：拒绝。
+	ClearAiModelId bool `protobuf:"varint,10,opt,name=clear_ai_model_id,json=clearAiModelId,proto3" json:"clear_ai_model_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *UpdateSettingsReq) Reset() {
@@ -1926,11 +1928,11 @@ func (*UpdateSettingsReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{30}
 }
 
-func (x *UpdateSettingsReq) GetUserId() int64 {
+func (x *UpdateSettingsReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateSettingsReq) GetLanguage() string {
@@ -1975,11 +1977,11 @@ func (x *UpdateSettingsReq) GetSettingsJson() string {
 	return ""
 }
 
-func (x *UpdateSettingsReq) GetAiModelId() int64 {
+func (x *UpdateSettingsReq) GetAiModelId() string {
 	if x != nil && x.AiModelId != nil {
 		return *x.AiModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateSettingsReq) GetAiModelName() string {
@@ -1989,9 +1991,16 @@ func (x *UpdateSettingsReq) GetAiModelName() string {
 	return ""
 }
 
+func (x *UpdateSettingsReq) GetClearAiModelId() bool {
+	if x != nil {
+		return x.ClearAiModelId
+	}
+	return false
+}
+
 type RechargeReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Amount        float64                `protobuf:"fixed64,2,opt,name=amount,proto3" json:"amount,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2027,11 +2036,11 @@ func (*RechargeReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{31}
 }
 
-func (x *RechargeReq) GetUserId() int64 {
+func (x *RechargeReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *RechargeReq) GetAmount() float64 {
@@ -2087,7 +2096,7 @@ func (x *RechargeResp) GetNewBalance() float64 {
 
 type DeductBalanceReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Amount        float64                `protobuf:"fixed64,2,opt,name=amount,proto3" json:"amount,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2123,11 +2132,11 @@ func (*DeductBalanceReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{33}
 }
 
-func (x *DeductBalanceReq) GetUserId() int64 {
+func (x *DeductBalanceReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *DeductBalanceReq) GetAmount() float64 {
@@ -2183,7 +2192,7 @@ func (x *DeductBalanceResp) GetNewBalance() float64 {
 
 type GetBalanceReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2218,11 +2227,11 @@ func (*GetBalanceReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{35}
 }
 
-func (x *GetBalanceReq) GetUserId() int64 {
+func (x *GetBalanceReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type GetBalanceResp struct {
@@ -2271,8 +2280,8 @@ func (x *GetBalanceResp) GetBalance() float64 {
 
 type SendRequestReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FromUserId    int64                  `protobuf:"varint,1,opt,name=from_user_id,json=fromUserId,proto3" json:"from_user_id,omitempty"`
-	ToUserId      int64                  `protobuf:"varint,2,opt,name=to_user_id,json=toUserId,proto3" json:"to_user_id,omitempty"`
+	FromUserId    string                 `protobuf:"bytes,1,opt,name=from_user_id,json=fromUserId,proto3" json:"from_user_id,omitempty"`
+	ToUserId      string                 `protobuf:"bytes,2,opt,name=to_user_id,json=toUserId,proto3" json:"to_user_id,omitempty"`
 	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"` // 验证消息
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2308,18 +2317,18 @@ func (*SendRequestReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{37}
 }
 
-func (x *SendRequestReq) GetFromUserId() int64 {
+func (x *SendRequestReq) GetFromUserId() string {
 	if x != nil {
 		return x.FromUserId
 	}
-	return 0
+	return ""
 }
 
-func (x *SendRequestReq) GetToUserId() int64 {
+func (x *SendRequestReq) GetToUserId() string {
 	if x != nil {
 		return x.ToUserId
 	}
-	return 0
+	return ""
 }
 
 func (x *SendRequestReq) GetMessage() string {
@@ -2331,7 +2340,7 @@ func (x *SendRequestReq) GetMessage() string {
 
 type SendRequestResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     int64                  `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2366,17 +2375,17 @@ func (*SendRequestResp) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{38}
 }
 
-func (x *SendRequestResp) GetRequestId() int64 {
+func (x *SendRequestResp) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
 	}
-	return 0
+	return ""
 }
 
 type AcceptRequestReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     int64                  `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2411,24 +2420,24 @@ func (*AcceptRequestReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{39}
 }
 
-func (x *AcceptRequestReq) GetRequestId() int64 {
+func (x *AcceptRequestReq) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
 	}
-	return 0
+	return ""
 }
 
-func (x *AcceptRequestReq) GetUserId() int64 {
+func (x *AcceptRequestReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type RejectRequestReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     int64                  `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2463,24 +2472,24 @@ func (*RejectRequestReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{40}
 }
 
-func (x *RejectRequestReq) GetRequestId() int64 {
+func (x *RejectRequestReq) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
 	}
-	return 0
+	return ""
 }
 
-func (x *RejectRequestReq) GetUserId() int64 {
+func (x *RejectRequestReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type CancelRequestReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     int64                  `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2515,23 +2524,23 @@ func (*CancelRequestReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{41}
 }
 
-func (x *CancelRequestReq) GetRequestId() int64 {
+func (x *CancelRequestReq) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
 	}
-	return 0
+	return ""
 }
 
-func (x *CancelRequestReq) GetUserId() int64 {
+func (x *CancelRequestReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type ListPendingRequestsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Pagination    *common.Pagination     `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2567,11 +2576,11 @@ func (*ListPendingRequestsReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{42}
 }
 
-func (x *ListPendingRequestsReq) GetUserId() int64 {
+func (x *ListPendingRequestsReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *ListPendingRequestsReq) GetPagination() *common.Pagination {
@@ -2583,7 +2592,7 @@ func (x *ListPendingRequestsReq) GetPagination() *common.Pagination {
 
 type ListSentRequestsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Pagination    *common.Pagination     `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2619,11 +2628,11 @@ func (*ListSentRequestsReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{43}
 }
 
-func (x *ListSentRequestsReq) GetUserId() int64 {
+func (x *ListSentRequestsReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *ListSentRequestsReq) GetPagination() *common.Pagination {
@@ -2635,9 +2644,9 @@ func (x *ListSentRequestsReq) GetPagination() *common.Pagination {
 
 type FriendRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     int64                  `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	FromUserId    int64                  `protobuf:"varint,2,opt,name=from_user_id,json=fromUserId,proto3" json:"from_user_id,omitempty"`
-	ToUserId      int64                  `protobuf:"varint,3,opt,name=to_user_id,json=toUserId,proto3" json:"to_user_id,omitempty"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	FromUserId    string                 `protobuf:"bytes,2,opt,name=from_user_id,json=fromUserId,proto3" json:"from_user_id,omitempty"`
+	ToUserId      string                 `protobuf:"bytes,3,opt,name=to_user_id,json=toUserId,proto3" json:"to_user_id,omitempty"`
 	Message       string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
 	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"` // pending/accepted/rejected
 	CreatedAt     int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
@@ -2678,25 +2687,25 @@ func (*FriendRequest) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{44}
 }
 
-func (x *FriendRequest) GetRequestId() int64 {
+func (x *FriendRequest) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
 	}
-	return 0
+	return ""
 }
 
-func (x *FriendRequest) GetFromUserId() int64 {
+func (x *FriendRequest) GetFromUserId() string {
 	if x != nil {
 		return x.FromUserId
 	}
-	return 0
+	return ""
 }
 
-func (x *FriendRequest) GetToUserId() int64 {
+func (x *FriendRequest) GetToUserId() string {
 	if x != nil {
 		return x.ToUserId
 	}
-	return 0
+	return ""
 }
 
 func (x *FriendRequest) GetMessage() string {
@@ -2795,8 +2804,8 @@ func (x *ListRequestsResp) GetPagination() *common.PaginationResp {
 
 type ListFriendsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	GroupId       *int64                 `protobuf:"varint,2,opt,name=group_id,json=groupId,proto3,oneof" json:"group_id,omitempty"` // filter by group, omit for all
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	GroupId       *string                `protobuf:"bytes,2,opt,name=group_id,json=groupId,proto3,oneof" json:"group_id,omitempty"` // filter by group, omit for all
 	Pagination    *common.Pagination     `protobuf:"bytes,3,opt,name=pagination,proto3" json:"pagination,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2832,18 +2841,18 @@ func (*ListFriendsReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{46}
 }
 
-func (x *ListFriendsReq) GetUserId() int64 {
+func (x *ListFriendsReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *ListFriendsReq) GetGroupId() int64 {
+func (x *ListFriendsReq) GetGroupId() string {
 	if x != nil && x.GroupId != nil {
 		return *x.GroupId
 	}
-	return 0
+	return ""
 }
 
 func (x *ListFriendsReq) GetPagination() *common.Pagination {
@@ -2855,11 +2864,11 @@ func (x *ListFriendsReq) GetPagination() *common.Pagination {
 
 type FriendInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
 	Avatar        string                 `protobuf:"bytes,3,opt,name=avatar,proto3" json:"avatar,omitempty"`
 	Remark        string                 `protobuf:"bytes,4,opt,name=remark,proto3" json:"remark,omitempty"`                         // 备注名
-	GroupId       int64                  `protobuf:"varint,5,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`       // 所属分组
+	GroupId       *string                `protobuf:"bytes,5,opt,name=group_id,json=groupId,proto3,oneof" json:"group_id,omitempty"`  // 所属分组
 	GroupName     string                 `protobuf:"bytes,6,opt,name=group_name,json=groupName,proto3" json:"group_name,omitempty"`  // 分组名
 	Status        string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`                         // online/offline
 	CreatedAt     int64                  `protobuf:"varint,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"` // 成为好友的时间
@@ -2897,11 +2906,11 @@ func (*FriendInfo) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{47}
 }
 
-func (x *FriendInfo) GetUserId() int64 {
+func (x *FriendInfo) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *FriendInfo) GetUsername() string {
@@ -2925,11 +2934,11 @@ func (x *FriendInfo) GetRemark() string {
 	return ""
 }
 
-func (x *FriendInfo) GetGroupId() int64 {
-	if x != nil {
-		return x.GroupId
+func (x *FriendInfo) GetGroupId() string {
+	if x != nil && x.GroupId != nil {
+		return *x.GroupId
 	}
-	return 0
+	return ""
 }
 
 func (x *FriendInfo) GetGroupName() string {
@@ -3007,8 +3016,8 @@ func (x *ListFriendsResp) GetPagination() *common.PaginationResp {
 
 type DeleteFriendReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	FriendId      int64                  `protobuf:"varint,2,opt,name=friend_id,json=friendId,proto3" json:"friend_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FriendId      string                 `protobuf:"bytes,2,opt,name=friend_id,json=friendId,proto3" json:"friend_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3043,24 +3052,24 @@ func (*DeleteFriendReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{49}
 }
 
-func (x *DeleteFriendReq) GetUserId() int64 {
+func (x *DeleteFriendReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *DeleteFriendReq) GetFriendId() int64 {
+func (x *DeleteFriendReq) GetFriendId() string {
 	if x != nil {
 		return x.FriendId
 	}
-	return 0
+	return ""
 }
 
 type SetRemarkReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	FriendId      int64                  `protobuf:"varint,2,opt,name=friend_id,json=friendId,proto3" json:"friend_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FriendId      string                 `protobuf:"bytes,2,opt,name=friend_id,json=friendId,proto3" json:"friend_id,omitempty"`
 	Remark        string                 `protobuf:"bytes,3,opt,name=remark,proto3" json:"remark,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3096,18 +3105,18 @@ func (*SetRemarkReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{50}
 }
 
-func (x *SetRemarkReq) GetUserId() int64 {
+func (x *SetRemarkReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *SetRemarkReq) GetFriendId() int64 {
+func (x *SetRemarkReq) GetFriendId() string {
 	if x != nil {
 		return x.FriendId
 	}
-	return 0
+	return ""
 }
 
 func (x *SetRemarkReq) GetRemark() string {
@@ -3118,10 +3127,12 @@ func (x *SetRemarkReq) GetRemark() string {
 }
 
 type SetGroupReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	FriendId      int64                  `protobuf:"varint,2,opt,name=friend_id,json=friendId,proto3" json:"friend_id,omitempty"`
-	GroupId       int64                  `protobuf:"varint,3,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	UserId   string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FriendId string                 `protobuf:"bytes,2,opt,name=friend_id,json=friendId,proto3" json:"friend_id,omitempty"`
+	GroupId  *string                `protobuf:"bytes,3,opt,name=group_id,json=groupId,proto3,oneof" json:"group_id,omitempty"`
+	// 未提供 group_id 且 clear=false：保持；clear=true：解除；同时提供两者：拒绝。
+	ClearGroupId  bool `protobuf:"varint,4,opt,name=clear_group_id,json=clearGroupId,proto3" json:"clear_group_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3156,30 +3167,37 @@ func (*SetGroupReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{51}
 }
 
-func (x *SetGroupReq) GetUserId() int64 {
+func (x *SetGroupReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *SetGroupReq) GetFriendId() int64 {
+func (x *SetGroupReq) GetFriendId() string {
 	if x != nil {
 		return x.FriendId
 	}
-	return 0
+	return ""
 }
 
-func (x *SetGroupReq) GetGroupId() int64 {
-	if x != nil {
-		return x.GroupId
+func (x *SetGroupReq) GetGroupId() string {
+	if x != nil && x.GroupId != nil {
+		return *x.GroupId
 	}
-	return 0
+	return ""
+}
+
+func (x *SetGroupReq) GetClearGroupId() bool {
+	if x != nil {
+		return x.ClearGroupId
+	}
+	return false
 }
 
 type CreateGroupReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3215,11 +3233,11 @@ func (*CreateGroupReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{52}
 }
 
-func (x *CreateGroupReq) GetUserId() int64 {
+func (x *CreateGroupReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *CreateGroupReq) GetName() string {
@@ -3231,7 +3249,7 @@ func (x *CreateGroupReq) GetName() string {
 
 type CreateGroupResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	GroupId       int64                  `protobuf:"varint,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	GroupId       string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3266,17 +3284,17 @@ func (*CreateGroupResp) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{53}
 }
 
-func (x *CreateGroupResp) GetGroupId() int64 {
+func (x *CreateGroupResp) GetGroupId() string {
 	if x != nil {
 		return x.GroupId
 	}
-	return 0
+	return ""
 }
 
 type RenameGroupReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	GroupId       int64                  `protobuf:"varint,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	GroupId       string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3312,18 +3330,18 @@ func (*RenameGroupReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{54}
 }
 
-func (x *RenameGroupReq) GetGroupId() int64 {
+func (x *RenameGroupReq) GetGroupId() string {
 	if x != nil {
 		return x.GroupId
 	}
-	return 0
+	return ""
 }
 
-func (x *RenameGroupReq) GetUserId() int64 {
+func (x *RenameGroupReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *RenameGroupReq) GetName() string {
@@ -3335,8 +3353,8 @@ func (x *RenameGroupReq) GetName() string {
 
 type DeleteGroupReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	GroupId       int64                  `protobuf:"varint,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	GroupId       string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3371,23 +3389,23 @@ func (*DeleteGroupReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{55}
 }
 
-func (x *DeleteGroupReq) GetGroupId() int64 {
+func (x *DeleteGroupReq) GetGroupId() string {
 	if x != nil {
 		return x.GroupId
 	}
-	return 0
+	return ""
 }
 
-func (x *DeleteGroupReq) GetUserId() int64 {
+func (x *DeleteGroupReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type ListGroupsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3422,16 +3440,16 @@ func (*ListGroupsReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{56}
 }
 
-func (x *ListGroupsReq) GetUserId() int64 {
+func (x *ListGroupsReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type FriendGroup struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	SortOrder     int32                  `protobuf:"varint,3,opt,name=sort_order,json=sortOrder,proto3" json:"sort_order,omitempty"`
 	FriendCount   int32                  `protobuf:"varint,4,opt,name=friend_count,json=friendCount,proto3" json:"friend_count,omitempty"`
@@ -3470,11 +3488,11 @@ func (*FriendGroup) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{57}
 }
 
-func (x *FriendGroup) GetId() int64 {
+func (x *FriendGroup) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
 func (x *FriendGroup) GetName() string {
@@ -3551,8 +3569,8 @@ func (x *ListGroupsResp) GetGroups() []*FriendGroup {
 
 type BlockUserReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	BlockedUserId int64                  `protobuf:"varint,2,opt,name=blocked_user_id,json=blockedUserId,proto3" json:"blocked_user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	BlockedUserId string                 `protobuf:"bytes,2,opt,name=blocked_user_id,json=blockedUserId,proto3" json:"blocked_user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3587,24 +3605,24 @@ func (*BlockUserReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{59}
 }
 
-func (x *BlockUserReq) GetUserId() int64 {
+func (x *BlockUserReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *BlockUserReq) GetBlockedUserId() int64 {
+func (x *BlockUserReq) GetBlockedUserId() string {
 	if x != nil {
 		return x.BlockedUserId
 	}
-	return 0
+	return ""
 }
 
 type UnblockUserReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	BlockedUserId int64                  `protobuf:"varint,2,opt,name=blocked_user_id,json=blockedUserId,proto3" json:"blocked_user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	BlockedUserId string                 `protobuf:"bytes,2,opt,name=blocked_user_id,json=blockedUserId,proto3" json:"blocked_user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3639,23 +3657,23 @@ func (*UnblockUserReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{60}
 }
 
-func (x *UnblockUserReq) GetUserId() int64 {
+func (x *UnblockUserReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *UnblockUserReq) GetBlockedUserId() int64 {
+func (x *UnblockUserReq) GetBlockedUserId() string {
 	if x != nil {
 		return x.BlockedUserId
 	}
-	return 0
+	return ""
 }
 
 type ListBlacklistReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Pagination    *common.Pagination     `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3691,11 +3709,11 @@ func (*ListBlacklistReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{61}
 }
 
-func (x *ListBlacklistReq) GetUserId() int64 {
+func (x *ListBlacklistReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *ListBlacklistReq) GetPagination() *common.Pagination {
@@ -3707,7 +3725,7 @@ func (x *ListBlacklistReq) GetPagination() *common.Pagination {
 
 type BlacklistUser struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
 	Avatar        string                 `protobuf:"bytes,3,opt,name=avatar,proto3" json:"avatar,omitempty"`
 	BlockedAt     int64                  `protobuf:"varint,4,opt,name=blocked_at,json=blockedAt,proto3" json:"blocked_at,omitempty"`
@@ -3745,11 +3763,11 @@ func (*BlacklistUser) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{62}
 }
 
-func (x *BlacklistUser) GetUserId() int64 {
+func (x *BlacklistUser) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *BlacklistUser) GetUsername() string {
@@ -3827,8 +3845,8 @@ func (x *ListBlacklistResp) GetPagination() *common.PaginationResp {
 
 type IsBlockedReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	TargetUserId  int64                  `protobuf:"varint,2,opt,name=target_user_id,json=targetUserId,proto3" json:"target_user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	TargetUserId  string                 `protobuf:"bytes,2,opt,name=target_user_id,json=targetUserId,proto3" json:"target_user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3863,18 +3881,18 @@ func (*IsBlockedReq) Descriptor() ([]byte, []int) {
 	return file_user_service_user_proto_rawDescGZIP(), []int{64}
 }
 
-func (x *IsBlockedReq) GetUserId() int64 {
+func (x *IsBlockedReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *IsBlockedReq) GetTargetUserId() int64 {
+func (x *IsBlockedReq) GetTargetUserId() string {
 	if x != nil {
 		return x.TargetUserId
 	}
-	return 0
+	return ""
 }
 
 type IsBlockedResp struct {
@@ -3932,18 +3950,18 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\x05phone\x18\x03 \x01(\tR\x05phone\x12\x14\n" +
 	"\x05email\x18\x04 \x01(\tR\x05email\x12\x1b\n" +
 	"\tdevice_id\x18\x05 \x01(\tR\bdeviceId\x12\x1a\n" +
-	"\bplatform\x18\x06 \x01(\tR\bplatform\"t\n" +
-	"\fRegisterResp\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12'\n" +
+	"\bplatform\x18\x06 \x01(\tR\bplatform\"|\n" +
+	"\fRegisterResp\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12'\n" +
 	"\x06tokens\x18\x02 \x01(\v2\x0f.user.TokenPairR\x06tokens\x12\"\n" +
 	"\x04user\x18\x03 \x01(\v2\x0e.user.UserInfoR\x04user\"y\n" +
 	"\bLoginReq\x12\x18\n" +
 	"\aaccount\x18\x01 \x01(\tR\aaccount\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x1b\n" +
 	"\tdevice_id\x18\x03 \x01(\tR\bdeviceId\x12\x1a\n" +
-	"\bplatform\x18\x04 \x01(\tR\bplatform\"q\n" +
-	"\tLoginResp\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12'\n" +
+	"\bplatform\x18\x04 \x01(\tR\bplatform\"y\n" +
+	"\tLoginResp\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12'\n" +
 	"\x06tokens\x18\x02 \x01(\v2\x0f.user.TokenPairR\x06tokens\x12\"\n" +
 	"\x04user\x18\x03 \x01(\v2\x0e.user.UserInfoR\x04user\"&\n" +
 	"\tLogoutReq\x12\x19\n" +
@@ -3959,13 +3977,15 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\tdevice_id\x18\x03 \x01(\tR\bdeviceId\x12\x1a\n" +
 	"\bplatform\x18\x04 \x01(\tR\bplatform\"5\n" +
 	"\x10ValidateTokenReq\x12!\n" +
-	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\"~\n" +
+	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\"\x97\x01\n" +
 	"\x11ValidateTokenResp\x12\x14\n" +
-	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x1b\n" +
+	"\x05valid\x18\x01 \x01(\bR\x05valid\x12$\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x06userId\x88\x01\x01\x12\x1b\n" +
 	"\tdevice_id\x18\x03 \x01(\tR\bdeviceId\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x04 \x01(\x03R\texpiresAt\"\x92\x02\n" +
+	"expires_at\x18\x04 \x01(\x03R\texpiresAtB\n" +
+	"\n" +
+	"\b_user_id\"\x92\x02\n" +
 	"\vSessionInfo\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1b\n" +
@@ -3980,18 +4000,18 @@ const file_user_service_user_proto_rawDesc = "" +
 	"is_current\x18\b \x01(\bR\tisCurrent\x12\x1b\n" +
 	"\tis_online\x18\t \x01(\bR\bisOnline\"@\n" +
 	"\x0fGetSessionsResp\x12-\n" +
-	"\bsessions\x18\x01 \x03(\v2\x11.user.SessionInfoR\bsessions\"J\n" +
-	"\x10RevokeSessionReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1d\n" +
+	"\bsessions\x18\x01 \x03(\v2\x11.user.SessionInfoR\bsessions\"R\n" +
+	"\x10RevokeSessionReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x02 \x01(\tR\tsessionId\"\x9f\x01\n" +
 	"\tTokenPair\x12!\n" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
 	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\x12#\n" +
 	"\raccess_expire\x18\x03 \x01(\x03R\faccessExpire\x12%\n" +
-	"\x0erefresh_expire\x18\x04 \x01(\x03R\rrefreshExpire\"\x98\x02\n" +
-	"\bUserInfo\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1a\n" +
+	"\x0erefresh_expire\x18\x04 \x01(\x03R\rrefreshExpire\"\xa0\x02\n" +
+	"\bUserInfo\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x14\n" +
 	"\x05phone\x18\x03 \x01(\tR\x05phone\x12\x14\n" +
 	"\x05email\x18\x04 \x01(\tR\x05email\x12\x16\n" +
@@ -4004,9 +4024,9 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\n" +
 	" \x01(\x03R\tupdatedAt\x12\x18\n" +
-	"\abalance\x18\v \x01(\x01R\abalance\"\xf8\x02\n" +
-	"\x10UpdateProfileReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
+	"\abalance\x18\v \x01(\x01R\abalance\"\x80\x03\n" +
+	"\x10UpdateProfileReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1b\n" +
 	"\x06avatar\x18\x02 \x01(\tH\x00R\x06avatar\x88\x01\x01\x12\x1b\n" +
 	"\x06gender\x18\x03 \x01(\x05H\x01R\x06gender\x88\x01\x01\x12\x15\n" +
 	"\x03bio\x18\x04 \x01(\tH\x02R\x03bio\x88\x01\x01\x12\x1f\n" +
@@ -4034,11 +4054,11 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\fBindEmailReq\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\x12\x1d\n" +
 	"\n" +
-	"email_code\x18\x02 \x01(\tR\temailCode\")\n" +
-	"\x0eGetUserInfoReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\"0\n" +
-	"\x13BatchGetUserInfoReq\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\x03R\auserIds\"<\n" +
+	"email_code\x18\x02 \x01(\tR\temailCode\"1\n" +
+	"\x0eGetUserInfoReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"8\n" +
+	"\x13BatchGetUserInfoReq\x12!\n" +
+	"\buser_ids\x18\x01 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\auserIds\"<\n" +
 	"\x14BatchGetUserInfoResp\x12$\n" +
 	"\x05users\x18\x01 \x03(\v2\x0e.user.UserInfoR\x05users\"^\n" +
 	"\x0eSearchUsersReq\x12\x18\n" +
@@ -4050,42 +4070,45 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\x05users\x18\x01 \x03(\v2\x0e.user.UserInfoR\x05users\x126\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x16.common.PaginationRespR\n" +
-	"pagination\"/\n" +
-	"\x12ListAllUserIDsResp\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\x03R\auserIds\".\n" +
-	"\x11BatchGetStatusReq\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\x03R\auserIds\"k\n" +
+	"pagination\"7\n" +
+	"\x12ListAllUserIDsResp\x12!\n" +
+	"\buser_ids\x18\x01 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\auserIds\"6\n" +
+	"\x11BatchGetStatusReq\x12!\n" +
+	"\buser_ids\x18\x01 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\auserIds\"k\n" +
 	"\n" +
 	"DeviceInfo\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1a\n" +
 	"\bplatform\x18\x02 \x01(\tR\bplatform\x12$\n" +
-	"\x0elast_active_at\x18\x03 \x01(\x03R\flastActiveAt\"n\n" +
+	"\x0elast_active_at\x18\x03 \x01(\x03R\flastActiveAt\"v\n" +
 	"\n" +
-	"UserStatus\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
+	"UserStatus\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1b\n" +
 	"\tis_online\x18\x02 \x01(\bR\bisOnline\x12*\n" +
 	"\adevices\x18\x03 \x03(\v2\x10.user.DeviceInfoR\adevices\"B\n" +
 	"\x12BatchGetStatusResp\x12,\n" +
-	"\bstatuses\x18\x01 \x03(\v2\x10.user.UserStatusR\bstatuses\"\xb1\x02\n" +
+	"\bstatuses\x18\x01 \x03(\v2\x10.user.UserStatusR\bstatuses\"\xce\x02\n" +
 	"\x0fGetSettingsResp\x12\x1a\n" +
 	"\blanguage\x18\x01 \x01(\tR\blanguage\x121\n" +
 	"\x14notification_enabled\x18\x02 \x01(\bR\x13notificationEnabled\x12#\n" +
 	"\rsound_enabled\x18\x03 \x01(\bR\fsoundEnabled\x12+\n" +
 	"\x11vibration_enabled\x18\x04 \x01(\bR\x10vibrationEnabled\x12\x14\n" +
 	"\x05theme\x18\x05 \x01(\tR\x05theme\x12#\n" +
-	"\rsettings_json\x18\x06 \x01(\tR\fsettingsJson\x12\x1e\n" +
-	"\vai_model_id\x18\a \x01(\x03R\taiModelId\x12\"\n" +
-	"\rai_model_name\x18\b \x01(\tR\vaiModelName\"\x80\x04\n" +
-	"\x11UpdateSettingsReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1f\n" +
+	"\rsettings_json\x18\x06 \x01(\tR\fsettingsJson\x12+\n" +
+	"\vai_model_id\x18\a \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\taiModelId\x88\x01\x01\x12\"\n" +
+	"\rai_model_name\x18\b \x01(\tR\vaiModelNameB\x0e\n" +
+	"\f_ai_model_id\"\xbb\x04\n" +
+	"\x11UpdateSettingsReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1f\n" +
 	"\blanguage\x18\x02 \x01(\tH\x00R\blanguage\x88\x01\x01\x126\n" +
 	"\x14notification_enabled\x18\x03 \x01(\bH\x01R\x13notificationEnabled\x88\x01\x01\x12(\n" +
 	"\rsound_enabled\x18\x04 \x01(\bH\x02R\fsoundEnabled\x88\x01\x01\x120\n" +
 	"\x11vibration_enabled\x18\x05 \x01(\bH\x03R\x10vibrationEnabled\x88\x01\x01\x12\x19\n" +
 	"\x05theme\x18\x06 \x01(\tH\x04R\x05theme\x88\x01\x01\x12(\n" +
-	"\rsettings_json\x18\a \x01(\tH\x05R\fsettingsJson\x88\x01\x01\x12#\n" +
-	"\vai_model_id\x18\b \x01(\x03H\x06R\taiModelId\x88\x01\x01\x12'\n" +
-	"\rai_model_name\x18\t \x01(\tH\aR\vaiModelName\x88\x01\x01B\v\n" +
+	"\rsettings_json\x18\a \x01(\tH\x05R\fsettingsJson\x88\x01\x01\x12+\n" +
+	"\vai_model_id\x18\b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x06R\taiModelId\x88\x01\x01\x12'\n" +
+	"\rai_model_name\x18\t \x01(\tH\aR\vaiModelName\x88\x01\x01\x12)\n" +
+	"\x11clear_ai_model_id\x18\n" +
+	" \x01(\bR\x0eclearAiModelIdB\v\n" +
 	"\t_languageB\x17\n" +
 	"\x15_notification_enabledB\x10\n" +
 	"\x0e_sound_enabledB\x14\n" +
@@ -4093,61 +4116,61 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\x06_themeB\x10\n" +
 	"\x0e_settings_jsonB\x0e\n" +
 	"\f_ai_model_idB\x10\n" +
-	"\x0e_ai_model_name\">\n" +
-	"\vRechargeReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x16\n" +
+	"\x0e_ai_model_name\"F\n" +
+	"\vRechargeReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\x01R\x06amount\"/\n" +
 	"\fRechargeResp\x12\x1f\n" +
 	"\vnew_balance\x18\x01 \x01(\x01R\n" +
-	"newBalance\"C\n" +
-	"\x10DeductBalanceReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x16\n" +
+	"newBalance\"K\n" +
+	"\x10DeductBalanceReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\x01R\x06amount\"4\n" +
 	"\x11DeductBalanceResp\x12\x1f\n" +
 	"\vnew_balance\x18\x01 \x01(\x01R\n" +
-	"newBalance\"(\n" +
-	"\rGetBalanceReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\"*\n" +
+	"newBalance\"0\n" +
+	"\rGetBalanceReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"*\n" +
 	"\x0eGetBalanceResp\x12\x18\n" +
-	"\abalance\x18\x01 \x01(\x01R\abalance\"j\n" +
-	"\x0eSendRequestReq\x12 \n" +
-	"\ffrom_user_id\x18\x01 \x01(\x03R\n" +
-	"fromUserId\x12\x1c\n" +
+	"\abalance\x18\x01 \x01(\x01R\abalance\"z\n" +
+	"\x0eSendRequestReq\x12(\n" +
+	"\ffrom_user_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\n" +
+	"fromUserId\x12$\n" +
 	"\n" +
-	"to_user_id\x18\x02 \x01(\x03R\btoUserId\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"0\n" +
-	"\x0fSendRequestResp\x12\x1d\n" +
+	"to_user_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\btoUserId\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"8\n" +
+	"\x0fSendRequestResp\x12%\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\x03R\trequestId\"J\n" +
-	"\x10AcceptRequestReq\x12\x1d\n" +
+	"request_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\trequestId\"Z\n" +
+	"\x10AcceptRequestReq\x12%\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\x03R\trequestId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"J\n" +
-	"\x10RejectRequestReq\x12\x1d\n" +
+	"request_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\trequestId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"Z\n" +
+	"\x10RejectRequestReq\x12%\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\x03R\trequestId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"J\n" +
-	"\x10CancelRequestReq\x12\x1d\n" +
+	"request_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\trequestId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"Z\n" +
+	"\x10CancelRequestReq\x12%\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\x03R\trequestId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"e\n" +
-	"\x16ListPendingRequestsReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x122\n" +
-	"\n" +
-	"pagination\x18\x02 \x01(\v2\x12.common.PaginationR\n" +
-	"pagination\"b\n" +
-	"\x13ListSentRequestsReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x122\n" +
+	"request_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\trequestId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"m\n" +
+	"\x16ListPendingRequestsReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x122\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x12.common.PaginationR\n" +
-	"pagination\"\xa4\x02\n" +
-	"\rFriendRequest\x12\x1d\n" +
+	"pagination\"j\n" +
+	"\x13ListSentRequestsReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x122\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\x03R\trequestId\x12 \n" +
-	"\ffrom_user_id\x18\x02 \x01(\x03R\n" +
-	"fromUserId\x12\x1c\n" +
+	"pagination\x18\x02 \x01(\v2\x12.common.PaginationR\n" +
+	"pagination\"\xbc\x02\n" +
+	"\rFriendRequest\x12%\n" +
 	"\n" +
-	"to_user_id\x18\x03 \x01(\x03R\btoUserId\x12\x18\n" +
+	"request_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\trequestId\x12(\n" +
+	"\ffrom_user_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\n" +
+	"fromUserId\x12$\n" +
+	"\n" +
+	"to_user_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\btoUserId\x12\x18\n" +
 	"\amessage\x18\x04 \x01(\tR\amessage\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1d\n" +
 	"\n" +
@@ -4161,58 +4184,61 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\brequests\x18\x01 \x03(\v2\x13.user.FriendRequestR\brequests\x126\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x16.common.PaginationRespR\n" +
-	"pagination\"\x8a\x01\n" +
-	"\x0eListFriendsReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1e\n" +
-	"\bgroup_id\x18\x02 \x01(\x03H\x00R\agroupId\x88\x01\x01\x122\n" +
+	"pagination\"\x9a\x01\n" +
+	"\x0eListFriendsReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12&\n" +
+	"\bgroup_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\agroupId\x88\x01\x01\x122\n" +
 	"\n" +
 	"pagination\x18\x03 \x01(\v2\x12.common.PaginationR\n" +
 	"paginationB\v\n" +
-	"\t_group_id\"\xe2\x01\n" +
+	"\t_group_id\"\x84\x02\n" +
 	"\n" +
-	"FriendInfo\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1a\n" +
+	"FriendInfo\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x16\n" +
 	"\x06avatar\x18\x03 \x01(\tR\x06avatar\x12\x16\n" +
-	"\x06remark\x18\x04 \x01(\tR\x06remark\x12\x19\n" +
-	"\bgroup_id\x18\x05 \x01(\x03R\agroupId\x12\x1d\n" +
+	"\x06remark\x18\x04 \x01(\tR\x06remark\x12&\n" +
+	"\bgroup_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\agroupId\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"group_name\x18\x06 \x01(\tR\tgroupName\x12\x16\n" +
 	"\x06status\x18\a \x01(\tR\x06status\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\b \x01(\x03R\tcreatedAt\"u\n" +
+	"created_at\x18\b \x01(\x03R\tcreatedAtB\v\n" +
+	"\t_group_id\"u\n" +
 	"\x0fListFriendsResp\x12*\n" +
 	"\afriends\x18\x01 \x03(\v2\x10.user.FriendInfoR\afriends\x126\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x16.common.PaginationRespR\n" +
-	"pagination\"G\n" +
-	"\x0fDeleteFriendReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
-	"\tfriend_id\x18\x02 \x01(\x03R\bfriendId\"\\\n" +
-	"\fSetRemarkReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
-	"\tfriend_id\x18\x02 \x01(\x03R\bfriendId\x12\x16\n" +
-	"\x06remark\x18\x03 \x01(\tR\x06remark\"^\n" +
-	"\vSetGroupReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
-	"\tfriend_id\x18\x02 \x01(\x03R\bfriendId\x12\x19\n" +
-	"\bgroup_id\x18\x03 \x01(\x03R\agroupId\"=\n" +
-	"\x0eCreateGroupReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\",\n" +
-	"\x0fCreateGroupResp\x12\x19\n" +
-	"\bgroup_id\x18\x01 \x01(\x03R\agroupId\"X\n" +
-	"\x0eRenameGroupReq\x12\x19\n" +
-	"\bgroup_id\x18\x01 \x01(\x03R\agroupId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\"D\n" +
-	"\x0eDeleteGroupReq\x12\x19\n" +
-	"\bgroup_id\x18\x01 \x01(\x03R\agroupId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"(\n" +
-	"\rListGroupsReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\"\x92\x01\n" +
-	"\vFriendGroup\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"pagination\"W\n" +
+	"\x0fDeleteFriendReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12#\n" +
+	"\tfriend_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\bfriendId\"l\n" +
+	"\fSetRemarkReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12#\n" +
+	"\tfriend_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\bfriendId\x12\x16\n" +
+	"\x06remark\x18\x03 \x01(\tR\x06remark\"\xae\x01\n" +
+	"\vSetGroupReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12#\n" +
+	"\tfriend_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\bfriendId\x12&\n" +
+	"\bgroup_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\agroupId\x88\x01\x01\x12$\n" +
+	"\x0eclear_group_id\x18\x04 \x01(\bR\fclearGroupIdB\v\n" +
+	"\t_group_id\"E\n" +
+	"\x0eCreateGroupReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"4\n" +
+	"\x0fCreateGroupResp\x12!\n" +
+	"\bgroup_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\agroupId\"h\n" +
+	"\x0eRenameGroupReq\x12!\n" +
+	"\bgroup_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\agroupId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\"T\n" +
+	"\x0eDeleteGroupReq\x12!\n" +
+	"\bgroup_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\agroupId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"0\n" +
+	"\rListGroupsReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"\x9a\x01\n" +
+	"\vFriendGroup\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"sort_order\x18\x03 \x01(\x05R\tsortOrder\x12!\n" +
@@ -4220,20 +4246,20 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\";\n" +
 	"\x0eListGroupsResp\x12)\n" +
-	"\x06groups\x18\x01 \x03(\v2\x11.user.FriendGroupR\x06groups\"O\n" +
-	"\fBlockUserReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12&\n" +
-	"\x0fblocked_user_id\x18\x02 \x01(\x03R\rblockedUserId\"Q\n" +
-	"\x0eUnblockUserReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12&\n" +
-	"\x0fblocked_user_id\x18\x02 \x01(\x03R\rblockedUserId\"_\n" +
-	"\x10ListBlacklistReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x122\n" +
+	"\x06groups\x18\x01 \x03(\v2\x11.user.FriendGroupR\x06groups\"_\n" +
+	"\fBlockUserReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12.\n" +
+	"\x0fblocked_user_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\rblockedUserId\"a\n" +
+	"\x0eUnblockUserReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12.\n" +
+	"\x0fblocked_user_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\rblockedUserId\"g\n" +
+	"\x10ListBlacklistReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x122\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x12.common.PaginationR\n" +
-	"pagination\"{\n" +
-	"\rBlacklistUser\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1a\n" +
+	"pagination\"\x83\x01\n" +
+	"\rBlacklistUser\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x16\n" +
 	"\x06avatar\x18\x03 \x01(\tR\x06avatar\x12\x1d\n" +
 	"\n" +
@@ -4242,10 +4268,10 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\x05users\x18\x01 \x03(\v2\x13.user.BlacklistUserR\x05users\x126\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x16.common.PaginationRespR\n" +
-	"pagination\"M\n" +
-	"\fIsBlockedReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12$\n" +
-	"\x0etarget_user_id\x18\x02 \x01(\x03R\ftargetUserId\".\n" +
+	"pagination\"]\n" +
+	"\fIsBlockedReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12,\n" +
+	"\x0etarget_user_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\ftargetUserId\".\n" +
 	"\rIsBlockedResp\x12\x1d\n" +
 	"\n" +
 	"is_blocked\x18\x01 \x01(\bR\tisBlocked2\x80\x13\n" +
@@ -4500,9 +4526,13 @@ func file_user_service_user_proto_init() {
 	if File_user_service_user_proto != nil {
 		return
 	}
+	file_user_service_user_proto_msgTypes[9].OneofWrappers = []any{}
 	file_user_service_user_proto_msgTypes[15].OneofWrappers = []any{}
+	file_user_service_user_proto_msgTypes[29].OneofWrappers = []any{}
 	file_user_service_user_proto_msgTypes[30].OneofWrappers = []any{}
 	file_user_service_user_proto_msgTypes[46].OneofWrappers = []any{}
+	file_user_service_user_proto_msgTypes[47].OneofWrappers = []any{}
+	file_user_service_user_proto_msgTypes[51].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

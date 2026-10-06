@@ -4,6 +4,8 @@ package knowledgebase;
 
 option go_package = "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase";
 
+import "common/common.proto";
+
 import "google/protobuf/empty.proto";
 
 service KnowledgeBase {
@@ -45,21 +47,26 @@ message CreateKBReq {
     string embedding_model = 3;     // display only, resolved from embedding_model_id
     PipelineConfig pipeline_config = 4;
     string mode = 5;                // "rag"
-    int64 embedding_model_id = 6;   // model registry ID
+    optional string embedding_model_id = 6 [(common.entity_id) = true];   // model registry ID
+    string owner_type = 7; // platform | user；由既有鉴权决定允许的所有权
+    optional string owner_id = 8 [(common.entity_id) = true];
 }
 
 message UpdateKBReq {
-    int64 kb_id = 1;
+    string kb_id = 1 [(common.entity_id) = true];
     string name = 2;
     string description = 3;
     string embedding_model = 4;
+    // 配置缺失表示保持；嵌套模型引用也遵守 presence + clear_model_id 的更新合同。
     PipelineConfig pipeline_config = 5;
     string status = 6;          // "active" | "disabled"
-    int64 embedding_model_id = 7;
+    optional string embedding_model_id = 7 [(common.entity_id) = true];
+    // 未提供引用且 clear=false 保持，clear=true 解除；同时提供引用与 clear=true 拒绝。
+    bool clear_embedding_model_id = 8;
 }
 
-message DeleteKBReq { int64 kb_id = 1; }
-message GetKBReq { int64 kb_id = 1; }
+message DeleteKBReq { string kb_id = 1 [(common.entity_id) = true]; }
+message GetKBReq { string kb_id = 1 [(common.entity_id) = true]; }
 
 message ListKBsReq {
     int32 offset = 1;
@@ -67,8 +74,8 @@ message ListKBsReq {
 }
 
 message KBRsp {
-    int64 id = 1;
-    int64 owner_id = 2;
+    string id = 1 [(common.entity_id) = true];
+    optional string owner_id = 2 [(common.entity_id) = true];
     string name = 3;
     string description = 4;
     string embedding_model = 5;
@@ -79,7 +86,8 @@ message KBRsp {
     int64 created_at = 10;
     int64 updated_at = 11;
     string mode = 12;               // "rag"
-    int64 embedding_model_id = 13;
+    optional string embedding_model_id = 13 [(common.entity_id) = true];
+    string owner_type = 14; // platform | user；平台不提供 owner_id
 }
 
 message ListKBsRsp {
@@ -128,7 +136,10 @@ message VLMConfig {
     string model = 3;                 // VLM 模型名，如 "gpt-4o-mini"
     string api_key = 4;               // VLM API Key
     string base_url = 5;              // VLM 服务地址
-    int64 model_id = 6;               // 模型注册表 ID，CreateKB 时用于查询 Provider/Model/APIKey/BaseURL
+    optional string model_id = 6 [(common.entity_id) = true];               // 模型注册表 ID，CreateKB 时用于查询 Provider/Model/APIKey/BaseURL
+    // 更新时缺失且 clear=false 保持，clear=true 解除；同时提供引用与 clear=true 拒绝。
+    // 创建配置时不提供 clear_model_id。
+    bool clear_model_id = 7;
 }
 
 message ChunkingConfig {
@@ -156,8 +167,11 @@ message RetrievalConfig {
 
 message RerankConfig {
     bool enabled = 1;
-    int64 model_id = 2;
+    optional string model_id = 2 [(common.entity_id) = true];
     int32 top_n = 3;                  // candidates to rerank, default: 20
+    // 更新时缺失且 clear=false 保持，clear=true 解除；同时提供引用与 clear=true 拒绝。
+    // 创建配置时不提供 clear_model_id。
+    bool clear_model_id = 4;
 }
 
 // ============================================================
@@ -180,21 +194,21 @@ message UploadDocumentReq {
     }
 }
 
-message GetDocumentReq { int64 doc_id = 1; }
+message GetDocumentReq { string doc_id = 1 [(common.entity_id) = true]; }
 
 message ListDocumentsReq {
-    int64 kb_id = 1;
+    string kb_id = 1 [(common.entity_id) = true];
     int32 offset = 2;
     int32 limit = 3;
     string status = 4;                // optional filter by status
 }
 
-message DeleteDocumentReq { int64 doc_id = 1; }
-message RetryDocumentReq { int64 doc_id = 1; }
+message DeleteDocumentReq { string doc_id = 1 [(common.entity_id) = true]; }
+message RetryDocumentReq { string doc_id = 1 [(common.entity_id) = true]; }
 
 message DocumentRsp {
-    int64 id = 1;
-    int64 kb_id = 2;
+    string id = 1 [(common.entity_id) = true];
+    string kb_id = 2 [(common.entity_id) = true];
     string title = 3;
     string file_type = 4;
     int64 file_size = 5;
@@ -228,9 +242,9 @@ message ListDocumentsRsp {
 
 message RetrieveReq {
     string query = 1;
-    int64 bot_id = 2;
-    int64 conv_id = 3;
-    repeated int64 kb_ids = 4;
+    optional string bot_id = 2 [(common.entity_id) = true];
+    optional string conv_id = 3 [(common.entity_id) = true];
+    repeated string kb_ids = 4 [(common.entity_id) = true];
     // knowledge-base resolves bindings internally, caller does not pass kb_ids
 }
 
@@ -239,12 +253,12 @@ message RetrieveRsp {
 }
 
 message RetrieveItem {
-    int64 chunk_id = 1;
+    string chunk_id = 1 [(common.entity_id) = true];
     string content = 2;               // parent block full text for parent-child mode
     float score = 3;
-    int64 doc_id = 4;
+    string doc_id = 4 [(common.entity_id) = true];
     string doc_title = 5;
-    int64 kb_id = 6;
+    string kb_id = 6 [(common.entity_id) = true];
     string kb_name = 7;
     string matched_content = 8;       // matched child block text (parent-child mode)
     ChunkMeta metadata = 9;
@@ -264,20 +278,20 @@ message ChunkMeta {
 // ============================================================
 
 message BindReq {
-    int64 kb_id = 1;
+    string kb_id = 1 [(common.entity_id) = true];
     string target_type = 2;           // "bot" | "conv"
-    int64 target_id = 3;
+    string target_id = 3 [(common.entity_id) = true];
 }
 
 message UnbindReq {
-    int64 kb_id = 1;
+    string kb_id = 1 [(common.entity_id) = true];
     string target_type = 2;
-    int64 target_id = 3;
+    string target_id = 3 [(common.entity_id) = true];
 }
 
 message ListBindingsReq {
     string target_type = 1;           // "bot" | "conv"
-    int64 target_id = 2;
+    string target_id = 2 [(common.entity_id) = true];
 }
 
 message ListBindingsRsp {
@@ -285,16 +299,16 @@ message ListBindingsRsp {
 }
 
 message BindingItem {
-    int64 id = 1;
-    int64 kb_id = 2;
+    string id = 1 [(common.entity_id) = true];
+    string kb_id = 2 [(common.entity_id) = true];
     string kb_name = 3;
     string target_type = 4;
-    int64 target_id = 5;
+    string target_id = 5 [(common.entity_id) = true];
     int64 created_at = 6;
     string mode = 7;
 }
 
-message ListBoundTargetsReq { int64 kb_id = 1; }
+message ListBoundTargetsReq { string kb_id = 1 [(common.entity_id) = true]; }
 
 message ListBoundTargetsRsp {
     repeated BoundTargetItem items = 1;
@@ -302,7 +316,7 @@ message ListBoundTargetsRsp {
 
 message BoundTargetItem {
     string target_type = 1;
-    int64 target_id = 2;
+    string target_id = 2 [(common.entity_id) = true];
     int64 created_at = 3;
 }
 
@@ -310,7 +324,7 @@ message BoundTargetItem {
 // Document Content & Chunks
 // ============================================================
 
-message GetDocumentContentReq { int64 doc_id = 1; }
+message GetDocumentContentReq { string doc_id = 1 [(common.entity_id) = true]; }
 
 message GetDocumentContentResp {
     string content = 1;
@@ -320,14 +334,14 @@ message GetDocumentContentResp {
 }
 
 message ListChunksReq {
-    int64 doc_id = 1;
+    string doc_id = 1 [(common.entity_id) = true];
     int32 offset = 2;
     int32 limit = 3;
 }
 
 message ChunkInfo {
-    int64 id = 1;
-    int64 doc_id = 2;
+    string id = 1 [(common.entity_id) = true];
+    string doc_id = 2 [(common.entity_id) = true];
     int32 chunk_index = 3;
     string content = 4;
     int32 token_count = 5;

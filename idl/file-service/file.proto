@@ -47,7 +47,7 @@ enum FileAccess {
 // ========== File Info ==========
 
 message FileInfo {
-  int64 file_id = 1;              // unique file ID (snowflake)
+  string file_id = 1 [(common.entity_id) = true];              // 文件实体 UUID，由 files domain 分配
   string name = 2;                // original file name
   string key = 3;                 // object storage key/path
   int64 size = 4;                 // file size in bytes
@@ -59,7 +59,7 @@ message FileInfo {
   string md5 = 10;                // file hash for integrity check
   FilePurpose purpose = 11;
   FileAccess access = 12;
-  int64 uploader_id = 13;         // user who uploaded
+  string uploader_id = 13 [(common.entity_id) = true];         // user who uploaded
   string bucket = 14;             // object storage bucket name
   int64 created_at = 20;
 }
@@ -70,14 +70,14 @@ message GetUploadURLReq {
   string name = 1;                // original file name
   string mime_type = 2;
   int64 size = 3;                 // expected file size
-  int64 uploader_id = 4;
+  string uploader_id = 4 [(common.entity_id) = true];
   FilePurpose purpose = 5;
   FileAccess access = 6;
   int32 expires_in = 7;           // URL expiry in seconds (default 3600)
 }
 
 message GetUploadURLResp {
-  int64 file_id = 1;              // assigned file ID
+  string file_id = 1 [(common.entity_id) = true];              // assigned file ID
   string upload_url = 2;          // presigned PUT URL
   string key = 3;                 // object storage key
   int64 expires_at = 4;           // upload URL expiry timestamp
@@ -86,8 +86,8 @@ message GetUploadURLResp {
 // ========== Confirm Upload ==========
 
 message ConfirmUploadReq {
-  int64 file_id = 1;
-  int64 uploader_id = 2;
+  string file_id = 1 [(common.entity_id) = true];
+  string uploader_id = 2 [(common.entity_id) = true];
   optional string md5 = 3;        // client-computed MD5 for verification
 }
 
@@ -98,8 +98,8 @@ message ConfirmUploadResp {
 // ========== Get Download URL ==========
 
 message GetDownloadURLReq {
-  int64 file_id = 1;
-  int64 user_id = 2;              // for access check
+  string file_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];              // for access check
   int32 expires_in = 3;           // URL expiry in seconds (default 3600)
 }
 
@@ -112,8 +112,8 @@ message GetDownloadURLResp {
 // ========== Get File Info ==========
 
 message GetFileInfoReq {
-  int64 file_id = 1;
-  int64 user_id = 2;
+  string file_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 message GetFileInfoResp {
@@ -123,8 +123,8 @@ message GetFileInfoResp {
 // ========== Batch Get File Info ==========
 
 message BatchGetFileInfoReq {
-  repeated int64 file_ids = 1;
-  int64 user_id = 2;
+  repeated string file_ids = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 message BatchGetFileInfoResp {
@@ -135,22 +135,22 @@ message BatchGetFileInfoResp {
 // ========== Delete File ==========
 
 message DeleteFileReq {
-  int64 file_id = 1;
-  int64 user_id = 2;
+  string file_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 // ========== Batch Delete Files ==========
 
 message BatchDeleteFilesReq {
-  repeated int64 file_ids = 1;
-  int64 user_id = 2;
+  repeated string file_ids = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 // ========== Upload Avatar ==========
 
 message UploadAvatarReq {
   bytes data = 1;                 // raw image bytes (server-side upload)
-  int64 user_id = 2;
+  string user_id = 2 [(common.entity_id) = true];
   string mime_type = 3;           // image/jpeg, image/png, image/webp
   // optional crop params
   optional int32 crop_x = 10;
@@ -161,7 +161,7 @@ message UploadAvatarReq {
 }
 
 message UploadAvatarResp {
-  int64 file_id = 1;
+  string file_id = 1 [(common.entity_id) = true];
   string url = 2;                 // permanent avatar URL
   string thumbnail_url = 3;       // small thumbnail URL
   int32 width = 4;

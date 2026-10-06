@@ -3,9 +3,9 @@ package interceptor
 import (
 	"context"
 	"runtime/debug"
-	"strconv"
 
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcMetadata "google.golang.org/grpc/metadata"
@@ -89,22 +89,27 @@ const ContextKeyRequestID = "request_id"
 // UnaryUserIDInterceptor extracts user-id from gRPC metadata and injects it into context.
 func UnaryUserIDInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		ctx = WithUserIDFromMetadata(ctx)
+		var err error
+		ctx, err = WithUserIDFromMetadata(ctx)
+		if err != nil {
+			return nil, err
+		}
 		return handler(ctx, req)
 	}
 }
 
-// WithUserIDFromMetadata extracts user-id from gRPC incoming metadata and returns
-// a new context with the value set.
-func WithUserIDFromMetadata(ctx context.Context) context.Context {
-	if md, ok := grpcMetadata.FromIncomingContext(ctx); ok {
-		if vals := md.Get("user-id"); len(vals) > 0 {
-			if id, err := strconv.ParseInt(vals[0], 10, 64); err == nil {
-				return context.WithValue(ctx, ContextKeyUserID, id)
-			}
-		}
+// WithUserIDFromMetadata validates the optional user-id metadata before injecting it.
+// Absence is allowed for public RPCs; supplied malformed or repeated identities are rejected.
+func WithUserIDFromMetadata(ctx context.Context) (context.Context, error) {
+	md, _ := grpcMetadata.FromIncomingContext(ctx)
+	vals := md.Get("user-id")
+	if len(vals) == 0 {
+		return ctx, nil
 	}
-	return ctx
+	if len(vals) != 1 || identity.Validate(vals[0]) != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid user identity")
+	}
+	return context.WithValue(ctx, ContextKeyUserID, vals[0]), nil
 }
 
 // UnaryRequestIDInterceptor extracts request-id from gRPC metadata and injects it into context.

@@ -91,8 +91,8 @@ enum MessageStatus {
 }
 
 message ReplyMessageSummary {
-  int64 message_id = 1;
-  int64 sender_id = 2;
+  string message_id = 1 [(common.entity_id) = true];
+  optional string sender_id = 2 [(common.entity_id) = true];
   string sender_type = 3;
   string sender_name = 4;
   MessageType type = 5;
@@ -104,12 +104,12 @@ message ReplyMessageSummary {
 
 message TextContent {
   string text = 1;
-  repeated int64 mention_user_ids = 2;
+  repeated string mention_user_ids = 2 [(common.entity_id) = true];
   bool mention_all = 3;
 }
 
 message ImageContent {
-  int64 file_id = 1;
+  string file_id = 1 [(common.entity_id) = true];
   string url = 2;
   string thumbnail_url = 3;
   int32 width = 4;
@@ -119,7 +119,7 @@ message ImageContent {
 }
 
 message FileContent {
-  int64 file_id = 1;
+  string file_id = 1 [(common.entity_id) = true];
   string url = 2;
   string name = 3;
   int64 size = 4;
@@ -128,7 +128,7 @@ message FileContent {
 }
 
 message VideoContent {
-  int64 file_id = 1;
+  string file_id = 1 [(common.entity_id) = true];
   string url = 2;
   string thumbnail_url = 3;
   int32 duration = 4;
@@ -138,7 +138,7 @@ message VideoContent {
 }
 
 message AudioContent {
-  int64 file_id = 1;
+  string file_id = 1 [(common.entity_id) = true];
   string url = 2;
   int32 duration = 3;
   int64 size = 4;
@@ -154,14 +154,14 @@ message LocationContent {
 message SystemContent {
   string action = 1;
   string detail = 2;
-  repeated int64 related_user_ids = 3;
-  int64 actor_id = 4;
+  repeated string related_user_ids = 3 [(common.entity_id) = true];
+  optional string actor_id = 4 [(common.entity_id) = true];
   string actor_type = 5;
   string payload = 6;
 }
 
 message BotContent {
-  int64 bot_id = 1;
+  string bot_id = 1 [(common.entity_id) = true];
   string bot_name = 2;
   string bot_avatar = 3;
   string text = 4;
@@ -178,10 +178,10 @@ message CustomContent {
 // ========== Message Entity ==========
 
 message Message {
-  int64 message_id = 1;
-  int64 conversation_id = 2;
-  int64 seq = 3;
-  int64 from_user_id = 4;
+  string message_id = 1 [(common.entity_id) = true];
+  string conversation_id = 2 [(common.entity_id) = true];
+  int64 seq = 3 [(common.safe_sequence) = true];
+  optional string from_user_id = 4 [(common.entity_id) = true];
   MessageType type = 5;
   MessageStatus status = 6;
 
@@ -197,7 +197,7 @@ message Message {
     CustomContent custom = 18;
   }
 
-  int64 reply_to_id = 20;
+  optional string reply_to_id = 20 [(common.entity_id) = true];
   ReplyMessageSummary reply_to = 21;
 
   int64 edited_at = 25;
@@ -210,8 +210,8 @@ message Message {
 // ========== Send ==========
 
 message SendMessageReq {
-  int64 conversation_id = 1;
-  int64 from_user_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string from_user_id = 2 [(common.entity_id) = true];
   MessageType type = 3;
 
   oneof content {
@@ -224,44 +224,56 @@ message SendMessageReq {
     CustomContent custom = 18;
   }
 
-  optional int64 reply_to_id = 20;
-  string client_msg_id = 25;
+  optional string reply_to_id = 20 [(common.entity_id) = true];
+  string client_msg_id = 25 [(common.submission_key) = true];
 }
 
 message SendMessageResp {
-  int64 message_id = 1;
-  int64 seq = 2;
+  string message_id = 1 [(common.entity_id) = true];
+  int64 seq = 2 [(common.safe_sequence) = true];
   int64 created_at = 3;
 }
 
 // ========== Recall / Edit / Delete ==========
 
 message RecallMessageReq {
-  int64 message_id = 1;
-  int64 conversation_id = 2;
-  int64 user_id = 3;
+  string message_id = 1 [(common.entity_id) = true];
+  string conversation_id = 2 [(common.entity_id) = true];
+  string user_id = 3 [(common.entity_id) = true];
 }
 
 message EditMessageReq {
-  int64 message_id = 1;
-  int64 conversation_id = 2;
-  int64 user_id = 3;
+  string message_id = 1 [(common.entity_id) = true];
+  string conversation_id = 2 [(common.entity_id) = true];
+  string user_id = 3 [(common.entity_id) = true];
   TextContent text = 10;
 }
 
 message DeleteMessageReq {
-  int64 message_id = 1;
-  int64 conversation_id = 2;
-  int64 user_id = 3;
+  string message_id = 1 [(common.entity_id) = true];
+  string conversation_id = 2 [(common.entity_id) = true];
+  string user_id = 3 [(common.entity_id) = true];
   bool delete_for_all = 4;
 }
 
 // ========== Get Messages ==========
 
+// 消息历史游标是会话 seq；不能与会话列表等 opaque 字符串游标混用。
+message MessagePagination {
+  int32 limit = 1;
+  int64 cursor = 2 [(common.safe_sequence) = true]; // 0 表示从最新消息开始
+}
+
+message MessagePaginationResp {
+  int64 next_cursor = 1 [(common.safe_sequence) = true];
+  bool has_more = 2;
+  int64 total = 3;
+}
+
 message GetMessagesReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
-  common.CursorPagination pagination = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
+  MessagePagination pagination = 3;
   optional int64 before_time = 11;
   optional int64 after_time = 12;
   repeated MessageType filter_types = 13;
@@ -269,34 +281,34 @@ message GetMessagesReq {
 
 message GetMessagesResp {
   repeated Message messages = 1;
-  common.CursorPaginationResp pagination = 2;
+  MessagePaginationResp pagination = 2;
 }
 
 // ========== Get Around Seq ==========
 
 message GetAroundSeqReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
-  int64 seq = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
+  int64 seq = 3 [(common.safe_sequence) = true];
   int32 limit = 4;
 }
 
 // ========== Sync ==========
 
 message SyncMessagesReq {
-  int64 user_id = 1;
-  int64 position = 2;
+  string user_id = 1 [(common.entity_id) = true];
+  int64 position = 2 [(common.safe_sequence) = true];
   int32 limit = 3;
 }
 
 message InboxChange {
-  int64 position = 1;
-  int64 conversation_id = 2;
+  int64 position = 1 [(common.safe_sequence) = true];
+  string conversation_id = 2 [(common.entity_id) = true];
   string kind = 3;
   Message message = 4;
-  int64 message_id = 5;
+  optional string message_id = 5 [(common.entity_id) = true];
   Conversation conversation = 6;
-  int64 last_read_seq = 7;
+  int64 last_read_seq = 7 [(common.safe_sequence) = true];
 }
 
 message ConversationSnapshot {
@@ -307,7 +319,7 @@ message ConversationSnapshot {
 message SyncMessagesResp {
   repeated InboxChange changes = 1;
   bool has_more = 2;
-  int64 next_position = 3;
+  int64 next_position = 3 [(common.safe_sequence) = true];
   bool rebuild_required = 4;
   repeated ConversationSnapshot conversations = 5;
   string rebuild_reason = 6;
@@ -316,7 +328,7 @@ message SyncMessagesResp {
 // ========== Get By ID ==========
 
 message GetMessageByIDReq {
-  int64 message_id = 1;
+  string message_id = 1 [(common.entity_id) = true];
 }
 
 message GetMessageByIDResp {
@@ -326,7 +338,7 @@ message GetMessageByIDResp {
 // ========== Batch Get ==========
 
 message BatchGetMessagesReq {
-  repeated int64 message_ids = 1;
+  repeated string message_ids = 1 [(common.entity_id) = true];
 }
 
 message BatchGetMessagesResp {
@@ -336,12 +348,12 @@ message BatchGetMessagesResp {
 // ========== Search ==========
 
 message SearchMessagesReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   string keyword = 2;
-  optional int64 conversation_id = 3;
+  optional string conversation_id = 3 [(common.entity_id) = true];
   optional int64 start_time = 4;
   optional int64 end_time = 5;
-  optional int64 sender_id = 6;
+  optional string sender_id = 6 [(common.entity_id) = true];
   string sender_type = 7;
   repeated MessageType message_types = 8;
   common.Pagination pagination = 10;
@@ -362,40 +374,40 @@ message SearchMessagesResp {
 // ========== Broadcast ==========
 
 message SendBroadcastReq {
-  int64 sender_id = 1;
+  string sender_id = 1 [(common.entity_id) = true];
   string content = 2;            // JSON: flexible content structure
   string scope = 3;              // "all", "group", or "user"
-  optional int64 scope_target_id = 4;
+  optional string scope_target_id = 4 [(common.entity_id) = true];
 }
 
 message SendBroadcastResp {
-  int64 broadcast_id = 1;
+  string broadcast_id = 1 [(common.entity_id) = true];
   int64 created_at = 2;
 }
 
 // ========== Bot Reply ==========
 
 message SendBotReplyReq {
-  int64 bot_id = 1;
-  int64 conversation_id = 2;
+  string bot_id = 1 [(common.entity_id) = true];
+  string conversation_id = 2 [(common.entity_id) = true];
   string text = 3;
-  optional int64 reply_to_id = 4;
+  optional string reply_to_id = 4 [(common.entity_id) = true];
   string raw_payload = 5;        // JSON: model, tokens, etc.
 }
 
 message SendSystemMessageReq {
-  int64 conversation_id = 1;
-  int64 actor_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  optional string actor_id = 2 [(common.entity_id) = true];
   string actor_type = 3;
   string action = 4;
   string detail = 5;
-  repeated int64 related_user_ids = 6;
+  repeated string related_user_ids = 6 [(common.entity_id) = true];
   string payload = 7;
 }
 
 message SendBotReplyResp {
-  int64 message_id = 1;
-  int64 seq = 2;
+  string message_id = 1 [(common.entity_id) = true];
+  int64 seq = 2 [(common.safe_sequence) = true];
   int64 created_at = 3;
 }
 
@@ -424,16 +436,16 @@ enum MemberType {
 // ========== Conversation Entity ==========
 
 message Conversation {
-  int64 id = 1;
+  string id = 1 [(common.entity_id) = true];
   ConversationType type = 2;
   string name = 3;
   string avatar = 4;
-  int64 owner_id = 5;
+  optional string owner_id = 5 [(common.entity_id) = true]; // 缺失表示无拥有者；不改变既有系统会话归属
   int32 member_count = 6;
-  int64 max_seq = 7;
-  int64 last_message_id = 8;
+  int64 max_seq = 7 [(common.safe_sequence) = true];
+  optional string last_message_id = 8 [(common.entity_id) = true];
   string last_message_preview = 9;
-  int64 last_read_seq = 10;
+  int64 last_read_seq = 10 [(common.safe_sequence) = true];
   int32 unread_count = 11;
   bool is_muted = 12;
   bool is_pinned = 13;
@@ -447,17 +459,18 @@ message Conversation {
 // ========== Conversation Member ==========
 
 message ConversationMember {
-  int64 user_id = 1;
+  // USER 仅提供 user_id，BOT 仅提供 bot_id；禁止用伪身份填充另一种成员引用。
+  optional string user_id = 1 [(common.entity_id) = true];
   string username = 2;
   string avatar = 3;
   MemberRole role = 4;
   string alias = 5;
   int64 joined_at = 6;
-  int64 last_read_seq = 7;
+  int64 last_read_seq = 7 [(common.safe_sequence) = true];
   bool is_muted = 8;
   int64 mute_until = 9;
   MemberType member_type = 10;
-  int64 bot_id = 11;
+  optional string bot_id = 11 [(common.entity_id) = true];
   string bot_name = 12;
   string bot_avatar = 13;
 }
@@ -466,23 +479,23 @@ message ConversationMember {
 
 message CreateConversationReq {
   ConversationType type = 1;
-  int64 creator_id = 2;
-  optional int64 peer_user_id = 10;
+  string creator_id = 2 [(common.entity_id) = true];
+  optional string peer_user_id = 10 [(common.entity_id) = true];
   optional string name = 20;
   optional string avatar = 21;
-  repeated int64 member_ids = 22;
+  repeated string member_ids = 22 [(common.entity_id) = true];
 }
 
 message CreateConversationResp {
-  int64 conversation_id = 1;
+  string conversation_id = 1 [(common.entity_id) = true];
   Conversation conversation = 2;
 }
 
 // ========== Get ==========
 
 message GetConversationReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 message GetConversationResp {
@@ -492,7 +505,7 @@ message GetConversationResp {
 // ========== List ==========
 
 message ListConversationsReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   common.CursorPagination pagination = 2;
   optional ConversationType type = 3;
   bool pinned_first = 4;
@@ -506,8 +519,8 @@ message ListConversationsResp {
 // ========== Update ==========
 
 message UpdateConversationReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
   optional string name = 10;
   optional string avatar = 11;
   optional string background = 14;
@@ -516,36 +529,36 @@ message UpdateConversationReq {
 // ========== Delete ==========
 
 message DeleteConversationReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 // ========== Add Members ==========
 
 message AddMembersReq {
-  int64 conversation_id = 1;
-  int64 operator_id = 2;
-  repeated int64 user_ids = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string operator_id = 2 [(common.entity_id) = true];
+  repeated string user_ids = 3 [(common.entity_id) = true];
 }
 
 message AddMembersResp {
-  repeated int64 added_user_ids = 1;
-  repeated int64 failed_user_ids = 2;
+  repeated string added_user_ids = 1 [(common.entity_id) = true];
+  repeated string failed_user_ids = 2 [(common.entity_id) = true];
 }
 
 // ========== Remove Members ==========
 
 message RemoveMembersReq {
-  int64 conversation_id = 1;
-  int64 operator_id = 2;
-  repeated int64 user_ids = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string operator_id = 2 [(common.entity_id) = true];
+  repeated string user_ids = 3 [(common.entity_id) = true];
 }
 
 // ========== Get Members ==========
 
 message GetMembersReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
   common.Pagination pagination = 3;
 }
 
@@ -557,9 +570,9 @@ message GetMembersResp {
 // ========== Update Member ==========
 
 message UpdateMemberReq {
-  int64 conversation_id = 1;
-  int64 operator_id = 2;
-  int64 user_id = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string operator_id = 2 [(common.entity_id) = true];
+  string user_id = 3 [(common.entity_id) = true];
   optional MemberRole role = 4;
   optional string alias = 5;
 }
@@ -575,56 +588,56 @@ message UpdateMemberReq {
 // ========== Mute All ==========
 
 message MuteAllReq {
-  int64 conversation_id = 1;
-  int64 operator_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string operator_id = 2 [(common.entity_id) = true];
 }
 
 message UnmuteAllReq {
-  int64 conversation_id = 1;
-  int64 operator_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string operator_id = 2 [(common.entity_id) = true];
 }
 
 // ========== Mute/Unmute Member ==========
 
 message MuteMemberReq {
-  int64 conversation_id = 1;
-  int64 operator_id = 2;
-  int64 user_id = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string operator_id = 2 [(common.entity_id) = true];
+  string user_id = 3 [(common.entity_id) = true];
   int64 duration_seconds = 4;  // 0 = permanent until unmuted
 }
 
 message UnmuteMemberReq {
-  int64 conversation_id = 1;
-  int64 operator_id = 2;
-  int64 user_id = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string operator_id = 2 [(common.entity_id) = true];
+  string user_id = 3 [(common.entity_id) = true];
 }
 
 // ========== Announcement ==========
 
 message SetAnnouncementReq {
-  int64 conversation_id = 1;
-  int64 operator_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string operator_id = 2 [(common.entity_id) = true];
   string content = 3;
 }
 
 message DeleteAnnouncementReq {
-  int64 conversation_id = 1;
-  int64 operator_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string operator_id = 2 [(common.entity_id) = true];
 }
 
 // ========== Transfer Owner ==========
 
 message TransferOwnerReq {
-  int64 conversation_id = 1;
-  int64 operator_id = 2;
-  int64 new_owner_id = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string operator_id = 2 [(common.entity_id) = true];
+  string new_owner_id = 3 [(common.entity_id) = true];
 }
 
 // ========== Settings ==========
 
 message GetSettingsReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 message GetSettingsResp {
@@ -633,8 +646,8 @@ message GetSettingsResp {
 }
 
 message UpdateSettingsReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
   optional bool is_muted = 3;
   optional bool is_pinned = 4;
 }
@@ -642,22 +655,22 @@ message UpdateSettingsReq {
 // ========== Mark As Read ==========
 
 message MarkAsReadReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
-  int64 seq = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
+  int64 seq = 3 [(common.safe_sequence) = true];
 }
 
 // ========== Get Read Status ==========
 
 message GetReadStatusReq {
-  int64 message_id = 1;
-  int64 conversation_id = 2;
+  string message_id = 1 [(common.entity_id) = true];
+  string conversation_id = 2 [(common.entity_id) = true];
 }
 
 message ReadUser {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   int64 read_at = 2;
-  int64 last_read_seq = 3;
+  int64 last_read_seq = 3 [(common.safe_sequence) = true];
 }
 
 message GetReadStatusResp {
@@ -668,8 +681,8 @@ message GetReadStatusResp {
 
 // Ephemeral typing events are authorized and fanned out by the message domain.
 message SendTypingEventReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
   bool stopped = 3;
 }
 
@@ -678,41 +691,41 @@ message SendTypingEventResp {}
 // ========== Bot Messages ==========
 
 message BotInConv {
-  int64 bot_id = 1;
+  string bot_id = 1 [(common.entity_id) = true];
   string name = 2;
   string avatar = 3;
   string type = 4;
   reserved 5;
   string bot_settings = 6;
-  int64 added_by = 7;
+  string added_by = 7 [(common.entity_id) = true];
   int64 added_at = 8;
 }
 
 message AddBotReq {
-  int64 conversation_id = 1;
-  int64 bot_id = 2;
-  int64 operator_id = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string bot_id = 2 [(common.entity_id) = true];
+  string operator_id = 3 [(common.entity_id) = true];
   reserved 4;
   string bot_settings = 5;
 }
 
 message RemoveBotReq {
-  int64 conversation_id = 1;
-  int64 bot_id = 2;
-  int64 operator_id = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string bot_id = 2 [(common.entity_id) = true];
+  string operator_id = 3 [(common.entity_id) = true];
 }
 
 message UpdateBotReq {
-  int64 conversation_id = 1;
-  int64 bot_id = 2;
-  int64 operator_id = 3;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string bot_id = 2 [(common.entity_id) = true];
+  string operator_id = 3 [(common.entity_id) = true];
   reserved 4;
   string bot_settings = 5;
 }
 
 message ListBotsReq {
-  int64 conversation_id = 1;
-  int64 user_id = 2;
+  string conversation_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 message ListBotsResp {

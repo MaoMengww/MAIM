@@ -18,47 +18,74 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	entityidentity "github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/sequence"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 )
 
-// decimal preserves integer IDs and seq exactly whether the public API sends
-// a JSON string or a JSON number. No message identifier passes through float64.
-type decimal int64
+// 实体身份只接收规范 UUID 字符串，序号只接收安全整数 JSON number。
+type entityID string
 
-func (d *decimal) UnmarshalJSON(raw []byte) error {
-	value := string(raw)
-	if len(raw) > 0 && raw[0] == '"' {
-		if err := json.Unmarshal(raw, &value); err != nil {
-			return errors.New("标识字段不是合法 JSON 字符串")
-		}
+func (id *entityID) UnmarshalJSON(raw []byte) error {
+	if len(raw) == 0 || raw[0] != '"' {
+		return errors.New("实体身份必须为 UUID JSON 字符串")
 	}
-	// Heartbeat/presence envelopes explicitly encode an absent conv_id as "".
-	// Required IDs are still checked as positive in their consuming paths.
-	if value == "" {
-		*d = 0
-		return nil
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
 	}
-	n, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return errors.New("标识字段不是精确的 int64 十进制整数")
+	if err := entityidentity.Validate(value); err != nil {
+		return err
 	}
-	*d = decimal(n)
+	*id = entityID(value)
 	return nil
 }
 
-func (d decimal) String() string { return strconv.FormatInt(int64(d), 10) }
+func (id entityID) MarshalJSON() ([]byte, error) {
+	if err := entityidentity.Validate(string(id)); err != nil {
+		return nil, err
+	}
+	return json.Marshal(string(id))
+}
+
+func (id entityID) String() string { return string(id) }
+
+type sequenceNumber int64
+
+func (seq *sequenceNumber) UnmarshalJSON(raw []byte) error {
+	value, err := sequence.ParseJSON(raw)
+	if err != nil {
+		return err
+	}
+	*seq = sequenceNumber(value)
+	return nil
+}
+
+func (seq sequenceNumber) MarshalJSON() ([]byte, error) {
+	if err := sequence.Validate(int64(seq)); err != nil {
+		return nil, err
+	}
+	return []byte(seq.String()), nil
+}
+
+func (seq sequenceNumber) String() string { return strconv.FormatInt(int64(seq), 10) }
+
+func hasEntityID(id *entityID, expected entityID) bool {
+	return id != nil && *id == expected
+}
 
 type identity struct {
-	ID       decimal `json:"id"`
-	Username string  `json:"username"`
+	ID       entityID `json:"id"`
+	Username string   `json:"username"`
 }
 
 type authResult struct {
-	UserID decimal  `json:"user_id"`
+	UserID entityID `json:"user_id"`
 	User   identity `json:"user"`
 	Tokens struct {
 		AccessToken string `json:"access_token"`
@@ -66,7 +93,7 @@ type authResult struct {
 }
 
 type account struct {
-	id       decimal
+	id       entityID
 	username string
 	device   string
 	token    string
@@ -74,24 +101,25 @@ type account struct {
 }
 
 type sentMessage struct {
-	MessageID decimal `json:"message_id"`
-	ConvID    decimal `json:"conv_id"`
-	SenderID  decimal `json:"from_user_id"`
-	Seq       decimal `json:"seq"`
-	Content   struct {
+	SubmissionKey string         `json:"-"`
+	MessageID     entityID       `json:"message_id"`
+	ConvID        entityID       `json:"conv_id"`
+	SenderID      entityID       `json:"from_user_id"`
+	Seq           sequenceNumber `json:"seq"`
+	Content       struct {
 		Text string `json:"text"`
 	} `json:"content"`
 }
 
 type event struct {
-	Type    string  `json:"type"`
-	ConvID  decimal `json:"conv_id"`
+	Type    string    `json:"type"`
+	ConvID  *entityID `json:"conv_id"`
 	Message struct {
-		MessageID decimal `json:"message_id"`
-		ConvID    decimal `json:"conv_id"`
-		SenderID  decimal `json:"sender_id"`
-		Seq       decimal `json:"seq"`
-		ReplyToID decimal `json:"reply_to_msg_id"`
+		MessageID entityID       `json:"message_id"`
+		ConvID    entityID       `json:"conv_id"`
+		SenderID  *entityID      `json:"sender_id"`
+		Seq       sequenceNumber `json:"seq"`
+		ReplyToID *entityID      `json:"reply_to_msg_id"`
 		Content   struct {
 			Text string `json:"text"`
 		} `json:"content"`
@@ -357,7 +385,7 @@ func (d *driver) request(method, path, token string, input, output any) error {
 	}
 	if output != nil {
 		if err := json.Unmarshal(envelope.Data, output); err != nil {
-			return fmt.Errorf("%s %s: data 与公开契约不匹配（保留精确整数）", method, path)
+			return fmt.Errorf("%s %s: data 与公开契约不匹配（UUID身份与安全整数序号）", method, path)
 		}
 	}
 	return nil
@@ -385,7 +413,7 @@ func (d *driver) register(label, suffix string) (account, error) {
 	}, &registered); err != nil {
 		return a, fmt.Errorf("gateway.registration: %w", err)
 	}
-	if registered.UserID <= 0 || registered.User.ID != registered.UserID || registered.User.Username != a.username {
+	if registered.UserID == "" || registered.User.ID != registered.UserID || registered.User.Username != a.username {
 		return a, errors.New("gateway.registration: 注册返回的用户身份不匹配")
 	}
 	var loggedIn authResult
@@ -426,14 +454,14 @@ func (d *driver) scenario(addressA, addressB string) error {
 	}
 	// Private conversations and sends require membership, not friendship.
 	var conv struct {
-		ID decimal `json:"conversation_id"`
+		ID entityID `json:"conversation_id"`
 	}
 	if err := d.request(http.MethodPost, "/convs", a.token, map[string]any{
 		"type": "single", "peer_user_id": b.id.String(),
 	}, &conv); err != nil {
 		return fmt.Errorf("messaging.conversation: %w", err)
 	}
-	if conv.ID <= 0 {
+	if conv.ID == "" {
 		return errors.New("messaging.conversation: 没有有效 conversation_id")
 	}
 	connA, err := d.connect(addressA, a)
@@ -531,26 +559,38 @@ func readEvent(conn *websocket.Conn) (event, error) {
 		return evt, fmt.Errorf("WS 读取失败: %s", transportFailure(err))
 	}
 	if err := json.Unmarshal(raw, &evt); err != nil {
-		return evt, errors.New("WS 事件与公开 JSON 契约不匹配（保留精确整数）")
+		return evt, errors.New("WS 事件与公开 JSON 契约不匹配（UUID身份与安全整数序号）")
 	}
 	return evt, nil
 }
 
-func (d *driver) sendMessage(sender account, convID decimal, text string, after decimal) (sentMessage, error) {
-	var sent sentMessage
+func (d *driver) sendMessage(sender account, convID entityID, text string, after sequenceNumber) (sentMessage, error) {
+	submissionKey, err := uuid.NewRandom()
+	if err != nil {
+		return sentMessage{}, fmt.Errorf("messaging.submission-key: %w", err)
+	}
+	return d.sendMessageWithKey(sender, convID, text, after, submissionKey.String())
+}
+
+// 重试沿用第一次返回的 SubmissionKey，不生成另一个发送身份。
+func (d *driver) sendMessageWithKey(sender account, convID entityID, text string, after sequenceNumber, submissionKey string) (sentMessage, error) {
+	sent := sentMessage{SubmissionKey: submissionKey}
+	if err := entityidentity.ValidateSubmissionKey(submissionKey); err != nil {
+		return sent, fmt.Errorf("messaging.submission-key: %w", err)
+	}
 	if err := d.request(http.MethodPost, "/messages/send", sender.token, map[string]any{
-		"conversation_id": convID.String(), "client_msg_id": "e2e_" + text,
+		"conversation_id": convID.String(), "client_msg_id": submissionKey,
 		"content": map[string]string{"text": text},
 	}, &sent); err != nil {
 		return sent, fmt.Errorf("messaging.send 发送方 %s: %w", sender.id, err)
 	}
-	if sent.MessageID <= 0 || sent.Seq <= after || sent.ConvID != convID || sent.SenderID != sender.id || sent.Content.Text != text {
+	if sent.MessageID == "" || sent.Seq <= after || sent.ConvID != convID || sent.SenderID != sender.id || sent.Content.Text != text {
 		return sent, errors.New("messaging.send: HTTP 确认的 message_id/conv_id/seq/发送方/内容不符合发送请求")
 	}
 	return sent, nil
 }
 
-func (d *driver) sendAndReceive(sender account, receiver *websocket.Conn, convID decimal, text string, after decimal) (decimal, error) {
+func (d *driver) sendAndReceive(sender account, receiver *websocket.Conn, convID entityID, text string, after sequenceNumber) (sequenceNumber, error) {
 	sent, err := d.sendMessage(sender, convID, text, after)
 	if err != nil {
 		return sent.Seq, err
@@ -579,7 +619,7 @@ func (d *driver) receiveMessage(receiver *websocket.Conn, sent sentMessage) erro
 		if msg.MessageID != sent.MessageID {
 			continue
 		}
-		if evt.ConvID != sent.ConvID || msg.ConvID != sent.ConvID || msg.MessageID != sent.MessageID || msg.Seq != sent.Seq || msg.SenderID != sent.SenderID || msg.Content.Text != sent.Content.Text {
+		if !hasEntityID(evt.ConvID, sent.ConvID) || msg.ConvID != sent.ConvID || msg.MessageID != sent.MessageID || msg.Seq != sent.Seq || !hasEntityID(msg.SenderID, sent.SenderID) || msg.Content.Text != sent.Content.Text {
 			return fmt.Errorf("realtime.contract: message.new 与 HTTP 确认不一致，期望 conv_id=%s message_id=%s seq=%s sender_id=%s", sent.ConvID, sent.MessageID, sent.Seq, sent.SenderID)
 		}
 		return nil

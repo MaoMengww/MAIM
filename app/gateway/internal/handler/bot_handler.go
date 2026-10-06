@@ -12,9 +12,10 @@ import (
 	"github.com/maomeng/aim/app/gateway/internal/response"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/consts"
+	"github.com/maomeng/aim/pkg/identity"
 	common "github.com/maomeng/aim/pkg/pb/common"
+	"github.com/maomeng/aim/pkg/protocol"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type BotHandler struct {
@@ -33,12 +34,17 @@ func NewBotHandler(botClient botpb.BotServiceClient, msgConn, fileConn grpc.Clie
 
 func (h *BotHandler) CreateBot(c *gin.Context) {
 	var req botpb.CreateBotReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindUserOwnedJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.OwnerId = c.GetInt64(middleware.CtxKeyUserID)
+	ownerID := c.GetString(middleware.CtxKeyUserID)
+	req.OwnerId = &ownerID
+	req.OwnerType = "user"
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.botClient.CreateBot(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -48,14 +54,20 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 }
 
 func (h *BotHandler) UpdateBot(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req botpb.UpdateBotReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.BotId = parseInt64(c.Param("id"))
-	req.UserId = c.GetInt64(middleware.CtxKeyUserID)
+	req.BotId = c.Param("id")
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.botClient.UpdateBot(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -65,6 +77,9 @@ func (h *BotHandler) UpdateBot(c *gin.Context) {
 }
 
 func (h *BotHandler) UploadBotAvatar(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
 		response.BadRequest(c, "file required")
@@ -83,8 +98,8 @@ func (h *BotHandler) UploadBotAvatar(c *gin.Context) {
 		mimeType = "image/jpeg"
 	}
 
-	userID := c.GetInt64(middleware.CtxKeyUserID)
-	botID := parseInt64(c.Param("id"))
+	userID := c.GetString(middleware.CtxKeyUserID)
+	botID := c.Param("id")
 
 	req := &filepb.UploadAvatarReq{
 		Data:     data,
@@ -92,6 +107,9 @@ func (h *BotHandler) UploadBotAvatar(c *gin.Context) {
 		MimeType: mimeType,
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.fileClient.UploadAvatar(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -115,11 +133,17 @@ func (h *BotHandler) UploadBotAvatar(c *gin.Context) {
 }
 
 func (h *BotHandler) DeleteBot(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &botpb.DeleteBotReq{
-		BotId:  parseInt64(c.Param("id")),
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
+		BotId:  c.Param("id"),
+		UserId: c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.DeleteBot(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -129,8 +153,14 @@ func (h *BotHandler) DeleteBot(c *gin.Context) {
 }
 
 func (h *BotHandler) GetBot(c *gin.Context) {
-	req := &botpb.GetBotReq{BotId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &botpb.GetBotReq{BotId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.GetBot(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -140,11 +170,16 @@ func (h *BotHandler) GetBot(c *gin.Context) {
 }
 
 func (h *BotHandler) ListBots(c *gin.Context) {
+	ownerID := c.GetString(middleware.CtxKeyUserID)
 	req := &botpb.ListBotsReq{
-		OwnerId: c.GetInt64(middleware.CtxKeyUserID),
-		Status:  c.Query("status"),
+		OwnerId:   &ownerID,
+		OwnerType: "user",
+		Status:    c.Query("status"),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.ListBots(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -154,11 +189,17 @@ func (h *BotHandler) ListBots(c *gin.Context) {
 }
 
 func (h *BotHandler) RotateSecret(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &botpb.RotateSecretReq{
-		BotId:  parseInt64(c.Param("id")),
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
+		BotId:  c.Param("id"),
+		UserId: c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.RotateSecret(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -173,12 +214,32 @@ func (h *BotHandler) Webhook(c *gin.Context) {
 		response.BadRequest(c, "failed to read body")
 		return
 	}
+	var payload struct {
+		Type           string  `json:"type"`
+		ConversationID string  `json:"conversation_id"`
+		ReplyToID      *string `json:"reply_to_id"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		response.BadRequest(c, "invalid webhook payload")
+		return
+	}
+	if payload.Type == "message.send" && identity.Validate(payload.ConversationID) != nil {
+		response.BadRequest(c, "invalid conversation identity")
+		return
+	}
+	if payload.ReplyToID != nil && identity.Validate(*payload.ReplyToID) != nil {
+		response.BadRequest(c, "invalid reply identity")
+		return
+	}
 	req := &botpb.WebhookReq{
 		Body:      body,
 		Signature: c.GetHeader(consts.HeaderAIMSignature),
 		Timestamp: parseInt64(c.GetHeader(consts.HeaderAIMTimestamp)),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.HandleIncomingWebhook(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -188,14 +249,20 @@ func (h *BotHandler) Webhook(c *gin.Context) {
 }
 
 func (h *BotHandler) IssueToken(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req botpb.IssueBotTokenReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.BotId = parseInt64(c.Param("id"))
-	req.UserId = c.GetInt64(middleware.CtxKeyUserID)
+	req.BotId = c.Param("id")
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.botClient.IssueBotToken(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -206,11 +273,14 @@ func (h *BotHandler) IssueToken(c *gin.Context) {
 
 func (h *BotHandler) ValidateToken(c *gin.Context) {
 	var req botpb.ValidateBotTokenReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.botClient.ValidateBotToken(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -222,13 +292,19 @@ func (h *BotHandler) ValidateToken(c *gin.Context) {
 // ========== AI Bot Streaming Chat ==========
 
 func (h *BotHandler) StreamChat(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req botpb.StreamChatReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.BotId = parseInt64(c.Param("id"))
+	req.BotId = c.Param("id")
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	stream, err := h.botClient.StreamChat(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -247,7 +323,10 @@ func (h *BotHandler) StreamChat(c *gin.Context) {
 		if err != nil {
 			break
 		}
-		data, _ := json.Marshal(resp)
+		data, err := protocol.Marshal(resp)
+		if err != nil {
+			return
+		}
 		c.SSEvent("message", string(data))
 		c.Writer.Flush()
 	}
@@ -256,19 +335,25 @@ func (h *BotHandler) StreamChat(c *gin.Context) {
 // Bot in Conversation
 
 func (h *BotHandler) AddBotToConv(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	raw, err := c.GetRawData()
 	if err != nil {
 		response.BadRequest(c, "invalid request body")
 		return
 	}
 	var req message.AddBotReq
-	if err := protojson.Unmarshal(raw, &req); err != nil {
+	if err := protocol.Unmarshal(raw, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.ConversationId = parseInt64(c.Param("id"))
-	req.OperatorId = c.GetInt64(middleware.CtxKeyUserID)
+	req.ConversationId = c.Param("id")
+	req.OperatorId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.convClient.AddBot(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -278,12 +363,18 @@ func (h *BotHandler) AddBotToConv(c *gin.Context) {
 }
 
 func (h *BotHandler) RemoveBotFromConv(c *gin.Context) {
+	if !requirePathIdentities(c, "id", "bot_id") {
+		return
+	}
 	req := &message.RemoveBotReq{
-		ConversationId: parseInt64(c.Param("id")),
-		BotId:          parseInt64(c.Param("bot_id")),
-		OperatorId:     c.GetInt64(middleware.CtxKeyUserID),
+		ConversationId: c.Param("id"),
+		BotId:          c.Param("bot_id"),
+		OperatorId:     c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.convClient.RemoveBot(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -293,15 +384,21 @@ func (h *BotHandler) RemoveBotFromConv(c *gin.Context) {
 }
 
 func (h *BotHandler) UpdateBotInConv(c *gin.Context) {
+	if !requirePathIdentities(c, "id", "bot_id") {
+		return
+	}
 	var req message.UpdateBotReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.ConversationId = parseInt64(c.Param("id"))
-	req.BotId = parseInt64(c.Param("bot_id"))
-	req.OperatorId = c.GetInt64(middleware.CtxKeyUserID)
+	req.ConversationId = c.Param("id")
+	req.BotId = c.Param("bot_id")
+	req.OperatorId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.convClient.UpdateBot(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -311,11 +408,17 @@ func (h *BotHandler) UpdateBotInConv(c *gin.Context) {
 }
 
 func (h *BotHandler) ListConvBots(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &message.ListBotsReq{
-		ConversationId: parseInt64(c.Param("id")),
-		UserId:         c.GetInt64(middleware.CtxKeyUserID),
+		ConversationId: c.Param("id"),
+		UserId:         c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.convClient.ListBots(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -328,12 +431,15 @@ func (h *BotHandler) ListConvBots(c *gin.Context) {
 
 func (h *BotHandler) CreateMcpServer(c *gin.Context) {
 	var req botpb.CreateMcpServerReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindUserOwnedJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.UserId = c.GetInt64(middleware.CtxKeyUserID)
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.botClient.CreateMcpServer(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -343,14 +449,20 @@ func (h *BotHandler) CreateMcpServer(c *gin.Context) {
 }
 
 func (h *BotHandler) UpdateMcpServer(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req botpb.UpdateMcpServerReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.Id = parseInt64(c.Param("id"))
-	req.UserId = c.GetInt64(middleware.CtxKeyUserID)
+	req.Id = c.Param("id")
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.botClient.UpdateMcpServer(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -360,11 +472,17 @@ func (h *BotHandler) UpdateMcpServer(c *gin.Context) {
 }
 
 func (h *BotHandler) DeleteMcpServer(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &botpb.DeleteMcpServerReq{
-		Id:     parseInt64(c.Param("id")),
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
+		Id:     c.Param("id"),
+		UserId: c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.DeleteMcpServer(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -374,11 +492,17 @@ func (h *BotHandler) DeleteMcpServer(c *gin.Context) {
 }
 
 func (h *BotHandler) GetMcpServer(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &botpb.GetMcpServerReq{
-		Id:     parseInt64(c.Param("id")),
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
+		Id:     c.Param("id"),
+		UserId: c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.GetMcpServer(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -389,7 +513,7 @@ func (h *BotHandler) GetMcpServer(c *gin.Context) {
 
 func (h *BotHandler) ListMcpServers(c *gin.Context) {
 	req := &botpb.ListMcpServersReq{
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
+		UserId: c.GetString(middleware.CtxKeyUserID),
 		Status: c.Query("status"),
 		Pagination: &common.Pagination{
 			Page:     int32(parseInt64(c.Query("page"))),
@@ -397,6 +521,9 @@ func (h *BotHandler) ListMcpServers(c *gin.Context) {
 		},
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.ListMcpServers(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -408,14 +535,20 @@ func (h *BotHandler) ListMcpServers(c *gin.Context) {
 // ========== Bot MCP Assignment ==========
 
 func (h *BotHandler) AssignMcpToBot(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req botpb.AssignMcpToBotReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.BotId = parseInt64(c.Param("id"))
-	req.UserId = c.GetInt64(middleware.CtxKeyUserID)
+	req.BotId = c.Param("id")
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.botClient.AssignMcpToBot(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -425,12 +558,18 @@ func (h *BotHandler) AssignMcpToBot(c *gin.Context) {
 }
 
 func (h *BotHandler) UnassignMcpFromBot(c *gin.Context) {
+	if !requirePathIdentities(c, "id", "mcp_id") {
+		return
+	}
 	req := &botpb.UnassignMcpFromBotReq{
-		BotId:       parseInt64(c.Param("id")),
-		UserId:      c.GetInt64(middleware.CtxKeyUserID),
-		McpServerId: parseInt64(c.Param("mcp_id")),
+		BotId:       c.Param("id"),
+		UserId:      c.GetString(middleware.CtxKeyUserID),
+		McpServerId: c.Param("mcp_id"),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.UnassignMcpFromBot(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -440,8 +579,14 @@ func (h *BotHandler) UnassignMcpFromBot(c *gin.Context) {
 }
 
 func (h *BotHandler) ListBotMcpServers(c *gin.Context) {
-	req := &botpb.ListBotMcpServersReq{BotId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &botpb.ListBotMcpServersReq{BotId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.ListBotMcpServers(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -451,15 +596,21 @@ func (h *BotHandler) ListBotMcpServers(c *gin.Context) {
 }
 
 func (h *BotHandler) UpdateBotMcpServer(c *gin.Context) {
+	if !requirePathIdentities(c, "id", "mcp_id") {
+		return
+	}
 	var req botpb.UpdateBotMcpServerReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.BotId = parseInt64(c.Param("id"))
-	req.UserId = c.GetInt64(middleware.CtxKeyUserID)
-	req.McpServerId = parseInt64(c.Param("mcp_id"))
+	req.BotId = c.Param("id")
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
+	req.McpServerId = c.Param("mcp_id")
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.botClient.UpdateBotMcpServer(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -471,11 +622,17 @@ func (h *BotHandler) UpdateBotMcpServer(c *gin.Context) {
 // ========== MCP Tool Discovery ==========
 
 func (h *BotHandler) DiscoverMcpTools(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &botpb.DiscoverMcpToolsReq{
-		McpServerId: parseInt64(c.Param("id")),
-		UserId:      c.GetInt64(middleware.CtxKeyUserID),
+		McpServerId: c.Param("id"),
+		UserId:      c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.DiscoverMcpTools(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -485,11 +642,17 @@ func (h *BotHandler) DiscoverMcpTools(c *gin.Context) {
 }
 
 func (h *BotHandler) ListMcpTools(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &botpb.ListMcpToolsReq{
-		McpServerId: parseInt64(c.Param("id")),
-		UserId:      c.GetInt64(middleware.CtxKeyUserID),
+		McpServerId: c.Param("id"),
+		UserId:      c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.botClient.ListMcpTools(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)

@@ -74,7 +74,7 @@ message RegisterReq {
 }
 
 message RegisterResp {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   TokenPair tokens = 2;
   UserInfo user = 3;
 }
@@ -87,7 +87,7 @@ message LoginReq {
 }
 
 message LoginResp {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   TokenPair tokens = 2;
   UserInfo user = 3;
 }
@@ -118,7 +118,7 @@ message ValidateTokenReq {
 
 message ValidateTokenResp {
   bool valid = 1;
-  int64 user_id = 2;
+  optional string user_id = 2 [(common.entity_id) = true]; // valid=false 时不提供
   string device_id = 3;
   int64 expires_at = 4;
 }
@@ -140,7 +140,7 @@ message GetSessionsResp {
 }
 
 message RevokeSessionReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   string session_id = 2;
 }
 
@@ -154,7 +154,7 @@ message TokenPair {
 // ========== User Profile Messages ==========
 
 message UserInfo {
-  int64 id = 1;
+  string id = 1 [(common.entity_id) = true];
   string username = 2;
   string phone = 3;
   string email = 4;
@@ -168,7 +168,7 @@ message UserInfo {
 }
 
 message UpdateProfileReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   optional string avatar = 2;
   optional int32 gender = 3;
   optional string bio = 4;
@@ -203,11 +203,11 @@ message BindEmailReq {
 }
 
 message GetUserInfoReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
 }
 
 message BatchGetUserInfoReq {
-  repeated int64 user_ids = 1;
+  repeated string user_ids = 1 [(common.entity_id) = true];
 }
 
 message BatchGetUserInfoResp {
@@ -225,11 +225,11 @@ message SearchUsersResp {
 }
 
 message ListAllUserIDsResp {
-  repeated int64 user_ids = 1;
+  repeated string user_ids = 1 [(common.entity_id) = true];
 }
 
 message BatchGetStatusReq {
-  repeated int64 user_ids = 1;
+  repeated string user_ids = 1 [(common.entity_id) = true];
 }
 
 message DeviceInfo {
@@ -239,7 +239,7 @@ message DeviceInfo {
 }
 
 message UserStatus {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   bool is_online = 2;
   repeated DeviceInfo devices = 3;
 }
@@ -255,26 +255,28 @@ message GetSettingsResp {
   bool vibration_enabled = 4;
   string theme = 5;        // light/dark/auto
   string settings_json = 6; // extensible settings
-  int64 ai_model_id = 7;
+  optional string ai_model_id = 7 [(common.entity_id) = true];
   string ai_model_name = 8;
 }
 
 message UpdateSettingsReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   optional string language = 2;
   optional bool notification_enabled = 3;
   optional bool sound_enabled = 4;
   optional bool vibration_enabled = 5;
   optional string theme = 6;
   optional string settings_json = 7;
-  optional int64 ai_model_id = 8;
+  optional string ai_model_id = 8 [(common.entity_id) = true];
   optional string ai_model_name = 9;
+  // 未提供 ai_model_id 且 clear=false：保持；clear=true：解除；同时提供两者：拒绝。
+  bool clear_ai_model_id = 10;
 }
 
 // ========== Balance Messages ==========
 
 message RechargeReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   double amount = 2;
 }
 
@@ -283,7 +285,7 @@ message RechargeResp {
 }
 
 message DeductBalanceReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   double amount = 2;
 }
 
@@ -292,7 +294,7 @@ message DeductBalanceResp {
 }
 
 message GetBalanceReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
 }
 
 message GetBalanceResp {
@@ -302,44 +304,44 @@ message GetBalanceResp {
 // ========== Friend Request Messages ==========
 
 message SendRequestReq {
-  int64 from_user_id = 1;
-  int64 to_user_id = 2;
+  string from_user_id = 1 [(common.entity_id) = true];
+  string to_user_id = 2 [(common.entity_id) = true];
   string message = 3; // 验证消息
 }
 
 message SendRequestResp {
-  int64 request_id = 1;
+  string request_id = 1 [(common.entity_id) = true];
 }
 
 message AcceptRequestReq {
-  int64 request_id = 1;
-  int64 user_id = 2;
+  string request_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 message RejectRequestReq {
-  int64 request_id = 1;
-  int64 user_id = 2;
+  string request_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 message CancelRequestReq {
-  int64 request_id = 1;
-  int64 user_id = 2;
+  string request_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 message ListPendingRequestsReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   common.Pagination pagination = 2;
 }
 
 message ListSentRequestsReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   common.Pagination pagination = 2;
 }
 
 message FriendRequest {
-  int64 request_id = 1;
-  int64 from_user_id = 2;
-  int64 to_user_id = 3;
+  string request_id = 1 [(common.entity_id) = true];
+  string from_user_id = 2 [(common.entity_id) = true];
+  string to_user_id = 3 [(common.entity_id) = true];
   string message = 4;
   string status = 5;       // pending/accepted/rejected
   int64 created_at = 6;
@@ -356,17 +358,17 @@ message ListRequestsResp {
 // ========== Friend Management Messages ==========
 
 message ListFriendsReq {
-  int64 user_id = 1;
-  optional int64 group_id = 2; // filter by group, omit for all
+  string user_id = 1 [(common.entity_id) = true];
+  optional string group_id = 2 [(common.entity_id) = true]; // filter by group, omit for all
   common.Pagination pagination = 3;
 }
 
 message FriendInfo {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   string username = 2;
   string avatar = 3;
   string remark = 4;       // 备注名
-  int64 group_id = 5;      // 所属分组
+  optional string group_id = 5 [(common.entity_id) = true];      // 所属分组
   string group_name = 6;   // 分组名
   string status = 7;       // online/offline
   int64 created_at = 8;    // 成为好友的时间
@@ -378,50 +380,52 @@ message ListFriendsResp {
 }
 
 message DeleteFriendReq {
-  int64 user_id = 1;
-  int64 friend_id = 2;
+  string user_id = 1 [(common.entity_id) = true];
+  string friend_id = 2 [(common.entity_id) = true];
 }
 
 message SetRemarkReq {
-  int64 user_id = 1;
-  int64 friend_id = 2;
+  string user_id = 1 [(common.entity_id) = true];
+  string friend_id = 2 [(common.entity_id) = true];
   string remark = 3;
 }
 
 message SetGroupReq {
-  int64 user_id = 1;
-  int64 friend_id = 2;
-  int64 group_id = 3;
+  string user_id = 1 [(common.entity_id) = true];
+  string friend_id = 2 [(common.entity_id) = true];
+  optional string group_id = 3 [(common.entity_id) = true];
+  // 未提供 group_id 且 clear=false：保持；clear=true：解除；同时提供两者：拒绝。
+  bool clear_group_id = 4;
 }
 
 // ========== Friend Group Messages ==========
 
 message CreateGroupReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   string name = 2;
 }
 
 message CreateGroupResp {
-  int64 group_id = 1;
+  string group_id = 1 [(common.entity_id) = true];
 }
 
 message RenameGroupReq {
-  int64 group_id = 1;
-  int64 user_id = 2;
+  string group_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
   string name = 3;
 }
 
 message DeleteGroupReq {
-  int64 group_id = 1;
-  int64 user_id = 2;
+  string group_id = 1 [(common.entity_id) = true];
+  string user_id = 2 [(common.entity_id) = true];
 }
 
 message ListGroupsReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
 }
 
 message FriendGroup {
-  int64 id = 1;
+  string id = 1 [(common.entity_id) = true];
   string name = 2;
   int32 sort_order = 3;
   int32 friend_count = 4;
@@ -435,22 +439,22 @@ message ListGroupsResp {
 // ========== Blacklist Messages ==========
 
 message BlockUserReq {
-  int64 user_id = 1;
-  int64 blocked_user_id = 2;
+  string user_id = 1 [(common.entity_id) = true];
+  string blocked_user_id = 2 [(common.entity_id) = true];
 }
 
 message UnblockUserReq {
-  int64 user_id = 1;
-  int64 blocked_user_id = 2;
+  string user_id = 1 [(common.entity_id) = true];
+  string blocked_user_id = 2 [(common.entity_id) = true];
 }
 
 message ListBlacklistReq {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   common.Pagination pagination = 2;
 }
 
 message BlacklistUser {
-  int64 user_id = 1;
+  string user_id = 1 [(common.entity_id) = true];
   string username = 2;
   string avatar = 3;
   int64 blocked_at = 4;
@@ -462,8 +466,8 @@ message ListBlacklistResp {
 }
 
 message IsBlockedReq {
-  int64 user_id = 1;
-  int64 target_user_id = 2;
+  string user_id = 1 [(common.entity_id) = true];
+  string target_user_id = 2 [(common.entity_id) = true];
 }
 
 message IsBlockedResp {

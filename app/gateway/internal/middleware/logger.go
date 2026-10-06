@@ -29,7 +29,7 @@ func Logger(logger logx.Logger) gin.HandlerFunc {
 			fields = append(fields, logx.String("request_id", requestID.(string)))
 		}
 		if userID, exists := c.Get(CtxKeyUserID); exists {
-			fields = append(fields, logx.Int("user_id", int(userID.(int64))))
+			fields = append(fields, logx.String("user_id", userID.(string)))
 		}
 
 		logger.WithFields(fields...).WithDuration(duration).Info("http request")

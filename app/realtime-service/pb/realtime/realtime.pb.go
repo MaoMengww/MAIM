@@ -24,14 +24,15 @@ const (
 
 type Notification struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Type          int32                  `protobuf:"varint,3,opt,name=type,proto3" json:"type,omitempty"`
 	Title         string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
 	Content       string                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
 	IsRead        bool                   `protobuf:"varint,6,opt,name=is_read,json=isRead,proto3" json:"is_read,omitempty"`
-	ReferenceId   string                 `protobuf:"bytes,7,opt,name=reference_id,json=referenceId,proto3" json:"reference_id,omitempty"`
+	ReferenceId   *string                `protobuf:"bytes,7,opt,name=reference_id,json=referenceId,proto3,oneof" json:"reference_id,omitempty"` // 本地关联对象 UUID，缺失表示不关联对象
 	CreatedAt     int64                  `protobuf:"varint,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ReferenceType *string                `protobuf:"bytes,9,opt,name=reference_type,json=referenceType,proto3,oneof" json:"reference_type,omitempty"` // 与 reference_id 一同提供；明确对象种类，不按字段名猜测
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -66,18 +67,18 @@ func (*Notification) Descriptor() ([]byte, []int) {
 	return file_realtime_realtime_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Notification) GetId() int64 {
+func (x *Notification) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *Notification) GetUserId() int64 {
+func (x *Notification) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *Notification) GetType() int32 {
@@ -109,8 +110,8 @@ func (x *Notification) GetIsRead() bool {
 }
 
 func (x *Notification) GetReferenceId() string {
-	if x != nil {
-		return x.ReferenceId
+	if x != nil && x.ReferenceId != nil {
+		return *x.ReferenceId
 	}
 	return ""
 }
@@ -120,6 +121,13 @@ func (x *Notification) GetCreatedAt() int64 {
 		return x.CreatedAt
 	}
 	return 0
+}
+
+func (x *Notification) GetReferenceType() string {
+	if x != nil && x.ReferenceType != nil {
+		return *x.ReferenceType
+	}
+	return ""
 }
 
 type ListNotificationsReq struct {
@@ -316,7 +324,7 @@ func (x *GetUnreadCountResp) GetCount() int64 {
 
 type MarkReadReq struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	NotificationId int64                  `protobuf:"varint,1,opt,name=notification_id,json=notificationId,proto3" json:"notification_id,omitempty"`
+	NotificationId string                 `protobuf:"bytes,1,opt,name=notification_id,json=notificationId,proto3" json:"notification_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -351,11 +359,11 @@ func (*MarkReadReq) Descriptor() ([]byte, []int) {
 	return file_realtime_realtime_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *MarkReadReq) GetNotificationId() int64 {
+func (x *MarkReadReq) GetNotificationId() string {
 	if x != nil {
 		return x.NotificationId
 	}
-	return 0
+	return ""
 }
 
 type MarkReadResp struct {
@@ -468,7 +476,7 @@ func (*MarkAllReadResp) Descriptor() ([]byte, []int) {
 
 type DeleteNotificationReq struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	NotificationId int64                  `protobuf:"varint,1,opt,name=notification_id,json=notificationId,proto3" json:"notification_id,omitempty"`
+	NotificationId string                 `protobuf:"bytes,1,opt,name=notification_id,json=notificationId,proto3" json:"notification_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -503,11 +511,11 @@ func (*DeleteNotificationReq) Descriptor() ([]byte, []int) {
 	return file_realtime_realtime_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *DeleteNotificationReq) GetNotificationId() int64 {
+func (x *DeleteNotificationReq) GetNotificationId() string {
 	if x != nil {
 		return x.NotificationId
 	}
-	return 0
+	return ""
 }
 
 type DeleteNotificationResp struct {
@@ -548,11 +556,12 @@ func (*DeleteNotificationResp) Descriptor() ([]byte, []int) {
 
 type PushNotificationReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserIds       []int64                `protobuf:"varint,1,rep,packed,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
+	UserIds       []string               `protobuf:"bytes,1,rep,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
 	Type          int32                  `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
 	Title         string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
 	Content       string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
-	ReferenceId   string                 `protobuf:"bytes,5,opt,name=reference_id,json=referenceId,proto3" json:"reference_id,omitempty"`
+	ReferenceId   *string                `protobuf:"bytes,5,opt,name=reference_id,json=referenceId,proto3,oneof" json:"reference_id,omitempty"`
+	ReferenceType *string                `protobuf:"bytes,6,opt,name=reference_type,json=referenceType,proto3,oneof" json:"reference_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -587,7 +596,7 @@ func (*PushNotificationReq) Descriptor() ([]byte, []int) {
 	return file_realtime_realtime_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *PushNotificationReq) GetUserIds() []int64 {
+func (x *PushNotificationReq) GetUserIds() []string {
 	if x != nil {
 		return x.UserIds
 	}
@@ -616,15 +625,22 @@ func (x *PushNotificationReq) GetContent() string {
 }
 
 func (x *PushNotificationReq) GetReferenceId() string {
-	if x != nil {
-		return x.ReferenceId
+	if x != nil && x.ReferenceId != nil {
+		return *x.ReferenceId
+	}
+	return ""
+}
+
+func (x *PushNotificationReq) GetReferenceType() string {
+	if x != nil && x.ReferenceType != nil {
+		return *x.ReferenceType
 	}
 	return ""
 }
 
 type PushNotificationResp struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
-	FirstNotificationId int64                  `protobuf:"varint,1,opt,name=first_notification_id,json=firstNotificationId,proto3" json:"first_notification_id,omitempty"`
+	FirstNotificationId *string                `protobuf:"bytes,1,opt,name=first_notification_id,json=firstNotificationId,proto3,oneof" json:"first_notification_id,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -659,16 +675,16 @@ func (*PushNotificationResp) Descriptor() ([]byte, []int) {
 	return file_realtime_realtime_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *PushNotificationResp) GetFirstNotificationId() int64 {
-	if x != nil {
-		return x.FirstNotificationId
+func (x *PushNotificationResp) GetFirstNotificationId() string {
+	if x != nil && x.FirstNotificationId != nil {
+		return *x.FirstNotificationId
 	}
-	return 0
+	return ""
 }
 
 type IsOnlineReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -703,11 +719,11 @@ func (*IsOnlineReq) Descriptor() ([]byte, []int) {
 	return file_realtime_realtime_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *IsOnlineReq) GetUserId() int64 {
+func (x *IsOnlineReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type IsOnlineResp struct {
@@ -756,7 +772,7 @@ func (x *IsOnlineResp) GetOnline() bool {
 
 type BatchIsOnlineReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserIds       []int64                `protobuf:"varint,1,rep,packed,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
+	UserIds       []string               `protobuf:"bytes,1,rep,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -791,7 +807,7 @@ func (*BatchIsOnlineReq) Descriptor() ([]byte, []int) {
 	return file_realtime_realtime_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *BatchIsOnlineReq) GetUserIds() []int64 {
+func (x *BatchIsOnlineReq) GetUserIds() []string {
 	if x != nil {
 		return x.UserIds
 	}
@@ -800,7 +816,7 @@ func (x *BatchIsOnlineReq) GetUserIds() []int64 {
 
 type BatchIsOnlineResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        map[int64]bool         `protobuf:"bytes,1,rep,name=status,proto3" json:"status,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	Status        map[string]bool        `protobuf:"bytes,1,rep,name=status,proto3" json:"status,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -835,7 +851,7 @@ func (*BatchIsOnlineResp) Descriptor() ([]byte, []int) {
 	return file_realtime_realtime_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *BatchIsOnlineResp) GetStatus() map[int64]bool {
+func (x *BatchIsOnlineResp) GetStatus() map[string]bool {
 	if x != nil {
 		return x.Status
 	}
@@ -1022,17 +1038,20 @@ var File_realtime_realtime_proto protoreflect.FileDescriptor
 
 const file_realtime_realtime_proto_rawDesc = "" +
 	"\n" +
-	"\x17realtime/realtime.proto\x12\brealtime\x1a\x13common/common.proto\"\xd6\x01\n" +
-	"\fNotification\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x17realtime/realtime.proto\x12\brealtime\x1a\x13common/common.proto\"\xc3\x02\n" +
+	"\fNotification\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\x05R\x04type\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12\x18\n" +
 	"\acontent\x18\x05 \x01(\tR\acontent\x12\x17\n" +
-	"\ais_read\x18\x06 \x01(\bR\x06isRead\x12!\n" +
-	"\freference_id\x18\a \x01(\tR\vreferenceId\x12\x1d\n" +
+	"\ais_read\x18\x06 \x01(\bR\x06isRead\x12.\n" +
+	"\freference_id\x18\a \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\vreferenceId\x88\x01\x01\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\b \x01(\x03R\tcreatedAt\"\x96\x01\n" +
+	"created_at\x18\b \x01(\x03R\tcreatedAt\x12*\n" +
+	"\x0ereference_type\x18\t \x01(\tH\x01R\rreferenceType\x88\x01\x01B\x0f\n" +
+	"\r_reference_idB\x11\n" +
+	"\x0f_reference_type\"\x96\x01\n" +
 	"\x14ListNotificationsReq\x122\n" +
 	"\n" +
 	"pagination\x18\x01 \x01(\v2\x12.common.PaginationR\n" +
@@ -1049,33 +1068,37 @@ const file_realtime_realtime_proto_rawDesc = "" +
 	"pagination\"\x13\n" +
 	"\x11GetUnreadCountReq\"*\n" +
 	"\x12GetUnreadCountResp\x12\x14\n" +
-	"\x05count\x18\x01 \x01(\x03R\x05count\"6\n" +
-	"\vMarkReadReq\x12'\n" +
-	"\x0fnotification_id\x18\x01 \x01(\x03R\x0enotificationId\"\x0e\n" +
+	"\x05count\x18\x01 \x01(\x03R\x05count\">\n" +
+	"\vMarkReadReq\x12/\n" +
+	"\x0fnotification_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0enotificationId\"\x0e\n" +
 	"\fMarkReadResp\"\x10\n" +
 	"\x0eMarkAllReadReq\"\x11\n" +
-	"\x0fMarkAllReadResp\"@\n" +
-	"\x15DeleteNotificationReq\x12'\n" +
-	"\x0fnotification_id\x18\x01 \x01(\x03R\x0enotificationId\"\x18\n" +
-	"\x16DeleteNotificationResp\"\x97\x01\n" +
-	"\x13PushNotificationReq\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\x03R\auserIds\x12\x12\n" +
+	"\x0fMarkAllReadResp\"H\n" +
+	"\x15DeleteNotificationReq\x12/\n" +
+	"\x0fnotification_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0enotificationId\"\x18\n" +
+	"\x16DeleteNotificationResp\"\xfc\x01\n" +
+	"\x13PushNotificationReq\x12!\n" +
+	"\buser_ids\x18\x01 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\auserIds\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\x05R\x04type\x12\x14\n" +
 	"\x05title\x18\x03 \x01(\tR\x05title\x12\x18\n" +
-	"\acontent\x18\x04 \x01(\tR\acontent\x12!\n" +
-	"\freference_id\x18\x05 \x01(\tR\vreferenceId\"J\n" +
-	"\x14PushNotificationResp\x122\n" +
-	"\x15first_notification_id\x18\x01 \x01(\x03R\x13firstNotificationId\"&\n" +
-	"\vIsOnlineReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\"&\n" +
+	"\acontent\x18\x04 \x01(\tR\acontent\x12.\n" +
+	"\freference_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\vreferenceId\x88\x01\x01\x12*\n" +
+	"\x0ereference_type\x18\x06 \x01(\tH\x01R\rreferenceType\x88\x01\x01B\x0f\n" +
+	"\r_reference_idB\x11\n" +
+	"\x0f_reference_type\"q\n" +
+	"\x14PushNotificationResp\x12?\n" +
+	"\x15first_notification_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x13firstNotificationId\x88\x01\x01B\x18\n" +
+	"\x16_first_notification_id\".\n" +
+	"\vIsOnlineReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"&\n" +
 	"\fIsOnlineResp\x12\x16\n" +
-	"\x06online\x18\x01 \x01(\bR\x06online\"-\n" +
-	"\x10BatchIsOnlineReq\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\x03R\auserIds\"\x8f\x01\n" +
-	"\x11BatchIsOnlineResp\x12?\n" +
-	"\x06status\x18\x01 \x03(\v2'.realtime.BatchIsOnlineResp.StatusEntryR\x06status\x1a9\n" +
+	"\x06online\x18\x01 \x01(\bR\x06online\"5\n" +
+	"\x10BatchIsOnlineReq\x12!\n" +
+	"\buser_ids\x18\x01 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\auserIds\"\x97\x01\n" +
+	"\x11BatchIsOnlineResp\x12G\n" +
+	"\x06status\x18\x01 \x03(\v2'.realtime.BatchIsOnlineResp.StatusEntryB\x06\x90\xb8\xbf\x99\x0f\x01R\x06status\x1a9\n" +
 	"\vStatusEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\x03R\x03key\x12\x14\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"b\n" +
 	"\x11RegisterDeviceReq\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1a\n" +
@@ -1173,7 +1196,10 @@ func file_realtime_realtime_proto_init() {
 	if File_realtime_realtime_proto != nil {
 		return
 	}
+	file_realtime_realtime_proto_msgTypes[0].OneofWrappers = []any{}
 	file_realtime_realtime_proto_msgTypes[1].OneofWrappers = []any{}
+	file_realtime_realtime_proto_msgTypes[11].OneofWrappers = []any{}
+	file_realtime_realtime_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

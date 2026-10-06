@@ -31,7 +31,6 @@ func New(
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Tracing(cfg.Name))
 	r.Use(middleware.Logger(logger))
-	r.Use(middleware.IDStringToNumber())
 	r.Use(middleware.PrometheusMetrics())
 
 	authH := handler.NewAuthHandler(clients.User.Conn())

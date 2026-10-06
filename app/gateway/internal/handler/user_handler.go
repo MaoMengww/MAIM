@@ -29,11 +29,14 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	var req user.UpdateProfileReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.userClient.UpdateProfile(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -44,11 +47,14 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 
 func (h *UserHandler) UpdatePassword(c *gin.Context) {
 	var req user.UpdatePasswordReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.userClient.UpdatePassword(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -59,11 +65,14 @@ func (h *UserHandler) UpdatePassword(c *gin.Context) {
 
 func (h *UserHandler) BindPhone(c *gin.Context) {
 	var req user.BindPhoneReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.userClient.BindPhone(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -74,11 +83,14 @@ func (h *UserHandler) BindPhone(c *gin.Context) {
 
 func (h *UserHandler) BindEmail(c *gin.Context) {
 	var req user.BindEmailReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.userClient.BindEmail(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -88,8 +100,14 @@ func (h *UserHandler) BindEmail(c *gin.Context) {
 }
 
 func (h *UserHandler) GetUserInfo(c *gin.Context) {
-	req := &user.GetUserInfoReq{UserId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &user.GetUserInfoReq{UserId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.userClient.GetUserInfo(ctx, req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -100,11 +118,14 @@ func (h *UserHandler) GetUserInfo(c *gin.Context) {
 
 func (h *UserHandler) BatchGetUserInfo(c *gin.Context) {
 	var req user.BatchGetUserInfoReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.userClient.BatchGetUserInfo(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -115,11 +136,14 @@ func (h *UserHandler) BatchGetUserInfo(c *gin.Context) {
 
 func (h *UserHandler) SearchUsers(c *gin.Context) {
 	var req user.SearchUsersReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.userClient.SearchUsers(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -130,11 +154,14 @@ func (h *UserHandler) SearchUsers(c *gin.Context) {
 
 func (h *UserHandler) BatchGetStatus(c *gin.Context) {
 	var req user.BatchGetStatusReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.userClient.BatchGetStatus(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -155,11 +182,14 @@ func (h *UserHandler) GetSettings(c *gin.Context) {
 
 func (h *UserHandler) UpdateSettings(c *gin.Context) {
 	var req user.UpdateSettingsReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.userClient.UpdateSettings(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -172,7 +202,7 @@ func (h *UserHandler) Recharge(c *gin.Context) {
 	var req struct {
 		Amount float64 `json:"amount"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -182,7 +212,7 @@ func (h *UserHandler) Recharge(c *gin.Context) {
 	}
 	ctx := middleware.WithGRPCMetadata(c)
 	resp, err := h.userClient.Recharge(ctx, &user.RechargeReq{
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
+		UserId: c.GetString(middleware.CtxKeyUserID),
 		Amount: req.Amount,
 	})
 	if err != nil {

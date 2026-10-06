@@ -175,8 +175,8 @@ func (ConnMode) EnumDescriptor() ([]byte, []int) {
 
 type Bot struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
-	Id      int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	OwnerId int64                  `protobuf:"varint,2,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	Id      string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OwnerId *string                `protobuf:"bytes,2,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	Name    string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Avatar  string                 `protobuf:"bytes,4,opt,name=avatar,proto3" json:"avatar,omitempty"`
 	Type    string                 `protobuf:"bytes,5,opt,name=type,proto3" json:"type,omitempty"`
@@ -193,12 +193,12 @@ type Bot struct {
 	StreamingEnabled   bool    `protobuf:"varint,18,opt,name=streaming_enabled,json=streamingEnabled,proto3" json:"streaming_enabled,omitempty"`
 	MaxContextTokens   int32   `protobuf:"varint,19,opt,name=max_context_tokens,json=maxContextTokens,proto3" json:"max_context_tokens,omitempty"`
 	// Memory config
-	MemoryModelName          string `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
-	MemoryModelId            int64  `protobuf:"varint,22,opt,name=memory_model_id,json=memoryModelId,proto3" json:"memory_model_id,omitempty"`
-	MemoryUsePlatformModel   bool   `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
-	MemoryLimit              int32  `protobuf:"varint,23,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"` // 0=default(5)
-	MemoryEmbeddingModelName string `protobuf:"bytes,24,opt,name=memory_embedding_model_name,json=memoryEmbeddingModelName,proto3" json:"memory_embedding_model_name,omitempty"`
-	MemoryEmbeddingModelId   int64  `protobuf:"varint,25,opt,name=memory_embedding_model_id,json=memoryEmbeddingModelId,proto3" json:"memory_embedding_model_id,omitempty"`
+	MemoryModelName          string  `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
+	MemoryModelId            *string `protobuf:"bytes,22,opt,name=memory_model_id,json=memoryModelId,proto3,oneof" json:"memory_model_id,omitempty"`
+	MemoryUsePlatformModel   bool    `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
+	MemoryLimit              int32   `protobuf:"varint,23,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"` // 0=default(5)
+	MemoryEmbeddingModelName string  `protobuf:"bytes,24,opt,name=memory_embedding_model_name,json=memoryEmbeddingModelName,proto3" json:"memory_embedding_model_name,omitempty"`
+	MemoryEmbeddingModelId   *string `protobuf:"bytes,25,opt,name=memory_embedding_model_id,json=memoryEmbeddingModelId,proto3,oneof" json:"memory_embedding_model_id,omitempty"`
 	// Connection config (third_party)
 	ConnMode         string `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
 	CallbackUrl      string `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
@@ -208,11 +208,12 @@ type Bot struct {
 	BotTags      []string `protobuf:"bytes,40,rep,name=bot_tags,json=botTags,proto3" json:"bot_tags,omitempty"`
 	Capabilities string   `protobuf:"bytes,41,opt,name=capabilities,proto3" json:"capabilities,omitempty"` // JSONB
 	Settings     string   `protobuf:"bytes,42,opt,name=settings,proto3" json:"settings,omitempty"`         // JSONB
-	ModelId      int64    `protobuf:"varint,52,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId      *string  `protobuf:"bytes,52,opt,name=model_id,json=modelId,proto3,oneof" json:"model_id,omitempty"`
 	TemplateId   string   `protobuf:"bytes,53,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"` // "qa" | "knowledge" (official only)
 	SubType      string   `protobuf:"bytes,54,opt,name=sub_type,json=subType,proto3" json:"sub_type,omitempty"`          // "webhook" | "ws" (third_party only)
 	// Trigger config
 	ResponseTriggers []string `protobuf:"bytes,55,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"` // "always" | "mention" | "keyword:xxx"
+	OwnerType        string   `protobuf:"bytes,56,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"`                      // platform | user；所有权与 Bot type、template_id 独立
 	CreatedAt        int64    `protobuf:"varint,50,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt        int64    `protobuf:"varint,51,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	unknownFields    protoimpl.UnknownFields
@@ -249,18 +250,18 @@ func (*Bot) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Bot) GetId() int64 {
+func (x *Bot) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *Bot) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *Bot) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 func (x *Bot) GetName() string {
@@ -368,11 +369,11 @@ func (x *Bot) GetMemoryModelName() string {
 	return ""
 }
 
-func (x *Bot) GetMemoryModelId() int64 {
-	if x != nil {
-		return x.MemoryModelId
+func (x *Bot) GetMemoryModelId() string {
+	if x != nil && x.MemoryModelId != nil {
+		return *x.MemoryModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *Bot) GetMemoryUsePlatformModel() bool {
@@ -396,11 +397,11 @@ func (x *Bot) GetMemoryEmbeddingModelName() string {
 	return ""
 }
 
-func (x *Bot) GetMemoryEmbeddingModelId() int64 {
-	if x != nil {
-		return x.MemoryEmbeddingModelId
+func (x *Bot) GetMemoryEmbeddingModelId() string {
+	if x != nil && x.MemoryEmbeddingModelId != nil {
+		return *x.MemoryEmbeddingModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *Bot) GetConnMode() string {
@@ -452,11 +453,11 @@ func (x *Bot) GetSettings() string {
 	return ""
 }
 
-func (x *Bot) GetModelId() int64 {
-	if x != nil {
-		return x.ModelId
+func (x *Bot) GetModelId() string {
+	if x != nil && x.ModelId != nil {
+		return *x.ModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *Bot) GetTemplateId() string {
@@ -480,6 +481,13 @@ func (x *Bot) GetResponseTriggers() []string {
 	return nil
 }
 
+func (x *Bot) GetOwnerType() string {
+	if x != nil {
+		return x.OwnerType
+	}
+	return ""
+}
+
 func (x *Bot) GetCreatedAt() int64 {
 	if x != nil {
 		return x.CreatedAt
@@ -496,7 +504,7 @@ func (x *Bot) GetUpdatedAt() int64 {
 
 type CreateBotReq struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId int64                  `protobuf:"varint,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	OwnerId *string                `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	Name    string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Type    string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
 	Avatar  string                 `protobuf:"bytes,4,opt,name=avatar,proto3" json:"avatar,omitempty"`
@@ -513,23 +521,24 @@ type CreateBotReq struct {
 	StreamingEnabled   bool    `protobuf:"varint,19,opt,name=streaming_enabled,json=streamingEnabled,proto3" json:"streaming_enabled,omitempty"`
 	MaxContextTokens   int32   `protobuf:"varint,25,opt,name=max_context_tokens,json=maxContextTokens,proto3" json:"max_context_tokens,omitempty"`
 	// Memory config
-	MemoryModelName          string `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
-	MemoryModelId            int64  `protobuf:"varint,22,opt,name=memory_model_id,json=memoryModelId,proto3" json:"memory_model_id,omitempty"`
-	MemoryUsePlatformModel   bool   `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
-	MemoryApiKey             string `protobuf:"bytes,23,opt,name=memory_api_key,json=memoryApiKey,proto3" json:"memory_api_key,omitempty"` // plaintext, server encrypts
-	MemoryLimit              int32  `protobuf:"varint,24,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"`     // 0=default(5)
-	MemoryEmbeddingModelName string `protobuf:"bytes,26,opt,name=memory_embedding_model_name,json=memoryEmbeddingModelName,proto3" json:"memory_embedding_model_name,omitempty"`
-	MemoryEmbeddingModelId   int64  `protobuf:"varint,27,opt,name=memory_embedding_model_id,json=memoryEmbeddingModelId,proto3" json:"memory_embedding_model_id,omitempty"`
+	MemoryModelName          string  `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
+	MemoryModelId            *string `protobuf:"bytes,22,opt,name=memory_model_id,json=memoryModelId,proto3,oneof" json:"memory_model_id,omitempty"`
+	MemoryUsePlatformModel   bool    `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
+	MemoryApiKey             string  `protobuf:"bytes,23,opt,name=memory_api_key,json=memoryApiKey,proto3" json:"memory_api_key,omitempty"` // plaintext, server encrypts
+	MemoryLimit              int32   `protobuf:"varint,24,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"`     // 0=default(5)
+	MemoryEmbeddingModelName string  `protobuf:"bytes,26,opt,name=memory_embedding_model_name,json=memoryEmbeddingModelName,proto3" json:"memory_embedding_model_name,omitempty"`
+	MemoryEmbeddingModelId   *string `protobuf:"bytes,27,opt,name=memory_embedding_model_id,json=memoryEmbeddingModelId,proto3,oneof" json:"memory_embedding_model_id,omitempty"`
 	// Connection config (third_party)
 	ConnMode         string   `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
 	CallbackUrl      string   `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
 	BotTags          []string `protobuf:"bytes,40,rep,name=bot_tags,json=botTags,proto3" json:"bot_tags,omitempty"`
 	Capabilities     string   `protobuf:"bytes,41,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
 	Settings         string   `protobuf:"bytes,42,opt,name=settings,proto3" json:"settings,omitempty"`
-	ModelId          int64    `protobuf:"varint,43,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId          *string  `protobuf:"bytes,43,opt,name=model_id,json=modelId,proto3,oneof" json:"model_id,omitempty"`
 	TemplateId       string   `protobuf:"bytes,44,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
 	SubType          string   `protobuf:"bytes,45,opt,name=sub_type,json=subType,proto3" json:"sub_type,omitempty"`
 	ResponseTriggers []string `protobuf:"bytes,46,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"` // "always" | "mention" | "keyword:xxx"
+	OwnerType        string   `protobuf:"bytes,47,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"`                      // platform 不提供 owner_id；user 必须提供有效 owner_id
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -564,11 +573,11 @@ func (*CreateBotReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *CreateBotReq) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *CreateBotReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 func (x *CreateBotReq) GetName() string {
@@ -676,11 +685,11 @@ func (x *CreateBotReq) GetMemoryModelName() string {
 	return ""
 }
 
-func (x *CreateBotReq) GetMemoryModelId() int64 {
-	if x != nil {
-		return x.MemoryModelId
+func (x *CreateBotReq) GetMemoryModelId() string {
+	if x != nil && x.MemoryModelId != nil {
+		return *x.MemoryModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *CreateBotReq) GetMemoryUsePlatformModel() bool {
@@ -711,11 +720,11 @@ func (x *CreateBotReq) GetMemoryEmbeddingModelName() string {
 	return ""
 }
 
-func (x *CreateBotReq) GetMemoryEmbeddingModelId() int64 {
-	if x != nil {
-		return x.MemoryEmbeddingModelId
+func (x *CreateBotReq) GetMemoryEmbeddingModelId() string {
+	if x != nil && x.MemoryEmbeddingModelId != nil {
+		return *x.MemoryEmbeddingModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *CreateBotReq) GetConnMode() string {
@@ -753,11 +762,11 @@ func (x *CreateBotReq) GetSettings() string {
 	return ""
 }
 
-func (x *CreateBotReq) GetModelId() int64 {
-	if x != nil {
-		return x.ModelId
+func (x *CreateBotReq) GetModelId() string {
+	if x != nil && x.ModelId != nil {
+		return *x.ModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *CreateBotReq) GetTemplateId() string {
@@ -781,10 +790,17 @@ func (x *CreateBotReq) GetResponseTriggers() []string {
 	return nil
 }
 
+func (x *CreateBotReq) GetOwnerType() string {
+	if x != nil {
+		return x.OwnerType
+	}
+	return ""
+}
+
 type UpdateBotReq struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
-	BotId                    int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	UserId                   int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // caller, must be owner
+	BotId                    string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	UserId                   string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // caller, must be owner
 	Name                     string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Avatar                   string                 `protobuf:"bytes,4,opt,name=avatar,proto3" json:"avatar,omitempty"`
 	Status                   string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
@@ -800,23 +816,27 @@ type UpdateBotReq struct {
 	StreamingEnabled         bool                   `protobuf:"varint,19,opt,name=streaming_enabled,json=streamingEnabled,proto3" json:"streaming_enabled,omitempty"`
 	MaxContextTokens         int32                  `protobuf:"varint,25,opt,name=max_context_tokens,json=maxContextTokens,proto3" json:"max_context_tokens,omitempty"`
 	MemoryModelName          string                 `protobuf:"bytes,20,opt,name=memory_model_name,json=memoryModelName,proto3" json:"memory_model_name,omitempty"`
-	MemoryModelId            int64                  `protobuf:"varint,22,opt,name=memory_model_id,json=memoryModelId,proto3" json:"memory_model_id,omitempty"`
+	MemoryModelId            *string                `protobuf:"bytes,22,opt,name=memory_model_id,json=memoryModelId,proto3,oneof" json:"memory_model_id,omitempty"`
 	MemoryUsePlatformModel   bool                   `protobuf:"varint,21,opt,name=memory_use_platform_model,json=memoryUsePlatformModel,proto3" json:"memory_use_platform_model,omitempty"`
 	MemoryApiKey             string                 `protobuf:"bytes,23,opt,name=memory_api_key,json=memoryApiKey,proto3" json:"memory_api_key,omitempty"`
 	MemoryLimit              int32                  `protobuf:"varint,24,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"` // 0=default(5)
 	MemoryEmbeddingModelName string                 `protobuf:"bytes,26,opt,name=memory_embedding_model_name,json=memoryEmbeddingModelName,proto3" json:"memory_embedding_model_name,omitempty"`
-	MemoryEmbeddingModelId   int64                  `protobuf:"varint,27,opt,name=memory_embedding_model_id,json=memoryEmbeddingModelId,proto3" json:"memory_embedding_model_id,omitempty"`
+	MemoryEmbeddingModelId   *string                `protobuf:"bytes,27,opt,name=memory_embedding_model_id,json=memoryEmbeddingModelId,proto3,oneof" json:"memory_embedding_model_id,omitempty"`
 	ConnMode                 string                 `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
 	CallbackUrl              string                 `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
 	BotTags                  []string               `protobuf:"bytes,40,rep,name=bot_tags,json=botTags,proto3" json:"bot_tags,omitempty"`
 	Capabilities             string                 `protobuf:"bytes,41,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
 	Settings                 string                 `protobuf:"bytes,42,opt,name=settings,proto3" json:"settings,omitempty"`
-	ModelId                  int64                  `protobuf:"varint,43,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                  *string                `protobuf:"bytes,43,opt,name=model_id,json=modelId,proto3,oneof" json:"model_id,omitempty"`
 	TemplateId               string                 `protobuf:"bytes,44,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
 	SubType                  string                 `protobuf:"bytes,45,opt,name=sub_type,json=subType,proto3" json:"sub_type,omitempty"`
 	ResponseTriggers         []string               `protobuf:"bytes,46,rep,name=response_triggers,json=responseTriggers,proto3" json:"response_triggers,omitempty"` // "always" | "mention" | "keyword:xxx"
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	// 每组引用独立：未提供且 clear=false 保持，clear=true 解除；同时提供引用与 clear=true 拒绝。
+	ClearModelId                bool `protobuf:"varint,47,opt,name=clear_model_id,json=clearModelId,proto3" json:"clear_model_id,omitempty"`
+	ClearMemoryModelId          bool `protobuf:"varint,48,opt,name=clear_memory_model_id,json=clearMemoryModelId,proto3" json:"clear_memory_model_id,omitempty"`
+	ClearMemoryEmbeddingModelId bool `protobuf:"varint,49,opt,name=clear_memory_embedding_model_id,json=clearMemoryEmbeddingModelId,proto3" json:"clear_memory_embedding_model_id,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *UpdateBotReq) Reset() {
@@ -849,18 +869,18 @@ func (*UpdateBotReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *UpdateBotReq) GetBotId() int64 {
+func (x *UpdateBotReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *UpdateBotReq) GetUserId() int64 {
+func (x *UpdateBotReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateBotReq) GetName() string {
@@ -968,11 +988,11 @@ func (x *UpdateBotReq) GetMemoryModelName() string {
 	return ""
 }
 
-func (x *UpdateBotReq) GetMemoryModelId() int64 {
-	if x != nil {
-		return x.MemoryModelId
+func (x *UpdateBotReq) GetMemoryModelId() string {
+	if x != nil && x.MemoryModelId != nil {
+		return *x.MemoryModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateBotReq) GetMemoryUsePlatformModel() bool {
@@ -1003,11 +1023,11 @@ func (x *UpdateBotReq) GetMemoryEmbeddingModelName() string {
 	return ""
 }
 
-func (x *UpdateBotReq) GetMemoryEmbeddingModelId() int64 {
-	if x != nil {
-		return x.MemoryEmbeddingModelId
+func (x *UpdateBotReq) GetMemoryEmbeddingModelId() string {
+	if x != nil && x.MemoryEmbeddingModelId != nil {
+		return *x.MemoryEmbeddingModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateBotReq) GetConnMode() string {
@@ -1045,11 +1065,11 @@ func (x *UpdateBotReq) GetSettings() string {
 	return ""
 }
 
-func (x *UpdateBotReq) GetModelId() int64 {
-	if x != nil {
-		return x.ModelId
+func (x *UpdateBotReq) GetModelId() string {
+	if x != nil && x.ModelId != nil {
+		return *x.ModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateBotReq) GetTemplateId() string {
@@ -1073,10 +1093,31 @@ func (x *UpdateBotReq) GetResponseTriggers() []string {
 	return nil
 }
 
+func (x *UpdateBotReq) GetClearModelId() bool {
+	if x != nil {
+		return x.ClearModelId
+	}
+	return false
+}
+
+func (x *UpdateBotReq) GetClearMemoryModelId() bool {
+	if x != nil {
+		return x.ClearMemoryModelId
+	}
+	return false
+}
+
+func (x *UpdateBotReq) GetClearMemoryEmbeddingModelId() bool {
+	if x != nil {
+		return x.ClearMemoryEmbeddingModelId
+	}
+	return false
+}
+
 type DeleteBotReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1111,23 +1152,23 @@ func (*DeleteBotReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *DeleteBotReq) GetBotId() int64 {
+func (x *DeleteBotReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *DeleteBotReq) GetUserId() int64 {
+func (x *DeleteBotReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type GetBotReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1162,18 +1203,19 @@ func (*GetBotReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *GetBotReq) GetBotId() int64 {
+func (x *GetBotReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
 type ListBotsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       int64                  `protobuf:"varint,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	OwnerId       *string                `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	Pagination    *common.Pagination     `protobuf:"bytes,3,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	OwnerType     string                 `protobuf:"bytes,4,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"` // platform | user；平台不提供 owner_id，用户所有提供 owner_id
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1208,11 +1250,11 @@ func (*ListBotsReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *ListBotsReq) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *ListBotsReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 func (x *ListBotsReq) GetStatus() string {
@@ -1227,6 +1269,13 @@ func (x *ListBotsReq) GetPagination() *common.Pagination {
 		return x.Pagination
 	}
 	return nil
+}
+
+func (x *ListBotsReq) GetOwnerType() string {
+	if x != nil {
+		return x.OwnerType
+	}
+	return ""
 }
 
 type ListBotsResp struct {
@@ -1283,8 +1332,8 @@ func (x *ListBotsResp) GetPagination() *common.PaginationResp {
 
 type RotateSecretReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1319,18 +1368,18 @@ func (*RotateSecretReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *RotateSecretReq) GetBotId() int64 {
+func (x *RotateSecretReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *RotateSecretReq) GetUserId() int64 {
+func (x *RotateSecretReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type RotateSecretResp struct {
@@ -1387,7 +1436,7 @@ func (x *RotateSecretResp) GetAppSecret() string {
 
 type WebhookReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	BotId         *string                `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"` // 未提供时按既有 HMAC secret 验证并解析 Bot，不能以伪身份代替缺失
 	Body          []byte                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
 	Signature     string                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
 	Timestamp     int64                  `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
@@ -1425,11 +1474,11 @@ func (*WebhookReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *WebhookReq) GetBotId() int64 {
-	if x != nil {
-		return x.BotId
+func (x *WebhookReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
 	}
-	return 0
+	return ""
 }
 
 func (x *WebhookReq) GetBody() []byte {
@@ -1455,7 +1504,7 @@ func (x *WebhookReq) GetTimestamp() int64 {
 
 type WebhookResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	MessageId     int64                  `protobuf:"varint,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	MessageId     *string                `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3,oneof" json:"message_id,omitempty"` // 无消息创建的 webhook 类型不提供
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1490,17 +1539,17 @@ func (*WebhookResp) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *WebhookResp) GetMessageId() int64 {
-	if x != nil {
-		return x.MessageId
+func (x *WebhookResp) GetMessageId() string {
+	if x != nil && x.MessageId != nil {
+		return *x.MessageId
 	}
-	return 0
+	return ""
 }
 
 type IssueBotTokenReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	TtlSeconds    int64                  `protobuf:"varint,3,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1536,18 +1585,18 @@ func (*IssueBotTokenReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *IssueBotTokenReq) GetBotId() int64 {
+func (x *IssueBotTokenReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *IssueBotTokenReq) GetUserId() int64 {
+func (x *IssueBotTokenReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *IssueBotTokenReq) GetTtlSeconds() int64 {
@@ -1656,9 +1705,10 @@ func (x *ValidateBotTokenReq) GetToken() string {
 type ValidateBotTokenResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Valid         bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
-	BotId         int64                  `protobuf:"varint,2,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	OwnerId       int64                  `protobuf:"varint,3,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	BotId         *string                `protobuf:"bytes,2,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	OwnerId       *string                `protobuf:"bytes,3,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	Type          string                 `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`
+	OwnerType     *string                `protobuf:"bytes,5,opt,name=owner_type,json=ownerType,proto3,oneof" json:"owner_type,omitempty"` // valid=true 时提供 platform | user；valid=false 时缺失
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1700,18 +1750,18 @@ func (x *ValidateBotTokenResp) GetValid() bool {
 	return false
 }
 
-func (x *ValidateBotTokenResp) GetBotId() int64 {
-	if x != nil {
-		return x.BotId
+func (x *ValidateBotTokenResp) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *ValidateBotTokenResp) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *ValidateBotTokenResp) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 func (x *ValidateBotTokenResp) GetType() string {
@@ -1721,9 +1771,16 @@ func (x *ValidateBotTokenResp) GetType() string {
 	return ""
 }
 
+func (x *ValidateBotTokenResp) GetOwnerType() string {
+	if x != nil && x.OwnerType != nil {
+		return *x.OwnerType
+	}
+	return ""
+}
+
 type McpServerInfo struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
-	Id          int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Description string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
 	Transport   string                 `protobuf:"bytes,4,opt,name=transport,proto3" json:"transport,omitempty"` // sse / http-streamable / stdio
@@ -1733,15 +1790,18 @@ type McpServerInfo struct {
 	Env         string                 `protobuf:"bytes,8,opt,name=env,proto3" json:"env,omitempty"` // JSON
 	TimeoutMs   int32                  `protobuf:"varint,11,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
 	Status      string                 `protobuf:"bytes,12,opt,name=status,proto3" json:"status,omitempty"`
-	CreatedBy   int64                  `protobuf:"varint,13,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	CreatedBy   *string                `protobuf:"bytes,13,opt,name=created_by,json=createdBy,proto3,oneof" json:"created_by,omitempty"`
 	CreatedAt   int64                  `protobuf:"varint,14,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt   int64                  `protobuf:"varint,15,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	// new fields
 	AuthConfig     string `protobuf:"bytes,16,opt,name=auth_config,json=authConfig,proto3" json:"auth_config,omitempty"`             // JSON: {api_key, token}
 	AdvancedConfig string `protobuf:"bytes,17,opt,name=advanced_config,json=advancedConfig,proto3" json:"advanced_config,omitempty"` // JSON: {timeout, retry_count, retry_delay}
 	Enabled        bool   `protobuf:"varint,18,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// created_by 仅表示创建审计，不兼任所有者；平台对象的 owner_id 缺失。
+	OwnerType     string  `protobuf:"bytes,19,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"` // platform | user
+	OwnerId       *string `protobuf:"bytes,20,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *McpServerInfo) Reset() {
@@ -1774,11 +1834,11 @@ func (*McpServerInfo) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *McpServerInfo) GetId() int64 {
+func (x *McpServerInfo) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
 func (x *McpServerInfo) GetName() string {
@@ -1844,11 +1904,11 @@ func (x *McpServerInfo) GetStatus() string {
 	return ""
 }
 
-func (x *McpServerInfo) GetCreatedBy() int64 {
-	if x != nil {
-		return x.CreatedBy
+func (x *McpServerInfo) GetCreatedBy() string {
+	if x != nil && x.CreatedBy != nil {
+		return *x.CreatedBy
 	}
-	return 0
+	return ""
 }
 
 func (x *McpServerInfo) GetCreatedAt() int64 {
@@ -1886,9 +1946,23 @@ func (x *McpServerInfo) GetEnabled() bool {
 	return false
 }
 
+func (x *McpServerInfo) GetOwnerType() string {
+	if x != nil {
+		return x.OwnerType
+	}
+	return ""
+}
+
+func (x *McpServerInfo) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
+	}
+	return ""
+}
+
 type CreateMcpServerReq struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
-	UserId      int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId      string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Description string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
 	Transport   string                 `protobuf:"bytes,4,opt,name=transport,proto3" json:"transport,omitempty"` // sse / http-streamable / stdio
@@ -1898,9 +1972,11 @@ type CreateMcpServerReq struct {
 	Env         string                 `protobuf:"bytes,8,opt,name=env,proto3" json:"env,omitempty"`
 	TimeoutMs   int32                  `protobuf:"varint,11,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
 	// new fields
-	AuthConfig     string `protobuf:"bytes,12,opt,name=auth_config,json=authConfig,proto3" json:"auth_config,omitempty"`             // JSON
-	AdvancedConfig string `protobuf:"bytes,13,opt,name=advanced_config,json=advancedConfig,proto3" json:"advanced_config,omitempty"` // JSON
-	Enabled        bool   `protobuf:"varint,14,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	AuthConfig     string  `protobuf:"bytes,12,opt,name=auth_config,json=authConfig,proto3" json:"auth_config,omitempty"`             // JSON
+	AdvancedConfig string  `protobuf:"bytes,13,opt,name=advanced_config,json=advancedConfig,proto3" json:"advanced_config,omitempty"` // JSON
+	Enabled        bool    `protobuf:"varint,14,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	OwnerType      string  `protobuf:"bytes,15,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"` // platform | user；仍执行既有平台管理权限校验
+	OwnerId        *string `protobuf:"bytes,16,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1935,11 +2011,11 @@ func (*CreateMcpServerReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *CreateMcpServerReq) GetUserId() int64 {
+func (x *CreateMcpServerReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *CreateMcpServerReq) GetName() string {
@@ -2019,10 +2095,24 @@ func (x *CreateMcpServerReq) GetEnabled() bool {
 	return false
 }
 
+func (x *CreateMcpServerReq) GetOwnerType() string {
+	if x != nil {
+		return x.OwnerType
+	}
+	return ""
+}
+
+func (x *CreateMcpServerReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
+	}
+	return ""
+}
+
 type UpdateMcpServerReq struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
-	Id          int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId      int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserId      string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Name        string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Description string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	Transport   string                 `protobuf:"bytes,5,opt,name=transport,proto3" json:"transport,omitempty"`
@@ -2070,18 +2160,18 @@ func (*UpdateMcpServerReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *UpdateMcpServerReq) GetId() int64 {
+func (x *UpdateMcpServerReq) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *UpdateMcpServerReq) GetUserId() int64 {
+func (x *UpdateMcpServerReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateMcpServerReq) GetName() string {
@@ -2170,8 +2260,8 @@ func (x *UpdateMcpServerReq) GetEnabled() bool {
 
 type DeleteMcpServerReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2206,24 +2296,24 @@ func (*DeleteMcpServerReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *DeleteMcpServerReq) GetId() int64 {
+func (x *DeleteMcpServerReq) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *DeleteMcpServerReq) GetUserId() int64 {
+func (x *DeleteMcpServerReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type GetMcpServerReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2258,23 +2348,23 @@ func (*GetMcpServerReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *GetMcpServerReq) GetId() int64 {
+func (x *GetMcpServerReq) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *GetMcpServerReq) GetUserId() int64 {
+func (x *GetMcpServerReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 type ListMcpServersReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	Pagination    *common.Pagination     `protobuf:"bytes,3,opt,name=pagination,proto3" json:"pagination,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2311,11 +2401,11 @@ func (*ListMcpServersReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *ListMcpServersReq) GetUserId() int64 {
+func (x *ListMcpServersReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *ListMcpServersReq) GetStatus() string {
@@ -2386,9 +2476,9 @@ func (x *ListMcpServersResp) GetPagination() *common.PaginationResp {
 
 type AssignMcpToBotReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	McpServerId   int64                  `protobuf:"varint,3,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	McpServerId   string                 `protobuf:"bytes,3,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2423,32 +2513,32 @@ func (*AssignMcpToBotReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{22}
 }
 
-func (x *AssignMcpToBotReq) GetBotId() int64 {
+func (x *AssignMcpToBotReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *AssignMcpToBotReq) GetUserId() int64 {
+func (x *AssignMcpToBotReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *AssignMcpToBotReq) GetMcpServerId() int64 {
+func (x *AssignMcpToBotReq) GetMcpServerId() string {
 	if x != nil {
 		return x.McpServerId
 	}
-	return 0
+	return ""
 }
 
 type UnassignMcpFromBotReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	McpServerId   int64                  `protobuf:"varint,3,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	McpServerId   string                 `protobuf:"bytes,3,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2483,30 +2573,30 @@ func (*UnassignMcpFromBotReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{23}
 }
 
-func (x *UnassignMcpFromBotReq) GetBotId() int64 {
+func (x *UnassignMcpFromBotReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *UnassignMcpFromBotReq) GetUserId() int64 {
+func (x *UnassignMcpFromBotReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *UnassignMcpFromBotReq) GetMcpServerId() int64 {
+func (x *UnassignMcpFromBotReq) GetMcpServerId() string {
 	if x != nil {
 		return x.McpServerId
 	}
-	return 0
+	return ""
 }
 
 type ListBotMcpServersReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2541,17 +2631,17 @@ func (*ListBotMcpServersReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{24}
 }
 
-func (x *ListBotMcpServersReq) GetBotId() int64 {
+func (x *ListBotMcpServersReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
 type BotMcpServerInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	McpServerId   int64                  `protobuf:"varint,2,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	McpServerId   string                 `protobuf:"bytes,2,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
 	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	Transport     string                 `protobuf:"bytes,5,opt,name=transport,proto3" json:"transport,omitempty"`
@@ -2595,18 +2685,18 @@ func (*BotMcpServerInfo) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *BotMcpServerInfo) GetId() int64 {
+func (x *BotMcpServerInfo) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *BotMcpServerInfo) GetMcpServerId() int64 {
+func (x *BotMcpServerInfo) GetMcpServerId() string {
 	if x != nil {
 		return x.McpServerId
 	}
-	return 0
+	return ""
 }
 
 func (x *BotMcpServerInfo) GetName() string {
@@ -2718,9 +2808,9 @@ func (x *ListBotMcpServersResp) GetServers() []*BotMcpServerInfo {
 
 type UpdateBotMcpServerReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	McpServerId   int64                  `protobuf:"varint,3,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	McpServerId   string                 `protobuf:"bytes,3,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
 	Enabled       bool                   `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2756,25 +2846,25 @@ func (*UpdateBotMcpServerReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{27}
 }
 
-func (x *UpdateBotMcpServerReq) GetBotId() int64 {
+func (x *UpdateBotMcpServerReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *UpdateBotMcpServerReq) GetUserId() int64 {
+func (x *UpdateBotMcpServerReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *UpdateBotMcpServerReq) GetMcpServerId() int64 {
+func (x *UpdateBotMcpServerReq) GetMcpServerId() string {
 	if x != nil {
 		return x.McpServerId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateBotMcpServerReq) GetEnabled() bool {
@@ -2786,8 +2876,8 @@ func (x *UpdateBotMcpServerReq) GetEnabled() bool {
 
 type McpToolInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	McpServerId   int64                  `protobuf:"varint,2,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	McpServerId   string                 `protobuf:"bytes,2,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
 	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	InputSchema   string                 `protobuf:"bytes,5,opt,name=input_schema,json=inputSchema,proto3" json:"input_schema,omitempty"` // JSON
@@ -2826,18 +2916,18 @@ func (*McpToolInfo) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{28}
 }
 
-func (x *McpToolInfo) GetId() int64 {
+func (x *McpToolInfo) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *McpToolInfo) GetMcpServerId() int64 {
+func (x *McpToolInfo) GetMcpServerId() string {
 	if x != nil {
 		return x.McpServerId
 	}
-	return 0
+	return ""
 }
 
 func (x *McpToolInfo) GetName() string {
@@ -2870,8 +2960,8 @@ func (x *McpToolInfo) GetUpdatedAt() int64 {
 
 type DiscoverMcpToolsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	McpServerId   int64                  `protobuf:"varint,2,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	McpServerId   string                 `protobuf:"bytes,2,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2906,18 +2996,18 @@ func (*DiscoverMcpToolsReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{29}
 }
 
-func (x *DiscoverMcpToolsReq) GetUserId() int64 {
+func (x *DiscoverMcpToolsReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *DiscoverMcpToolsReq) GetMcpServerId() int64 {
+func (x *DiscoverMcpToolsReq) GetMcpServerId() string {
 	if x != nil {
 		return x.McpServerId
 	}
-	return 0
+	return ""
 }
 
 type DiscoverMcpToolsResp struct {
@@ -2966,8 +3056,8 @@ func (x *DiscoverMcpToolsResp) GetTools() []*McpToolInfo {
 
 type ListMcpToolsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	McpServerId   int64                  `protobuf:"varint,2,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	McpServerId   string                 `protobuf:"bytes,2,opt,name=mcp_server_id,json=mcpServerId,proto3" json:"mcp_server_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3002,18 +3092,18 @@ func (*ListMcpToolsReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{31}
 }
 
-func (x *ListMcpToolsReq) GetUserId() int64 {
+func (x *ListMcpToolsReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *ListMcpToolsReq) GetMcpServerId() int64 {
+func (x *ListMcpToolsReq) GetMcpServerId() string {
 	if x != nil {
 		return x.McpServerId
 	}
-	return 0
+	return ""
 }
 
 type ListMcpToolsResp struct {
@@ -3062,7 +3152,7 @@ func (x *ListMcpToolsResp) GetTools() []*McpToolInfo {
 
 type BatchGetBotsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotIds        []int64                `protobuf:"varint,1,rep,packed,name=bot_ids,json=botIds,proto3" json:"bot_ids,omitempty"`
+	BotIds        []string               `protobuf:"bytes,1,rep,name=bot_ids,json=botIds,proto3" json:"bot_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3097,7 +3187,7 @@ func (*BatchGetBotsReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{33}
 }
 
-func (x *BatchGetBotsReq) GetBotIds() []int64 {
+func (x *BatchGetBotsReq) GetBotIds() []string {
 	if x != nil {
 		return x.BotIds
 	}
@@ -3150,7 +3240,7 @@ func (x *BatchGetBotsResp) GetBots() []*Bot {
 
 type GetBotWebhookConfigReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3185,11 +3275,11 @@ func (*GetBotWebhookConfigReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{35}
 }
 
-func (x *GetBotWebhookConfigReq) GetBotId() int64 {
+func (x *GetBotWebhookConfigReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
 type GetBotWebhookConfigResp struct {
@@ -3270,10 +3360,10 @@ func (x *GetBotWebhookConfigResp) GetType() string {
 
 type StreamChatReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         int64                  `protobuf:"varint,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	ConvId        int64                  `protobuf:"varint,2,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	ConvId        string                 `protobuf:"bytes,2,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
 	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	ReplyToMsgId  int64                  `protobuf:"varint,4,opt,name=reply_to_msg_id,json=replyToMsgId,proto3" json:"reply_to_msg_id,omitempty"` // 可选
+	ReplyToMsgId  *string                `protobuf:"bytes,4,opt,name=reply_to_msg_id,json=replyToMsgId,proto3,oneof" json:"reply_to_msg_id,omitempty"` // 可选
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3308,18 +3398,18 @@ func (*StreamChatReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{37}
 }
 
-func (x *StreamChatReq) GetBotId() int64 {
+func (x *StreamChatReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *StreamChatReq) GetConvId() int64 {
+func (x *StreamChatReq) GetConvId() string {
 	if x != nil {
 		return x.ConvId
 	}
-	return 0
+	return ""
 }
 
 func (x *StreamChatReq) GetMessage() string {
@@ -3329,20 +3419,20 @@ func (x *StreamChatReq) GetMessage() string {
 	return ""
 }
 
-func (x *StreamChatReq) GetReplyToMsgId() int64 {
-	if x != nil {
-		return x.ReplyToMsgId
+func (x *StreamChatReq) GetReplyToMsgId() string {
+	if x != nil && x.ReplyToMsgId != nil {
+		return *x.ReplyToMsgId
 	}
-	return 0
+	return ""
 }
 
 type StreamChatResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`                            // "chunk" | "tool_call" | "tool_result" | "done" | "error"
-	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`                      // 文本增量 / 工具结果
-	ToolName      string                 `protobuf:"bytes,3,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"`    // tool_call / tool_result 时用
-	MessageId     string                 `protobuf:"bytes,4,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"` // done 时返回
-	ConvId        int64                  `protobuf:"varint,5,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`                                  // "chunk" | "tool_call" | "tool_result" | "done" | "error"
+	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`                            // 文本增量 / 工具结果
+	ToolName      string                 `protobuf:"bytes,3,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"`          // tool_call / tool_result 时用
+	MessageId     *string                `protobuf:"bytes,4,opt,name=message_id,json=messageId,proto3,oneof" json:"message_id,omitempty"` // done 时返回
+	ConvId        string                 `protobuf:"bytes,5,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3399,23 +3489,23 @@ func (x *StreamChatResp) GetToolName() string {
 }
 
 func (x *StreamChatResp) GetMessageId() string {
-	if x != nil {
-		return x.MessageId
+	if x != nil && x.MessageId != nil {
+		return *x.MessageId
 	}
 	return ""
 }
 
-func (x *StreamChatResp) GetConvId() int64 {
+func (x *StreamChatResp) GetConvId() string {
 	if x != nil {
 		return x.ConvId
 	}
-	return 0
+	return ""
 }
 
 type SummarizeReq struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
-	ConvId int64                  `protobuf:"varint,1,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
-	UserId int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	ConvId string                 `protobuf:"bytes,1,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	UserId string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	// Types that are valid to be assigned to Range:
 	//
 	//	*SummarizeReq_LastMessageCount
@@ -3456,18 +3546,18 @@ func (*SummarizeReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{39}
 }
 
-func (x *SummarizeReq) GetConvId() int64 {
+func (x *SummarizeReq) GetConvId() string {
 	if x != nil {
 		return x.ConvId
 	}
-	return 0
+	return ""
 }
 
-func (x *SummarizeReq) GetUserId() int64 {
+func (x *SummarizeReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
 func (x *SummarizeReq) GetRange() isSummarizeReq_Range {
@@ -3580,7 +3670,7 @@ func (x *TimeRange) GetEndTime() int64 {
 
 type SummarizeResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SummaryId     int64                  `protobuf:"varint,1,opt,name=summary_id,json=summaryId,proto3" json:"summary_id,omitempty"`
+	SummaryId     string                 `protobuf:"bytes,1,opt,name=summary_id,json=summaryId,proto3" json:"summary_id,omitempty"`
 	Summary       string                 `protobuf:"bytes,2,opt,name=summary,proto3" json:"summary,omitempty"`
 	Todos         []*TodoItem            `protobuf:"bytes,3,rep,name=todos,proto3" json:"todos,omitempty"`
 	TotalMessages int32                  `protobuf:"varint,4,opt,name=total_messages,json=totalMessages,proto3" json:"total_messages,omitempty"`
@@ -3620,11 +3710,11 @@ func (*SummarizeResp) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{41}
 }
 
-func (x *SummarizeResp) GetSummaryId() int64 {
+func (x *SummarizeResp) GetSummaryId() string {
 	if x != nil {
 		return x.SummaryId
 	}
-	return 0
+	return ""
 }
 
 func (x *SummarizeResp) GetSummary() string {
@@ -3664,7 +3754,7 @@ func (x *SummarizeResp) GetStatus() string {
 
 type GetConvSummariesReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ConvId        int64                  `protobuf:"varint,1,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	ConvId        string                 `protobuf:"bytes,1,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
 	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3700,11 +3790,11 @@ func (*GetConvSummariesReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{42}
 }
 
-func (x *GetConvSummariesReq) GetConvId() int64 {
+func (x *GetConvSummariesReq) GetConvId() string {
 	if x != nil {
 		return x.ConvId
 	}
-	return 0
+	return ""
 }
 
 func (x *GetConvSummariesReq) GetLimit() int32 {
@@ -3760,8 +3850,8 @@ func (x *GetConvSummariesResp) GetItems() []*SummarizeResp {
 
 type CreateTodoReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ConvId        int64                  `protobuf:"varint,1,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
-	SummaryId     int64                  `protobuf:"varint,2,opt,name=summary_id,json=summaryId,proto3" json:"summary_id,omitempty"`
+	ConvId        string                 `protobuf:"bytes,1,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	SummaryId     *string                `protobuf:"bytes,2,opt,name=summary_id,json=summaryId,proto3,oneof" json:"summary_id,omitempty"`
 	Content       string                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3797,18 +3887,18 @@ func (*CreateTodoReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{44}
 }
 
-func (x *CreateTodoReq) GetConvId() int64 {
+func (x *CreateTodoReq) GetConvId() string {
 	if x != nil {
 		return x.ConvId
 	}
-	return 0
+	return ""
 }
 
-func (x *CreateTodoReq) GetSummaryId() int64 {
-	if x != nil {
-		return x.SummaryId
+func (x *CreateTodoReq) GetSummaryId() string {
+	if x != nil && x.SummaryId != nil {
+		return *x.SummaryId
 	}
-	return 0
+	return ""
 }
 
 func (x *CreateTodoReq) GetContent() string {
@@ -3820,9 +3910,9 @@ func (x *CreateTodoReq) GetContent() string {
 
 type TodoItem struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	SummaryId     int64                  `protobuf:"varint,2,opt,name=summary_id,json=summaryId,proto3" json:"summary_id,omitempty"`
-	ConvId        int64                  `protobuf:"varint,3,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	SummaryId     *string                `protobuf:"bytes,2,opt,name=summary_id,json=summaryId,proto3,oneof" json:"summary_id,omitempty"`
+	ConvId        string                 `protobuf:"bytes,3,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
 	Content       string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
 	Done          bool                   `protobuf:"varint,5,opt,name=done,proto3" json:"done,omitempty"`
 	CreatedAt     int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
@@ -3861,25 +3951,25 @@ func (*TodoItem) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{45}
 }
 
-func (x *TodoItem) GetId() int64 {
+func (x *TodoItem) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *TodoItem) GetSummaryId() int64 {
-	if x != nil {
-		return x.SummaryId
+func (x *TodoItem) GetSummaryId() string {
+	if x != nil && x.SummaryId != nil {
+		return *x.SummaryId
 	}
-	return 0
+	return ""
 }
 
-func (x *TodoItem) GetConvId() int64 {
+func (x *TodoItem) GetConvId() string {
 	if x != nil {
 		return x.ConvId
 	}
-	return 0
+	return ""
 }
 
 func (x *TodoItem) GetContent() string {
@@ -3912,7 +4002,7 @@ func (x *TodoItem) GetUpdatedAt() int64 {
 
 type UpdateTodoReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TodoId        int64                  `protobuf:"varint,1,opt,name=todo_id,json=todoId,proto3" json:"todo_id,omitempty"`
+	TodoId        string                 `protobuf:"bytes,1,opt,name=todo_id,json=todoId,proto3" json:"todo_id,omitempty"`
 	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
 	Done          bool                   `protobuf:"varint,3,opt,name=done,proto3" json:"done,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3949,11 +4039,11 @@ func (*UpdateTodoReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{46}
 }
 
-func (x *UpdateTodoReq) GetTodoId() int64 {
+func (x *UpdateTodoReq) GetTodoId() string {
 	if x != nil {
 		return x.TodoId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateTodoReq) GetContent() string {
@@ -3972,7 +4062,7 @@ func (x *UpdateTodoReq) GetDone() bool {
 
 type DeleteTodoReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TodoId        int64                  `protobuf:"varint,1,opt,name=todo_id,json=todoId,proto3" json:"todo_id,omitempty"`
+	TodoId        string                 `protobuf:"bytes,1,opt,name=todo_id,json=todoId,proto3" json:"todo_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4007,18 +4097,18 @@ func (*DeleteTodoReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{47}
 }
 
-func (x *DeleteTodoReq) GetTodoId() int64 {
+func (x *DeleteTodoReq) GetTodoId() string {
 	if x != nil {
 		return x.TodoId
 	}
-	return 0
+	return ""
 }
 
 type ReplyCandidatesReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ConvId        int64                  `protobuf:"varint,1,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	ReplyToMsgId  int64                  `protobuf:"varint,3,opt,name=reply_to_msg_id,json=replyToMsgId,proto3" json:"reply_to_msg_id,omitempty"`
+	ConvId        string                 `protobuf:"bytes,1,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	ReplyToMsgId  *string                `protobuf:"bytes,3,opt,name=reply_to_msg_id,json=replyToMsgId,proto3,oneof" json:"reply_to_msg_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4053,25 +4143,25 @@ func (*ReplyCandidatesReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{48}
 }
 
-func (x *ReplyCandidatesReq) GetConvId() int64 {
+func (x *ReplyCandidatesReq) GetConvId() string {
 	if x != nil {
 		return x.ConvId
 	}
-	return 0
+	return ""
 }
 
-func (x *ReplyCandidatesReq) GetUserId() int64 {
+func (x *ReplyCandidatesReq) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
-	return 0
+	return ""
 }
 
-func (x *ReplyCandidatesReq) GetReplyToMsgId() int64 {
-	if x != nil {
-		return x.ReplyToMsgId
+func (x *ReplyCandidatesReq) GetReplyToMsgId() string {
+	if x != nil && x.ReplyToMsgId != nil {
+		return *x.ReplyToMsgId
 	}
-	return 0
+	return ""
 }
 
 type ReplyCandidatesResp struct {
@@ -4130,7 +4220,7 @@ type TranslateMessageReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
 	TargetLang    string                 `protobuf:"bytes,2,opt,name=target_lang,json=targetLang,proto3" json:"target_lang,omitempty"`
-	MsgId         int64                  `protobuf:"varint,3,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`
+	MsgId         *string                `protobuf:"bytes,3,opt,name=msg_id,json=msgId,proto3,oneof" json:"msg_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4179,11 +4269,11 @@ func (x *TranslateMessageReq) GetTargetLang() string {
 	return ""
 }
 
-func (x *TranslateMessageReq) GetMsgId() int64 {
-	if x != nil {
-		return x.MsgId
+func (x *TranslateMessageReq) GetMsgId() string {
+	if x != nil && x.MsgId != nil {
+		return *x.MsgId
 	}
-	return 0
+	return ""
 }
 
 type TranslateMessageResp struct {
@@ -4250,10 +4340,10 @@ var File_bot_bot_proto protoreflect.FileDescriptor
 
 const file_bot_bot_proto_rawDesc = "" +
 	"\n" +
-	"\rbot/bot.proto\x12\x03bot\x1a\x13common/common.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xe6\t\n" +
-	"\x03Bot\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
-	"\bowner_id\x18\x02 \x01(\x03R\aownerId\x12\x12\n" +
+	"\rbot/bot.proto\x12\x03bot\x1a\x13common/common.proto\x1a\x1bgoogle/protobuf/empty.proto\"\x8d\v\n" +
+	"\x03Bot\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12&\n" +
+	"\bowner_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x16\n" +
 	"\x06avatar\x18\x04 \x01(\tR\x06avatar\x12\x12\n" +
 	"\x04type\x18\x05 \x01(\tR\x04type\x12\x16\n" +
@@ -4270,30 +4360,37 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\x14max_context_messages\x18\x11 \x01(\x05R\x12maxContextMessages\x12+\n" +
 	"\x11streaming_enabled\x18\x12 \x01(\bR\x10streamingEnabled\x12,\n" +
 	"\x12max_context_tokens\x18\x13 \x01(\x05R\x10maxContextTokens\x12*\n" +
-	"\x11memory_model_name\x18\x14 \x01(\tR\x0fmemoryModelName\x12&\n" +
-	"\x0fmemory_model_id\x18\x16 \x01(\x03R\rmemoryModelId\x129\n" +
+	"\x11memory_model_name\x18\x14 \x01(\tR\x0fmemoryModelName\x123\n" +
+	"\x0fmemory_model_id\x18\x16 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\rmemoryModelId\x88\x01\x01\x129\n" +
 	"\x19memory_use_platform_model\x18\x15 \x01(\bR\x16memoryUsePlatformModel\x12!\n" +
 	"\fmemory_limit\x18\x17 \x01(\x05R\vmemoryLimit\x12=\n" +
-	"\x1bmemory_embedding_model_name\x18\x18 \x01(\tR\x18memoryEmbeddingModelName\x129\n" +
-	"\x19memory_embedding_model_id\x18\x19 \x01(\x03R\x16memoryEmbeddingModelId\x12\x1b\n" +
+	"\x1bmemory_embedding_model_name\x18\x18 \x01(\tR\x18memoryEmbeddingModelName\x12F\n" +
+	"\x19memory_embedding_model_id\x18\x19 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x02R\x16memoryEmbeddingModelId\x88\x01\x01\x12\x1b\n" +
 	"\tconn_mode\x18\x1e \x01(\tR\bconnMode\x12!\n" +
 	"\fcallback_url\x18\x1f \x01(\tR\vcallbackUrl\x12,\n" +
 	"\x12has_webhook_secret\x18  \x01(\bR\x10hasWebhookSecret\x12$\n" +
 	"\x0ehas_app_secret\x18! \x01(\bR\fhasAppSecret\x12\x19\n" +
 	"\bbot_tags\x18( \x03(\tR\abotTags\x12\"\n" +
 	"\fcapabilities\x18) \x01(\tR\fcapabilities\x12\x1a\n" +
-	"\bsettings\x18* \x01(\tR\bsettings\x12\x19\n" +
-	"\bmodel_id\x184 \x01(\x03R\amodelId\x12\x1f\n" +
+	"\bsettings\x18* \x01(\tR\bsettings\x12&\n" +
+	"\bmodel_id\x184 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x03R\amodelId\x88\x01\x01\x12\x1f\n" +
 	"\vtemplate_id\x185 \x01(\tR\n" +
 	"templateId\x12\x19\n" +
 	"\bsub_type\x186 \x01(\tR\asubType\x12+\n" +
 	"\x11response_triggers\x187 \x03(\tR\x10responseTriggers\x12\x1d\n" +
 	"\n" +
+	"owner_type\x188 \x01(\tR\townerType\x12\x1d\n" +
+	"\n" +
 	"created_at\x182 \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x183 \x01(\x03R\tupdatedAt\"\xf4\b\n" +
-	"\fCreateBotReq\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\x03R\aownerId\x12\x12\n" +
+	"updated_at\x183 \x01(\x03R\tupdatedAtB\v\n" +
+	"\t_owner_idB\x12\n" +
+	"\x10_memory_model_idB\x1c\n" +
+	"\x1a_memory_embedding_model_idB\v\n" +
+	"\t_model_id\"\x93\n" +
+	"\n" +
+	"\fCreateBotReq\x12&\n" +
+	"\bowner_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12\x16\n" +
 	"\x06avatar\x18\x04 \x01(\tR\x06avatar\x12,\n" +
@@ -4310,26 +4407,32 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\x14max_context_messages\x18\x12 \x01(\x05R\x12maxContextMessages\x12+\n" +
 	"\x11streaming_enabled\x18\x13 \x01(\bR\x10streamingEnabled\x12,\n" +
 	"\x12max_context_tokens\x18\x19 \x01(\x05R\x10maxContextTokens\x12*\n" +
-	"\x11memory_model_name\x18\x14 \x01(\tR\x0fmemoryModelName\x12&\n" +
-	"\x0fmemory_model_id\x18\x16 \x01(\x03R\rmemoryModelId\x129\n" +
+	"\x11memory_model_name\x18\x14 \x01(\tR\x0fmemoryModelName\x123\n" +
+	"\x0fmemory_model_id\x18\x16 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\rmemoryModelId\x88\x01\x01\x129\n" +
 	"\x19memory_use_platform_model\x18\x15 \x01(\bR\x16memoryUsePlatformModel\x12$\n" +
 	"\x0ememory_api_key\x18\x17 \x01(\tR\fmemoryApiKey\x12!\n" +
 	"\fmemory_limit\x18\x18 \x01(\x05R\vmemoryLimit\x12=\n" +
-	"\x1bmemory_embedding_model_name\x18\x1a \x01(\tR\x18memoryEmbeddingModelName\x129\n" +
-	"\x19memory_embedding_model_id\x18\x1b \x01(\x03R\x16memoryEmbeddingModelId\x12\x1b\n" +
+	"\x1bmemory_embedding_model_name\x18\x1a \x01(\tR\x18memoryEmbeddingModelName\x12F\n" +
+	"\x19memory_embedding_model_id\x18\x1b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x02R\x16memoryEmbeddingModelId\x88\x01\x01\x12\x1b\n" +
 	"\tconn_mode\x18\x1e \x01(\tR\bconnMode\x12!\n" +
 	"\fcallback_url\x18\x1f \x01(\tR\vcallbackUrl\x12\x19\n" +
 	"\bbot_tags\x18( \x03(\tR\abotTags\x12\"\n" +
 	"\fcapabilities\x18) \x01(\tR\fcapabilities\x12\x1a\n" +
-	"\bsettings\x18* \x01(\tR\bsettings\x12\x19\n" +
-	"\bmodel_id\x18+ \x01(\x03R\amodelId\x12\x1f\n" +
+	"\bsettings\x18* \x01(\tR\bsettings\x12&\n" +
+	"\bmodel_id\x18+ \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x03R\amodelId\x88\x01\x01\x12\x1f\n" +
 	"\vtemplate_id\x18, \x01(\tR\n" +
 	"templateId\x12\x19\n" +
 	"\bsub_type\x18- \x01(\tR\asubType\x12+\n" +
-	"\x11response_triggers\x18. \x03(\tR\x10responseTriggers\"\x8d\t\n" +
-	"\fUpdateBotReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x11response_triggers\x18. \x03(\tR\x10responseTriggers\x12\x1d\n" +
+	"\n" +
+	"owner_type\x18/ \x01(\tR\townerTypeB\v\n" +
+	"\t_owner_idB\x12\n" +
+	"\x10_memory_model_idB\x1c\n" +
+	"\x1a_memory_embedding_model_idB\v\n" +
+	"\t_model_id\"\xa2\v\n" +
+	"\fUpdateBotReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x16\n" +
 	"\x06avatar\x18\x04 \x01(\tR\x06avatar\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12,\n" +
@@ -4346,58 +4449,69 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\x14max_context_messages\x18\x12 \x01(\x05R\x12maxContextMessages\x12+\n" +
 	"\x11streaming_enabled\x18\x13 \x01(\bR\x10streamingEnabled\x12,\n" +
 	"\x12max_context_tokens\x18\x19 \x01(\x05R\x10maxContextTokens\x12*\n" +
-	"\x11memory_model_name\x18\x14 \x01(\tR\x0fmemoryModelName\x12&\n" +
-	"\x0fmemory_model_id\x18\x16 \x01(\x03R\rmemoryModelId\x129\n" +
+	"\x11memory_model_name\x18\x14 \x01(\tR\x0fmemoryModelName\x123\n" +
+	"\x0fmemory_model_id\x18\x16 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\rmemoryModelId\x88\x01\x01\x129\n" +
 	"\x19memory_use_platform_model\x18\x15 \x01(\bR\x16memoryUsePlatformModel\x12$\n" +
 	"\x0ememory_api_key\x18\x17 \x01(\tR\fmemoryApiKey\x12!\n" +
 	"\fmemory_limit\x18\x18 \x01(\x05R\vmemoryLimit\x12=\n" +
-	"\x1bmemory_embedding_model_name\x18\x1a \x01(\tR\x18memoryEmbeddingModelName\x129\n" +
-	"\x19memory_embedding_model_id\x18\x1b \x01(\x03R\x16memoryEmbeddingModelId\x12\x1b\n" +
+	"\x1bmemory_embedding_model_name\x18\x1a \x01(\tR\x18memoryEmbeddingModelName\x12F\n" +
+	"\x19memory_embedding_model_id\x18\x1b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x16memoryEmbeddingModelId\x88\x01\x01\x12\x1b\n" +
 	"\tconn_mode\x18\x1e \x01(\tR\bconnMode\x12!\n" +
 	"\fcallback_url\x18\x1f \x01(\tR\vcallbackUrl\x12\x19\n" +
 	"\bbot_tags\x18( \x03(\tR\abotTags\x12\"\n" +
 	"\fcapabilities\x18) \x01(\tR\fcapabilities\x12\x1a\n" +
-	"\bsettings\x18* \x01(\tR\bsettings\x12\x19\n" +
-	"\bmodel_id\x18+ \x01(\x03R\amodelId\x12\x1f\n" +
+	"\bsettings\x18* \x01(\tR\bsettings\x12&\n" +
+	"\bmodel_id\x18+ \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x02R\amodelId\x88\x01\x01\x12\x1f\n" +
 	"\vtemplate_id\x18, \x01(\tR\n" +
 	"templateId\x12\x19\n" +
 	"\bsub_type\x18- \x01(\tR\asubType\x12+\n" +
-	"\x11response_triggers\x18. \x03(\tR\x10responseTriggers\">\n" +
-	"\fDeleteBotReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"\"\n" +
-	"\tGetBotReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\"t\n" +
-	"\vListBotsReq\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\x03R\aownerId\x12\x16\n" +
+	"\x11response_triggers\x18. \x03(\tR\x10responseTriggers\x12$\n" +
+	"\x0eclear_model_id\x18/ \x01(\bR\fclearModelId\x121\n" +
+	"\x15clear_memory_model_id\x180 \x01(\bR\x12clearMemoryModelId\x12D\n" +
+	"\x1fclear_memory_embedding_model_id\x181 \x01(\bR\x1bclearMemoryEmbeddingModelIdB\x12\n" +
+	"\x10_memory_model_idB\x1c\n" +
+	"\x1a_memory_embedding_model_idB\v\n" +
+	"\t_model_id\"N\n" +
+	"\fDeleteBotReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"*\n" +
+	"\tGetBotReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\"\xad\x01\n" +
+	"\vListBotsReq\x12&\n" +
+	"\bowner_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x122\n" +
 	"\n" +
 	"pagination\x18\x03 \x01(\v2\x12.common.PaginationR\n" +
-	"pagination\"d\n" +
+	"pagination\x12\x1d\n" +
+	"\n" +
+	"owner_type\x18\x04 \x01(\tR\townerTypeB\v\n" +
+	"\t_owner_id\"d\n" +
 	"\fListBotsResp\x12\x1c\n" +
 	"\x04bots\x18\x01 \x03(\v2\b.bot.BotR\x04bots\x126\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x16.common.PaginationRespR\n" +
-	"pagination\"A\n" +
-	"\x0fRotateSecretReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"X\n" +
+	"pagination\"Q\n" +
+	"\x0fRotateSecretReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"X\n" +
 	"\x10RotateSecretResp\x12%\n" +
 	"\x0ewebhook_secret\x18\x01 \x01(\tR\rwebhookSecret\x12\x1d\n" +
 	"\n" +
-	"app_secret\x18\x02 \x01(\tR\tappSecret\"s\n" +
+	"app_secret\x18\x02 \x01(\tR\tappSecret\"\x8b\x01\n" +
 	"\n" +
-	"WebhookReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x12\n" +
+	"WebhookReq\x12\"\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12\x12\n" +
 	"\x04body\x18\x02 \x01(\fR\x04body\x12\x1c\n" +
 	"\tsignature\x18\x03 \x01(\tR\tsignature\x12\x1c\n" +
-	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\",\n" +
-	"\vWebhookResp\x12\x1d\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestampB\t\n" +
+	"\a_bot_id\"H\n" +
+	"\vWebhookResp\x12*\n" +
 	"\n" +
-	"message_id\x18\x01 \x01(\x03R\tmessageId\"c\n" +
-	"\x10IssueBotTokenReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x1f\n" +
+	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\tmessageId\x88\x01\x01B\r\n" +
+	"\v_message_id\"s\n" +
+	"\x10IssueBotTokenReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1f\n" +
 	"\vttl_seconds\x18\x03 \x01(\x03R\n" +
 	"ttlSeconds\"H\n" +
 	"\x11IssueBotTokenResp\x12\x14\n" +
@@ -4405,14 +4519,19 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x02 \x01(\x03R\texpiresAt\"+\n" +
 	"\x13ValidateBotTokenReq\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"r\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\xd7\x01\n" +
 	"\x14ValidateBotTokenResp\x12\x14\n" +
-	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x15\n" +
-	"\x06bot_id\x18\x02 \x01(\x03R\x05botId\x12\x19\n" +
-	"\bowner_id\x18\x03 \x01(\x03R\aownerId\x12\x12\n" +
-	"\x04type\x18\x04 \x01(\tR\x04type\"\xbd\x03\n" +
-	"\rMcpServerInfo\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\"\n" +
+	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12&\n" +
+	"\bowner_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01\x12\x12\n" +
+	"\x04type\x18\x04 \x01(\tR\x04type\x12\"\n" +
+	"\n" +
+	"owner_type\x18\x05 \x01(\tH\x02R\townerType\x88\x01\x01B\t\n" +
+	"\a_bot_idB\v\n" +
+	"\t_owner_idB\r\n" +
+	"\v_owner_type\"\xb5\x04\n" +
+	"\rMcpServerInfo\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1c\n" +
 	"\ttransport\x18\x04 \x01(\tR\ttransport\x12\x10\n" +
@@ -4422,9 +4541,9 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\x03env\x18\b \x01(\tR\x03env\x12\x1d\n" +
 	"\n" +
 	"timeout_ms\x18\v \x01(\x05R\ttimeoutMs\x12\x16\n" +
-	"\x06status\x18\f \x01(\tR\x06status\x12\x1d\n" +
+	"\x06status\x18\f \x01(\tR\x06status\x12*\n" +
 	"\n" +
-	"created_by\x18\r \x01(\x03R\tcreatedBy\x12\x1d\n" +
+	"created_by\x18\r \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\tcreatedBy\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x0e \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
@@ -4432,9 +4551,14 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\vauth_config\x18\x10 \x01(\tR\n" +
 	"authConfig\x12'\n" +
 	"\x0fadvanced_config\x18\x11 \x01(\tR\x0eadvancedConfig\x12\x18\n" +
-	"\aenabled\x18\x12 \x01(\bR\aenabled\"\xd6\x02\n" +
-	"\x12CreateMcpServerReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
+	"\aenabled\x18\x12 \x01(\bR\aenabled\x12\x1d\n" +
+	"\n" +
+	"owner_type\x18\x13 \x01(\tR\townerType\x12&\n" +
+	"\bowner_id\x18\x14 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01B\r\n" +
+	"\v_created_byB\v\n" +
+	"\t_owner_id\"\xb2\x03\n" +
+	"\x12CreateMcpServerReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1c\n" +
 	"\ttransport\x18\x04 \x01(\tR\ttransport\x12\x10\n" +
@@ -4447,10 +4571,14 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\vauth_config\x18\f \x01(\tR\n" +
 	"authConfig\x12'\n" +
 	"\x0fadvanced_config\x18\r \x01(\tR\x0eadvancedConfig\x12\x18\n" +
-	"\aenabled\x18\x0e \x01(\bR\aenabled\"\xfe\x02\n" +
-	"\x12UpdateMcpServerReq\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
+	"\aenabled\x18\x0e \x01(\bR\aenabled\x12\x1d\n" +
+	"\n" +
+	"owner_type\x18\x0f \x01(\tR\townerType\x12&\n" +
+	"\bowner_id\x18\x10 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01B\v\n" +
+	"\t_owner_id\"\x8e\x03\n" +
+	"\x12UpdateMcpServerReq\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12\x1c\n" +
 	"\ttransport\x18\x05 \x01(\tR\ttransport\x12\x10\n" +
@@ -4464,15 +4592,15 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\vauth_config\x18\x0e \x01(\tR\n" +
 	"authConfig\x12'\n" +
 	"\x0fadvanced_config\x18\x0f \x01(\tR\x0eadvancedConfig\x12\x18\n" +
-	"\aenabled\x18\x10 \x01(\bR\aenabled\"=\n" +
-	"\x12DeleteMcpServerReq\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\":\n" +
-	"\x0fGetMcpServerReq\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\"x\n" +
-	"\x11ListMcpServersReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x16\n" +
+	"\aenabled\x18\x10 \x01(\bR\aenabled\"M\n" +
+	"\x12DeleteMcpServerReq\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"J\n" +
+	"\x0fGetMcpServerReq\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"\x80\x01\n" +
+	"\x11ListMcpServersReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x122\n" +
 	"\n" +
 	"pagination\x18\x03 \x01(\v2\x12.common.PaginationR\n" +
@@ -4481,20 +4609,20 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\aservers\x18\x01 \x03(\v2\x12.bot.McpServerInfoR\aservers\x126\n" +
 	"\n" +
 	"pagination\x18\x02 \x01(\v2\x16.common.PaginationRespR\n" +
-	"pagination\"g\n" +
-	"\x11AssignMcpToBotReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\"\n" +
-	"\rmcp_server_id\x18\x03 \x01(\x03R\vmcpServerId\"k\n" +
-	"\x15UnassignMcpFromBotReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\"\n" +
-	"\rmcp_server_id\x18\x03 \x01(\x03R\vmcpServerId\"-\n" +
-	"\x14ListBotMcpServersReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\"\xb1\x02\n" +
-	"\x10BotMcpServerInfo\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\"\n" +
-	"\rmcp_server_id\x18\x02 \x01(\x03R\vmcpServerId\x12\x12\n" +
+	"pagination\"\x7f\n" +
+	"\x11AssignMcpToBotReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12*\n" +
+	"\rmcp_server_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\vmcpServerId\"\x83\x01\n" +
+	"\x15UnassignMcpFromBotReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12*\n" +
+	"\rmcp_server_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\vmcpServerId\"5\n" +
+	"\x14ListBotMcpServersReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\"\xc1\x02\n" +
+	"\x10BotMcpServerInfo\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12*\n" +
+	"\rmcp_server_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\vmcpServerId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12\x1c\n" +
 	"\ttransport\x18\x05 \x01(\tR\ttransport\x12\x10\n" +
@@ -4507,57 +4635,59 @@ const file_bot_bot_proto_rawDesc = "" +
 	" \x01(\tR\x06status\x12\x18\n" +
 	"\aenabled\x18\v \x01(\bR\aenabled\"H\n" +
 	"\x15ListBotMcpServersResp\x12/\n" +
-	"\aservers\x18\x01 \x03(\v2\x15.bot.BotMcpServerInfoR\aservers\"\x85\x01\n" +
-	"\x15UpdateBotMcpServerReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\"\n" +
-	"\rmcp_server_id\x18\x03 \x01(\x03R\vmcpServerId\x12\x18\n" +
-	"\aenabled\x18\x04 \x01(\bR\aenabled\"\xb9\x01\n" +
-	"\vMcpToolInfo\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\"\n" +
-	"\rmcp_server_id\x18\x02 \x01(\x03R\vmcpServerId\x12\x12\n" +
+	"\aservers\x18\x01 \x03(\v2\x15.bot.BotMcpServerInfoR\aservers\"\x9d\x01\n" +
+	"\x15UpdateBotMcpServerReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12*\n" +
+	"\rmcp_server_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\vmcpServerId\x12\x18\n" +
+	"\aenabled\x18\x04 \x01(\bR\aenabled\"\xc9\x01\n" +
+	"\vMcpToolInfo\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12*\n" +
+	"\rmcp_server_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\vmcpServerId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12!\n" +
 	"\finput_schema\x18\x05 \x01(\tR\vinputSchema\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x06 \x01(\x03R\tupdatedAt\"R\n" +
-	"\x13DiscoverMcpToolsReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\"\n" +
-	"\rmcp_server_id\x18\x02 \x01(\x03R\vmcpServerId\">\n" +
+	"updated_at\x18\x06 \x01(\x03R\tupdatedAt\"b\n" +
+	"\x13DiscoverMcpToolsReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12*\n" +
+	"\rmcp_server_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\vmcpServerId\">\n" +
 	"\x14DiscoverMcpToolsResp\x12&\n" +
-	"\x05tools\x18\x01 \x03(\v2\x10.bot.McpToolInfoR\x05tools\"N\n" +
-	"\x0fListMcpToolsReq\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\"\n" +
-	"\rmcp_server_id\x18\x02 \x01(\x03R\vmcpServerId\":\n" +
+	"\x05tools\x18\x01 \x03(\v2\x10.bot.McpToolInfoR\x05tools\"^\n" +
+	"\x0fListMcpToolsReq\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12*\n" +
+	"\rmcp_server_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\vmcpServerId\":\n" +
 	"\x10ListMcpToolsResp\x12&\n" +
-	"\x05tools\x18\x01 \x03(\v2\x10.bot.McpToolInfoR\x05tools\"*\n" +
-	"\x0fBatchGetBotsReq\x12\x17\n" +
-	"\abot_ids\x18\x01 \x03(\x03R\x06botIds\"0\n" +
+	"\x05tools\x18\x01 \x03(\v2\x10.bot.McpToolInfoR\x05tools\"2\n" +
+	"\x0fBatchGetBotsReq\x12\x1f\n" +
+	"\abot_ids\x18\x01 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06botIds\"0\n" +
 	"\x10BatchGetBotsResp\x12\x1c\n" +
-	"\x04bots\x18\x01 \x03(\v2\b.bot.BotR\x04bots\"/\n" +
-	"\x16GetBotWebhookConfigReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\"\xac\x01\n" +
+	"\x04bots\x18\x01 \x03(\v2\b.bot.BotR\x04bots\"7\n" +
+	"\x16GetBotWebhookConfigReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\"\xac\x01\n" +
 	"\x17GetBotWebhookConfigResp\x12\x1b\n" +
 	"\tconn_mode\x18\x01 \x01(\tR\bconnMode\x12!\n" +
 	"\fcallback_url\x18\x02 \x01(\tR\vcallbackUrl\x12%\n" +
 	"\x0ewebhook_secret\x18\x03 \x01(\tR\rwebhookSecret\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x12\x12\n" +
-	"\x04type\x18\x05 \x01(\tR\x04type\"\x80\x01\n" +
-	"\rStreamChatReq\x12\x15\n" +
-	"\x06bot_id\x18\x01 \x01(\x03R\x05botId\x12\x17\n" +
-	"\aconv_id\x18\x02 \x01(\x03R\x06convId\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\x12%\n" +
-	"\x0freply_to_msg_id\x18\x04 \x01(\x03R\freplyToMsgId\"\x93\x01\n" +
+	"\x04type\x18\x05 \x01(\tR\x04type\"\xb1\x01\n" +
+	"\rStreamChatReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
+	"\aconv_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x122\n" +
+	"\x0freply_to_msg_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\freplyToMsgId\x88\x01\x01B\x12\n" +
+	"\x10_reply_to_msg_id\"\xb7\x01\n" +
 	"\x0eStreamChatResp\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1b\n" +
-	"\ttool_name\x18\x03 \x01(\tR\btoolName\x12\x1d\n" +
+	"\ttool_name\x18\x03 \x01(\tR\btoolName\x12*\n" +
 	"\n" +
-	"message_id\x18\x04 \x01(\tR\tmessageId\x12\x17\n" +
-	"\aconv_id\x18\x05 \x01(\x03R\x06convId\"\xbe\x01\n" +
-	"\fSummarizeReq\x12\x17\n" +
-	"\aconv_id\x18\x01 \x01(\x03R\x06convId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12.\n" +
+	"message_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\tmessageId\x88\x01\x01\x12\x1f\n" +
+	"\aconv_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convIdB\r\n" +
+	"\v_message_id\"\xce\x01\n" +
+	"\fSummarizeReq\x12\x1f\n" +
+	"\aconv_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12.\n" +
 	"\x12last_message_count\x18\x03 \x01(\x05H\x00R\x10lastMessageCount\x12/\n" +
 	"\n" +
 	"time_range\x18\x04 \x01(\v2\x0e.bot.TimeRangeH\x00R\ttimeRange\x12\x12\n" +
@@ -4566,57 +4696,61 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\tTimeRange\x12\x1d\n" +
 	"\n" +
 	"start_time\x18\x01 \x01(\x03R\tstartTime\x12\x19\n" +
-	"\bend_time\x18\x02 \x01(\x03R\aendTime\"\xcb\x01\n" +
-	"\rSummarizeResp\x12\x1d\n" +
+	"\bend_time\x18\x02 \x01(\x03R\aendTime\"\xd3\x01\n" +
+	"\rSummarizeResp\x12%\n" +
 	"\n" +
-	"summary_id\x18\x01 \x01(\x03R\tsummaryId\x12\x18\n" +
+	"summary_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tsummaryId\x12\x18\n" +
 	"\asummary\x18\x02 \x01(\tR\asummary\x12#\n" +
 	"\x05todos\x18\x03 \x03(\v2\r.bot.TodoItemR\x05todos\x12%\n" +
 	"\x0etotal_messages\x18\x04 \x01(\x05R\rtotalMessages\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\"D\n" +
-	"\x13GetConvSummariesReq\x12\x17\n" +
-	"\aconv_id\x18\x01 \x01(\x03R\x06convId\x12\x14\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\"L\n" +
+	"\x13GetConvSummariesReq\x12\x1f\n" +
+	"\aconv_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\"@\n" +
 	"\x14GetConvSummariesResp\x12(\n" +
-	"\x05items\x18\x01 \x03(\v2\x12.bot.SummarizeRespR\x05items\"a\n" +
-	"\rCreateTodoReq\x12\x17\n" +
-	"\aconv_id\x18\x01 \x01(\x03R\x06convId\x12\x1d\n" +
+	"\x05items\x18\x01 \x03(\v2\x12.bot.SummarizeRespR\x05items\"\x85\x01\n" +
+	"\rCreateTodoReq\x12\x1f\n" +
+	"\aconv_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12*\n" +
 	"\n" +
-	"summary_id\x18\x02 \x01(\x03R\tsummaryId\x12\x18\n" +
-	"\acontent\x18\x03 \x01(\tR\acontent\"\xbe\x01\n" +
-	"\bTodoItem\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1d\n" +
+	"summary_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\tsummaryId\x88\x01\x01\x12\x18\n" +
+	"\acontent\x18\x03 \x01(\tR\acontentB\r\n" +
+	"\v_summary_id\"\xea\x01\n" +
+	"\bTodoItem\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12*\n" +
 	"\n" +
-	"summary_id\x18\x02 \x01(\x03R\tsummaryId\x12\x17\n" +
-	"\aconv_id\x18\x03 \x01(\x03R\x06convId\x12\x18\n" +
+	"summary_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\tsummaryId\x88\x01\x01\x12\x1f\n" +
+	"\aconv_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12\x18\n" +
 	"\acontent\x18\x04 \x01(\tR\acontent\x12\x12\n" +
 	"\x04done\x18\x05 \x01(\bR\x04done\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\x03R\tupdatedAt\"V\n" +
-	"\rUpdateTodoReq\x12\x17\n" +
-	"\atodo_id\x18\x01 \x01(\x03R\x06todoId\x12\x18\n" +
+	"updated_at\x18\a \x01(\x03R\tupdatedAtB\r\n" +
+	"\v_summary_id\"^\n" +
+	"\rUpdateTodoReq\x12\x1f\n" +
+	"\atodo_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06todoId\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x12\n" +
-	"\x04done\x18\x03 \x01(\bR\x04done\"(\n" +
-	"\rDeleteTodoReq\x12\x17\n" +
-	"\atodo_id\x18\x01 \x01(\x03R\x06todoId\"m\n" +
-	"\x12ReplyCandidatesReq\x12\x17\n" +
-	"\aconv_id\x18\x01 \x01(\x03R\x06convId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12%\n" +
-	"\x0freply_to_msg_id\x18\x03 \x01(\x03R\freplyToMsgId\"M\n" +
+	"\x04done\x18\x03 \x01(\bR\x04done\"0\n" +
+	"\rDeleteTodoReq\x12\x1f\n" +
+	"\atodo_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06todoId\"\x9e\x01\n" +
+	"\x12ReplyCandidatesReq\x12\x1f\n" +
+	"\aconv_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12\x1f\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x122\n" +
+	"\x0freply_to_msg_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\freplyToMsgId\x88\x01\x01B\x12\n" +
+	"\x10_reply_to_msg_id\"M\n" +
 	"\x13ReplyCandidatesResp\x12\x1e\n" +
 	"\n" +
 	"candidates\x18\x01 \x03(\tR\n" +
 	"candidates\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"a\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"y\n" +
 	"\x13TranslateMessageReq\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12\x1f\n" +
 	"\vtarget_lang\x18\x02 \x01(\tR\n" +
-	"targetLang\x12\x15\n" +
-	"\x06msg_id\x18\x03 \x01(\x03R\x05msgId\"|\n" +
+	"targetLang\x12\"\n" +
+	"\x06msg_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05msgId\x88\x01\x01B\t\n" +
+	"\a_msg_id\"|\n" +
 	"\x14TranslateMessageResp\x12'\n" +
 	"\x0ftranslated_text\x18\x01 \x01(\tR\x0etranslatedText\x12#\n" +
 	"\rdetected_lang\x18\x02 \x01(\tR\fdetectedLang\x12\x16\n" +
@@ -4832,11 +4966,26 @@ func file_bot_bot_proto_init() {
 	if File_bot_bot_proto != nil {
 		return
 	}
+	file_bot_bot_proto_msgTypes[0].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[1].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[2].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[5].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[9].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[10].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[14].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[15].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[16].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[37].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[38].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[39].OneofWrappers = []any{
 		(*SummarizeReq_LastMessageCount)(nil),
 		(*SummarizeReq_TimeRange)(nil),
 		(*SummarizeReq_All)(nil),
 	}
+	file_bot_bot_proto_msgTypes[44].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[45].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[48].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[50].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

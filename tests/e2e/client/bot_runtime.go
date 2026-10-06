@@ -41,34 +41,36 @@ func (d *driver) observeProvider() (providerObservations, error) {
 	return observed, nil
 }
 
-func (d *driver) fixtureModel(owner account, capability, name string) (decimal, error) {
+func (d *driver) fixtureModel(owner account, capability, name string) (entityID, error) {
 	var created struct {
-		ID      decimal `json:"id"`
-		OwnerID decimal `json:"owner_id"`
-		Name    string  `json:"model_name"`
-		BaseURL string  `json:"base_url"`
+		OwnerType string    `json:"owner_type"`
+		ID        entityID  `json:"id"`
+		OwnerID   *entityID `json:"owner_id"`
+		Name      string    `json:"model_name"`
+		BaseURL   string    `json:"base_url"`
 	}
 	baseURL := d.provider + "/v1"
 	if err := d.request(http.MethodPost, "/models", owner.token, map[string]any{
 		"model_name": name, "provider": "openai", "capability": capability,
 		"base_url": baseURL, "api_key": "e2e-fixture-not-a-secret",
 	}, &created); err != nil {
-		return 0, fmt.Errorf("provider.model.registry: %w", err)
+		return "", fmt.Errorf("provider.model.registry: %w", err)
 	}
-	if created.ID <= 0 || created.OwnerID != owner.id || created.Name != name || created.BaseURL != baseURL {
-		return 0, errors.New("provider.model.registry: gateway注册模型身份或provider URL不匹配")
+	if created.ID == "" || created.OwnerType != "user" || !hasEntityID(created.OwnerID, owner.id) || created.Name != name || created.BaseURL != baseURL {
+		return "", errors.New("provider.model.registry: gateway注册模型身份或provider URL不匹配")
 	}
 	return created.ID, nil
 }
 
 type botView struct {
-	ID       decimal  `json:"id"`
-	OwnerID  decimal  `json:"owner_id"`
-	Name     string   `json:"name"`
-	ModelID  decimal  `json:"model_id"`
-	Prompt   string   `json:"system_prompt"`
-	Callback string   `json:"callback_url"`
-	Triggers []string `json:"response_triggers"`
+	OwnerType string    `json:"owner_type"`
+	ID        entityID  `json:"id"`
+	OwnerID   *entityID `json:"owner_id"`
+	Name      string    `json:"name"`
+	ModelID   *entityID `json:"model_id"`
+	Prompt    string    `json:"system_prompt"`
+	Callback  string    `json:"callback_url"`
+	Triggers  []string  `json:"response_triggers"`
 }
 
 func (d *driver) botRuntime(address, secondAddress string) (result error) {
@@ -101,7 +103,7 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	}, &bot); err != nil {
 		return err
 	}
-	if bot.ID <= 0 || bot.OwnerID != owner.id || bot.ModelID != modelID {
+	if bot.ID == "" || bot.OwnerType != "user" || !hasEntityID(bot.OwnerID, owner.id) || !hasEntityID(bot.ModelID, modelID) {
 		return errors.New("bot.create: ID/owner/model不匹配")
 	}
 	path := "/bots/" + bot.ID.String()
@@ -123,7 +125,7 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	if err := d.request(http.MethodGet, path, owner.token, nil, &fetched); err != nil {
 		return err
 	}
-	if fetched.ID != bot.ID || fetched.Name != "p5-configured-"+suffix || fetched.Prompt != prompt || fetched.ModelID != modelID || !slices.Equal(fetched.Triggers, []string{"always"}) {
+	if fetched.ID != bot.ID || fetched.Name != "p5-configured-"+suffix || fetched.Prompt != prompt || !hasEntityID(fetched.ModelID, modelID) || !slices.Equal(fetched.Triggers, []string{"always"}) {
 		return errors.New("bot.config: GET没有返回刚持久化的配置")
 	}
 	var listed struct {
@@ -136,24 +138,24 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 		return errors.New("bot.list: 配置后的Bot不可见")
 	}
 	var issued struct {
-		Token     string  `json:"token"`
-		ExpiresAt decimal `json:"expires_at"`
+		Token     string `json:"token"`
+		ExpiresAt int64  `json:"expires_at,string"`
 	}
 	if err := d.request(http.MethodPost, path+"/token", owner.token, map[string]int{"ttl_seconds": 300}, &issued); err != nil {
 		return err
 	}
-	if issued.Token == "" || issued.ExpiresAt <= decimal(time.Now().Unix()) {
+	if issued.Token == "" || issued.ExpiresAt <= time.Now().Unix() {
 		return errors.New("bot.token: 未签发有效期限token")
 	}
 	var validated struct {
-		Valid   bool    `json:"valid"`
-		BotID   decimal `json:"bot_id"`
-		OwnerID decimal `json:"owner_id"`
+		Valid   bool      `json:"valid"`
+		BotID   entityID  `json:"bot_id"`
+		OwnerID *entityID `json:"owner_id"`
 	}
 	if err := d.request(http.MethodPost, "/bots/token/validate", owner.token, map[string]string{"token": issued.Token}, &validated); err != nil {
 		return err
 	}
-	if !validated.Valid || validated.BotID != bot.ID || validated.OwnerID != owner.id {
+	if !validated.Valid || validated.BotID != bot.ID || !hasEntityID(validated.OwnerID, owner.id) {
 		return errors.New("bot.token: 验证身份不匹配")
 	}
 	var invalid struct {
@@ -169,9 +171,9 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	}
 
 	var mcp struct {
-		ID        decimal `json:"id"`
-		URL       string  `json:"url"`
-		Transport string  `json:"transport"`
+		ID        entityID `json:"id"`
+		URL       string   `json:"url"`
+		Transport string   `json:"transport"`
 	}
 	if err := d.request(http.MethodPost, "/mcp-servers", owner.token, map[string]any{
 		"name": "fixture-mcp-" + suffix, "transport": "sse", "url": d.provider + "/mcp/sse", "enabled": true,
@@ -179,16 +181,16 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	}, &mcp); err != nil {
 		return err
 	}
-	if mcp.ID <= 0 || mcp.URL != d.provider+"/mcp/sse" || mcp.Transport != "sse" {
+	if mcp.ID == "" || mcp.URL != d.provider+"/mcp/sse" || mcp.Transport != "sse" {
 		return errors.New("bot.mcp: 网络server配置不匹配")
 	}
 	defer func() {
 		result = errors.Join(result, d.request(http.MethodDelete, "/mcp-servers/"+mcp.ID.String(), owner.token, nil, nil))
 	}()
 	type toolView struct {
-		Name     string  `json:"name"`
-		ServerID decimal `json:"mcp_server_id"`
-		Schema   string  `json:"input_schema"`
+		Name     string   `json:"name"`
+		ServerID entityID `json:"mcp_server_id"`
+		Schema   string   `json:"input_schema"`
 	}
 	for _, operation := range []struct{ method, path string }{
 		{http.MethodPost, "/mcp-servers/" + mcp.ID.String() + "/discover"},
@@ -214,7 +216,7 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 		return err
 	}
 	var conv struct {
-		ID decimal `json:"conversation_id"`
+		ID entityID `json:"conversation_id"`
 	}
 	var remote, mirror, observer *p6Socket
 	var member, outsider account
@@ -231,14 +233,14 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	if err := d.request(http.MethodPost, "/convs", owner.token, map[string]any{"type": "group", "group_name": "p5-bot-" + suffix}, &conv); err != nil {
 		return err
 	}
-	if conv.ID <= 0 {
+	if conv.ID == "" {
 		return errors.New("bot.conversation: 无有效会话ID")
 	}
 	defer func() {
 		result = errors.Join(result, d.request(http.MethodDelete, "/convs/"+conv.ID.String(), owner.token, nil, nil))
 	}()
 	if crossInstance {
-		if err := d.request(http.MethodPost, "/convs/"+conv.ID.String()+"/members/invite", owner.token, map[string]any{"user_ids": []int64{int64(member.id)}}, nil); err != nil {
+		if err := d.request(http.MethodPost, "/convs/"+conv.ID.String()+"/members/invite", owner.token, map[string]any{"user_ids": []entityID{member.id}}, nil); err != nil {
 			return err
 		}
 		remote, err = d.p6Connect(secondAddress, member)
@@ -287,10 +289,10 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 		if evt.Type == "error" {
 			return errors.New("bot.reply: WS error")
 		}
-		if evt.Type != "message.new" || evt.Message.SenderID != bot.ID || evt.ConvID != conv.ID || evt.Message.ReplyToID != sent.MessageID {
+		if evt.Type != "message.new" || !hasEntityID(evt.Message.SenderID, bot.ID) || !hasEntityID(evt.ConvID, conv.ID) || !hasEntityID(evt.Message.ReplyToID, sent.MessageID) {
 			continue
 		}
-		if evt.Message.Content.Text != "fixture-reply:"+text || evt.Message.MessageID <= 0 || evt.Message.Seq <= sent.Seq || evt.Message.ConvID != conv.ID {
+		if evt.Message.Content.Text != "fixture-reply:"+text || evt.Message.MessageID == "" || evt.Message.Seq <= sent.Seq || evt.Message.ConvID != conv.ID {
 			return errors.New("bot.reply: Bot回复不是精确provider结果（拒绝fallback），或消息标识/seq无效")
 		}
 		reply.MessageID, reply.ConvID, reply.SenderID, reply.Seq = evt.Message.MessageID, conv.ID, bot.ID, evt.Message.Seq
@@ -348,7 +350,7 @@ func (d *driver) webhookConfig(owner account, suffix string) (result error) {
 	}, &created); err != nil {
 		return err
 	}
-	if created.ID <= 0 || created.Callback != callback {
+	if created.ID == "" || created.OwnerType != "user" || !hasEntityID(created.OwnerID, owner.id) || created.ModelID != nil || created.Callback != callback {
 		return errors.New("bot.webhook: 创建callback配置未持久化")
 	}
 	path := "/bots/" + created.ID.String()

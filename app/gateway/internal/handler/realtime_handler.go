@@ -19,6 +19,9 @@ func NewRealtimeHandler(conn grpc.ClientConnInterface) *RealtimeHandler {
 func (h *RealtimeHandler) ListNotifications(c *gin.Context) {
 	var req realtimepb.ListNotificationsReq
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.notifClient.ListNotifications(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -28,8 +31,14 @@ func (h *RealtimeHandler) ListNotifications(c *gin.Context) {
 }
 
 func (h *RealtimeHandler) MarkRead(c *gin.Context) {
-	req := &realtimepb.MarkReadReq{NotificationId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &realtimepb.MarkReadReq{NotificationId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.notifClient.MarkRead(ctx, req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -41,6 +50,9 @@ func (h *RealtimeHandler) MarkRead(c *gin.Context) {
 func (h *RealtimeHandler) MarkAllRead(c *gin.Context) {
 	var req realtimepb.MarkAllReadReq
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.notifClient.MarkAllRead(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -50,8 +62,14 @@ func (h *RealtimeHandler) MarkAllRead(c *gin.Context) {
 }
 
 func (h *RealtimeHandler) DeleteNotification(c *gin.Context) {
-	req := &realtimepb.DeleteNotificationReq{NotificationId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &realtimepb.DeleteNotificationReq{NotificationId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.notifClient.DeleteNotification(ctx, req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -66,7 +84,7 @@ func (h *RealtimeHandler) RegisterDevice(c *gin.Context) {
 		Platform string `json:"platform"`
 		Token    string `json:"token"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	if err := bindJSON(c, &body); err != nil {
 		response.BadRequest(c, "invalid device token")
 		return
 	}
@@ -81,7 +99,7 @@ func (h *RealtimeHandler) UnregisterDevice(c *gin.Context) {
 	var body struct {
 		DeviceID string `json:"device_id"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	if err := bindJSON(c, &body); err != nil {
 		response.BadRequest(c, "invalid device")
 		return
 	}

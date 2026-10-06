@@ -8,17 +8,20 @@ import (
 	"net/url"
 	"slices"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/maomeng/aim/pkg/sequence"
 )
 
-// Public HTTP shapes only; exact decimal positions must never pass through float64.
+// 公开 HTTP 合同：实体为 UUID，位点为安全整数 JSON number。
 type inboxChange struct {
-	Position       decimal            `json:"position"`
-	ConversationID decimal            `json:"conversation_id"`
+	Position       sequenceNumber     `json:"position"`
+	ConversationID entityID           `json:"conversation_id"`
 	Kind           string             `json:"kind"`
 	Message        storedMessage      `json:"message"`
-	MessageID      decimal            `json:"message_id"`
+	MessageID      *entityID          `json:"message_id"`
 	Conversation   *inboxConversation `json:"conversation"`
-	LastReadSeq    decimal            `json:"last_read_seq"`
+	LastReadSeq    sequenceNumber     `json:"last_read_seq"`
 }
 
 type inboxConversation struct {
@@ -37,13 +40,13 @@ type inboxSnapshot struct {
 type inboxSyncResult struct {
 	Changes         []inboxChange   `json:"changes"`
 	HasMore         bool            `json:"has_more"`
-	NextPosition    decimal         `json:"next_position"`
+	NextPosition    sequenceNumber  `json:"next_position"`
 	RebuildRequired bool            `json:"rebuild_required"`
 	Conversations   []inboxSnapshot `json:"conversations"`
 	RebuildReason   string          `json:"rebuild_reason"`
 }
 
-func (d *driver) inboxRead(step string, caller account, position decimal, limit int) (inboxSyncResult, error) {
+func (d *driver) inboxRead(step string, caller account, position sequenceNumber, limit int) (inboxSyncResult, error) {
 	var result inboxSyncResult
 	path := fmt.Sprintf("/messages/sync?position=%s&limit=%d", position, limit)
 	if err := d.request(http.MethodGet, path, caller.token, nil, &result); err != nil {
@@ -63,16 +66,16 @@ func (d *driver) inboxRead(step string, caller account, position decimal, limit 
 	}
 	previous := position
 	for _, change := range result.Changes {
-		if change.Position <= previous || change.ConversationID <= 0 {
+		if change.Position <= previous || change.ConversationID == "" {
 			return result, fmt.Errorf("user-sync.%s: 变化位点必须递增且包含会话", step)
 		}
 		switch change.Kind {
 		case "message.new", "message.edited", "message.recalled":
-			if change.Message.ConvID != change.ConversationID || change.Message.MessageID <= 0 {
+			if change.Message.ConvID != change.ConversationID || change.Message.MessageID == "" {
 				return result, fmt.Errorf("user-sync.%s: 消息变更缺少完整消息", step)
 			}
 		case "message.deleted":
-			if change.MessageID <= 0 {
+			if change.MessageID == nil {
 				return result, fmt.Errorf("user-sync.%s: 删除缺少message_id", step)
 			}
 		case "conversation.upsert", "read.updated":
@@ -103,12 +106,12 @@ func checkInboxRebuild(step, reason string, result inboxSyncResult) error {
 
 // inboxDrain keeps one user position across every conversation. Empty tail pages
 // are retried only while confirmed Kafka-backed messages remain outstanding.
-func (d *driver) inboxDrain(step string, caller account, position decimal, expected []sentMessage, requirePagination bool) (decimal, error) {
-	pending := make(map[decimal]sentMessage, len(expected))
+func (d *driver) inboxDrain(step string, caller account, position sequenceNumber, expected []sentMessage, requirePagination bool) (sequenceNumber, error) {
+	pending := make(map[entityID]sentMessage, len(expected))
 	for _, message := range expected {
 		pending[message.MessageID] = message
 	}
-	seen := make(map[decimal]bool, len(expected))
+	seen := make(map[entityID]bool, len(expected))
 	deadline := time.Now().Add(d.timeout)
 	paginated := false
 	for {
@@ -159,11 +162,11 @@ func (d *driver) inboxDrain(step string, caller account, position decimal, expec
 	}
 }
 
-func checkInboxSnapshots(step string, result inboxSyncResult, expected map[decimal][]sentMessage, groupID decimal, groupName string) error {
+func checkInboxSnapshots(step string, result inboxSyncResult, expected map[entityID][]sentMessage, groupID entityID, groupName string) error {
 	if len(result.Conversations) != len(expected) {
 		return fmt.Errorf("user-sync.%s: 完整会话列表期望 %d 项，实际 %d 项（不得泄露其他用户会话）", step, len(expected), len(result.Conversations))
 	}
-	seen := make(map[decimal]bool, len(expected))
+	seen := make(map[entityID]bool, len(expected))
 	for _, snapshot := range result.Conversations {
 		conv := snapshot.Conversation
 		messages, ok := expected[conv.ID]
@@ -216,19 +219,12 @@ func (d *driver) userSync(addressA, addressB string) error {
 	if _, err := d.inboxDrain("empty-resume", receiver, initial.NextPosition, nil, false); err != nil {
 		return err
 	}
-	for _, query := range []string{"position=garbage&limit=1", "position=9223372036854775808&limit=1", "position=0&limit=-1", "position=0&limit=2147483648"} {
+	for _, query := range []string{"position=garbage&limit=1", "position=-1&limit=1", "position=1.5&limit=1", "position=9007199254740992&limit=1", "position=9223372036854775808&limit=1", "position=0&limit=-1", "position=0&limit=2147483648"} {
 		err := d.request(http.MethodGet, "/messages/sync?"+query, receiver.token, nil, nil)
 		var rejected *apiError
 		if !errors.As(err, &rejected) || rejected.status != http.StatusBadRequest || rejected.code == 0 {
 			return fmt.Errorf("user-sync.invalid-query: %s 期望HTTP400参数拒绝，实际 %v", query, err)
 		}
-	}
-	negative, err := d.inboxRead("negative-position", receiver, -1, 1)
-	if err != nil {
-		return err
-	}
-	if err := checkInboxRebuild("negative-position", "unknown_position", negative); err != nil {
-		return err
 	}
 	senderInitial, err := d.inboxRead("sender-initial", sender, 0, 1)
 	if err != nil {
@@ -237,15 +233,15 @@ func (d *driver) userSync(addressA, addressB string) error {
 	if err := checkInboxRebuild("sender-initial", "new_device", senderInitial); err != nil {
 		return err
 	}
-	create := func(step string, input map[string]any) (decimal, error) {
+	create := func(step string, input map[string]any) (entityID, error) {
 		var result struct {
-			ID decimal `json:"conversation_id"`
+			ID entityID `json:"conversation_id"`
 		}
 		if err := d.request(http.MethodPost, "/convs", sender.token, input, &result); err != nil {
-			return 0, fmt.Errorf("user-sync.%s: %w", step, err)
+			return "", fmt.Errorf("user-sync.%s: %w", step, err)
 		}
-		if result.ID <= 0 {
-			return 0, fmt.Errorf("user-sync.%s: 没有有效 conversation_id", step)
+		if result.ID == "" {
+			return "", fmt.Errorf("user-sync.%s: 没有有效 conversation_id", step)
 		}
 		return result.ID, nil
 	}
@@ -271,10 +267,10 @@ func (d *driver) userSync(addressA, addressB string) error {
 		return fmt.Errorf("user-sync.settings: %w", err)
 	}
 	var shared []sentMessage
-	history := map[decimal][]sentMessage{singleID: nil, groupID: nil}
+	history := map[entityID][]sentMessage{singleID: nil, groupID: nil}
 	for i := range 3 {
-		for _, convID := range []decimal{singleID, groupID} {
-			previous := decimal(0)
+		for _, convID := range []entityID{singleID, groupID} {
+			previous := sequenceNumber(0)
 			if messages := history[convID]; len(messages) > 0 {
 				previous = messages[len(messages)-1].Seq
 			}
@@ -308,7 +304,7 @@ func (d *driver) userSync(addressA, addressB string) error {
 	if err := checkInboxRebuild("new-device-rebuild", "new_device", rebuild); err != nil {
 		return err
 	}
-	latest := map[decimal][]sentMessage{singleID: history[singleID][1:], groupID: history[groupID][1:]}
+	latest := map[entityID][]sentMessage{singleID: history[singleID][1:], groupID: history[groupID][1:]}
 	if err := checkInboxSnapshots("new-device-rebuild", rebuild, latest, groupID, groupName); err != nil {
 		return err
 	}
@@ -319,7 +315,7 @@ func (d *driver) userSync(addressA, addressB string) error {
 	if _, err := d.inboxDrain("rebuild-resume", receiver, rebuild.NextPosition, []sentMessage{continued}, false); err != nil {
 		return err
 	}
-	unknown, err := d.inboxRead("unknown-position", receiver, decimal(1<<63-1), 2)
+	unknown, err := d.inboxRead("unknown-position", receiver, sequenceNumber(sequence.Max), 2)
 	if err != nil {
 		return err
 	}
@@ -353,7 +349,7 @@ func (d *driver) inboxLoginDevice(user account, label string) (account, error) {
 	return device, nil
 }
 
-func (d *driver) inboxLegacySyncAbsent(user account, convID decimal) error {
+func (d *driver) inboxLegacySyncAbsent(user account, convID entityID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
 	defer cancel()
 	// The removed route may return a plain-text 404, unlike the API envelope.
@@ -377,14 +373,14 @@ type inboxSearchResult struct {
 	Messages   []storedMessage   `json:"messages"`
 	Highlights map[string]string `json:"highlights"`
 	Pagination struct {
-		Total decimal `json:"total"`
+		Total int64 `json:"total,string"`
 	} `json:"pagination"`
 	TypeCounts []struct {
-		Count decimal `json:"count"`
+		Count int64 `json:"count,string"`
 	} `json:"type_counts"`
 }
 
-func (d *driver) inboxSearch(user account, convID decimal, keyword string) (inboxSearchResult, error) {
+func (d *driver) inboxSearch(user account, convID entityID, keyword string) (inboxSearchResult, error) {
 	var result inboxSearchResult
 	path := "/messages/search?conversation_id=" + convID.String() + "&keyword=" + url.QueryEscape(keyword) + "&page=1&page_size=1"
 	err := d.request(http.MethodGet, path, user.token, nil, &result)
@@ -406,7 +402,7 @@ func (d *driver) inboxSearchVisible(user account, expected sentMessage) (storedM
 				for _, message := range result.Messages {
 					observed = append(observed, message.MessageID.String()+":"+message.Text.Text)
 				}
-				return storedMessage{}, fmt.Errorf("personal-deletion.search: 唯一原文关键词 %q 的搜索结果/总数不精确: messages=%d total=%s hits=%v",
+				return storedMessage{}, fmt.Errorf("personal-deletion.search: 唯一原文关键词 %q 的搜索结果/总数不精确: messages=%d total=%d hits=%v",
 					expected.Content.Text, len(result.Messages), result.Pagination.Total, observed)
 			}
 			if err := checkStoredMessage("personal-deletion.search", result.Messages[0], expected); err != nil {
@@ -419,7 +415,7 @@ func (d *driver) inboxSearchVisible(user account, expected sentMessage) (storedM
 	return storedMessage{}, errors.New("personal-deletion.search: 已确认消息未进入公开搜索结果")
 }
 
-func (d *driver) inboxMessageAbsent(step string, user account, messageID decimal) error {
+func (d *driver) inboxMessageAbsent(step string, user account, messageID entityID) error {
 	err := d.request(http.MethodGet, "/messages/"+messageID.String(), user.token, nil, nil)
 	var rejected *apiError
 	if !errors.As(err, &rejected) || rejected.status != http.StatusNotFound {
@@ -434,7 +430,7 @@ func checkPersonalMessages(step string, messages []storedMessage, hidden sentMes
 			return fmt.Errorf("personal-deletion.%s: 个人删除消息正文复活 message_id=%s", step, hidden.MessageID)
 		}
 		if reply := message.ReplyTo; reply != nil && reply.MessageID == hidden.MessageID {
-			if !reply.Deleted || reply.Preview != "" || reply.SenderID != 0 || reply.SenderName != "" || reply.SenderType != "" {
+			if !reply.Deleted || reply.Preview != "" || reply.SenderID != nil || reply.SenderName != "" || reply.SenderType != "" {
 				return fmt.Errorf("personal-deletion.%s: 回复摘要泄露已个人删除的原文/发送者", step)
 			}
 		}
@@ -442,7 +438,7 @@ func checkPersonalMessages(step string, messages []storedMessage, hidden sentMes
 	return nil
 }
 
-func (d *driver) inboxPersonalCatchup(user account, position decimal, hidden sentMessage) (decimal, error) {
+func (d *driver) inboxPersonalCatchup(user account, position sequenceNumber, hidden sentMessage) (sequenceNumber, error) {
 	deadline := time.Now().Add(d.timeout)
 	deleted := false
 	for time.Now().Before(deadline) {
@@ -459,10 +455,10 @@ func (d *driver) inboxPersonalCatchup(user account, position decimal, hidden sen
 			if err := checkPersonalMessages("catchup", []storedMessage{change.Message}, hidden); err != nil {
 				return position, err
 			}
-			if change.Conversation != nil && change.Conversation.LastMessageID == hidden.MessageID {
+			if change.Conversation != nil && hasEntityID(change.Conversation.LastMessageID, hidden.MessageID) {
 				return position, errors.New("personal-deletion.catchup: 会话变化预览仍引用个人删除消息")
 			}
-			deleted = deleted || (change.Kind == "message.deleted" && change.ConversationID == hidden.ConvID && change.MessageID == hidden.MessageID)
+			deleted = deleted || (change.Kind == "message.deleted" && change.ConversationID == hidden.ConvID && hasEntityID(change.MessageID, hidden.MessageID))
 		}
 		position = page.NextPosition
 		if !page.HasMore && deleted {
@@ -552,14 +548,14 @@ func (d *driver) personalDeletion(addressA, addressB string, sender, receiver ac
 	}
 	for i, socket := range sockets[:2] {
 		if _, err := d.p6Wait(socket, cursors[i], "personal-delete", func(e p6Event) bool {
-			return e.Type == "message.deleted" && e.ConvID == convID && (e.MessageID == hidden.MessageID || e.Message.MessageID == hidden.MessageID)
+			return e.Type == "message.deleted" && hasEntityID(e.ConvID, convID) && (hasEntityID(e.MessageID, hidden.MessageID) || e.Message.MessageID == hidden.MessageID)
 		}); err != nil {
 			return err
 		}
 	}
 	for _, checkpoint := range []struct {
 		user     account
-		position decimal
+		position sequenceNumber
 	}{{mirror, position}, {receiver, before.NextPosition}, {mirror, position}} {
 		if _, err := d.inboxPersonalCatchup(checkpoint.user, checkpoint.position, hidden); err != nil {
 			return err
@@ -574,11 +570,11 @@ func (d *driver) personalDeletion(addressA, addressB string, sender, receiver ac
 			return err
 		}
 		if len(result.Messages) != 0 || result.Pagination.Total != 0 || len(result.Highlights) != 0 || slices.ContainsFunc(result.TypeCounts, func(count struct {
-			Count decimal `json:"count"`
+			Count int64 `json:"count,string"`
 		}) bool {
 			return count.Count != 0
 		}) {
-			return fmt.Errorf("personal-deletion.search: 个人删除后关键词 %q 仍返回 messages=%d total=%s highlights=%d type_counts=%d",
+			return fmt.Errorf("personal-deletion.search: 个人删除后关键词 %q 仍返回 messages=%d total=%d highlights=%d type_counts=%d",
 				hidden.Content.Text, len(result.Messages), result.Pagination.Total, len(result.Highlights), len(result.TypeCounts))
 		}
 	}
@@ -597,7 +593,7 @@ func (d *driver) personalDeletion(addressA, addressB string, sender, receiver ac
 			return err
 		}
 		for _, view := range []conversationView{row, detail.Conversation} {
-			if view.LastMessageID != expected.message.MessageID || view.LastMessagePreview != expected.message.Content.Text || view.MaxSeq != hidden.Seq {
+			if !hasEntityID(view.LastMessageID, expected.message.MessageID) || view.LastMessagePreview != expected.message.Content.Text || view.MaxSeq != hidden.Seq {
 				return errors.New("personal-deletion.preview: 列表/详情未按用户回退预览，或错误改变会话seq")
 			}
 		}
@@ -614,12 +610,17 @@ func (d *driver) personalDeletion(addressA, addressB string, sender, receiver ac
 	// so it stays a distinct word token inside the stored preview length.
 	var reply sentMessage
 	text := "引用回复"
+	submissionKey, err := uuid.NewRandom()
+	if err != nil {
+		return err
+	}
+	reply.SubmissionKey = submissionKey.String()
 	if err := d.request(http.MethodPost, "/messages/send", sender.token, map[string]any{
-		"conversation_id": convID.String(), "client_msg_id": text, "content": map[string]string{"text": text}, "reply_to_msg_id": hidden.MessageID.String(),
+		"conversation_id": convID.String(), "client_msg_id": submissionKey.String(), "content": map[string]string{"text": text}, "reply_to_msg_id": hidden.MessageID.String(),
 	}, &reply); err != nil {
 		return err
 	}
-	if reply.MessageID <= 0 || reply.ConvID != convID || reply.Seq <= hidden.Seq || reply.SenderID != sender.id || reply.Content.Text != text {
+	if reply.MessageID == "" || reply.ConvID != convID || reply.Seq <= hidden.Seq || reply.SenderID != sender.id || reply.Content.Text != text {
 		return errors.New("personal-deletion.reply: 回复HTTP确认身份/正文/seq不符合请求")
 	}
 	for _, user := range []account{receiver, mirror, sender} {
@@ -632,7 +633,7 @@ func (d *driver) personalDeletion(addressA, addressB string, sender, receiver ac
 		if err := checkStoredMessage("personal.reply", direct.Message, reply); err != nil {
 			return err
 		}
-		if direct.Message.ReplyToID != hidden.MessageID || direct.Message.ReplyTo == nil || direct.Message.ReplyTo.MessageID != hidden.MessageID {
+		if !hasEntityID(direct.Message.ReplyToID, hidden.MessageID) || direct.Message.ReplyTo == nil || direct.Message.ReplyTo.MessageID != hidden.MessageID {
 			return errors.New("personal-deletion.reply: 回复摘要缺失，无法验证隔离")
 		}
 		searched, err := d.inboxSearchVisible(user, reply)
@@ -666,9 +667,9 @@ func (d *driver) personalDeletion(addressA, addressB string, sender, receiver ac
 	}
 	for _, request := range []struct {
 		user     account
-		position decimal
+		position sequenceNumber
 		reason   string
-	}{{fresh, 0, "new_device"}, {receiver, decimal(1<<63 - 1), "unknown_position"}, {sender, 0, "new_device"}} {
+	}{{fresh, 0, "new_device"}, {receiver, sequenceNumber(sequence.Max), "unknown_position"}, {sender, 0, "new_device"}} {
 		result, err := d.inboxRead("personal-rebuild", request.user, request.position, 50)
 		if err != nil {
 			return err
@@ -681,7 +682,7 @@ func (d *driver) personalDeletion(addressA, addressB string, sender, receiver ac
 			if snapshot.Conversation.ID != convID {
 				continue
 			}
-			if snapshot.Conversation.LastMessageID != reply.MessageID || snapshot.Conversation.LastMessagePreview != reply.Content.Text || snapshot.Conversation.MaxSeq != reply.Seq {
+			if !hasEntityID(snapshot.Conversation.LastMessageID, reply.MessageID) || snapshot.Conversation.LastMessagePreview != reply.Content.Text || snapshot.Conversation.MaxSeq != reply.Seq {
 				return errors.New("personal-deletion.rebuild: 重建预览/seq与可见回复不一致")
 			}
 			found = slices.ContainsFunc(snapshot.Messages, func(message storedMessage) bool { return message.MessageID == reply.MessageID })
@@ -714,7 +715,7 @@ func (d *driver) personalDeletion(addressA, addressB string, sender, receiver ac
 		return errors.New("personal-deletion.sender-ws: 观察连接已关闭，不能证明隔离")
 	}
 	for _, evt := range sockets[2].events[cursors[2]:] {
-		if evt.Type == "message.deleted" && (evt.MessageID == hidden.MessageID || evt.Message.MessageID == hidden.MessageID) {
+		if evt.Type == "message.deleted" && (hasEntityID(evt.MessageID, hidden.MessageID) || evt.Message.MessageID == hidden.MessageID) {
 			return errors.New("personal-deletion.sender-ws: 个人删除被错误扇出给原发送者")
 		}
 	}
@@ -741,7 +742,7 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 	}
 	position := initial.NextPosition
 	var created struct {
-		ID decimal `json:"conversation_id"`
+		ID entityID `json:"conversation_id"`
 	}
 	if err := d.request(http.MethodPost, "/convs", owner.token, map[string]any{
 		"type": "group", "group_name": "changes_" + suffix, "member_ids": []string{member.id.String()},
@@ -770,17 +771,17 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 		}
 		return nil, fmt.Errorf("%s: expected changes did not converge", step)
 	}
-	has := func(kind string, id decimal) func([]inboxChange) bool {
+	has := func(kind string, id entityID) func([]inboxChange) bool {
 		return func(changes []inboxChange) bool {
 			for _, change := range changes {
-				if change.Kind == kind && change.ConversationID == convID && (id == 0 || change.Message.MessageID == id || change.MessageID == id) {
+				if change.Kind == kind && change.ConversationID == convID && (id == "" || change.Message.MessageID == id || hasEntityID(change.MessageID, id)) {
 					return true
 				}
 			}
 			return false
 		}
 	}
-	if _, err := collect("offline-created", has("conversation.upsert", 0)); err != nil {
+	if _, err := collect("offline-created", has("conversation.upsert", "")); err != nil {
 		return err
 	}
 	connOwner, err := d.connect(addressB, owner)
@@ -798,7 +799,7 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 	}
 	connMember.Close() // Member A is offline while B sends and mutates messages.
 	var sent []sentMessage
-	seq := decimal(0)
+	seq := sequenceNumber(0)
 	for i := range 3 {
 		msg, err := d.sendMessage(owner, convID, fmt.Sprintf("%s_offline_%d", suffix, i), seq)
 		if err != nil {
@@ -838,7 +839,7 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 	for _, change := range changes {
 		if change.Kind == "message.edited" && change.Message.MessageID == sent[0].MessageID {
 			edits++
-			if change.Message.Text.Text != "edited_twice_"+suffix || change.Message.Type != 1 || change.Message.SenderID != owner.id || change.Message.EditCount != 2 {
+			if change.Message.Text.Text != "edited_twice_"+suffix || change.Message.Type != 1 || !hasEntityID(change.Message.SenderID, owner.id) || change.Message.EditCount != 2 {
 				return errors.New("offline edit lost full message fields or latest body")
 			}
 		}
@@ -927,7 +928,7 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 	}
 	// One conversation keeps only the latest own-read entry, including stale input.
 	readPosition := position
-	for _, read := range []decimal{1, 2, 1, 999} {
+	for _, read := range []sequenceNumber{1, 2, 1, 999} {
 		if err := d.request(http.MethodPut, path+"/read", member.token, map[string]any{"seq": read}, nil); err != nil {
 			return err
 		}
@@ -997,8 +998,8 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 	}
 	var receipt struct {
 		Users []struct {
-			UserID      decimal `json:"user_id"`
-			LastReadSeq decimal `json:"last_read_seq"`
+			UserID      entityID       `json:"user_id"`
+			LastReadSeq sequenceNumber `json:"last_read_seq"`
 		} `json:"read_users"`
 	}
 	if err := d.request(http.MethodGet, path+"/read_status/"+sent[0].MessageID.String(), member.token, nil, &receipt); err != nil {
@@ -1031,10 +1032,10 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 		}
 	}
 	// Removal reaches the removed recipient, then later messages do not.
-	if err := d.request(http.MethodPost, path+"/members/kick", owner.token, map[string]any{"user_ids": []int64{int64(member.id)}}, nil); err != nil {
+	if err := d.request(http.MethodPost, path+"/members/kick", owner.token, map[string]any{"user_ids": []entityID{member.id}}, nil); err != nil {
 		return err
 	}
-	if _, err := collect("offline-removed", has("conversation.removed", 0)); err != nil {
+	if _, err := collect("offline-removed", has("conversation.removed", "")); err != nil {
 		return err
 	}
 	removedPosition := position
@@ -1056,16 +1057,16 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 	if len(removed.Changes) != 0 {
 		return errors.New("removed member received conversation increments")
 	}
-	if err := d.request(http.MethodPost, path+"/members/invite", owner.token, map[string]any{"user_ids": []int64{int64(member.id)}}, nil); err != nil {
+	if err := d.request(http.MethodPost, path+"/members/invite", owner.token, map[string]any{"user_ids": []entityID{member.id}}, nil); err != nil {
 		return err
 	}
-	if _, err := collect("offline-rejoined", has("conversation.upsert", 0)); err != nil {
+	if _, err := collect("offline-rejoined", has("conversation.upsert", "")); err != nil {
 		return err
 	}
 	if err := d.request(http.MethodDelete, path, owner.token, nil, nil); err != nil {
 		return err
 	}
-	if _, err := collect("offline-dissolved", has("conversation.removed", 0)); err != nil {
+	if _, err := collect("offline-dissolved", has("conversation.removed", "")); err != nil {
 		return err
 	}
 	return nil

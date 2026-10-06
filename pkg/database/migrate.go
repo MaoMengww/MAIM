@@ -3,17 +3,15 @@ package database
 import (
 	"fmt"
 	"io/fs"
-	"sort"
 	"strings"
 
 	"gorm.io/gorm"
 )
 
-// RunMigrations reads embedded SQL migration files from the given filesystem,
-// applies any that have not yet been recorded in schema_migrations, and records
-// each newly applied migration. All SQL files must use IF NOT EXISTS / IF EXISTS
-// so they are safe to re-run. Startup callers share a transaction-scoped lock:
-// user-service and message-service may start concurrently against the same DB.
+// RunMigrations applies the current UUID migration lineage once, sharing a
+// transaction-scoped lock with direct PostgreSQL initialization. It refuses
+// records from removed migration lineages rather than mapping or clearing old
+// entity data. The baseline also rejects untracked legacy tables atomically.
 func RunMigrations(db *gorm.DB, src fs.FS) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(4278605, 1)").Error; err != nil {
@@ -29,10 +27,17 @@ func runMigrations(db *gorm.DB, src fs.FS) error {
 		return fmt.Errorf("read migration dir: %w", err)
 	}
 
-	// Sort lexically: 000_xxx.sql < 001_xxx.sql < …
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
-	})
+	// fs.ReadDir returns names in lexical migration order.
+	migrations := make([]string, 0, len(entries))
+	available := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".sql") || strings.HasSuffix(name, ".down.sql") {
+			continue
+		}
+		migrations = append(migrations, name)
+		available[strings.TrimSuffix(name, ".sql")] = struct{}{}
+	}
 
 	// Ensure tracking table exists (public schema — shared by all services)
 	if err := db.Exec(`CREATE TABLE IF NOT EXISTS public.schema_migrations (
@@ -41,30 +46,22 @@ func runMigrations(db *gorm.DB, src fs.FS) error {
 	)`).Error; err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
-	// Upgrade column width for databases created before VARCHAR(16) was widened.
-	if err := db.Exec(`ALTER TABLE public.schema_migrations ALTER COLUMN version TYPE VARCHAR(255)`).Error; err != nil {
-		return fmt.Errorf("upgrade schema_migrations: %w", err)
+	var applied []string
+	if err := db.Raw("SELECT version FROM public.schema_migrations ORDER BY version").Scan(&applied).Error; err != nil {
+		return fmt.Errorf("read applied migrations: %w", err)
+	}
+	recorded := make(map[string]struct{}, len(applied))
+	for _, version := range applied {
+		if _, current := available[version]; !current {
+			return fmt.Errorf("migration %s belongs to an unsupported schema lineage; initialize a new AIM database without mapping or clearing legacy data", version)
+		}
+		recorded[version] = struct{}{}
 	}
 
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".sql") {
-			continue
-		}
-		// Skip rollback scripts (files ending in .down.sql)
-		if strings.HasSuffix(name, ".down.sql") {
-			continue
-		}
+	for _, name := range migrations {
 		version := strings.TrimSuffix(name, ".sql")
 
-		// Check if already applied
-		var count int64
-		if err := db.Raw(
-			"SELECT COUNT(*) FROM public.schema_migrations WHERE version = ?", version,
-		).Scan(&count).Error; err != nil {
-			return fmt.Errorf("check migration %s: %w", version, err)
-		}
-		if count > 0 {
+		if _, applied := recorded[version]; applied {
 			continue
 		}
 
@@ -77,7 +74,7 @@ func runMigrations(db *gorm.DB, src fs.FS) error {
 			return fmt.Errorf("migration %s: %w", version, err)
 		}
 		if err := db.Exec(
-			"INSERT INTO public.schema_migrations (version) VALUES (?)", version,
+			"INSERT INTO public.schema_migrations (version) VALUES (?) ON CONFLICT DO NOTHING", version,
 		).Error; err != nil {
 			return fmt.Errorf("record migration %s: %w", version, err)
 		}

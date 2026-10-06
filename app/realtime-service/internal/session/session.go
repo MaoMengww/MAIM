@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	registry "github.com/maomeng/aim/pkg/connections"
+	"github.com/maomeng/aim/pkg/identity"
 )
 
 type write struct {
@@ -28,6 +29,9 @@ type Manager struct {
 
 func NewManager(max int) *Manager { return &Manager{sessions: make(map[string]*Session), max: max} }
 func (m *Manager) Register(r registry.Route, conn *websocket.Conn) (*Session, error) {
+	if err := identity.Validate(r.ID); err != nil {
+		return nil, err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.sessions) >= m.max {

@@ -2,12 +2,12 @@ package middleware
 
 import (
 	"context"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/maomeng/aim/app/gateway/internal/response"
 	"github.com/maomeng/aim/pkg/consts"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/jwt"
 	"google.golang.org/grpc/metadata"
 )
@@ -55,14 +55,13 @@ func AuthRequired(jwtMgr *jwt.Manager) gin.HandlerFunc {
 			return
 		}
 
-		userID, err := strconv.ParseInt(claims.UserID, 10, 64)
-		if err != nil {
+		if err := identity.Validate(claims.UserID); err != nil {
 			response.Unauthorized(c, "invalid user_id in token")
 			c.Abort()
 			return
 		}
 
-		c.Set(CtxKeyUserID, userID)
+		c.Set(CtxKeyUserID, claims.UserID)
 		c.Set(CtxKeyDeviceID, claims.Subject)
 
 		c.Next()
@@ -74,7 +73,7 @@ func WithGRPCMetadata(c *gin.Context) context.Context {
 
 	userID, exists := c.Get(CtxKeyUserID)
 	if exists {
-		ctx = metadata.AppendToOutgoingContext(ctx, consts.MetadataKeyUserID, strconv.FormatInt(userID.(int64), 10))
+		ctx = metadata.AppendToOutgoingContext(ctx, consts.MetadataKeyUserID, userID.(string))
 	}
 
 	deviceID, exists := c.Get(CtxKeyDeviceID)

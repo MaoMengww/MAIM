@@ -9,6 +9,7 @@ package common
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -405,11 +406,55 @@ func (x *CursorPaginationResp) GetTotal() int64 {
 	return 0
 }
 
+var file_common_common_proto_extTypes = []protoimpl.ExtensionInfo{
+	{
+		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
+		ExtensionType: (*bool)(nil),
+		Field:         510000001,
+		Name:          "common.safe_sequence",
+		Tag:           "varint,510000001,opt,name=safe_sequence",
+		Filename:      "common/common.proto",
+	},
+	{
+		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
+		ExtensionType: (*bool)(nil),
+		Field:         510000002,
+		Name:          "common.entity_id",
+		Tag:           "varint,510000002,opt,name=entity_id",
+		Filename:      "common/common.proto",
+	},
+	{
+		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
+		ExtensionType: (*bool)(nil),
+		Field:         510000003,
+		Name:          "common.submission_key",
+		Tag:           "varint,510000003,opt,name=submission_key",
+		Filename:      "common/common.proto",
+	},
+}
+
+// Extension fields to descriptorpb.FieldOptions.
+var (
+	// 业务序号保留 int64，范围 0..9007199254740991，HTTP/WS JSON 使用 number。
+	// 零表示初始位置；真实追加位置从 1 开始，禁止越界增长和重置复用。
+	//
+	// optional bool safe_sequence = 510000001;
+	E_SafeSequence = &file_common_common_proto_extTypes[0]
+	// string/repeated string 为实体 UUID；map 字段标注时，其字符串 key 为实体 UUID。
+	//
+	// optional bool entity_id = 510000002;
+	E_EntityId = &file_common_common_proto_extTypes[1]
+	// 客户端每次新发送使用规范 UUIDv4；同次重试复用，不代表最终消息身份。
+	//
+	// optional bool submission_key = 510000003;
+	E_SubmissionKey = &file_common_common_proto_extTypes[2]
+)
+
 var File_common_common_proto protoreflect.FileDescriptor
 
 const file_common_common_proto_rawDesc = "" +
 	"\n" +
-	"\x13common/common.proto\x12\x06common\"\a\n" +
+	"\x13common/common.proto\x12\x06common\x1a google/protobuf/descriptor.proto\"\a\n" +
 	"\x05Empty\"<\n" +
 	"\fBaseResponse\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\x05R\x04code\x12\x18\n" +
@@ -440,7 +485,10 @@ const file_common_common_proto_rawDesc = "" +
 	"\x11PROVIDER_DEEPSEEK\x10\x04\x12\x11\n" +
 	"\rPROVIDER_QWEN\x10\x05\x12\x13\n" +
 	"\x0fPROVIDER_OLLAMA\x10\x06\x12\x13\n" +
-	"\x0fPROVIDER_CUSTOM\x10\aB&Z$github.com/maomeng/aim/pkg/pb/commonb\x06proto3"
+	"\x0fPROVIDER_CUSTOM\x10\a:F\n" +
+	"\rsafe_sequence\x12\x1d.google.protobuf.FieldOptions\x18\x81\xf7\x97\xf3\x01 \x01(\bR\fsafeSequence:>\n" +
+	"\tentity_id\x12\x1d.google.protobuf.FieldOptions\x18\x82\xf7\x97\xf3\x01 \x01(\bR\bentityId:H\n" +
+	"\x0esubmission_key\x12\x1d.google.protobuf.FieldOptions\x18\x83\xf7\x97\xf3\x01 \x01(\bR\rsubmissionKeyB&Z$github.com/maomeng/aim/pkg/pb/commonb\x06proto3"
 
 var (
 	file_common_common_proto_rawDescOnce sync.Once
@@ -457,19 +505,23 @@ func file_common_common_proto_rawDescGZIP() []byte {
 var file_common_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_common_common_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_common_common_proto_goTypes = []any{
-	(Provider)(0),                // 0: common.Provider
-	(*Empty)(nil),                // 1: common.Empty
-	(*BaseResponse)(nil),         // 2: common.BaseResponse
-	(*Pagination)(nil),           // 3: common.Pagination
-	(*PaginationResp)(nil),       // 4: common.PaginationResp
-	(*CursorPagination)(nil),     // 5: common.CursorPagination
-	(*CursorPaginationResp)(nil), // 6: common.CursorPaginationResp
+	(Provider)(0),                     // 0: common.Provider
+	(*Empty)(nil),                     // 1: common.Empty
+	(*BaseResponse)(nil),              // 2: common.BaseResponse
+	(*Pagination)(nil),                // 3: common.Pagination
+	(*PaginationResp)(nil),            // 4: common.PaginationResp
+	(*CursorPagination)(nil),          // 5: common.CursorPagination
+	(*CursorPaginationResp)(nil),      // 6: common.CursorPaginationResp
+	(*descriptorpb.FieldOptions)(nil), // 7: google.protobuf.FieldOptions
 }
 var file_common_common_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
+	7, // 0: common.safe_sequence:extendee -> google.protobuf.FieldOptions
+	7, // 1: common.entity_id:extendee -> google.protobuf.FieldOptions
+	7, // 2: common.submission_key:extendee -> google.protobuf.FieldOptions
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	0, // [0:3] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
 }
 
@@ -485,13 +537,14 @@ func file_common_common_proto_init() {
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_common_proto_rawDesc), len(file_common_common_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   6,
-			NumExtensions: 0,
+			NumExtensions: 3,
 			NumServices:   0,
 		},
 		GoTypes:           file_common_common_proto_goTypes,
 		DependencyIndexes: file_common_common_proto_depIdxs,
 		EnumInfos:         file_common_common_proto_enumTypes,
 		MessageInfos:      file_common_common_proto_msgTypes,
+		ExtensionInfos:    file_common_common_proto_extTypes,
 	}.Build()
 	File_common_common_proto = out.File
 	file_common_common_proto_goTypes = nil

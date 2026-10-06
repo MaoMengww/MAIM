@@ -21,16 +21,16 @@ import (
 // public heartbeat. Negative membership checks use the same observation log.
 type p6Event struct {
 	event
-	MessageID   decimal `json:"message_id"`
-	UserID      decimal `json:"user_id"`
-	LastReadSeq decimal `json:"last_read_seq"`
-	UnreadCount *int32  `json:"unread_count"`
-	StreamID    string  `json:"stream_id"`
-	BotID       decimal `json:"bot_id"`
-	ReplyToID   decimal `json:"reply_to_msg_id"`
-	Content     string  `json:"content"`
-	Seq         decimal `json:"seq"`
-	Online      bool    `json:"online"`
+	MessageID   *entityID      `json:"message_id"`
+	UserID      *entityID      `json:"user_id"`
+	LastReadSeq sequenceNumber `json:"last_read_seq"`
+	UnreadCount *int32         `json:"unread_count"`
+	StreamID    string         `json:"stream_id"`
+	BotID       *entityID      `json:"bot_id"`
+	ReplyToID   *entityID      `json:"reply_to_msg_id"`
+	Content     string         `json:"content"`
+	Seq         int64          `json:"seq"`
+	Online      bool           `json:"online"`
 	Devices     []struct {
 		DeviceID   string `json:"device_id"`
 		InstanceID string `json:"instance_id"`
@@ -150,7 +150,7 @@ func (d *driver) p6Message(s *p6Socket, sent sentMessage) (p6Event, error) {
 		return evt, err
 	}
 	msg := evt.Message
-	if evt.ConvID != sent.ConvID || msg.ConvID != sent.ConvID || msg.SenderID != sent.SenderID || msg.Seq != sent.Seq || msg.Content.Text != sent.Content.Text {
+	if !hasEntityID(evt.ConvID, sent.ConvID) || msg.ConvID != sent.ConvID || !hasEntityID(msg.SenderID, sent.SenderID) || msg.Seq != sent.Seq || msg.Content.Text != sent.Content.Text {
 		return evt, errors.New("p6.message.new: WS内容/身份/seq与REST确认不一致")
 	}
 	return evt, nil
@@ -161,7 +161,7 @@ func (d *driver) p6Presence(observer *p6Socket, user account, expected map[strin
 	if err := observer.send(map[string]string{"type": "presence.query", "user_id": user.id.String()}, d.timeout); err != nil {
 		return err
 	}
-	evt, err := d.p6Wait(observer, cursor, "presence.query", func(e p6Event) bool { return e.Type == "presence.state" && e.UserID == user.id })
+	evt, err := d.p6Wait(observer, cursor, "presence.query", func(e p6Event) bool { return e.Type == "presence.state" && hasEntityID(e.UserID, user.id) })
 	if err != nil {
 		return err
 	}
@@ -183,7 +183,7 @@ func (d *driver) p6Presence(observer *p6Socket, user account, expected map[strin
 	return nil
 }
 
-func (d *driver) p6NoConversation(s *p6Socket, convID decimal, since int) error {
+func (d *driver) p6NoConversation(s *p6Socket, convID entityID, since int) error {
 	// All permitted recipients have already received their matching delivery.
 	// Keep observing an unrelated authenticated user for an additional window.
 	time.Sleep(time.Second)
@@ -193,7 +193,7 @@ func (d *driver) p6NoConversation(s *p6Socket, convID decimal, since int) error 
 		return errors.New("p6.isolation: 非成员观察连接已关闭，不能证明未收到")
 	}
 	for _, evt := range s.events[since:] {
-		if evt.Type != "error" && (evt.ConvID == convID || evt.Message.ConvID == convID) {
+		if evt.Type != "error" && (hasEntityID(evt.ConvID, convID) || evt.Message.ConvID == convID) {
 			return fmt.Errorf("p6.isolation: 非成员收到会话%s的%s事件", convID, evt.Type)
 		}
 	}
@@ -231,12 +231,12 @@ func (d *driver) p6Delivery(addressA, addressB string) error {
 		return err
 	}
 	var conv struct {
-		ID decimal `json:"conversation_id"`
+		ID entityID `json:"conversation_id"`
 	}
 	if err := d.request(http.MethodPost, "/convs", a.token, map[string]any{"type": "group", "group_name": "p6_" + suffix, "member_ids": []string{b.id.String()}}, &conv); err != nil {
 		return err
 	}
-	if conv.ID <= 0 {
+	if conv.ID == "" {
 		return errors.New("p6.group: 无有效会话ID")
 	}
 	connA, err := d.p6Connect(addressA, a)
@@ -299,7 +299,9 @@ func (d *driver) p6Delivery(addressA, addressB string) error {
 		if err := connA.send(map[string]string{"type": typing.request, "conv_id": conv.ID.String()}, d.timeout); err != nil {
 			return err
 		}
-		if _, err := d.p6Wait(connB, cursor, typing.response, func(e p6Event) bool { return e.Type == typing.response && e.ConvID == conv.ID && e.UserID == a.id }); err != nil {
+		if _, err := d.p6Wait(connB, cursor, typing.response, func(e p6Event) bool {
+			return e.Type == typing.response && hasEntityID(e.ConvID, conv.ID) && hasEntityID(e.UserID, a.id)
+		}); err != nil {
 			return err
 		}
 	}
@@ -317,23 +319,23 @@ func (d *driver) p6Delivery(addressA, addressB string) error {
 	time.Sleep(time.Second)
 	connB.mu.Lock()
 	for _, evt := range connB.events[before:] {
-		if evt.Type == "typing" && evt.UserID == outsider.id {
+		if evt.Type == "typing" && hasEntityID(evt.UserID, outsider.id) {
 			connB.mu.Unlock()
 			return errors.New("p6.typing: 非成员伪造typing被转发")
 		}
 	}
 	connB.mu.Unlock()
 	readCursor := connA.cursor()
-	if err := d.request(http.MethodPut, "/convs/"+conv.ID.String()+"/read", b.token, map[string]any{"seq": int64(first.Seq)}, nil); err != nil {
+	if err := d.request(http.MethodPut, "/convs/"+conv.ID.String()+"/read", b.token, map[string]any{"seq": first.Seq}, nil); err != nil {
 		return err
 	}
 	if _, err := d.p6Wait(connA, readCursor, "read_receipt", func(e p6Event) bool {
-		return e.Type == "read_receipt" && e.ConvID == conv.ID && e.UserID == b.id && e.LastReadSeq == first.Seq
+		return e.Type == "read_receipt" && hasEntityID(e.ConvID, conv.ID) && hasEntityID(e.UserID, b.id) && e.LastReadSeq == first.Seq
 	}); err != nil {
 		return err
 	}
 	if _, err := d.p6Wait(connB, 0, "unread_count", func(e p6Event) bool {
-		return e.Type == "unread_count" && e.ConvID == conv.ID && e.UnreadCount != nil && *e.UnreadCount == 0
+		return e.Type == "unread_count" && hasEntityID(e.ConvID, conv.ID) && e.UnreadCount != nil && *e.UnreadCount == 0
 	}); err != nil {
 		return err
 	}
@@ -364,10 +366,10 @@ func (d *driver) p6Delivery(addressA, addressB string) error {
 		method, eventType := http.MethodPut, "message.edited"
 		input := map[string]any{"text": "p6_edited_" + suffix}
 		if mutation == "recall" {
-			method, path, eventType, input = http.MethodPost, path+"/recall", "message.recalled", map[string]any{"conversation_id": int64(conv.ID)}
+			method, path, eventType, input = http.MethodPost, path+"/recall", "message.recalled", map[string]any{"conversation_id": conv.ID}
 		}
 		if mutation == "delete" || mutation == "delete_all" {
-			method, eventType, input = http.MethodDelete, "message.deleted", map[string]any{"conversation_id": int64(conv.ID), "delete_for_all": mutation == "delete_all"}
+			method, eventType, input = http.MethodDelete, "message.deleted", map[string]any{"conversation_id": conv.ID, "delete_for_all": mutation == "delete_all"}
 		}
 		if err := d.request(method, path, a.token, input, nil); err != nil {
 			return err
@@ -378,7 +380,7 @@ func (d *driver) p6Delivery(addressA, addressB string) error {
 		}
 		for _, target := range targets {
 			if _, err := d.p6Wait(target, 0, mutation, func(e p6Event) bool {
-				return e.Type == eventType && (e.ConvID == conv.ID || e.Message.ConvID == conv.ID) && (e.MessageID == sent.MessageID || e.Message.MessageID == sent.MessageID)
+				return e.Type == eventType && (hasEntityID(e.ConvID, conv.ID) || e.Message.ConvID == conv.ID) && (hasEntityID(e.MessageID, sent.MessageID) || e.Message.MessageID == sent.MessageID)
 			}); err != nil {
 				return err
 			}
@@ -478,12 +480,12 @@ func (d *driver) p6Lifecycle(addressA, addressB string) error {
 		return err
 	}
 	var conv struct {
-		ID decimal `json:"conversation_id"`
+		ID entityID `json:"conversation_id"`
 	}
 	if err := d.request(http.MethodPost, "/convs", sender.token, map[string]any{"type": "single", "peer_user_id": victim.id.String()}, &conv); err != nil {
 		return err
 	}
-	if conv.ID <= 0 {
+	if conv.ID == "" {
 		return errors.New("p6.lifecycle: 无有效会话ID")
 	}
 	survivor, err := d.p6Connect(addressA, sender)
@@ -582,7 +584,7 @@ func (d *driver) p6Lifecycle(addressA, addressB string) error {
 	if _, err := d.conversationCatchup("p6.negative.feedback.catchup", victim, conv.ID, syncPosition, feedbackMessage); err != nil {
 		return err
 	}
-	if err := d.request(http.MethodPut, "/convs/"+conv.ID.String()+"/read", victim.token, map[string]any{"seq": int64(feedbackMessage.Seq)}, nil); err != nil {
+	if err := d.request(http.MethodPut, "/convs/"+conv.ID.String()+"/read", victim.token, map[string]any{"seq": feedbackMessage.Seq}, nil); err != nil {
 		return err
 	}
 	if err := d.conversationUnread("p6.recovered.read", victim, conv.ID, feedbackMessage.Seq, true); err != nil {
@@ -688,9 +690,9 @@ func (d *driver) p6ReadinessRejected(address string) (time.Time, error) {
 	return time.Time{}, errors.New("p6.drain: 未实际观测到readiness HTTP503（连接失败不是摘流量证据）")
 }
 
-func (d *driver) p6BotStream(s *p6Socket, botID, convID, requestID decimal, reply sentMessage) error {
+func (d *driver) p6BotStream(s *p6Socket, botID, convID, requestID entityID, reply sentMessage) error {
 	done, err := d.p6Wait(s, 0, "bot.streaming.done", func(e p6Event) bool {
-		return e.Type == "bot.streaming.done" && e.ConvID == convID && e.BotID == botID && e.MessageID == reply.MessageID
+		return e.Type == "bot.streaming.done" && hasEntityID(e.ConvID, convID) && hasEntityID(e.BotID, botID) && hasEntityID(e.MessageID, reply.MessageID)
 	})
 	if err != nil {
 		return err
@@ -699,7 +701,7 @@ func (d *driver) p6BotStream(s *p6Socket, botID, convID, requestID decimal, repl
 		return errors.New("p6.bot.stream: done缺少stream_id")
 	}
 	var content string
-	previous := decimal(-1)
+	previous := int64(-1)
 	first := true
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -707,10 +709,10 @@ func (d *driver) p6BotStream(s *p6Socket, botID, convID, requestID decimal, repl
 		if evt.Type != "bot.streaming.chunk" || evt.StreamID != done.StreamID {
 			continue
 		}
-		if evt.ConvID != convID || evt.BotID != botID || evt.Seq <= previous {
+		if !hasEntityID(evt.ConvID, convID) || !hasEntityID(evt.BotID, botID) || evt.Seq <= previous {
 			return errors.New("p6.bot.stream: chunk身份/顺序不一致")
 		}
-		if first && evt.ReplyToID != requestID {
+		if first && !hasEntityID(evt.ReplyToID, requestID) {
 			return errors.New("p6.bot.stream: 首chunk回复消息ID不匹配")
 		}
 		first = false

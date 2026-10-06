@@ -29,11 +29,14 @@ func NewKnowledgeHandler(conn *grpc.ClientConn) *KnowledgeHandler {
 
 func (h *KnowledgeHandler) CreateKB(c *gin.Context) {
 	var req kbpb.CreateKBReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindUserOwnedJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.client.CreateKB(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -48,6 +51,9 @@ func (h *KnowledgeHandler) ListKBs(c *gin.Context) {
 		Limit:  int32(parseInt64(c.DefaultQuery("limit", "20"))),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.client.ListKBs(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -57,8 +63,14 @@ func (h *KnowledgeHandler) ListKBs(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) GetKB(c *gin.Context) {
-	req := &kbpb.GetKBReq{KbId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &kbpb.GetKBReq{KbId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.client.GetKB(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -68,13 +80,19 @@ func (h *KnowledgeHandler) GetKB(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) UpdateKB(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req kbpb.UpdateKBReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.KbId = parseInt64(c.Param("id"))
+	req.KbId = c.Param("id")
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.client.UpdateKB(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -84,8 +102,14 @@ func (h *KnowledgeHandler) UpdateKB(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) DeleteKB(c *gin.Context) {
-	req := &kbpb.DeleteKBReq{KbId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &kbpb.DeleteKBReq{KbId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	_, err := h.client.DeleteKB(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -97,6 +121,9 @@ func (h *KnowledgeHandler) DeleteKB(c *gin.Context) {
 // ========== Document ==========
 
 func (h *KnowledgeHandler) UploadDocument(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	ctx := middleware.WithGRPCMetadata(c)
 	ctx = metadata.AppendToOutgoingContext(ctx, "kb-id", c.Param("id"))
 
@@ -150,13 +177,19 @@ func (h *KnowledgeHandler) UploadDocument(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) ListDocuments(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &kbpb.ListDocumentsReq{
-		KbId:   parseInt64(c.Param("id")),
+		KbId:   c.Param("id"),
 		Offset: int32(parseInt64(c.DefaultQuery("offset", "0"))),
 		Limit:  int32(parseInt64(c.DefaultQuery("limit", "20"))),
 		Status: c.Query("status"),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.client.ListDocuments(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -166,8 +199,14 @@ func (h *KnowledgeHandler) ListDocuments(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) GetDocument(c *gin.Context) {
-	req := &kbpb.GetDocumentReq{DocId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &kbpb.GetDocumentReq{DocId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.client.GetDocument(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -177,8 +216,14 @@ func (h *KnowledgeHandler) GetDocument(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) DeleteDocument(c *gin.Context) {
-	req := &kbpb.DeleteDocumentReq{DocId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &kbpb.DeleteDocumentReq{DocId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	_, err := h.client.DeleteDocument(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -188,8 +233,14 @@ func (h *KnowledgeHandler) DeleteDocument(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) RetryDocument(c *gin.Context) {
-	req := &kbpb.RetryDocumentReq{DocId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &kbpb.RetryDocumentReq{DocId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.client.RetryDocument(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -199,8 +250,14 @@ func (h *KnowledgeHandler) RetryDocument(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) GetDocumentContent(c *gin.Context) {
-	req := &kbpb.GetDocumentContentReq{DocId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &kbpb.GetDocumentContentReq{DocId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.client.GetDocumentContent(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -210,12 +267,18 @@ func (h *KnowledgeHandler) GetDocumentContent(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) ListChunks(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &kbpb.ListChunksReq{
-		DocId:  parseInt64(c.Param("id")),
+		DocId:  c.Param("id"),
 		Offset: int32(parseInt64(c.DefaultQuery("offset", "0"))),
 		Limit:  int32(parseInt64(c.DefaultQuery("limit", "20"))),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.client.ListChunks(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -227,14 +290,20 @@ func (h *KnowledgeHandler) ListChunks(c *gin.Context) {
 // ========== Binding (Bot) ==========
 
 func (h *KnowledgeHandler) BindToBot(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req kbpb.BindReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	req.TargetType = "bot"
-	req.TargetId = parseInt64(c.Param("id"))
+	req.TargetId = c.Param("id")
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	_, err := h.client.Bind(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -244,12 +313,18 @@ func (h *KnowledgeHandler) BindToBot(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) UnbindFromBot(c *gin.Context) {
+	if !requirePathIdentities(c, "kid", "id") {
+		return
+	}
 	req := &kbpb.UnbindReq{
-		KbId:       parseInt64(c.Param("kid")),
+		KbId:       c.Param("kid"),
 		TargetType: "bot",
-		TargetId:   parseInt64(c.Param("id")),
+		TargetId:   c.Param("id"),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	_, err := h.client.Unbind(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -259,11 +334,17 @@ func (h *KnowledgeHandler) UnbindFromBot(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) ListBotBindings(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &kbpb.ListBindingsReq{
 		TargetType: "bot",
-		TargetId:   parseInt64(c.Param("id")),
+		TargetId:   c.Param("id"),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.client.ListBindings(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -275,14 +356,20 @@ func (h *KnowledgeHandler) ListBotBindings(c *gin.Context) {
 // ========== Binding (Conv) ==========
 
 func (h *KnowledgeHandler) BindToConv(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req kbpb.BindReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	req.TargetType = "conv"
-	req.TargetId = parseInt64(c.Param("id"))
+	req.TargetId = c.Param("id")
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	_, err := h.client.Bind(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -292,12 +379,18 @@ func (h *KnowledgeHandler) BindToConv(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) UnbindFromConv(c *gin.Context) {
+	if !requirePathIdentities(c, "kid", "id") {
+		return
+	}
 	req := &kbpb.UnbindReq{
-		KbId:       parseInt64(c.Param("kid")),
+		KbId:       c.Param("kid"),
 		TargetType: "conv",
-		TargetId:   parseInt64(c.Param("id")),
+		TargetId:   c.Param("id"),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	_, err := h.client.Unbind(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -307,11 +400,17 @@ func (h *KnowledgeHandler) UnbindFromConv(c *gin.Context) {
 }
 
 func (h *KnowledgeHandler) ListConvBindings(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &kbpb.ListBindingsReq{
 		TargetType: "conv",
-		TargetId:   parseInt64(c.Param("id")),
+		TargetId:   c.Param("id"),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.client.ListBindings(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -323,8 +422,14 @@ func (h *KnowledgeHandler) ListConvBindings(c *gin.Context) {
 // ========== KB Bindings (reverse) ==========
 
 func (h *KnowledgeHandler) ListKBBindings(c *gin.Context) {
-	req := &kbpb.ListBoundTargetsReq{KbId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &kbpb.ListBoundTargetsReq{KbId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.client.ListBoundTargets(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -336,12 +441,19 @@ func (h *KnowledgeHandler) ListKBBindings(c *gin.Context) {
 // ========== Search ==========
 
 func (h *KnowledgeHandler) Search(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req kbpb.RetrieveReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
+	req.KbIds = []string{c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.client.Retrieve(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)

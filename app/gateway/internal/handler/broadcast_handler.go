@@ -20,11 +20,15 @@ func NewBroadcastHandler(cli zrpc.Client) *BroadcastHandler {
 
 func (h *BroadcastHandler) CreateBroadcast(c *gin.Context) {
 	var req msgclient.SendBroadcastReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
+	req.SenderId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.msgClient.SendBroadcast(ctx, &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
@@ -38,6 +42,9 @@ func (h *BroadcastHandler) ListBroadcasts(c *gin.Context) {
 }
 
 func (h *BroadcastHandler) GetBroadcast(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	c.String(200, `{"data":{}}`)
 }
 

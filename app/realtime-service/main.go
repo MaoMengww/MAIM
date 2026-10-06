@@ -37,6 +37,7 @@ import (
 	registry "github.com/maomeng/aim/pkg/connections"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/delivery"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 	pkgmetrics "github.com/maomeng/aim/pkg/metrics"
@@ -174,7 +175,7 @@ func run(cfg config.Config) error {
 	defer func() { kafkaCancel(); wg.Wait() }()
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
-	engine.Use(gin.Recovery(), middleware.RequestID(), middleware.IDStringToNumber())
+	engine.Use(gin.Recovery(), middleware.RequestID())
 	ws := &handler.WSHandler{Router: node, Config: cfg, BotClient: botpb.NewBotServiceClient(botRPC.Conn()), MessageClient: message.NewMessageServiceClient(msgRPC.Conn()), Upgrader: websocket.Upgrader{ReadBufferSize: cfg.WebSocket.ReadBufferSize, WriteBufferSize: cfg.WebSocket.WriteBufferSize, CheckOrigin: func(*http.Request) bool { return true }}}
 	router.Register(engine, ws)
 	httpServer := &http.Server{Addr: net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)), Handler: engine, ReadHeaderTimeout: 5 * time.Second}
@@ -255,16 +256,15 @@ func run(cfg config.Config) error {
 	return err
 }
 func identityInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
-	if strings.HasSuffix(info.FullMethod, "/PushNotification") {
-		return next(ctx, req)
-	}
 	md, _ := metadata.FromIncomingContext(ctx)
 	values := md.Get("user-id")
+	if len(values) == 0 && strings.HasSuffix(info.FullMethod, "/PushNotification") {
+		return next(ctx, req)
+	}
 	if len(values) != 1 {
 		return nil, status.Error(codes.Unauthenticated, "missing user identity")
 	}
-	id, err := strconv.ParseInt(values[0], 10, 64)
-	if err != nil || id <= 0 {
+	if err := identity.Validate(values[0]); err != nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid user identity")
 	}
 	return next(ctx, req)

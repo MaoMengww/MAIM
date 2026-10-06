@@ -1,12 +1,12 @@
 package jwt
 
 import (
-	"strconv"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 )
 
 type Claims struct {
@@ -16,9 +16,10 @@ type Claims struct {
 }
 
 type BotClaims struct {
-	BotID   int64  `json:"bot_id"`
-	OwnerID int64  `json:"owner_id"`
-	Type    string `json:"type"`
+	BotID     string  `json:"bot_id"`
+	OwnerType string  `json:"owner_type"`
+	OwnerID   *string `json:"owner_id,omitempty"`
+	Type      string  `json:"type"`
 	jwt.RegisteredClaims
 }
 
@@ -45,6 +46,9 @@ func NewManager(secret string, expireSec, refreshSec int) *Manager {
 func (m *Manager) ExpireSeconds() int { return m.expireSec }
 
 func (m *Manager) Generate(userID, username string) (string, error) {
+	if err := identity.Validate(userID); err != nil {
+		return "", errors.Wrap(errors.CodeUnauthorized, "invalid user identity", err)
+	}
 	now := time.Now()
 	claims := Claims{
 		UserID:   userID,
@@ -79,6 +83,9 @@ func (m *Manager) Parse(tokenStr string) (*Claims, error) {
 	if !ok || !token.Valid {
 		return nil, errors.New(errors.CodeUnauthorized, "invalid token")
 	}
+	if err := identity.Validate(claims.UserID); err != nil {
+		return nil, errors.Wrap(errors.CodeUnauthorized, "invalid user identity", err)
+	}
 	return claims, nil
 }
 
@@ -95,8 +102,11 @@ func (m *Manager) ParseIgnoreExpiry(tokenStr string) (*Claims, error) {
 		return nil, errors.Wrap(errors.CodeUnauthorized, "token parse failed", err)
 	}
 	claims, ok := token.Claims.(*Claims)
-	if !ok {
+	if !ok || !token.Valid {
 		return nil, errors.New(errors.CodeUnauthorized, "invalid token")
+	}
+	if err := identity.Validate(claims.UserID); err != nil {
+		return nil, errors.Wrap(errors.CodeUnauthorized, "invalid user identity", err)
 	}
 	return claims, nil
 }
@@ -112,15 +122,19 @@ func (m *Manager) Refresh(tokenStr string) (string, error) {
 	return m.Generate(claims.UserID, claims.Username)
 }
 
-func (m *Manager) GenerateBotToken(botID, ownerID int64, botType string) (string, error) {
+func (m *Manager) GenerateBotToken(botID, ownerType string, ownerID *string, botType string) (string, error) {
+	if err := validateBotIdentity(botID, ownerType, ownerID); err != nil {
+		return "", err
+	}
 	now := time.Now()
 	claims := BotClaims{
-		BotID:   botID,
-		OwnerID: ownerID,
-		Type:    botType,
+		BotID:     botID,
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+		Type:      botType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "aim:bot",
-			Subject:   strconv.FormatInt(botID, 10),
+			Subject:   botID,
 			ID:        uuid.New().String(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(m.expireSec) * time.Second)),
@@ -148,5 +162,30 @@ func (m *Manager) ParseBotToken(tokenStr string) (*BotClaims, error) {
 	if !ok || !token.Valid {
 		return nil, errors.New(errors.CodeUnauthorized, "invalid bot token")
 	}
+	if err := validateBotIdentity(claims.BotID, claims.OwnerType, claims.OwnerID); err != nil {
+		return nil, err
+	}
 	return claims, nil
+}
+
+func validateBotIdentity(botID, ownerType string, ownerID *string) error {
+	if err := identity.Validate(botID); err != nil {
+		return errors.Wrap(errors.CodeUnauthorized, "invalid bot identity", err)
+	}
+	switch ownerType {
+	case "platform":
+		if ownerID != nil {
+			return errors.New(errors.CodeUnauthorized, "platform bot cannot have user owner")
+		}
+	case "user":
+		if ownerID == nil {
+			return errors.New(errors.CodeUnauthorized, "missing bot owner")
+		}
+		if err := identity.Validate(*ownerID); err != nil {
+			return errors.Wrap(errors.CodeUnauthorized, "invalid bot owner", err)
+		}
+	default:
+		return errors.New(errors.CodeUnauthorized, "invalid bot ownership")
+	}
+	return nil
 }

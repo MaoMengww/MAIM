@@ -59,5 +59,5 @@ func rateLimitKey(c *gin.Context) string {
 	if !exists {
 		return ""
 	}
-	return fmt.Sprintf("rate:%d:%s", userID.(int64), c.FullPath())
+	return fmt.Sprintf("rate:%s:%s", userID.(string), c.FullPath())
 }

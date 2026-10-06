@@ -26,12 +26,15 @@ func NewFileHandler(fileConn grpc.ClientConnInterface, userConn grpc.ClientConnI
 
 func (h *FileHandler) GetUploadURL(c *gin.Context) {
 	var req filepb.GetUploadURLReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.UploaderId = c.GetInt64(middleware.CtxKeyUserID)
+	req.UploaderId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.fileClient.GetUploadURL(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -59,13 +62,16 @@ func (h *FileHandler) UploadAvatar(c *gin.Context) {
 		mimeType = "image/jpeg"
 	}
 
-	userID := c.GetInt64(middleware.CtxKeyUserID)
+	userID := c.GetString(middleware.CtxKeyUserID)
 	req := &filepb.UploadAvatarReq{
 		Data:     data,
 		UserId:   userID,
 		MimeType: mimeType,
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.fileClient.UploadAvatar(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -84,12 +90,15 @@ func (h *FileHandler) UploadAvatar(c *gin.Context) {
 
 func (h *FileHandler) ConfirmUpload(c *gin.Context) {
 	var req filepb.ConfirmUploadReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.UploaderId = c.GetInt64(middleware.CtxKeyUserID)
+	req.UploaderId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.fileClient.ConfirmUpload(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -99,11 +108,17 @@ func (h *FileHandler) ConfirmUpload(c *gin.Context) {
 }
 
 func (h *FileHandler) GetDownloadURL(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &filepb.GetDownloadURLReq{
-		FileId: parseInt64(c.Param("id")),
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
+		FileId: c.Param("id"),
+		UserId: c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.fileClient.GetDownloadURL(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -113,11 +128,17 @@ func (h *FileHandler) GetDownloadURL(c *gin.Context) {
 }
 
 func (h *FileHandler) DeleteFile(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &filepb.DeleteFileReq{
-		FileId: parseInt64(c.Param("id")),
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
+		FileId: c.Param("id"),
+		UserId: c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.fileClient.DeleteFile(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -127,11 +148,17 @@ func (h *FileHandler) DeleteFile(c *gin.Context) {
 }
 
 func (h *FileHandler) GetFileInfo(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	req := &filepb.GetFileInfoReq{
-		FileId: parseInt64(c.Param("id")),
-		UserId: c.GetInt64(middleware.CtxKeyUserID),
+		FileId: c.Param("id"),
+		UserId: c.GetString(middleware.CtxKeyUserID),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.fileClient.GetFileInfo(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)

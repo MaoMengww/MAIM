@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +18,8 @@ import (
 	registry "github.com/maomeng/aim/pkg/connections"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/delivery"
+	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/sequence"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -38,27 +39,50 @@ type clientEvent struct {
 	StreamID  string   `json:"stream_id"`
 	FromSeq   *int64   `json:"from_seq"`
 	Text      string   `json:"text"`
-	ReplyToID string   `json:"reply_to_id"`
+	ReplyToID *string  `json:"reply_to_id"`
 }
 
-func (h *WSHandler) AuthenticatedUser(token string) (int64, error) {
-	parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) { return []byte(h.Config.JWT.Secret), nil }, jwt.WithValidMethods([]string{"HS256"}), jwt.WithJSONNumber())
+func (event *clientEvent) UnmarshalJSON(raw []byte) error {
+	type payload clientEvent
+	var next clientEvent
+	decoded := struct {
+		*payload
+		Seq     json.RawMessage `json:"seq"`
+		FromSeq json.RawMessage `json:"from_seq"`
+	}{payload: (*payload)(&next)}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	if len(decoded.Seq) != 0 {
+		value, err := sequence.ParseJSON(decoded.Seq)
+		if err != nil {
+			return err
+		}
+		next.Seq = value
+	}
+	if len(decoded.FromSeq) != 0 {
+		value, err := sequence.ParseJSON(decoded.FromSeq)
+		if err != nil {
+			return err
+		}
+		next.FromSeq = &value
+	}
+	*event = next
+	return nil
+}
+
+func (h *WSHandler) AuthenticatedUser(token string) (string, error) {
+	parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) { return []byte(h.Config.JWT.Secret), nil }, jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil || !parsed.Valid {
-		return 0, errors.New("invalid token")
+		return "", errors.New("invalid token")
 	}
 	claims, ok := parsed.Claims.(jwt.MapClaims)
 	if !ok {
-		return 0, errors.New("invalid claims")
+		return "", errors.New("invalid claims")
 	}
-	var id int64
-	switch v := claims["user_id"].(type) {
-	case string:
-		id, _ = strconv.ParseInt(v, 10, 64)
-	case json.Number:
-		id, _ = v.Int64()
-	}
-	if id <= 0 {
-		return 0, errors.New("missing user id")
+	id, ok := claims["user_id"].(string)
+	if !ok || identity.Validate(id) != nil {
+		return "", errors.New("invalid user identity")
 	}
 	return id, nil
 }
@@ -86,13 +110,13 @@ func (h *WSHandler) UpgradeBot(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 	resp, err := h.BotClient.ValidateBotToken(ctx, &botpb.ValidateBotTokenReq{Token: c.Query("token")})
-	if err != nil || !resp.GetValid() {
+	if err != nil || !resp.GetValid() || identity.Validate(resp.GetBotId()) != nil {
 		c.AbortWithStatus(401)
 		return
 	}
-	h.accept(c, registry.Bot, resp.BotId)
+	h.accept(c, registry.Bot, resp.GetBotId())
 }
-func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id int64) {
+func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id string) {
 	if !h.Router.BeginConnection() {
 		c.AbortWithStatus(503)
 		return
@@ -105,7 +129,7 @@ func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id int64) {
 	}
 	conn, err := h.Upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		h.Router.Logger.Errorf("upgrade: kind=%s id=%d err=%v", kind, id, err)
+		h.Router.Logger.Errorf("upgrade: kind=%s id=%s err=%v", kind, id, err)
 		return
 	}
 	route := registry.Route{Kind: kind, ID: id, DeviceID: device, InstanceID: h.Router.InstanceID, Generation: uuid.NewString()}
@@ -117,7 +141,7 @@ func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id int64) {
 	// Writer and local session exist before publishing the registry route. This
 	// makes delivery immediately after Register safe, including on this instance.
 	go s.WriteLoop(time.Duration(h.Config.WebSocket.WriteTimeoutSeconds)*time.Second, func(err error) {
-		h.Router.Logger.Errorf("ws write failed: kind=%s id=%d device=%s err=%v", kind, id, device, err)
+		h.Router.Logger.Errorf("ws write failed: kind=%s id=%s device=%s err=%v", kind, id, device, err)
 		h.Router.Disconnect(s)
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -162,7 +186,7 @@ func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id int64) {
 			h.Router.Logger.Errorf("presence online: %v", err)
 		}
 	}
-	h.Router.Logger.Infof("ws connected: kind=%s id=%d device=%s node=%s", kind, id, device, h.Router.InstanceID)
+	h.Router.Logger.Infof("ws connected: kind=%s id=%s device=%s node=%s", kind, id, device, h.Router.InstanceID)
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
@@ -178,7 +202,7 @@ func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id int64) {
 		err = h.handle(ctx, s, raw)
 		cancel()
 		if err != nil {
-			h.Router.Logger.Errorf("ws event failed: kind=%s id=%d err=%v", kind, id, err)
+			h.Router.Logger.Errorf("ws event failed: kind=%s id=%s err=%v", kind, id, err)
 			if err := reply(s, map[string]any{"type": "error", "error": "event rejected"}); err != nil {
 				return
 			}
@@ -197,6 +221,14 @@ func (h *WSHandler) handle(ctx context.Context, s *session.Session, raw []byte) 
 	if err := json.Unmarshal(raw, &e); err != nil {
 		return err
 	}
+	if err := sequence.Validate(e.Seq); err != nil {
+		return err
+	}
+	if e.FromSeq != nil {
+		if err := sequence.Validate(*e.FromSeq); err != nil {
+			return err
+		}
+	}
 	r := s.Route
 	if e.Type == consts.EventPing {
 		return s.WriteMessage([]byte(`{"type":"pong"}`))
@@ -204,11 +236,11 @@ func (h *WSHandler) handle(ctx context.Context, s *session.Session, raw []byte) 
 	if r.Kind == registry.Bot {
 		return h.handleBot(ctx, s, e)
 	}
-	ctx = metadata.AppendToOutgoingContext(ctx, "user-id", strconv.FormatInt(r.ID, 10), "device-id", r.DeviceID)
+	ctx = metadata.AppendToOutgoingContext(ctx, "user-id", r.ID, "device-id", r.DeviceID)
 	switch e.Type {
 	case "presence.query":
-		id, err := strconv.ParseInt(e.UserID, 10, 64)
-		if err != nil || id <= 0 {
+		id := e.UserID
+		if err := identity.Validate(id); err != nil {
 			return errors.New("invalid user id")
 		}
 		routes, err := h.Router.Registry.List(ctx, registry.User, id)
@@ -224,11 +256,13 @@ func (h *WSHandler) handle(ctx context.Context, s *session.Session, raw []byte) 
 		if len(e.UserIDs) > 100 {
 			return errors.New("too many presence targets")
 		}
-		for _, rawID := range e.UserIDs {
-			id, err := strconv.ParseInt(rawID, 10, 64)
-			if err != nil || id <= 0 {
+		for _, id := range e.UserIDs {
+			if err := identity.Validate(id); err != nil {
 				return errors.New("invalid presence target")
 			}
+		}
+		for _, id := range e.UserIDs {
+			var err error
 			if e.Type == consts.EventUnsubscribePresence {
 				err = h.Router.Registry.Unsubscribe(ctx, r.ID, id)
 			} else {
@@ -242,24 +276,27 @@ func (h *WSHandler) handle(ctx context.Context, s *session.Session, raw []byte) 
 				if h.Router.Registry.IsOnline(ctx, id) {
 					status = "online"
 				}
-				if err := reply(s, map[string]any{"type": "presence", "user_id": rawID, "status": status}); err != nil {
+				if err := reply(s, map[string]any{"type": "presence", "user_id": id, "status": status}); err != nil {
 					return err
 				}
 			}
 		}
 	case consts.EventTyping, consts.EventTypingStop:
-		id, err := strconv.ParseInt(e.ConvID, 10, 64)
-		if err != nil || id <= 0 {
+		id := e.ConvID
+		if err := identity.Validate(id); err != nil {
 			return errors.New("invalid conversation")
 		}
-		_, err = h.MessageClient.SendTypingEvent(ctx, &message.SendTypingEventReq{ConversationId: id, UserId: r.ID, Stopped: e.Type != consts.EventTyping})
+		_, err := h.MessageClient.SendTypingEvent(ctx, &message.SendTypingEventReq{ConversationId: id, UserId: r.ID, Stopped: e.Type != consts.EventTyping})
 		return err
 	case consts.EventAck:
-		payload, err := json.Marshal(map[string]any{"type": consts.EventReadSync, "user_id": strconv.FormatInt(r.ID, 10), "conv_id": e.ConvID, "seq": strconv.FormatInt(e.Seq, 10)})
+		if err := identity.Validate(e.ConvID); err != nil {
+			return err
+		}
+		payload, err := json.Marshal(map[string]any{"type": consts.EventReadSync, "user_id": r.ID, "conv_id": e.ConvID, "seq": e.Seq})
 		if err != nil {
 			return err
 		}
-		return h.Router.Deliver(ctx, delivery.Intent{UserIDs: []int64{r.ID}, Payload: payload, ExcludeUserID: r.ID, ExcludeDeviceID: r.DeviceID})
+		return h.Router.Deliver(ctx, delivery.Intent{UserIDs: []string{r.ID}, Payload: payload, ExcludeUserID: &r.ID, ExcludeDeviceID: r.DeviceID})
 	case "stream.replay":
 		if e.StreamID == "" || len(e.StreamID) > 128 {
 			return errors.New("invalid stream id")
@@ -288,21 +325,26 @@ func (h *WSHandler) handleBot(ctx context.Context, s *session.Session, e clientE
 	if e.Type != "message.send" {
 		return nil
 	}
-	conv, err := strconv.ParseInt(e.ConvID, 10, 64)
-	if err != nil || conv <= 0 {
+	conv := e.ConvID
+	if err := identity.Validate(conv); err != nil {
 		return errors.New("invalid conversation")
 	}
 	req := &message.SendBotReplyReq{BotId: s.Route.ID, ConversationId: conv, Text: e.Text}
-	if e.ReplyToID != "" {
-		id, err := strconv.ParseInt(e.ReplyToID, 10, 64)
-		if err != nil || id <= 0 {
+	if e.ReplyToID != nil {
+		if err := identity.Validate(*e.ReplyToID); err != nil {
 			return errors.New("invalid reply")
 		}
-		req.ReplyToId = &id
+		req.ReplyToId = e.ReplyToID
 	}
 	response, err := h.MessageClient.SendBotReply(ctx, req)
 	if err != nil {
 		return err
 	}
-	return reply(s, map[string]any{"type": "message.sent", "message_id": strconv.FormatInt(response.MessageId, 10), "seq": response.Seq, "created_at": response.CreatedAt})
+	if err := identity.Validate(response.MessageId); err != nil {
+		return err
+	}
+	if err := sequence.Validate(response.Seq); err != nil {
+		return err
+	}
+	return reply(s, map[string]any{"type": "message.sent", "message_id": response.MessageId, "seq": response.Seq, "created_at": response.CreatedAt})
 }

@@ -131,26 +131,3 @@ func TestInboxRejectsConversationlessAndRollsBack(t *testing.T) {
 	// Bypassing the repo must not bypass the conversation requirement.
 	require.Error(t, db.Exec("INSERT INTO messaging.inbox_entries (user_id, position, conv_id, message_id, kind) VALUES (?, 2, 0, ?, 'message.new')", userID, userID+102).Error)
 }
-
-func TestPersonalDeletionMigrationSurvivesInboxRetention(t *testing.T) {
-	db, userID, convID, _ := inboxIntegrationDB(t)
-	messageID := userID + 100
-	tx := db.Begin()
-	require.NoError(t, tx.Error)
-	t.Cleanup(func() { require.NoError(t, tx.Rollback().Error) })
-	require.NoError(t, tx.Exec(`ALTER TABLE messaging.inbox_entries ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE`).Error)
-	require.NoError(t, tx.Exec(`INSERT INTO messaging.inbox_streams (user_id) VALUES (?)`, userID).Error)
-	require.NoError(t, tx.Exec(`INSERT INTO messaging.inbox_entries (user_id, position, conv_id, message_id, kind, change_id, is_deleted)
-  VALUES (?, 1, ?, ?, 'message.new', ?, TRUE), (?, 2, ?, ?, 'message.edited', ?, TRUE)`, userID, convID, messageID, messageID, userID, convID, messageID, messageID+1).Error)
-	migration, err := postgres.FS.ReadFile("018_personal_message_deletions.sql")
-	require.NoError(t, err)
-	require.NoError(t, tx.Exec(string(migration)).Error)
-	require.NoError(t, tx.Exec(string(migration)).Error)
-	require.NoError(t, tx.Exec("DELETE FROM messaging.inbox_entries WHERE user_id = ?", userID).Error)
-	var deletions []model.PersonalMessageDeletion
-	require.NoError(t, tx.Where("user_id = ?", userID).Find(&deletions).Error)
-	require.Len(t, deletions, 1)
-	require.Equal(t, convID, deletions[0].ConvID)
-	require.Equal(t, messageID, deletions[0].MessageID)
-	require.False(t, tx.Migrator().HasColumn(&model.UserInbox{}, "is_deleted"))
-}

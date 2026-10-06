@@ -168,6 +168,17 @@ make proto
 
 入口在生成前检查工具版本，一次生成 `idl/` 及其服务子目录下的全部 `.proto`。输出只由各文件的 `go_package` 与 `go.mod` 的 module 前缀决定：服务协议写入所属 `app/<service>/pb/<package>/`，共享协议写入 `pkg/pb/<package>/`。不要使用 `source_relative` 拼接输出目录，也不要手改 `.pb.go` 或用 `goctl rpc protoc` 重新覆盖现有服务实现、client、配置与业务代码。新增或修改协议后，重复运行同一命令即可。
 
+### 实体身份与业务序号
+
+共享合同见 [ADR-0010](docs/adr/0010-entity-identity-and-ordering.md) 和 [ID 系统规格](.scratch/id-system/spec.md)。实体由所属 domain 调用 `pkg/identity.New()` 生成 UUIDv7，PostgreSQL 使用原生 `uuid`；HTTP/WS、RPC 和事件引用使用标准小写、带连字符的 UUID 字符串。公开边界用 `identity.Validate` 拒绝十进制身份、空字符串和全零 UUID；`Normalize` 仅供显式规范化，不是兼容协议入口。客户端发送动作另用 UUIDv4 提交键，重试复用；设备、请求、连接 generation、JWT jti、stream 和第三方标识保持专用职责。
+
+会话 `seq`、已读序号、收件箱 `position` 和发布序号不是实体身份。内部使用 `int64`/`BIGINT`，范围为 `0..9007199254740991`，真实追加从 1 开始。`pkg/sequence` 提供边界校验与不环绕的下一位置计算；所属 domain 必须在业务事务内分配和持久化。HTTP/WS 的 protobuf 载荷统一经过 `pkg/protocol.Marshal/Unmarshal`：只将明确标注 `common.safe_sequence` 的字段序列化为 JSON number，不全局转换时间、数量等 `int64`。`common.entity_id` 和 `common.submission_key` 明确字段语义，不依赖 `_id` 后缀猜测。
+
+可选实体引用使用 protobuf presence 和数据库 `NULL`。更新省略引用表示保持，`clear_<字段名>=true` 表示解除，同时设置与清除必须拒绝。对象所有权通过 `owner_type=platform|user` 表达：平台没有 `owner_id`，用户所有必须关联有效用户 UUID；该合同不授予平台管理权限。
+
+新环境只应用 `migrations/postgres/000_uuid_identity.sql`，服务通过 `database.RunMigrations` 消费同一嵌入基线；旧迁移的有效表、索引和约束已合并。旧结构/旧迁移记录会显式失败，不自动映射或清空。第 01 票只交付共享宽改型：业务调用链迁移归第 02–07 票，全仓绿色与协调重建归第 08 票；本阶段不能启动完整新系统，也未清理现有开发数据。
+
+
 ---
 
 ## 部署

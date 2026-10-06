@@ -11,36 +11,36 @@ import (
 )
 
 // These shapes mirror gateway protojson responses, not internal RPC clients.
-// IDs and sequence numbers continue to use the driver's exact decimal decoder.
+// 实体 UUID 与数字序号使用不同解码器，不兼收旧协议。
 type conversationView struct {
-	ID                 decimal `json:"id"`
-	Type               int32   `json:"type"`
-	Name               string  `json:"name"`
-	OwnerID            decimal `json:"owner_id"`
-	MemberCount        int32   `json:"member_count"`
-	MaxSeq             decimal `json:"max_seq"`
-	LastMessageID      decimal `json:"last_message_id"`
-	LastMessagePreview string  `json:"last_message_preview"`
-	LastReadSeq        decimal `json:"last_read_seq"`
-	UnreadCount        int32   `json:"unread_count"`
+	ID                 entityID       `json:"id"`
+	Type               int32          `json:"type"`
+	Name               string         `json:"name"`
+	OwnerID            *entityID      `json:"owner_id"`
+	MemberCount        int32          `json:"member_count"`
+	MaxSeq             sequenceNumber `json:"max_seq"`
+	LastMessageID      *entityID      `json:"last_message_id"`
+	LastMessagePreview string         `json:"last_message_preview"`
+	LastReadSeq        sequenceNumber `json:"last_read_seq"`
+	UnreadCount        int32          `json:"unread_count"`
 }
 
 type storedMessage struct {
-	MessageID decimal `json:"message_id"`
-	ConvID    decimal `json:"conversation_id"`
-	SenderID  decimal `json:"from_user_id"`
-	Seq       decimal `json:"seq"`
-	Type      int32   `json:"type"`
-	Status    int32   `json:"status"`
-	EditCount int32   `json:"edit_count"`
-	ReplyToID decimal `json:"reply_to_id"`
+	MessageID entityID       `json:"message_id"`
+	ConvID    entityID       `json:"conversation_id"`
+	SenderID  *entityID      `json:"from_user_id"`
+	Seq       sequenceNumber `json:"seq"`
+	Type      int32          `json:"type"`
+	Status    int32          `json:"status"`
+	EditCount int32          `json:"edit_count"`
+	ReplyToID *entityID      `json:"reply_to_id"`
 	ReplyTo   *struct {
-		MessageID  decimal `json:"message_id"`
-		SenderID   decimal `json:"sender_id"`
-		SenderType string  `json:"sender_type"`
-		SenderName string  `json:"sender_name"`
-		Preview    string  `json:"preview"`
-		Deleted    bool    `json:"deleted"`
+		MessageID  entityID  `json:"message_id"`
+		SenderID   *entityID `json:"sender_id"`
+		SenderType string    `json:"sender_type"`
+		SenderName string    `json:"sender_name"`
+		Preview    string    `json:"preview"`
+		Deleted    bool      `json:"deleted"`
 	} `json:"reply_to"`
 	Text struct {
 		Text string `json:"text"`
@@ -74,7 +74,7 @@ func (d *driver) conversations(address string, unread bool) error {
 	}
 	name := "e2e_group_" + suffix
 	var created struct {
-		ID           decimal          `json:"conversation_id"`
+		ID           entityID         `json:"conversation_id"`
 		Conversation conversationView `json:"conversation"`
 	}
 	if err := d.conversationCall("create", http.MethodPost, "/convs", owner, map[string]any{
@@ -83,7 +83,7 @@ func (d *driver) conversations(address string, unread bool) error {
 		return err
 	}
 	convID := created.ID
-	if convID <= 0 || created.Conversation.ID != convID || created.Conversation.Type != 2 || created.Conversation.Name != name || created.Conversation.OwnerID != owner.id {
+	if convID == "" || created.Conversation.ID != convID || created.Conversation.Type != 2 || created.Conversation.Name != name || !hasEntityID(created.Conversation.OwnerID, owner.id) {
 		return errors.New("conversations.create: 返回的群聊 ID/类型/名称/群主不符合请求")
 	}
 	path := "/convs/" + convID.String()
@@ -116,7 +116,7 @@ func (d *driver) conversations(address string, unread bool) error {
 	if err := d.conversationSyncHidden("outsider.sync", invitee, convID); err != nil {
 		return err
 	}
-	inviteBody := map[string]any{"user_ids": []int64{int64(invitee.id)}}
+	inviteBody := map[string]any{"user_ids": []entityID{invitee.id}}
 	if err := d.conversationForbidden("member.invite", http.MethodPost, path+"/members/invite", member, inviteBody); err != nil {
 		return err
 	}
@@ -124,13 +124,13 @@ func (d *driver) conversations(address string, unread bool) error {
 		return err
 	}
 	var invited struct {
-		Added  []decimal `json:"added_user_ids"`
-		Failed []decimal `json:"failed_user_ids"`
+		Added  []entityID `json:"added_user_ids"`
+		Failed []entityID `json:"failed_user_ids"`
 	}
 	if err := d.conversationCall("owner.invite", http.MethodPost, path+"/members/invite", owner, inviteBody, &invited); err != nil {
 		return err
 	}
-	if !slices.Equal(invited.Added, []decimal{invitee.id}) || len(invited.Failed) != 0 {
+	if !slices.Equal(invited.Added, []entityID{invitee.id}) || len(invited.Failed) != 0 {
 		return errors.New("conversations.owner.invite: 必须成功新增指定用户且无失败用户")
 	}
 	if err := d.conversationMembers("invited", invitee, convID, owner.id, member.id, invitee.id); err != nil {
@@ -192,7 +192,7 @@ func (d *driver) conversations(address string, unread bool) error {
 		if err != nil {
 			return err
 		}
-		if row.MaxSeq != latest.Seq || row.LastMessageID != latest.MessageID || row.MemberCount != 3 {
+		if row.MaxSeq != latest.Seq || !hasEntityID(row.LastMessageID, latest.MessageID) || row.MemberCount != 3 {
 			return fmt.Errorf("conversations.messages.visible: user_id=%s 列表 max_seq/last_message_id/成员数与已确认消息不一致", caller.id)
 		}
 	}
@@ -204,7 +204,7 @@ func (d *driver) conversations(address string, unread bool) error {
 			return err
 		}
 	}
-	if err := d.conversationCall("mark.read", http.MethodPut, path+"/read", invitee, map[string]any{"seq": int64(latest.Seq)}, nil); err != nil {
+	if err := d.conversationCall("mark.read", http.MethodPut, path+"/read", invitee, map[string]any{"seq": latest.Seq}, nil); err != nil {
 		return err
 	}
 	if err := d.conversationReceipt("after.read", owner, invitee, latest, true); err != nil {
@@ -221,7 +221,7 @@ func (d *driver) conversations(address string, unread bool) error {
 		if err := d.conversationUnread("after.read", invitee, convID, latest.Seq, true); err != nil {
 			return err
 		}
-		if err := d.conversationCall("mark.older", http.MethodPut, path+"/read", invitee, map[string]any{"seq": int64(first.Seq)}, nil); err != nil {
+		if err := d.conversationCall("mark.older", http.MethodPut, path+"/read", invitee, map[string]any{"seq": first.Seq}, nil); err != nil {
 			return err
 		}
 		if err := d.conversationUnread("no.regression", invitee, convID, latest.Seq, true); err != nil {
@@ -282,18 +282,21 @@ func (d *driver) conversationForbidden(step, method, path string, caller account
 	return fmt.Errorf("conversations.%s user_id=%s: 无权限操作 %s %s 却成功", step, caller.id, method, path)
 }
 
-func (d *driver) conversationMembers(step string, caller account, convID decimal, users ...decimal) error {
+func (d *driver) conversationMembers(step string, caller account, convID entityID, users ...entityID) error {
 	var result struct {
 		Members []struct {
-			UserID decimal `json:"user_id"`
+			UserID *entityID `json:"user_id"`
 		} `json:"members"`
 	}
 	if err := d.conversationCall(step+".members", http.MethodGet, "/convs/"+convID.String()+"/members", caller, nil, &result); err != nil {
 		return err
 	}
-	actual := make([]decimal, len(result.Members))
+	actual := make([]entityID, len(result.Members))
 	for i, member := range result.Members {
-		actual[i] = member.UserID
+		if member.UserID == nil {
+			return fmt.Errorf("conversations.%s.members: 用户成员缺少 user_id", step)
+		}
+		actual[i] = *member.UserID
 	}
 	slices.Sort(actual)
 	slices.Sort(users)
@@ -303,7 +306,7 @@ func (d *driver) conversationMembers(step string, caller account, convID decimal
 	return nil
 }
 
-func (d *driver) conversationList(step string, caller account, convID decimal, visible bool) (conversationView, error) {
+func (d *driver) conversationList(step string, caller account, convID entityID, visible bool) (conversationView, error) {
 	var result struct {
 		Conversations []conversationView `json:"conversations"`
 	}
@@ -339,7 +342,7 @@ func checkStoredMessage(step string, actual storedMessage, expected sentMessage)
 	if actual.Bot != nil {
 		text = actual.Bot.Text
 	}
-	if actual.MessageID != expected.MessageID || actual.ConvID != expected.ConvID || actual.SenderID != expected.SenderID || actual.Seq != expected.Seq || text != expected.Content.Text {
+	if actual.MessageID != expected.MessageID || actual.ConvID != expected.ConvID || !hasEntityID(actual.SenderID, expected.SenderID) || actual.Seq != expected.Seq || text != expected.Content.Text {
 		return fmt.Errorf("conversations.%s: 持久化消息与 HTTP 确认不一致，期望 message_id=%s conv_id=%s seq=%s sender_id=%s text=%q，实际 message_id=%s conv_id=%s seq=%s sender_id=%s text=%q",
 			step, expected.MessageID, expected.ConvID, expected.Seq, expected.SenderID, expected.Content.Text,
 			actual.MessageID, actual.ConvID, actual.Seq, actual.SenderID, text)
@@ -347,12 +350,12 @@ func checkStoredMessage(step string, actual storedMessage, expected sentMessage)
 	return nil
 }
 
-func (d *driver) conversationSync(step string, caller account, convID decimal, expected ...sentMessage) error {
+func (d *driver) conversationSync(step string, caller account, convID entityID, expected ...sentMessage) error {
 	_, err := d.conversationCatchup(step, caller, convID, 0, expected...)
 	return err
 }
 
-func (d *driver) conversationSyncHidden(step string, caller account, convID decimal) error {
+func (d *driver) conversationSyncHidden(step string, caller account, convID entityID) error {
 	result, err := d.inboxRead(step, caller, 0, 50)
 	if err != nil {
 		return err
@@ -375,9 +378,9 @@ func (d *driver) conversationSyncHidden(step string, caller account, convID deci
 
 // Position is a user-stream cursor, never a conversation seq. A new device may
 // satisfy expected messages from rebuild history; incremental calls filter changes.
-func (d *driver) conversationCatchup(step string, caller account, convID, position decimal, expected ...sentMessage) (decimal, error) {
+func (d *driver) conversationCatchup(step string, caller account, convID entityID, position sequenceNumber, expected ...sentMessage) (sequenceNumber, error) {
 	deadline := time.Now().Add(d.timeout)
-	pending := make(map[decimal]sentMessage, len(expected))
+	pending := make(map[entityID]sentMessage, len(expected))
 	for _, message := range expected {
 		pending[message.MessageID] = message
 	}
@@ -433,8 +436,8 @@ func (d *driver) conversationReceipt(step string, caller, reader account, messag
 		ReadCount  int32 `json:"read_count"`
 		TotalCount int32 `json:"total_count"`
 		Users      []struct {
-			UserID      decimal `json:"user_id"`
-			LastReadSeq decimal `json:"last_read_seq"`
+			UserID      entityID       `json:"user_id"`
+			LastReadSeq sequenceNumber `json:"last_read_seq"`
 		} `json:"read_users"`
 	}
 	path := "/convs/" + message.ConvID.String() + "/read_status/" + message.MessageID.String()
@@ -444,10 +447,10 @@ func (d *driver) conversationReceipt(step string, caller, reader account, messag
 	if result.TotalCount != 3 || result.ReadCount != int32(len(result.Users)) {
 		return fmt.Errorf("conversations.%s.receipt: 成员总数/已读数量与回执用户列表不一致", step)
 	}
-	seen := make(map[decimal]bool, len(result.Users))
+	seen := make(map[entityID]bool, len(result.Users))
 	found := false
 	for _, user := range result.Users {
-		if user.UserID <= 0 || seen[user.UserID] || user.LastReadSeq < message.Seq {
+		if user.UserID == "" || seen[user.UserID] || user.LastReadSeq < message.Seq {
 			return fmt.Errorf("conversations.%s.receipt: 已读用户重复/无效或位点未覆盖消息 seq=%s", step, message.Seq)
 		}
 		seen[user.UserID] = true
@@ -466,7 +469,7 @@ func (d *driver) conversationReceipt(step string, caller, reader account, messag
 
 // Poll the public unread projection under one shared deadline, including every
 // HTTP request and wait.
-func (d *driver) conversationUnread(step string, caller account, convID, seq decimal, read bool) error {
+func (d *driver) conversationUnread(step string, caller account, convID entityID, seq sequenceNumber, read bool) error {
 	deadline := time.Now().Add(d.timeout)
 	var row conversationView
 	for {

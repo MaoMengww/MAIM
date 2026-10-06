@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/url"
 	"strconv"
@@ -14,7 +15,9 @@ import (
 	"github.com/maomeng/aim/app/gateway/internal/response"
 	msgclient "github.com/maomeng/aim/app/message-service/client/messageservice"
 	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/pb/common"
+	"github.com/maomeng/aim/pkg/sequence"
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"
 )
@@ -32,11 +35,11 @@ func NewMessageHandler(msgCli zrpc.Client, fileConn grpc.ClientConnInterface) *M
 }
 
 type sendMessageDTO struct {
-	ConvID       json.Number    `json:"conversation_id"`
+	ConvID       string         `json:"conversation_id"`
 	Content      map[string]any `json:"content"`
 	ClientMsgID  string         `json:"client_msg_id"`
-	ReplyToMsgID json.Number    `json:"reply_to_msg_id"`
-	UserID       int64          `json:"-"`
+	ReplyToMsgID *string        `json:"reply_to_msg_id"`
+	UserID       string         `json:"-"`
 }
 
 func (h *MessageHandler) SendMessage(c *gin.Context) {
@@ -46,18 +49,28 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, protoReq) {
+		return
+	}
 	resp, err := h.msgClient.SendMessage(ctx, protoReq)
 	if err != nil {
 		response.GRPCError(c, err)
 		return
 	}
-	userID, _ := c.Get(middleware.CtxKeyUserID)
+	if err := identity.Validate(resp.MessageId); err != nil {
+		response.InternalError(c, "invalid message identity")
+		return
+	}
+	if err := sequence.Validate(resp.Seq); err != nil {
+		response.InternalError(c, "invalid message sequence")
+		return
+	}
 	response.Created(c, map[string]any{
-		"id":            strconv.FormatInt(resp.MessageId, 10),
-		"message_id":    strconv.FormatInt(resp.MessageId, 10),
+		"id":            resp.MessageId,
+		"message_id":    resp.MessageId,
 		"conv_id":       rawDTO.ConvID,
-		"from_user_id":  strconv.FormatInt(userID.(int64), 10),
-		"seq":           strconv.FormatInt(resp.Seq, 10),
+		"from_user_id":  rawDTO.UserID,
+		"seq":           resp.Seq,
 		"type":          protoReq.Type,
 		"created_at":    strconv.FormatInt(resp.CreatedAt, 10),
 		"client_msg_id": rawDTO.ClientMsgID,
@@ -67,8 +80,8 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 
 func (h *MessageHandler) SyncMessages(c *gin.Context) {
 	userID, _ := c.Get(middleware.CtxKeyUserID)
-	uid, ok := userID.(int64)
-	if !ok {
+	uid, ok := userID.(string)
+	if !ok || identity.Validate(uid) != nil {
 		response.BadRequest(c, "invalid user id")
 		return
 	}
@@ -80,7 +93,7 @@ func (h *MessageHandler) SyncMessages(c *gin.Context) {
 	}
 	if query.Has("position") {
 		position, err := strconv.ParseInt(query.Get("position"), 10, 64)
-		if err != nil {
+		if err != nil || sequence.Validate(position) != nil {
 			response.BadRequest(c, "invalid position")
 			return
 		}
@@ -95,6 +108,9 @@ func (h *MessageHandler) SyncMessages(c *gin.Context) {
 		req.Limit = int32(limit)
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.msgClient.SyncMessages(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -104,8 +120,14 @@ func (h *MessageHandler) SyncMessages(c *gin.Context) {
 }
 
 func (h *MessageHandler) GetMessageByID(c *gin.Context) {
-	req := &msgclient.GetMessageByIDReq{MessageId: parseInt64(c.Param("id"))}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &msgclient.GetMessageByIDReq{MessageId: c.Param("id")}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.msgClient.GetMessageByID(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -115,14 +137,20 @@ func (h *MessageHandler) GetMessageByID(c *gin.Context) {
 }
 
 func (h *MessageHandler) RecallMessage(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req msgclient.RecallMessageReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.MessageId = parseInt64(c.Param("id"))
-	req.UserId = c.GetInt64(middleware.CtxKeyUserID)
+	req.MessageId = c.Param("id")
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.msgClient.RecallMessage(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -136,17 +164,23 @@ type editMessageDTO struct {
 }
 
 func (h *MessageHandler) EditMessage(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var dto editMessageDTO
-	if err := c.ShouldBindJSON(&dto); err != nil {
+	if err := bindJSON(c, &dto); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 	req := msgclient.EditMessageReq{
-		MessageId: parseInt64(c.Param("id")),
-		UserId:    c.GetInt64(middleware.CtxKeyUserID),
+		MessageId: c.Param("id"),
+		UserId:    c.GetString(middleware.CtxKeyUserID),
 		Text:      &msgpb.TextContent{Text: dto.Text},
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.msgClient.EditMessage(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -156,14 +190,20 @@ func (h *MessageHandler) EditMessage(c *gin.Context) {
 }
 
 func (h *MessageHandler) DeleteMessage(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	var req msgclient.DeleteMessageReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSON(c, &req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.MessageId = parseInt64(c.Param("id"))
-	req.UserId = c.GetInt64(middleware.CtxKeyUserID)
+	req.MessageId = c.Param("id")
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.msgClient.DeleteMessage(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -179,17 +219,28 @@ func (h *MessageHandler) ReplyMessage(c *gin.Context) {
 		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, protoReq) {
+		return
+	}
 	resp, err := h.msgClient.SendMessage(ctx, protoReq)
 	if err != nil {
 		response.GRPCError(c, err)
 		return
 	}
+	if err := identity.Validate(resp.MessageId); err != nil {
+		response.InternalError(c, "invalid message identity")
+		return
+	}
+	if err := sequence.Validate(resp.Seq); err != nil {
+		response.InternalError(c, "invalid message sequence")
+		return
+	}
 	response.Created(c, map[string]any{
-		"id":            strconv.FormatInt(resp.MessageId, 10),
-		"message_id":    strconv.FormatInt(resp.MessageId, 10),
+		"id":            resp.MessageId,
+		"message_id":    resp.MessageId,
 		"conv_id":       rawDTO.ConvID,
-		"from_user_id":  strconv.FormatInt(rawDTO.UserID, 10),
-		"seq":           strconv.FormatInt(resp.Seq, 10),
+		"from_user_id":  rawDTO.UserID,
+		"seq":           resp.Seq,
 		"type":          protoReq.Type,
 		"created_at":    strconv.FormatInt(resp.CreatedAt, 10),
 		"client_msg_id": rawDTO.ClientMsgID,
@@ -210,23 +261,39 @@ func (h *MessageHandler) parseSendMessageRequest(c *gin.Context) (*sendMessageDT
 	}
 
 	userID, _ := c.Get(middleware.CtxKeyUserID)
-	uid, ok := userID.(int64)
-	if !ok {
+	uid, ok := userID.(string)
+	if !ok || identity.Validate(uid) != nil {
 		return nil, nil, strconv.ErrSyntax
 	}
 	dto.UserID = uid
 
-	convID, _ := dto.ConvID.Int64()
+	if err := identity.Validate(dto.ConvID); err != nil {
+		return nil, nil, err
+	}
+	if err := identity.ValidateSubmissionKey(dto.ClientMsgID); err != nil {
+		return nil, nil, err
+	}
+	if dto.ReplyToMsgID != nil {
+		if err := identity.Validate(*dto.ReplyToMsgID); err != nil {
+			return nil, nil, err
+		}
+	}
 	req := &msgpb.SendMessageReq{
-		ConversationId: convID,
+		ConversationId: dto.ConvID,
 		FromUserId:     uid,
 		ClientMsgId:    dto.ClientMsgID,
 	}
 
 	if text, ok := dto.Content["text"].(string); ok && text != "" {
-		mentions := parseMentions(dto.Content["mentions"])
+		mentions, err := parseMentions(dto.Content["mentions"])
+		if err != nil {
+			return nil, nil, err
+		}
 		if len(mentions) == 0 {
-			mentions = parseMentions(dto.Content["mention_user_ids"])
+			mentions, err = parseMentions(dto.Content["mention_user_ids"])
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 		req.Content = &msgpb.SendMessageReq_Text{
 			Text: &msgpb.TextContent{
@@ -237,12 +304,18 @@ func (h *MessageHandler) parseSendMessageRequest(c *gin.Context) (*sendMessageDT
 		}
 		req.Type = msgpb.MessageType_MESSAGE_TYPE_TEXT
 	} else if files, ok := dto.Content["files"].([]any); ok && len(files) > 0 {
-		f := files[0].(map[string]any)
+		f, ok := files[0].(map[string]any)
+		if !ok {
+			return nil, nil, errors.New("invalid attachment")
+		}
 		mime := toString(f["mime_type"])
-		fileID := toInt64(f["file_id"])
+		fileID, ok := f["file_id"].(string)
+		if !ok || identity.Validate(fileID) != nil {
+			return nil, nil, errors.New("invalid file identity")
+		}
 
 		url := toString(f["url"])
-		if url == "" && fileID > 0 {
+		if url == "" {
 			ctx := middleware.WithGRPCMetadata(c)
 			urlResp, err := h.fileClient.GetDownloadURL(ctx, &filepb.GetDownloadURLReq{FileId: fileID, UserId: uid})
 			if err == nil && urlResp.DownloadUrl != "" {
@@ -262,9 +335,7 @@ func (h *MessageHandler) parseSendMessageRequest(c *gin.Context) (*sendMessageDT
 		}
 	}
 
-	if replyToID, err := dto.ReplyToMsgID.Int64(); err == nil && replyToID != 0 {
-		req.ReplyToId = &replyToID
-	}
+	req.ReplyToId = dto.ReplyToMsgID
 
 	return &dto, (*msgclient.SendMessageReq)(req), nil
 }
@@ -285,21 +356,23 @@ func msgTypeFromMime(mime string) msgpb.MessageType {
 	return msgpb.MessageType_MESSAGE_TYPE_FILE
 }
 
-func parseMentions(v any) []int64 {
+func parseMentions(v any) ([]string, error) {
+	if v == nil {
+		return nil, nil
+	}
 	raw, ok := v.([]any)
 	if !ok {
-		return nil
+		return nil, errors.New("invalid mention identities")
 	}
-	out := make([]int64, 0, len(raw))
-	for _, m := range raw {
-		switch val := m.(type) {
-		case string:
-			out = append(out, parseInt64(val))
-		case float64:
-			out = append(out, int64(val))
+	out := make([]string, 0, len(raw))
+	for _, value := range raw {
+		id, ok := value.(string)
+		if !ok || identity.Validate(id) != nil {
+			return nil, errors.New("invalid mention identity")
 		}
+		out = append(out, id)
 	}
-	return out
+	return out, nil
 }
 
 func toString(v any) string {
@@ -347,8 +420,8 @@ func toBool(v any) bool {
 
 func (h *MessageHandler) SearchMessages(c *gin.Context) {
 	var req msgclient.SearchMessagesReq
-	req.UserId = c.GetInt64(middleware.CtxKeyUserID)
-	if req.UserId == 0 {
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
+	if identity.Validate(req.UserId) != nil {
 		response.BadRequest(c, "invalid user id")
 		return
 	}
@@ -356,15 +429,23 @@ func (h *MessageHandler) SearchMessages(c *gin.Context) {
 	if convIDStr == "" {
 		convIDStr = c.Query("conv_id")
 	}
-	if convID := parseInt64(convIDStr); convID > 0 {
-		req.ConversationId = &convID
+	if c.Request.URL.Query().Has("conversation_id") || c.Request.URL.Query().Has("conv_id") {
+		if err := identity.Validate(convIDStr); err != nil {
+			response.BadRequest(c, "invalid conversation identity")
+			return
+		}
+		req.ConversationId = &convIDStr
 	}
 	if kw := c.Query("keyword"); kw != "" {
 		req.Keyword = kw
 	} else {
 		req.Keyword = c.Query("q")
 	}
-	if senderID := parseInt64(c.Query("sender_id")); senderID > 0 {
+	if senderID := c.Query("sender_id"); c.Request.URL.Query().Has("sender_id") {
+		if err := identity.Validate(senderID); err != nil {
+			response.BadRequest(c, "invalid sender identity")
+			return
+		}
 		req.SenderId = &senderID
 	}
 	if senderType := strings.TrimSpace(c.Query("sender_type")); senderType != "" {
@@ -398,6 +479,9 @@ func (h *MessageHandler) SearchMessages(c *gin.Context) {
 	req.Pagination = &common.Pagination{Page: page, PageSize: pageSize}
 
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
 	resp, err := h.msgClient.SearchMessages(ctx, &req)
 	if err != nil {
 		response.GRPCError(c, err)
@@ -407,14 +491,24 @@ func (h *MessageHandler) SearchMessages(c *gin.Context) {
 }
 
 func (h *MessageHandler) GetAroundSeq(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
 	seqStr := c.Param("seq")
-	seq, _ := strconv.ParseInt(seqStr, 10, 64)
+	seq, err := strconv.ParseInt(seqStr, 10, 64)
+	if err != nil || sequence.Validate(seq) != nil {
+		response.BadRequest(c, "invalid sequence")
+		return
+	}
 	req := &msgclient.GetAroundSeqReq{
-		ConversationId: parseInt64(c.Param("id")),
-		UserId:         c.GetInt64(middleware.CtxKeyUserID),
+		ConversationId: c.Param("id"),
+		UserId:         c.GetString(middleware.CtxKeyUserID),
 		Seq:            seq,
 	}
 	ctx := middleware.WithGRPCMetadata(c)
+	if !requireRequestIdentities(c, req) {
+		return
+	}
 	resp, err := h.msgClient.GetAroundSeq(ctx, req)
 	if err != nil {
 		response.GRPCError(c, err)

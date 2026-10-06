@@ -7,6 +7,7 @@
 package knowledgebase
 
 import (
+	_ "github.com/maomeng/aim/pkg/pb/common"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
@@ -28,8 +29,10 @@ type CreateKBReq struct {
 	Description      string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
 	EmbeddingModel   string                 `protobuf:"bytes,3,opt,name=embedding_model,json=embeddingModel,proto3" json:"embedding_model,omitempty"` // display only, resolved from embedding_model_id
 	PipelineConfig   *PipelineConfig        `protobuf:"bytes,4,opt,name=pipeline_config,json=pipelineConfig,proto3" json:"pipeline_config,omitempty"`
-	Mode             string                 `protobuf:"bytes,5,opt,name=mode,proto3" json:"mode,omitempty"`                                                    // "rag"
-	EmbeddingModelId int64                  `protobuf:"varint,6,opt,name=embedding_model_id,json=embeddingModelId,proto3" json:"embedding_model_id,omitempty"` // model registry ID
+	Mode             string                 `protobuf:"bytes,5,opt,name=mode,proto3" json:"mode,omitempty"`                                                         // "rag"
+	EmbeddingModelId *string                `protobuf:"bytes,6,opt,name=embedding_model_id,json=embeddingModelId,proto3,oneof" json:"embedding_model_id,omitempty"` // model registry ID
+	OwnerType        string                 `protobuf:"bytes,7,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"`                              // platform | user；由既有鉴权决定允许的所有权
+	OwnerId          *string                `protobuf:"bytes,8,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -99,24 +102,41 @@ func (x *CreateKBReq) GetMode() string {
 	return ""
 }
 
-func (x *CreateKBReq) GetEmbeddingModelId() int64 {
-	if x != nil {
-		return x.EmbeddingModelId
+func (x *CreateKBReq) GetEmbeddingModelId() string {
+	if x != nil && x.EmbeddingModelId != nil {
+		return *x.EmbeddingModelId
 	}
-	return 0
+	return ""
+}
+
+func (x *CreateKBReq) GetOwnerType() string {
+	if x != nil {
+		return x.OwnerType
+	}
+	return ""
+}
+
+func (x *CreateKBReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
+	}
+	return ""
 }
 
 type UpdateKBReq struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	KbId             int64                  `protobuf:"varint,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
-	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Description      string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
-	EmbeddingModel   string                 `protobuf:"bytes,4,opt,name=embedding_model,json=embeddingModel,proto3" json:"embedding_model,omitempty"`
-	PipelineConfig   *PipelineConfig        `protobuf:"bytes,5,opt,name=pipeline_config,json=pipelineConfig,proto3" json:"pipeline_config,omitempty"`
-	Status           string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"` // "active" | "disabled"
-	EmbeddingModelId int64                  `protobuf:"varint,7,opt,name=embedding_model_id,json=embeddingModelId,proto3" json:"embedding_model_id,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	KbId           string                 `protobuf:"bytes,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
+	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description    string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	EmbeddingModel string                 `protobuf:"bytes,4,opt,name=embedding_model,json=embeddingModel,proto3" json:"embedding_model,omitempty"`
+	// 配置缺失表示保持；嵌套模型引用也遵守 presence + clear_model_id 的更新合同。
+	PipelineConfig   *PipelineConfig `protobuf:"bytes,5,opt,name=pipeline_config,json=pipelineConfig,proto3" json:"pipeline_config,omitempty"`
+	Status           string          `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"` // "active" | "disabled"
+	EmbeddingModelId *string         `protobuf:"bytes,7,opt,name=embedding_model_id,json=embeddingModelId,proto3,oneof" json:"embedding_model_id,omitempty"`
+	// 未提供引用且 clear=false 保持，clear=true 解除；同时提供引用与 clear=true 拒绝。
+	ClearEmbeddingModelId bool `protobuf:"varint,8,opt,name=clear_embedding_model_id,json=clearEmbeddingModelId,proto3" json:"clear_embedding_model_id,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *UpdateKBReq) Reset() {
@@ -149,11 +169,11 @@ func (*UpdateKBReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *UpdateKBReq) GetKbId() int64 {
+func (x *UpdateKBReq) GetKbId() string {
 	if x != nil {
 		return x.KbId
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateKBReq) GetName() string {
@@ -191,16 +211,23 @@ func (x *UpdateKBReq) GetStatus() string {
 	return ""
 }
 
-func (x *UpdateKBReq) GetEmbeddingModelId() int64 {
-	if x != nil {
-		return x.EmbeddingModelId
+func (x *UpdateKBReq) GetEmbeddingModelId() string {
+	if x != nil && x.EmbeddingModelId != nil {
+		return *x.EmbeddingModelId
 	}
-	return 0
+	return ""
+}
+
+func (x *UpdateKBReq) GetClearEmbeddingModelId() bool {
+	if x != nil {
+		return x.ClearEmbeddingModelId
+	}
+	return false
 }
 
 type DeleteKBReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	KbId          int64                  `protobuf:"varint,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
+	KbId          string                 `protobuf:"bytes,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -235,16 +262,16 @@ func (*DeleteKBReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *DeleteKBReq) GetKbId() int64 {
+func (x *DeleteKBReq) GetKbId() string {
 	if x != nil {
 		return x.KbId
 	}
-	return 0
+	return ""
 }
 
 type GetKBReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	KbId          int64                  `protobuf:"varint,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
+	KbId          string                 `protobuf:"bytes,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -279,11 +306,11 @@ func (*GetKBReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *GetKBReq) GetKbId() int64 {
+func (x *GetKBReq) GetKbId() string {
 	if x != nil {
 		return x.KbId
 	}
-	return 0
+	return ""
 }
 
 type ListKBsReq struct {
@@ -340,8 +367,8 @@ func (x *ListKBsReq) GetLimit() int32 {
 
 type KBRsp struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
-	Id               int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	OwnerId          int64                  `protobuf:"varint,2,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OwnerId          *string                `protobuf:"bytes,2,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
 	Name             string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Description      string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	EmbeddingModel   string                 `protobuf:"bytes,5,opt,name=embedding_model,json=embeddingModel,proto3" json:"embedding_model,omitempty"`
@@ -352,7 +379,8 @@ type KBRsp struct {
 	CreatedAt        int64                  `protobuf:"varint,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt        int64                  `protobuf:"varint,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	Mode             string                 `protobuf:"bytes,12,opt,name=mode,proto3" json:"mode,omitempty"` // "rag"
-	EmbeddingModelId int64                  `protobuf:"varint,13,opt,name=embedding_model_id,json=embeddingModelId,proto3" json:"embedding_model_id,omitempty"`
+	EmbeddingModelId *string                `protobuf:"bytes,13,opt,name=embedding_model_id,json=embeddingModelId,proto3,oneof" json:"embedding_model_id,omitempty"`
+	OwnerType        string                 `protobuf:"bytes,14,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"` // platform | user；平台不提供 owner_id
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -387,18 +415,18 @@ func (*KBRsp) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *KBRsp) GetId() int64 {
+func (x *KBRsp) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *KBRsp) GetOwnerId() int64 {
-	if x != nil {
-		return x.OwnerId
+func (x *KBRsp) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
 	}
-	return 0
+	return ""
 }
 
 func (x *KBRsp) GetName() string {
@@ -471,11 +499,18 @@ func (x *KBRsp) GetMode() string {
 	return ""
 }
 
-func (x *KBRsp) GetEmbeddingModelId() int64 {
-	if x != nil {
-		return x.EmbeddingModelId
+func (x *KBRsp) GetEmbeddingModelId() string {
+	if x != nil && x.EmbeddingModelId != nil {
+		return *x.EmbeddingModelId
 	}
-	return 0
+	return ""
+}
+
+func (x *KBRsp) GetOwnerType() string {
+	if x != nil {
+		return x.OwnerType
+	}
+	return ""
 }
 
 type ListKBsRsp struct {
@@ -727,13 +762,16 @@ func (x *MinerUConfig) GetApiKey() string {
 }
 
 type VLMConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`                // 是否启用 VLM 图片解析
-	Provider      string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`               // VLM 服务商，如 "openai"
-	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`                     // VLM 模型名，如 "gpt-4o-mini"
-	ApiKey        string                 `protobuf:"bytes,4,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`     // VLM API Key
-	BaseUrl       string                 `protobuf:"bytes,5,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`  // VLM 服务地址
-	ModelId       int64                  `protobuf:"varint,6,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // 模型注册表 ID，CreateKB 时用于查询 Provider/Model/APIKey/BaseURL
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Enabled  bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`                     // 是否启用 VLM 图片解析
+	Provider string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`                    // VLM 服务商，如 "openai"
+	Model    string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`                          // VLM 模型名，如 "gpt-4o-mini"
+	ApiKey   string                 `protobuf:"bytes,4,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`          // VLM API Key
+	BaseUrl  string                 `protobuf:"bytes,5,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`       // VLM 服务地址
+	ModelId  *string                `protobuf:"bytes,6,opt,name=model_id,json=modelId,proto3,oneof" json:"model_id,omitempty"` // 模型注册表 ID，CreateKB 时用于查询 Provider/Model/APIKey/BaseURL
+	// 更新时缺失且 clear=false 保持，clear=true 解除；同时提供引用与 clear=true 拒绝。
+	// 创建配置时不提供 clear_model_id。
+	ClearModelId  bool `protobuf:"varint,7,opt,name=clear_model_id,json=clearModelId,proto3" json:"clear_model_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -803,11 +841,18 @@ func (x *VLMConfig) GetBaseUrl() string {
 	return ""
 }
 
-func (x *VLMConfig) GetModelId() int64 {
-	if x != nil {
-		return x.ModelId
+func (x *VLMConfig) GetModelId() string {
+	if x != nil && x.ModelId != nil {
+		return *x.ModelId
 	}
-	return 0
+	return ""
+}
+
+func (x *VLMConfig) GetClearModelId() bool {
+	if x != nil {
+		return x.ClearModelId
+	}
+	return false
 }
 
 type ChunkingConfig struct {
@@ -1031,10 +1076,13 @@ func (x *RetrievalConfig) GetRerank() *RerankConfig {
 }
 
 type RerankConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	ModelId       int64                  `protobuf:"varint,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	TopN          int32                  `protobuf:"varint,3,opt,name=top_n,json=topN,proto3" json:"top_n,omitempty"` // candidates to rerank, default: 20
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Enabled bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	ModelId *string                `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3,oneof" json:"model_id,omitempty"`
+	TopN    int32                  `protobuf:"varint,3,opt,name=top_n,json=topN,proto3" json:"top_n,omitempty"` // candidates to rerank, default: 20
+	// 更新时缺失且 clear=false 保持，clear=true 解除；同时提供引用与 clear=true 拒绝。
+	// 创建配置时不提供 clear_model_id。
+	ClearModelId  bool `protobuf:"varint,4,opt,name=clear_model_id,json=clearModelId,proto3" json:"clear_model_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1076,11 +1124,11 @@ func (x *RerankConfig) GetEnabled() bool {
 	return false
 }
 
-func (x *RerankConfig) GetModelId() int64 {
-	if x != nil {
-		return x.ModelId
+func (x *RerankConfig) GetModelId() string {
+	if x != nil && x.ModelId != nil {
+		return *x.ModelId
 	}
-	return 0
+	return ""
 }
 
 func (x *RerankConfig) GetTopN() int32 {
@@ -1088,6 +1136,13 @@ func (x *RerankConfig) GetTopN() int32 {
 		return x.TopN
 	}
 	return 0
+}
+
+func (x *RerankConfig) GetClearModelId() bool {
+	if x != nil {
+		return x.ClearModelId
+	}
+	return false
 }
 
 type UploadDocumentReq struct {
@@ -1174,7 +1229,7 @@ func (*UploadDocumentReq_Content) isUploadDocumentReq_Data() {}
 
 type GetDocumentReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	DocId         int64                  `protobuf:"varint,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
+	DocId         string                 `protobuf:"bytes,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1209,16 +1264,16 @@ func (*GetDocumentReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *GetDocumentReq) GetDocId() int64 {
+func (x *GetDocumentReq) GetDocId() string {
 	if x != nil {
 		return x.DocId
 	}
-	return 0
+	return ""
 }
 
 type ListDocumentsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	KbId          int64                  `protobuf:"varint,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
+	KbId          string                 `protobuf:"bytes,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
 	Offset        int32                  `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
 	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"` // optional filter by status
@@ -1256,11 +1311,11 @@ func (*ListDocumentsReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *ListDocumentsReq) GetKbId() int64 {
+func (x *ListDocumentsReq) GetKbId() string {
 	if x != nil {
 		return x.KbId
 	}
-	return 0
+	return ""
 }
 
 func (x *ListDocumentsReq) GetOffset() int32 {
@@ -1286,7 +1341,7 @@ func (x *ListDocumentsReq) GetStatus() string {
 
 type DeleteDocumentReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	DocId         int64                  `protobuf:"varint,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
+	DocId         string                 `protobuf:"bytes,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1321,16 +1376,16 @@ func (*DeleteDocumentReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *DeleteDocumentReq) GetDocId() int64 {
+func (x *DeleteDocumentReq) GetDocId() string {
 	if x != nil {
 		return x.DocId
 	}
-	return 0
+	return ""
 }
 
 type RetryDocumentReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	DocId         int64                  `protobuf:"varint,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
+	DocId         string                 `protobuf:"bytes,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1365,17 +1420,17 @@ func (*RetryDocumentReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *RetryDocumentReq) GetDocId() int64 {
+func (x *RetryDocumentReq) GetDocId() string {
 	if x != nil {
 		return x.DocId
 	}
-	return 0
+	return ""
 }
 
 type DocumentRsp struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
-	Id               int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	KbId             int64                  `protobuf:"varint,2,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	KbId             string                 `protobuf:"bytes,2,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
 	Title            string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
 	FileType         string                 `protobuf:"bytes,4,opt,name=file_type,json=fileType,proto3" json:"file_type,omitempty"`
 	FileSize         int64                  `protobuf:"varint,5,opt,name=file_size,json=fileSize,proto3" json:"file_size,omitempty"`
@@ -1421,18 +1476,18 @@ func (*DocumentRsp) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *DocumentRsp) GetId() int64 {
+func (x *DocumentRsp) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *DocumentRsp) GetKbId() int64 {
+func (x *DocumentRsp) GetKbId() string {
 	if x != nil {
 		return x.KbId
 	}
-	return 0
+	return ""
 }
 
 func (x *DocumentRsp) GetTitle() string {
@@ -1651,9 +1706,9 @@ func (x *ListDocumentsRsp) GetTotal() int64 {
 type RetrieveReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
-	BotId         int64                  `protobuf:"varint,2,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	ConvId        int64                  `protobuf:"varint,3,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
-	KbIds         []int64                `protobuf:"varint,4,rep,packed,name=kb_ids,json=kbIds,proto3" json:"kb_ids,omitempty"` // knowledge-base resolves bindings internally, caller does not pass kb_ids
+	BotId         *string                `protobuf:"bytes,2,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	ConvId        *string                `protobuf:"bytes,3,opt,name=conv_id,json=convId,proto3,oneof" json:"conv_id,omitempty"`
+	KbIds         []string               `protobuf:"bytes,4,rep,name=kb_ids,json=kbIds,proto3" json:"kb_ids,omitempty"` // knowledge-base resolves bindings internally, caller does not pass kb_ids
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1695,21 +1750,21 @@ func (x *RetrieveReq) GetQuery() string {
 	return ""
 }
 
-func (x *RetrieveReq) GetBotId() int64 {
-	if x != nil {
-		return x.BotId
+func (x *RetrieveReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
 	}
-	return 0
+	return ""
 }
 
-func (x *RetrieveReq) GetConvId() int64 {
-	if x != nil {
-		return x.ConvId
+func (x *RetrieveReq) GetConvId() string {
+	if x != nil && x.ConvId != nil {
+		return *x.ConvId
 	}
-	return 0
+	return ""
 }
 
-func (x *RetrieveReq) GetKbIds() []int64 {
+func (x *RetrieveReq) GetKbIds() []string {
 	if x != nil {
 		return x.KbIds
 	}
@@ -1762,12 +1817,12 @@ func (x *RetrieveRsp) GetItems() []*RetrieveItem {
 
 type RetrieveItem struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	ChunkId        int64                  `protobuf:"varint,1,opt,name=chunk_id,json=chunkId,proto3" json:"chunk_id,omitempty"`
+	ChunkId        string                 `protobuf:"bytes,1,opt,name=chunk_id,json=chunkId,proto3" json:"chunk_id,omitempty"`
 	Content        string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"` // parent block full text for parent-child mode
 	Score          float32                `protobuf:"fixed32,3,opt,name=score,proto3" json:"score,omitempty"`
-	DocId          int64                  `protobuf:"varint,4,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
+	DocId          string                 `protobuf:"bytes,4,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
 	DocTitle       string                 `protobuf:"bytes,5,opt,name=doc_title,json=docTitle,proto3" json:"doc_title,omitempty"`
-	KbId           int64                  `protobuf:"varint,6,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
+	KbId           string                 `protobuf:"bytes,6,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
 	KbName         string                 `protobuf:"bytes,7,opt,name=kb_name,json=kbName,proto3" json:"kb_name,omitempty"`
 	MatchedContent string                 `protobuf:"bytes,8,opt,name=matched_content,json=matchedContent,proto3" json:"matched_content,omitempty"` // matched child block text (parent-child mode)
 	Metadata       *ChunkMeta             `protobuf:"bytes,9,opt,name=metadata,proto3" json:"metadata,omitempty"`
@@ -1805,11 +1860,11 @@ func (*RetrieveItem) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *RetrieveItem) GetChunkId() int64 {
+func (x *RetrieveItem) GetChunkId() string {
 	if x != nil {
 		return x.ChunkId
 	}
-	return 0
+	return ""
 }
 
 func (x *RetrieveItem) GetContent() string {
@@ -1826,11 +1881,11 @@ func (x *RetrieveItem) GetScore() float32 {
 	return 0
 }
 
-func (x *RetrieveItem) GetDocId() int64 {
+func (x *RetrieveItem) GetDocId() string {
 	if x != nil {
 		return x.DocId
 	}
-	return 0
+	return ""
 }
 
 func (x *RetrieveItem) GetDocTitle() string {
@@ -1840,11 +1895,11 @@ func (x *RetrieveItem) GetDocTitle() string {
 	return ""
 }
 
-func (x *RetrieveItem) GetKbId() int64 {
+func (x *RetrieveItem) GetKbId() string {
 	if x != nil {
 		return x.KbId
 	}
-	return 0
+	return ""
 }
 
 func (x *RetrieveItem) GetKbName() string {
@@ -1954,9 +2009,9 @@ func (x *ChunkMeta) GetDocTitle() string {
 
 type BindReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	KbId          int64                  `protobuf:"varint,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
+	KbId          string                 `protobuf:"bytes,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
 	TargetType    string                 `protobuf:"bytes,2,opt,name=target_type,json=targetType,proto3" json:"target_type,omitempty"` // "bot" | "conv"
-	TargetId      int64                  `protobuf:"varint,3,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	TargetId      string                 `protobuf:"bytes,3,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1991,11 +2046,11 @@ func (*BindReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{27}
 }
 
-func (x *BindReq) GetKbId() int64 {
+func (x *BindReq) GetKbId() string {
 	if x != nil {
 		return x.KbId
 	}
-	return 0
+	return ""
 }
 
 func (x *BindReq) GetTargetType() string {
@@ -2005,18 +2060,18 @@ func (x *BindReq) GetTargetType() string {
 	return ""
 }
 
-func (x *BindReq) GetTargetId() int64 {
+func (x *BindReq) GetTargetId() string {
 	if x != nil {
 		return x.TargetId
 	}
-	return 0
+	return ""
 }
 
 type UnbindReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	KbId          int64                  `protobuf:"varint,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
+	KbId          string                 `protobuf:"bytes,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
 	TargetType    string                 `protobuf:"bytes,2,opt,name=target_type,json=targetType,proto3" json:"target_type,omitempty"`
-	TargetId      int64                  `protobuf:"varint,3,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	TargetId      string                 `protobuf:"bytes,3,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2051,11 +2106,11 @@ func (*UnbindReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{28}
 }
 
-func (x *UnbindReq) GetKbId() int64 {
+func (x *UnbindReq) GetKbId() string {
 	if x != nil {
 		return x.KbId
 	}
-	return 0
+	return ""
 }
 
 func (x *UnbindReq) GetTargetType() string {
@@ -2065,17 +2120,17 @@ func (x *UnbindReq) GetTargetType() string {
 	return ""
 }
 
-func (x *UnbindReq) GetTargetId() int64 {
+func (x *UnbindReq) GetTargetId() string {
 	if x != nil {
 		return x.TargetId
 	}
-	return 0
+	return ""
 }
 
 type ListBindingsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TargetType    string                 `protobuf:"bytes,1,opt,name=target_type,json=targetType,proto3" json:"target_type,omitempty"` // "bot" | "conv"
-	TargetId      int64                  `protobuf:"varint,2,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	TargetId      string                 `protobuf:"bytes,2,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2117,11 +2172,11 @@ func (x *ListBindingsReq) GetTargetType() string {
 	return ""
 }
 
-func (x *ListBindingsReq) GetTargetId() int64 {
+func (x *ListBindingsReq) GetTargetId() string {
 	if x != nil {
 		return x.TargetId
 	}
-	return 0
+	return ""
 }
 
 type ListBindingsRsp struct {
@@ -2170,11 +2225,11 @@ func (x *ListBindingsRsp) GetItems() []*BindingItem {
 
 type BindingItem struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	KbId          int64                  `protobuf:"varint,2,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	KbId          string                 `protobuf:"bytes,2,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
 	KbName        string                 `protobuf:"bytes,3,opt,name=kb_name,json=kbName,proto3" json:"kb_name,omitempty"`
 	TargetType    string                 `protobuf:"bytes,4,opt,name=target_type,json=targetType,proto3" json:"target_type,omitempty"`
-	TargetId      int64                  `protobuf:"varint,5,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	TargetId      string                 `protobuf:"bytes,5,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
 	CreatedAt     int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Mode          string                 `protobuf:"bytes,7,opt,name=mode,proto3" json:"mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2211,18 +2266,18 @@ func (*BindingItem) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{31}
 }
 
-func (x *BindingItem) GetId() int64 {
+func (x *BindingItem) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *BindingItem) GetKbId() int64 {
+func (x *BindingItem) GetKbId() string {
 	if x != nil {
 		return x.KbId
 	}
-	return 0
+	return ""
 }
 
 func (x *BindingItem) GetKbName() string {
@@ -2239,11 +2294,11 @@ func (x *BindingItem) GetTargetType() string {
 	return ""
 }
 
-func (x *BindingItem) GetTargetId() int64 {
+func (x *BindingItem) GetTargetId() string {
 	if x != nil {
 		return x.TargetId
 	}
-	return 0
+	return ""
 }
 
 func (x *BindingItem) GetCreatedAt() int64 {
@@ -2262,7 +2317,7 @@ func (x *BindingItem) GetMode() string {
 
 type ListBoundTargetsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	KbId          int64                  `protobuf:"varint,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
+	KbId          string                 `protobuf:"bytes,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2297,11 +2352,11 @@ func (*ListBoundTargetsReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{32}
 }
 
-func (x *ListBoundTargetsReq) GetKbId() int64 {
+func (x *ListBoundTargetsReq) GetKbId() string {
 	if x != nil {
 		return x.KbId
 	}
-	return 0
+	return ""
 }
 
 type ListBoundTargetsRsp struct {
@@ -2351,7 +2406,7 @@ func (x *ListBoundTargetsRsp) GetItems() []*BoundTargetItem {
 type BoundTargetItem struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TargetType    string                 `protobuf:"bytes,1,opt,name=target_type,json=targetType,proto3" json:"target_type,omitempty"`
-	TargetId      int64                  `protobuf:"varint,2,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	TargetId      string                 `protobuf:"bytes,2,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
 	CreatedAt     int64                  `protobuf:"varint,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2394,11 +2449,11 @@ func (x *BoundTargetItem) GetTargetType() string {
 	return ""
 }
 
-func (x *BoundTargetItem) GetTargetId() int64 {
+func (x *BoundTargetItem) GetTargetId() string {
 	if x != nil {
 		return x.TargetId
 	}
-	return 0
+	return ""
 }
 
 func (x *BoundTargetItem) GetCreatedAt() int64 {
@@ -2410,7 +2465,7 @@ func (x *BoundTargetItem) GetCreatedAt() int64 {
 
 type GetDocumentContentReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	DocId         int64                  `protobuf:"varint,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
+	DocId         string                 `protobuf:"bytes,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2445,11 +2500,11 @@ func (*GetDocumentContentReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{35}
 }
 
-func (x *GetDocumentContentReq) GetDocId() int64 {
+func (x *GetDocumentContentReq) GetDocId() string {
 	if x != nil {
 		return x.DocId
 	}
-	return 0
+	return ""
 }
 
 type GetDocumentContentResp struct {
@@ -2522,7 +2577,7 @@ func (x *GetDocumentContentResp) GetFileSize() int64 {
 
 type ListChunksReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	DocId         int64                  `protobuf:"varint,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
+	DocId         string                 `protobuf:"bytes,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
 	Offset        int32                  `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
 	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2559,11 +2614,11 @@ func (*ListChunksReq) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{37}
 }
 
-func (x *ListChunksReq) GetDocId() int64 {
+func (x *ListChunksReq) GetDocId() string {
 	if x != nil {
 		return x.DocId
 	}
-	return 0
+	return ""
 }
 
 func (x *ListChunksReq) GetOffset() int32 {
@@ -2582,8 +2637,8 @@ func (x *ListChunksReq) GetLimit() int32 {
 
 type ChunkInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	DocId         int64                  `protobuf:"varint,2,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	DocId         string                 `protobuf:"bytes,2,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
 	ChunkIndex    int32                  `protobuf:"varint,3,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
 	Content       string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
 	TokenCount    int32                  `protobuf:"varint,5,opt,name=token_count,json=tokenCount,proto3" json:"token_count,omitempty"`
@@ -2623,18 +2678,18 @@ func (*ChunkInfo) Descriptor() ([]byte, []int) {
 	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{38}
 }
 
-func (x *ChunkInfo) GetId() int64 {
+func (x *ChunkInfo) GetId() string {
 	if x != nil {
 		return x.Id
 	}
-	return 0
+	return ""
 }
 
-func (x *ChunkInfo) GetDocId() int64 {
+func (x *ChunkInfo) GetDocId() string {
 	if x != nil {
 		return x.DocId
 	}
-	return 0
+	return ""
 }
 
 func (x *ChunkInfo) GetChunkIndex() int32 {
@@ -2820,33 +2875,40 @@ var File_knowledge_base_knowledge_base_proto protoreflect.FileDescriptor
 
 const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\n" +
-	"#knowledge-base/knowledge_base.proto\x12\rknowledgebase\x1a\x1bgoogle/protobuf/empty.proto\"\xf6\x01\n" +
+	"#knowledge-base/knowledge_base.proto\x12\rknowledgebase\x1a\x13common/common.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xee\x02\n" +
 	"\vCreateKBReq\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12'\n" +
 	"\x0fembedding_model\x18\x03 \x01(\tR\x0eembeddingModel\x12F\n" +
 	"\x0fpipeline_config\x18\x04 \x01(\v2\x1d.knowledgebase.PipelineConfigR\x0epipelineConfig\x12\x12\n" +
-	"\x04mode\x18\x05 \x01(\tR\x04mode\x12,\n" +
-	"\x12embedding_model_id\x18\x06 \x01(\x03R\x10embeddingModelId\"\x8f\x02\n" +
-	"\vUpdateKBReq\x12\x13\n" +
-	"\x05kb_id\x18\x01 \x01(\x03R\x04kbId\x12\x12\n" +
+	"\x04mode\x18\x05 \x01(\tR\x04mode\x129\n" +
+	"\x12embedding_model_id\x18\x06 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x10embeddingModelId\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"owner_type\x18\a \x01(\tR\townerType\x12&\n" +
+	"\bowner_id\x18\b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01B\x15\n" +
+	"\x13_embedding_model_idB\v\n" +
+	"\t_owner_id\"\xf4\x02\n" +
+	"\vUpdateKBReq\x12\x1b\n" +
+	"\x05kb_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12'\n" +
 	"\x0fembedding_model\x18\x04 \x01(\tR\x0eembeddingModel\x12F\n" +
 	"\x0fpipeline_config\x18\x05 \x01(\v2\x1d.knowledgebase.PipelineConfigR\x0epipelineConfig\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\x12,\n" +
-	"\x12embedding_model_id\x18\a \x01(\x03R\x10embeddingModelId\"\"\n" +
-	"\vDeleteKBReq\x12\x13\n" +
-	"\x05kb_id\x18\x01 \x01(\x03R\x04kbId\"\x1f\n" +
-	"\bGetKBReq\x12\x13\n" +
-	"\x05kb_id\x18\x01 \x01(\x03R\x04kbId\":\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x129\n" +
+	"\x12embedding_model_id\x18\a \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x10embeddingModelId\x88\x01\x01\x127\n" +
+	"\x18clear_embedding_model_id\x18\b \x01(\bR\x15clearEmbeddingModelIdB\x15\n" +
+	"\x13_embedding_model_id\"*\n" +
+	"\vDeleteKBReq\x12\x1b\n" +
+	"\x05kb_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\"'\n" +
+	"\bGetKBReq\x12\x1b\n" +
+	"\x05kb_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\":\n" +
 	"\n" +
 	"ListKBsReq\x12\x16\n" +
 	"\x06offset\x18\x01 \x01(\x05R\x06offset\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\x05R\x05limit\"\xb1\x03\n" +
-	"\x05KBRsp\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
-	"\bowner_id\x18\x02 \x01(\x03R\aownerId\x12\x12\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"\x96\x04\n" +
+	"\x05KBRsp\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12&\n" +
+	"\bowner_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12'\n" +
 	"\x0fembedding_model\x18\x05 \x01(\tR\x0eembeddingModel\x12F\n" +
@@ -2859,8 +2921,12 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	" \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
 	"updated_at\x18\v \x01(\x03R\tupdatedAt\x12\x12\n" +
-	"\x04mode\x18\f \x01(\tR\x04mode\x12,\n" +
-	"\x12embedding_model_id\x18\r \x01(\x03R\x10embeddingModelId\"N\n" +
+	"\x04mode\x18\f \x01(\tR\x04mode\x129\n" +
+	"\x12embedding_model_id\x18\r \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x10embeddingModelId\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"owner_type\x18\x0e \x01(\tR\townerTypeB\v\n" +
+	"\t_owner_idB\x15\n" +
+	"\x13_embedding_model_id\"N\n" +
 	"\n" +
 	"ListKBsRsp\x12*\n" +
 	"\x05items\x18\x01 \x03(\v2\x14.knowledgebase.KBRspR\x05items\x12\x14\n" +
@@ -2877,14 +2943,16 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\fMinerUConfig\x12\x17\n" +
 	"\aapi_url\x18\x01 \x01(\tR\x06apiUrl\x12\x1b\n" +
 	"\tapi_token\x18\x02 \x01(\tR\bapiToken\x12\x17\n" +
-	"\aapi_key\x18\x03 \x01(\tR\x06apiKey\"\xa6\x01\n" +
+	"\aapi_key\x18\x03 \x01(\tR\x06apiKey\"\xe6\x01\n" +
 	"\tVLMConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12\x14\n" +
 	"\x05model\x18\x03 \x01(\tR\x05model\x12\x17\n" +
 	"\aapi_key\x18\x04 \x01(\tR\x06apiKey\x12\x19\n" +
-	"\bbase_url\x18\x05 \x01(\tR\abaseUrl\x12\x19\n" +
-	"\bmodel_id\x18\x06 \x01(\x03R\amodelId\"\xae\x01\n" +
+	"\bbase_url\x18\x05 \x01(\tR\abaseUrl\x12&\n" +
+	"\bmodel_id\x18\x06 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\amodelId\x88\x01\x01\x12$\n" +
+	"\x0eclear_model_id\x18\a \x01(\bR\fclearModelIdB\v\n" +
+	"\t_model_id\"\xae\x01\n" +
 	"\x0eChunkingConfig\x12\x1d\n" +
 	"\n" +
 	"chunk_size\x18\x01 \x01(\x05R\tchunkSize\x12\x18\n" +
@@ -2906,11 +2974,13 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\x0fscore_threshold\x18\x04 \x01(\x02R\x0escoreThreshold\x12!\n" +
 	"\fdense_weight\x18\x05 \x01(\x02R\vdenseWeight\x12#\n" +
 	"\rsparse_weight\x18\x06 \x01(\x02R\fsparseWeight\x123\n" +
-	"\x06rerank\x18\a \x01(\v2\x1b.knowledgebase.RerankConfigR\x06rerank\"X\n" +
+	"\x06rerank\x18\a \x01(\v2\x1b.knowledgebase.RerankConfigR\x06rerank\"\x98\x01\n" +
 	"\fRerankConfig\x12\x18\n" +
-	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\x03R\amodelId\x12\x13\n" +
-	"\x05top_n\x18\x03 \x01(\x05R\x04topN\"\x8f\x03\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12&\n" +
+	"\bmodel_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\amodelId\x88\x01\x01\x12\x13\n" +
+	"\x05top_n\x18\x03 \x01(\x05R\x04topN\x12$\n" +
+	"\x0eclear_model_id\x18\x04 \x01(\bR\fclearModelIdB\v\n" +
+	"\t_model_id\"\x8f\x03\n" +
 	"\x11UploadDocumentReq\x12@\n" +
 	"\x04meta\x18\x01 \x01(\v2*.knowledgebase.UploadDocumentReq.MetaChunkH\x00R\x04meta\x12\x1a\n" +
 	"\acontent\x18\x02 \x01(\fH\x00R\acontent\x1a\x93\x02\n" +
@@ -2922,21 +2992,21 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\fcontent_hash\x18\x05 \x01(\tR\vcontentHash\x12\x1a\n" +
 	"\bmetadata\x18\x06 \x01(\tR\bmetadata\x12J\n" +
 	"\x11pipeline_override\x18\a \x01(\v2\x1d.knowledgebase.PipelineConfigR\x10pipelineOverrideB\x06\n" +
-	"\x04data\"'\n" +
-	"\x0eGetDocumentReq\x12\x15\n" +
-	"\x06doc_id\x18\x01 \x01(\x03R\x05docId\"m\n" +
-	"\x10ListDocumentsReq\x12\x13\n" +
-	"\x05kb_id\x18\x01 \x01(\x03R\x04kbId\x12\x16\n" +
+	"\x04data\"/\n" +
+	"\x0eGetDocumentReq\x12\x1d\n" +
+	"\x06doc_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\"u\n" +
+	"\x10ListDocumentsReq\x12\x1b\n" +
+	"\x05kb_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x05R\x06offset\x12\x14\n" +
 	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x16\n" +
-	"\x06status\x18\x04 \x01(\tR\x06status\"*\n" +
-	"\x11DeleteDocumentReq\x12\x15\n" +
-	"\x06doc_id\x18\x01 \x01(\x03R\x05docId\")\n" +
-	"\x10RetryDocumentReq\x12\x15\n" +
-	"\x06doc_id\x18\x01 \x01(\x03R\x05docId\"\x99\x03\n" +
-	"\vDocumentRsp\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x13\n" +
-	"\x05kb_id\x18\x02 \x01(\x03R\x04kbId\x12\x14\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\"2\n" +
+	"\x11DeleteDocumentReq\x12\x1d\n" +
+	"\x06doc_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\"1\n" +
+	"\x10RetryDocumentReq\x12\x1d\n" +
+	"\x06doc_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\"\xa9\x03\n" +
+	"\vDocumentRsp\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x1b\n" +
+	"\x05kb_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\x12\x14\n" +
 	"\x05title\x18\x03 \x01(\tR\x05title\x12\x1b\n" +
 	"\tfile_type\x18\x04 \x01(\tR\bfileType\x12\x1b\n" +
 	"\tfile_size\x18\x05 \x01(\x03R\bfileSize\x12+\n" +
@@ -2962,21 +3032,24 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\bended_at\x18\x06 \x01(\x03R\aendedAt\"Z\n" +
 	"\x10ListDocumentsRsp\x120\n" +
 	"\x05items\x18\x01 \x03(\v2\x1a.knowledgebase.DocumentRspR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"j\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xa3\x01\n" +
 	"\vRetrieveReq\x12\x14\n" +
-	"\x05query\x18\x01 \x01(\tR\x05query\x12\x15\n" +
-	"\x06bot_id\x18\x02 \x01(\x03R\x05botId\x12\x17\n" +
-	"\aconv_id\x18\x03 \x01(\x03R\x06convId\x12\x15\n" +
-	"\x06kb_ids\x18\x04 \x03(\x03R\x05kbIds\"@\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12\"\n" +
+	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12$\n" +
+	"\aconv_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x06convId\x88\x01\x01\x12\x1d\n" +
+	"\x06kb_ids\x18\x04 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05kbIdsB\t\n" +
+	"\a_bot_idB\n" +
+	"\n" +
+	"\b_conv_id\"@\n" +
 	"\vRetrieveRsp\x121\n" +
-	"\x05items\x18\x01 \x03(\v2\x1b.knowledgebase.RetrieveItemR\x05items\"\x9a\x02\n" +
-	"\fRetrieveItem\x12\x19\n" +
-	"\bchunk_id\x18\x01 \x01(\x03R\achunkId\x12\x18\n" +
+	"\x05items\x18\x01 \x03(\v2\x1b.knowledgebase.RetrieveItemR\x05items\"\xb2\x02\n" +
+	"\fRetrieveItem\x12!\n" +
+	"\bchunk_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\achunkId\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x14\n" +
-	"\x05score\x18\x03 \x01(\x02R\x05score\x12\x15\n" +
-	"\x06doc_id\x18\x04 \x01(\x03R\x05docId\x12\x1b\n" +
-	"\tdoc_title\x18\x05 \x01(\tR\bdocTitle\x12\x13\n" +
-	"\x05kb_id\x18\x06 \x01(\x03R\x04kbId\x12\x17\n" +
+	"\x05score\x18\x03 \x01(\x02R\x05score\x12\x1d\n" +
+	"\x06doc_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\x12\x1b\n" +
+	"\tdoc_title\x18\x05 \x01(\tR\bdocTitle\x12\x1b\n" +
+	"\x05kb_id\x18\x06 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\x12\x17\n" +
 	"\akb_name\x18\a \x01(\tR\x06kbName\x12'\n" +
 	"\x0fmatched_content\x18\b \x01(\tR\x0ematchedContent\x124\n" +
 	"\bmetadata\x18\t \x01(\v2\x18.knowledgebase.ChunkMetaR\bmetadata\"\xc7\x01\n" +
@@ -2987,57 +3060,57 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\n" +
 	"start_line\x18\x04 \x01(\x05R\tstartLine\x12\x19\n" +
 	"\bend_line\x18\x05 \x01(\x05R\aendLine\x12\x1b\n" +
-	"\tdoc_title\x18\x06 \x01(\tR\bdocTitle\"\\\n" +
-	"\aBindReq\x12\x13\n" +
-	"\x05kb_id\x18\x01 \x01(\x03R\x04kbId\x12\x1f\n" +
+	"\tdoc_title\x18\x06 \x01(\tR\bdocTitle\"l\n" +
+	"\aBindReq\x12\x1b\n" +
+	"\x05kb_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\x12\x1f\n" +
 	"\vtarget_type\x18\x02 \x01(\tR\n" +
-	"targetType\x12\x1b\n" +
-	"\ttarget_id\x18\x03 \x01(\x03R\btargetId\"^\n" +
-	"\tUnbindReq\x12\x13\n" +
-	"\x05kb_id\x18\x01 \x01(\x03R\x04kbId\x12\x1f\n" +
+	"targetType\x12#\n" +
+	"\ttarget_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\btargetId\"n\n" +
+	"\tUnbindReq\x12\x1b\n" +
+	"\x05kb_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\x12\x1f\n" +
 	"\vtarget_type\x18\x02 \x01(\tR\n" +
-	"targetType\x12\x1b\n" +
-	"\ttarget_id\x18\x03 \x01(\x03R\btargetId\"O\n" +
+	"targetType\x12#\n" +
+	"\ttarget_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\btargetId\"W\n" +
 	"\x0fListBindingsReq\x12\x1f\n" +
 	"\vtarget_type\x18\x01 \x01(\tR\n" +
-	"targetType\x12\x1b\n" +
-	"\ttarget_id\x18\x02 \x01(\x03R\btargetId\"C\n" +
+	"targetType\x12#\n" +
+	"\ttarget_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\btargetId\"C\n" +
 	"\x0fListBindingsRsp\x120\n" +
-	"\x05items\x18\x01 \x03(\v2\x1a.knowledgebase.BindingItemR\x05items\"\xbc\x01\n" +
-	"\vBindingItem\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x13\n" +
-	"\x05kb_id\x18\x02 \x01(\x03R\x04kbId\x12\x17\n" +
+	"\x05items\x18\x01 \x03(\v2\x1a.knowledgebase.BindingItemR\x05items\"\xd4\x01\n" +
+	"\vBindingItem\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x1b\n" +
+	"\x05kb_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\x12\x17\n" +
 	"\akb_name\x18\x03 \x01(\tR\x06kbName\x12\x1f\n" +
 	"\vtarget_type\x18\x04 \x01(\tR\n" +
-	"targetType\x12\x1b\n" +
-	"\ttarget_id\x18\x05 \x01(\x03R\btargetId\x12\x1d\n" +
+	"targetType\x12#\n" +
+	"\ttarget_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\btargetId\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x12\x12\n" +
-	"\x04mode\x18\a \x01(\tR\x04mode\"*\n" +
-	"\x13ListBoundTargetsReq\x12\x13\n" +
-	"\x05kb_id\x18\x01 \x01(\x03R\x04kbId\"K\n" +
+	"\x04mode\x18\a \x01(\tR\x04mode\"2\n" +
+	"\x13ListBoundTargetsReq\x12\x1b\n" +
+	"\x05kb_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\"K\n" +
 	"\x13ListBoundTargetsRsp\x124\n" +
-	"\x05items\x18\x01 \x03(\v2\x1e.knowledgebase.BoundTargetItemR\x05items\"n\n" +
+	"\x05items\x18\x01 \x03(\v2\x1e.knowledgebase.BoundTargetItemR\x05items\"v\n" +
 	"\x0fBoundTargetItem\x12\x1f\n" +
 	"\vtarget_type\x18\x01 \x01(\tR\n" +
-	"targetType\x12\x1b\n" +
-	"\ttarget_id\x18\x02 \x01(\x03R\btargetId\x12\x1d\n" +
+	"targetType\x12#\n" +
+	"\ttarget_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\btargetId\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x03 \x01(\x03R\tcreatedAt\".\n" +
-	"\x15GetDocumentContentReq\x12\x15\n" +
-	"\x06doc_id\x18\x01 \x01(\x03R\x05docId\"\x8f\x01\n" +
+	"created_at\x18\x03 \x01(\x03R\tcreatedAt\"6\n" +
+	"\x15GetDocumentContentReq\x12\x1d\n" +
+	"\x06doc_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\"\x8f\x01\n" +
 	"\x16GetDocumentContentResp\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\tR\acontent\x12!\n" +
 	"\fdownload_url\x18\x02 \x01(\tR\vdownloadUrl\x12\x1b\n" +
 	"\tmime_type\x18\x03 \x01(\tR\bmimeType\x12\x1b\n" +
-	"\tfile_size\x18\x04 \x01(\x03R\bfileSize\"T\n" +
-	"\rListChunksReq\x12\x15\n" +
-	"\x06doc_id\x18\x01 \x01(\x03R\x05docId\x12\x16\n" +
+	"\tfile_size\x18\x04 \x01(\x03R\bfileSize\"\\\n" +
+	"\rListChunksReq\x12\x1d\n" +
+	"\x06doc_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x05R\x06offset\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\xc9\x01\n" +
-	"\tChunkInfo\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x15\n" +
-	"\x06doc_id\x18\x02 \x01(\x03R\x05docId\x12\x1f\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\xd9\x01\n" +
+	"\tChunkInfo\x12\x16\n" +
+	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x1d\n" +
+	"\x06doc_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\x12\x1f\n" +
 	"\vchunk_index\x18\x03 \x01(\x05R\n" +
 	"chunkIndex\x12\x18\n" +
 	"\acontent\x18\x04 \x01(\tR\acontent\x12\x1f\n" +
@@ -3194,10 +3267,16 @@ func file_knowledge_base_knowledge_base_proto_init() {
 	if File_knowledge_base_knowledge_base_proto != nil {
 		return
 	}
+	file_knowledge_base_knowledge_base_proto_msgTypes[0].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[1].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[5].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[10].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[14].OneofWrappers = []any{}
 	file_knowledge_base_knowledge_base_proto_msgTypes[15].OneofWrappers = []any{
 		(*UploadDocumentReq_Meta)(nil),
 		(*UploadDocumentReq_Content)(nil),
 	}
+	file_knowledge_base_knowledge_base_proto_msgTypes[23].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
