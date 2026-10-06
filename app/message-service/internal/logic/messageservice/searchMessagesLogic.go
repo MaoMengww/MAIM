@@ -76,8 +76,17 @@ func buildESQuery(in *message.SearchMessagesReq, page, pageSize int, convIDs []i
 	}
 
 	if keyword := in.GetKeyword(); keyword != "" {
+		// Every term the analyzer derives from the keyword must be present. A
+		// default OR match would let a single shared token match unrelated
+		// messages, and the max_word analyzer makes that common by splitting
+		// code-like text into single-character tokens.
 		musts = append(musts, map[string]any{
-			"match": map[string]any{"text": keyword},
+			"match": map[string]any{
+				"text": map[string]any{
+					"query":    keyword,
+					"operator": "and",
+				},
+			},
 		})
 	}
 

@@ -504,14 +504,15 @@ func (d *driver) personalDeletion(addressA, addressB string, sender, receiver ac
 	}
 	// The fences below search by message text and require exactly one hit, and the
 	// stored preview is compared as a whole. The deployed ik_max_word analyzer
-	// splits code-like text into single-character tokens, so a hex or digit
-	// keyword also matches every sibling fixture message; word tokens keep each
-	// keyword unique, and short words stay inside the stored preview length.
-	baseline, err := d.sendMessage(sender, convID, "保留基线", fallback.Seq)
+	// splits code-like text into single-character tokens, so both keywords here
+	// are code-like and share those single-character tokens: a query that settled
+	// for one shared token instead of the whole keyword would also return its
+	// sibling. Both texts stay inside the stored preview length.
+	baseline, err := d.sendMessage(sender, convID, "tok0e5b9d", fallback.Seq)
 	if err != nil {
 		return err
 	}
-	hidden, err := d.sendMessage(sender, convID, "隐藏原文", baseline.Seq)
+	hidden, err := d.sendMessage(sender, convID, "ovl52e0b93d", baseline.Seq)
 	if err != nil {
 		return err
 	}
