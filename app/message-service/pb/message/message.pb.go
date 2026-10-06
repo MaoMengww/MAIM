@@ -1639,7 +1639,7 @@ func (x *SendMessageResp) GetCreatedAt() int64 {
 type RecallMessageReq struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	MessageId      string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
-	ConversationId string                 `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	ConversationId *string                `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3,oneof" json:"conversation_id,omitempty"` // 未提供时由 message_id 定位；提供时校验一致性
 	UserId         string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -1683,8 +1683,8 @@ func (x *RecallMessageReq) GetMessageId() string {
 }
 
 func (x *RecallMessageReq) GetConversationId() string {
-	if x != nil {
-		return x.ConversationId
+	if x != nil && x.ConversationId != nil {
+		return *x.ConversationId
 	}
 	return ""
 }
@@ -1699,7 +1699,7 @@ func (x *RecallMessageReq) GetUserId() string {
 type EditMessageReq struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	MessageId      string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
-	ConversationId string                 `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	ConversationId *string                `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3,oneof" json:"conversation_id,omitempty"` // 未提供时由 message_id 定位；提供时校验一致性
 	UserId         string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Text           *TextContent           `protobuf:"bytes,10,opt,name=text,proto3" json:"text,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -1744,8 +1744,8 @@ func (x *EditMessageReq) GetMessageId() string {
 }
 
 func (x *EditMessageReq) GetConversationId() string {
-	if x != nil {
-		return x.ConversationId
+	if x != nil && x.ConversationId != nil {
+		return *x.ConversationId
 	}
 	return ""
 }
@@ -1767,7 +1767,7 @@ func (x *EditMessageReq) GetText() *TextContent {
 type DeleteMessageReq struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	MessageId      string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
-	ConversationId string                 `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	ConversationId *string                `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3,oneof" json:"conversation_id,omitempty"` // 未提供时由 message_id 定位；提供时校验一致性
 	UserId         string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	DeleteForAll   bool                   `protobuf:"varint,4,opt,name=delete_for_all,json=deleteForAll,proto3" json:"delete_for_all,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -1812,8 +1812,8 @@ func (x *DeleteMessageReq) GetMessageId() string {
 }
 
 func (x *DeleteMessageReq) GetConversationId() string {
-	if x != nil {
-		return x.ConversationId
+	if x != nil && x.ConversationId != nil {
+		return *x.ConversationId
 	}
 	return ""
 }
@@ -5771,25 +5771,28 @@ const file_message_service_message_proto_rawDesc = "" +
 	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tmessageId\x12\x18\n" +
 	"\x03seq\x18\x02 \x01(\x03B\x06\x88\xb8\xbf\x99\x0f\x01R\x03seq\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x03 \x01(\x03R\tcreatedAt\"\x8b\x01\n" +
+	"created_at\x18\x03 \x01(\x03R\tcreatedAt\"\xa4\x01\n" +
 	"\x10RecallMessageReq\x12%\n" +
 	"\n" +
-	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tmessageId\x12/\n" +
-	"\x0fconversation_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12\x1f\n" +
-	"\auser_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\"\xb3\x01\n" +
+	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tmessageId\x124\n" +
+	"\x0fconversation_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x0econversationId\x88\x01\x01\x12\x1f\n" +
+	"\auser_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userIdB\x12\n" +
+	"\x10_conversation_id\"\xcc\x01\n" +
 	"\x0eEditMessageReq\x12%\n" +
 	"\n" +
-	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tmessageId\x12/\n" +
-	"\x0fconversation_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12\x1f\n" +
+	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tmessageId\x124\n" +
+	"\x0fconversation_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x0econversationId\x88\x01\x01\x12\x1f\n" +
 	"\auser_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12(\n" +
 	"\x04text\x18\n" +
-	" \x01(\v2\x14.message.TextContentR\x04text\"\xb1\x01\n" +
+	" \x01(\v2\x14.message.TextContentR\x04textB\x12\n" +
+	"\x10_conversation_id\"\xca\x01\n" +
 	"\x10DeleteMessageReq\x12%\n" +
 	"\n" +
-	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tmessageId\x12/\n" +
-	"\x0fconversation_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12\x1f\n" +
+	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tmessageId\x124\n" +
+	"\x0fconversation_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x0econversationId\x88\x01\x01\x12\x1f\n" +
 	"\auser_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12$\n" +
-	"\x0edelete_for_all\x18\x04 \x01(\bR\fdeleteForAll\"I\n" +
+	"\x0edelete_for_all\x18\x04 \x01(\bR\fdeleteForAllB\x12\n" +
+	"\x10_conversation_id\"I\n" +
 	"\x11MessagePagination\x12\x14\n" +
 	"\x05limit\x18\x01 \x01(\x05R\x05limit\x12\x1e\n" +
 	"\x06cursor\x18\x02 \x01(\x03B\x06\x88\xb8\xbf\x99\x0f\x01R\x06cursor\"q\n" +
@@ -6505,6 +6508,9 @@ func file_message_service_message_proto_init() {
 		(*SendMessageReq_Location)(nil),
 		(*SendMessageReq_Custom)(nil),
 	}
+	file_message_service_message_proto_msgTypes[13].OneofWrappers = []any{}
+	file_message_service_message_proto_msgTypes[14].OneofWrappers = []any{}
+	file_message_service_message_proto_msgTypes[15].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[18].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[22].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[29].OneofWrappers = []any{}

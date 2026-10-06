@@ -407,7 +407,7 @@ CREATE TABLE IF NOT EXISTS bot.conv_summaries (
 
 CREATE TABLE IF NOT EXISTS bot.summary_todos (
     id          UUID PRIMARY KEY CHECK (id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    summary_id  UUID NOT NULL REFERENCES bot.conv_summaries(id) ON DELETE CASCADE CHECK (summary_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    summary_id  UUID REFERENCES bot.conv_summaries(id) ON DELETE CASCADE CHECK (summary_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     conv_id     UUID NOT NULL CHECK (conv_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     content     TEXT NOT NULL,
     done        BOOLEAN DEFAULT FALSE NOT NULL,

@@ -31,7 +31,7 @@ func TestSyncBoundaryUsesSafeJSONNumbers(t *testing.T) {
 		t.Fatal("serialized an unsafe sync position")
 	}
 	const id = "019b0123-4567-789a-bcde-f0123456789a"
-	raw, err = protocol.Marshal(&message.Message{MessageId: id, ConversationId: id, Seq: 1, CreatedAt: 9007199254740992})
+	raw, err = protocol.Marshal(&message.Message{MessageId: id, ConversationId: id, Seq: 1, Type: message.MessageType_MESSAGE_TYPE_TEXT, CreatedAt: 9007199254740992})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,6 +40,9 @@ func TestSyncBoundaryUsesSafeJSONNumbers(t *testing.T) {
 	}
 	if string(result["seq"]) != "1" || string(result["created_at"]) != `"9007199254740992"` {
 		t.Fatalf("sequence conversion altered an unrelated int64 contract: %s", raw)
+	}
+	if string(result["type"]) != "1" {
+		t.Fatalf("message type is not the existing numeric enum contract: %s", raw)
 	}
 }
 

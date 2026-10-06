@@ -60,6 +60,13 @@ func bindUserOwnedJSON(c *gin.Context, dst proto.Message) error {
 	if fields == nil {
 		return errors.New("request must be a JSON object")
 	}
+	for _, names := range [][2]string{{"owner_id", "ownerId"}, {"owner_type", "ownerType"}} {
+		if _, snake := fields[names[0]]; snake {
+			if _, camel := fields[names[1]]; camel {
+				return errors.New("duplicate ownership field")
+			}
+		}
+	}
 	for _, key := range []string{"owner_id", "ownerId"} {
 		if value, supplied := fields[key]; supplied {
 			var suppliedID string
@@ -85,6 +92,8 @@ func bindUserOwnedJSON(c *gin.Context, dst proto.Message) error {
 			}
 		}
 	}
+	delete(fields, "ownerId")
+	delete(fields, "ownerType")
 	fields["owner_type"] = json.RawMessage(`"user"`)
 	fields["owner_id"], err = json.Marshal(ownerID)
 	if err != nil {

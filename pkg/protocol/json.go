@@ -18,7 +18,7 @@ import (
 // marked safe_sequence become numbers; timestamps and counts keep their own
 // protobuf representation. Absent optional references remain absent.
 func Marshal(message proto.Message) ([]byte, error) {
-	raw, err := (protojson.MarshalOptions{UseProtoNames: true, EmitDefaultValues: true}).Marshal(message)
+	raw, err := (protojson.MarshalOptions{UseProtoNames: true, UseEnumNumbers: true, EmitDefaultValues: true}).Marshal(message)
 	if err != nil {
 		return nil, err
 	}

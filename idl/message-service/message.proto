@@ -238,20 +238,20 @@ message SendMessageResp {
 
 message RecallMessageReq {
   string message_id = 1 [(common.entity_id) = true];
-  string conversation_id = 2 [(common.entity_id) = true];
+  optional string conversation_id = 2 [(common.entity_id) = true]; // 未提供时由 message_id 定位；提供时校验一致性
   string user_id = 3 [(common.entity_id) = true];
 }
 
 message EditMessageReq {
   string message_id = 1 [(common.entity_id) = true];
-  string conversation_id = 2 [(common.entity_id) = true];
+  optional string conversation_id = 2 [(common.entity_id) = true]; // 未提供时由 message_id 定位；提供时校验一致性
   string user_id = 3 [(common.entity_id) = true];
   TextContent text = 10;
 }
 
 message DeleteMessageReq {
   string message_id = 1 [(common.entity_id) = true];
-  string conversation_id = 2 [(common.entity_id) = true];
+  optional string conversation_id = 2 [(common.entity_id) = true]; // 未提供时由 message_id 定位；提供时校验一致性
   string user_id = 3 [(common.entity_id) = true];
   bool delete_for_all = 4;
 }

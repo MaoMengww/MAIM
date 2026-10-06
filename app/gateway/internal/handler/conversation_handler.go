@@ -218,7 +218,7 @@ func (h *ConversationHandler) GetMembers(c *gin.Context) {
 	if !requirePathIdentities(c, "id") {
 		return
 	}
-	req := &message.GetMembersReq{ConversationId: c.Param("id")}
+	req := &message.GetMembersReq{ConversationId: c.Param("id"), UserId: c.GetString(middleware.CtxKeyUserID)}
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, req) {
 		return
@@ -288,7 +288,6 @@ func (h *ConversationHandler) UpdateMember(c *gin.Context) {
 	}
 	req.ConversationId = c.Param("id")
 	req.UserId = c.Param("uid")
-	req.OperatorId = c.GetString(middleware.CtxKeyUserID)
 	req.OperatorId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, &req) {
@@ -480,7 +479,7 @@ func (h *ConversationHandler) GetSettings(c *gin.Context) {
 	if !requirePathIdentities(c, "id") {
 		return
 	}
-	req := &message.GetSettingsReq{ConversationId: c.Param("id")}
+	req := &message.GetSettingsReq{ConversationId: c.Param("id"), UserId: c.GetString(middleware.CtxKeyUserID)}
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, req) {
 		return
@@ -503,6 +502,7 @@ func (h *ConversationHandler) MarkAsRead(c *gin.Context) {
 		return
 	}
 	req.ConversationId = c.Param("id")
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, &req) {
 		return
