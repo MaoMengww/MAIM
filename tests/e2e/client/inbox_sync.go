@@ -768,7 +768,9 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 		var changes []inboxChange
 		deadline := time.Now().Add(d.timeout)
 		for time.Now().Before(deadline) {
-			page, err := d.inboxRead(step, member, position, 50)
+			bounded := *d
+			bounded.timeout = time.Until(deadline)
+			page, err := bounded.inboxRead(step, member, position, 50)
 			if err != nil {
 				return nil, err
 			}
@@ -780,7 +782,7 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 			if !page.HasMore && matches(changes) {
 				return changes, nil
 			}
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(min(50*time.Millisecond, max(0, time.Until(deadline))))
 		}
 		return nil, fmt.Errorf("%s: expected changes did not converge", step)
 	}
@@ -848,6 +850,7 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 	if err != nil {
 		return err
 	}
+	replayCheckpoint := position
 	edits := 0
 	for _, change := range changes {
 		if change.Kind == "message.edited" && change.Message.MessageID == sent[0].MessageID {
@@ -879,12 +882,51 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 			return err
 		}
 	}
-	replay, err := d.inboxRead("mutation-replay-idempotent", member, offlinePosition, 50)
-	if err != nil {
-		return err
+	// collect observes several committed snapshots, not a frozen stream tail.
+	// A deleted message's older references already hydrate as tombstones while
+	// its deletion event can still be pending. Replay the captured prefix by
+	// position and identity; later committed entries are outside that prefix.
+	replayPosition := offlinePosition
+	replayed := 0
+	replayDeadline := time.Now().Add(d.timeout)
+	for replayPosition < replayCheckpoint {
+		remaining := time.Until(replayDeadline)
+		if remaining <= 0 {
+			return fmt.Errorf("mutation-replay-idempotent: replay timed out at %s before captured checkpoint %s", replayPosition, replayCheckpoint)
+		}
+		bounded := *d
+		bounded.timeout = remaining
+		page, err := bounded.inboxRead("mutation-replay-idempotent", member, replayPosition, 50)
+		if err != nil {
+			return err
+		}
+		if page.RebuildRequired {
+			return errors.New("mutation-replay-idempotent: valid captured checkpoint rebuilt")
+		}
+		for _, change := range page.Changes {
+			if change.Position > replayCheckpoint {
+				break
+			}
+			if replayed >= len(changes) {
+				return fmt.Errorf("mutation-replay-idempotent: unexpected change at captured position %s", change.Position)
+			}
+			expected := changes[replayed]
+			sameMessageID := change.MessageID == nil && expected.MessageID == nil
+			if expected.MessageID != nil {
+				sameMessageID = hasEntityID(change.MessageID, *expected.MessageID)
+			}
+			if change.Position != expected.Position || change.Kind != expected.Kind || change.ConversationID != expected.ConversationID || change.Message.MessageID != expected.Message.MessageID || !sameMessageID {
+				return fmt.Errorf("mutation-replay-idempotent: change identity altered at captured position %s (replayed position=%s kind=%s conversation_id=%s message_id=%s)", expected.Position, change.Position, change.Kind, change.ConversationID, change.Message.MessageID)
+			}
+			replayed++
+		}
+		replayPosition = page.NextPosition
+		if !page.HasMore && replayPosition < replayCheckpoint {
+			time.Sleep(min(50*time.Millisecond, max(0, time.Until(replayDeadline))))
+		}
 	}
-	if replay.NextPosition != position || len(replay.Changes) != len(changes) {
-		return errors.New("re-reading changes altered the user stream")
+	if replayed != len(changes) {
+		return fmt.Errorf("mutation-replay-idempotent: replay through checkpoint %s lost %d captured changes", replayCheckpoint, len(changes)-replayed)
 	}
 	// Online mutation emits a wakeup; its authoritative body is the same sync page.
 	if err := d.request(http.MethodPut, "/messages/"+sent[0].MessageID.String(), owner.token, map[string]any{"text": "online_" + suffix}, nil); err != nil {

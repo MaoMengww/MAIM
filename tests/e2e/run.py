@@ -258,12 +258,17 @@ class Runner:
         services["e2e-provider"]["healthcheck"] = self.health("http", "http://127.0.0.1:8099/health")
         # Keep real middleware, using bounded Java heaps on developer/CI machines.
         services["kafka"]["environment"]["KAFKA_HEAP_OPTS"] = "-Xmx512m -Xms256m"
-        services["elasticsearch"]["environment"]["ES_JAVA_OPTS"] = "-Xms512m -Xmx512m"
+        services["elasticsearch"]["environment"]["ES_JAVA_OPTS"] = "-Xms256m -Xmx256m"
         services["neo4j"]["environment"].update({
-            "NEO4J_dbms_memory_pagecache_size": "256m",
+            "NEO4J_dbms_memory_pagecache_size": "128m",
             "NEO4J_dbms_memory_heap_initial__size": "256m",
-            "NEO4J_dbms_memory_heap_max__size": "512m",
+            "NEO4J_dbms_memory_heap_max__size": "256m",
         })
+        services["milvus"]["environment"].update({"GOMAXPROCS": "2", "OMP_NUM_THREADS": "2"})
+        if "file-service" in self.applications:
+            # Signed URLs used by the acceptance client resolve inside its network.
+            for name in self.applications:
+                services[name].setdefault("environment", {})["MINIO_PUBLIC_ENDPOINT"] = "minio:9000"
         if self.args.scenario in {"user-identity", "attachments"} or self.args.scenario in MESSAGING_SCENARIOS | BOT_RUNTIME_SCENARIOS:
             keep = self.applications | {"realtime-b", "postgres", "redis", "kafka",
                                         "init-kafka-topics", "otel-collector", "jaeger"}
@@ -271,9 +276,6 @@ class Runner:
                 keep.add("elasticsearch")
             if "file-service" in self.applications:
                 keep.add("minio")
-                # URLs consumed by the container acceptance client must resolve inside this network.
-                for name in self.applications:
-                    services[name].setdefault("environment", {})["MINIO_PUBLIC_ENDPOINT"] = "minio:9000"
             if self.args.scenario in BOT_RUNTIME_SCENARIOS:
                 # Knowledge composition and memory use the real ingest, graph,
                 # vector and object stores; only the external provider is simulated.

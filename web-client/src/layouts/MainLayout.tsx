@@ -59,15 +59,15 @@ export function MainLayout() {
       void queryClient.cancelQueries({ queryKey: ['conversations'] });
       queryClient.setQueryData(['conversations'], { list: conversations, total: conversations.length });
       void queryClient.cancelQueries({ queryKey: ['conversation'] });
-      const ids = new Set(conversations.map((conversation) => String(conversation.id)));
+      const ids = new Set(conversations.map((conversation) => conversation.id));
       for (const [key] of queryClient.getQueriesData({ queryKey: ['conversation'] })) {
-        if (!ids.has(String(key[1]))) {
+        if (typeof key[1] !== 'string' || !ids.has(key[1])) {
           queryClient.removeQueries({ queryKey: key, exact: true });
           queryClient.removeQueries({ queryKey: ['conv-members', key[1]], exact: true });
         }
       }
       for (const conversation of conversations) {
-        queryClient.setQueryData(['conversation', String(conversation.id)], conversation);
+        queryClient.setQueryData(['conversation', conversation.id], conversation);
       }
       void queryClient.invalidateQueries({ queryKey: ['conv-members'] });
     });

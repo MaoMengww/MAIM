@@ -1,8 +1,9 @@
 # MinIO - bitnami/minio
+fullnameOverride: aim-minio
 auth:
   rootUser: minioadmin
   rootPassword: minioadmin123
-defaultBuckets: "aim"
+defaultBuckets: "aim,aim-milvus"
 persistence:
   size: 10Gi
   storageClass: local-path

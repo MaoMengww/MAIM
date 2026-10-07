@@ -162,7 +162,7 @@ export function ConvListPage() {
   }, [friends]);
 
   // Build a map from conv_id to conversation for search results
-  const convMap = new Map(conversations.map((c: Conversation) => [String(c.id), c]));
+  const convMap = new Map(conversations.map((c: Conversation) => [c.id, c]));
 
   // Enrich previews: fetch last message content for group chats (add sender name)
   useEffect(() => {
@@ -170,7 +170,7 @@ export function ConvListPage() {
 
     const toFetch = conversations.filter(c => {
       if (!c.last_message_id) return false;
-      if (previewMap[String(c.id)]) return false; // already fetched
+      if (previewMap[c.id]) return false; // already fetched
       return c.type === 'group' || !c.last_message_preview;
     }).slice(0, 30);
 
@@ -193,9 +193,9 @@ export function ConvListPage() {
           const sender = friends.find((f: any) => f.user_id === msg.from_user_id);
           const name = sender?.remark || sender?.username
             || (msg.from_user_id === useAuthStore.getState().user?.id ? useAuthStore.getState().user?.username : undefined);
-          updates[String(conv.id)] = name ? `${name}: ${text}` : text;
+          updates[conv.id] = name ? `${name}: ${text}` : text;
         } else {
-          updates[String(conv.id)] = text;
+          updates[conv.id] = text;
         }
       });
 
@@ -309,7 +309,7 @@ export function ConvListPage() {
       message.success('已删除会话');
       queryClient.setQueryData(['conversations'], (old: any) => {
         if (!old?.list) return old;
-        return { ...old, list: old.list.filter((c: any) => String(c.id) !== String(id)) };
+        return { ...old, list: old.list.filter((c: Conversation) => c.id !== id) };
       });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       navigate('/conversations');
@@ -324,7 +324,7 @@ export function ConvListPage() {
       message.success('已退出群聊');
       queryClient.setQueryData(['conversations'], (old: any) => {
         if (!old?.list) return old;
-        return { ...old, list: old.list.filter((c: any) => String(c.id) !== String(convId)) };
+        return { ...old, list: old.list.filter((c: Conversation) => c.id !== convId) };
       });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       navigate('/conversations');
@@ -541,7 +541,7 @@ export function ConvListPage() {
           {!searchQuery.trim() && conversations.map((conv) => (
             <div key={conv.id} className="conv-item-row">
               <div
-                className={`conv-item ${String(activeId) === String(conv.id) ? 'active' : ''}`}
+                className={`conv-item ${activeId === conv.id ? 'active' : ''}`}
                 onClick={() => navigate(`/conversations/${conv.id}`)}
               >
                 <div className="conv-item-avatar">
@@ -568,7 +568,7 @@ export function ConvListPage() {
                   </div>
                   <div className="conv-item-bottom">
                     <span className="conv-item-preview">
-                      {truncate(previewMap[String(conv.id)] ?? conv.last_message_preview) || (conv.type === 'group' ? `共${conv.member_count}人` : '')}
+                      {truncate(previewMap[conv.id] ?? conv.last_message_preview) || (conv.type === 'group' ? `共${conv.member_count}人` : '')}
                     </span>
                   </div>
                 </div>

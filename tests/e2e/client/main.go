@@ -210,13 +210,16 @@ func run(args []string) error {
 	case "all":
 		scenarios = []scenarioSpec{
 			{"relationships", "", ""},
+			{"user-identity", *realtimeA, *realtimeB},
 			{"conversations", *realtimeA, *realtimeA},
+			{"conversation-unread", *realtimeA, *realtimeB},
 			{"broadcasts", *realtimeA, *realtimeB},
 			{"user-sync", *realtimeA, *realtimeB},
 			{"attachments", *realtimeA, *realtimeB},
 			{"same-instance-a", *realtimeA, *realtimeA},
 			{"same-instance-b", *realtimeB, *realtimeB},
 			{"bot-runtime", *realtimeA, *realtimeA},
+			{"bot-runtime-cross-instance", *realtimeA, *realtimeB},
 			{"knowledge-ingest", "", ""},
 			{"cross-instance", *realtimeA, *realtimeB},
 		}

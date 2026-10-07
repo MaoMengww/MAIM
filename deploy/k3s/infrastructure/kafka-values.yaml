@@ -1,4 +1,5 @@
 # Kafka KRaft mode - bitnami/kafka
+fullnameOverride: aim-kafka
 replicaCount: 1
 controller:
   replicaCount: 1
@@ -8,7 +9,25 @@ listeners:
 provisioning:
   enabled: true
   topics:
-    - name: aim-events
+    - name: message.created
+      partitions: 3
+      replicationFactor: 1
+    - name: message.recalled
+      partitions: 3
+      replicationFactor: 1
+    - name: message.edited
+      partitions: 3
+      replicationFactor: 1
+    - name: conversation.read.updated
+      partitions: 3
+      replicationFactor: 1
+    - name: conversation.bot.added
+      partitions: 3
+      replicationFactor: 1
+    - name: delivery.requested
+      partitions: 3
+      replicationFactor: 1
+    - name: message.created.dlq
       partitions: 3
       replicationFactor: 1
 persistence:

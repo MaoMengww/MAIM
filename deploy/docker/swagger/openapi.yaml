@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 info:
   title: AIM API
-  description: AIM Backend API - 即时通讯与AI助手平台
+  description: AIM Backend API - 即时通讯与AI助手平台。持久实体身份为所属 domain 生成的标准小写 UUIDv7 字符串，不参与业务排序；seq/position 与历史分页序号为 0..9007199254740991 的 JSON number（整数），真实追加从 1 起。可选引用通过省略字段或明确 null 表达缺失，禁止 0、空字符串或全零 UUID。设备、JWT、provider、模板与客户端 UUIDv4 提交键保持各自专用合同。
   version: "1.0.0"
 
 servers:
@@ -440,14 +440,17 @@ components:
           type: boolean
         theme:
           type: string
-          enum: [light, dark, auto]
+          enum:
+          - light
+          - dark
+          - auto
         settings_json:
           type: string
           description: 扩展设置 JSON
         ai_model_id:
           type: string
           format: uuid
-          description: 未配置时缺失
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         ai_model_name:
           type: string
 
@@ -464,19 +467,27 @@ components:
           type: boolean
         theme:
           type: string
-          enum: [light, dark, auto]
+          enum:
+          - light
+          - dark
+          - auto
         settings_json:
           type: string
-
         ai_model_id:
           type: string
           format: uuid
-          description: 省略保持；与 clear_ai_model_id 同时提供时拒绝
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         ai_model_name:
           type: string
         clear_ai_model_id:
           type: boolean
           description: true 解除模型引用
+      allOf:
+      - not:
+          required: [clear_ai_model_id, ai_model_id]
+          properties:
+            clear_ai_model_id:
+              enum: [true]
 
     # ========== Friend ==========
     SendRequestReq:
@@ -539,7 +550,7 @@ components:
         group_id:
           type: string
           format: uuid
-          description: 按分组过滤
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         pagination:
           $ref: '#/components/schemas/Pagination'
 
@@ -559,7 +570,7 @@ components:
         group_id:
           type: string
           format: uuid
-          description: 未分组时缺失
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         group_name:
           type: string
         created_at:
@@ -592,10 +603,16 @@ components:
         group_id:
           type: string
           format: uuid
-          description: 省略表示保持；与 clear_group_id 同时提供时拒绝
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         clear_group_id:
           type: boolean
           description: true 表示解除分组引用
+      allOf:
+      - not:
+          required: [clear_group_id, group_id]
+          properties:
+            clear_group_id:
+              enum: [true]
 
     CreateGroupReq:
       type: object
@@ -679,8 +696,12 @@ components:
     # ========== Conversation ==========
     ConversationType:
       type: integer
-      enum: [0, 1, 2]
-      description: "0: unspecified, 1: private, 2: group"
+      enum:
+      - 0
+      - 1
+      - 2
+      - 3
+      description: '0: unspecified, 1: private, 2: group, 3: system'
 
     MemberRole:
       type: integer
@@ -691,8 +712,8 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         type:
           $ref: '#/components/schemas/ConversationType'
         name:
@@ -700,21 +721,29 @@ components:
         avatar:
           type: string
         owner_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 无拥有者时缺失；不改变系统会话的归属规则
         member_count:
           type: integer
         max_seq:
           type: integer
           format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号，不是实体身份
         last_message_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 会话尚无消息时缺失
         last_message_preview:
           type: string
         last_read_seq:
           type: integer
           format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号，不是实体身份
         unread_count:
           type: integer
         is_muted:
@@ -733,13 +762,16 @@ components:
         updated_at:
           type: integer
           format: int64
+      required:
+      - id
 
     ConversationMember:
       type: object
       properties:
         user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         username:
           type: string
         avatar:
@@ -755,43 +787,65 @@ components:
         last_read_seq:
           type: integer
           format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号，不是实体身份
         is_muted:
           type: boolean
         mute_until:
           type: integer
           format: int64
           description: 禁言截止时间戳，0 表示永久禁言
+        bot_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        member_type:
+          type: integer
+          enum:
+          - 0
+          - 1
+          - 2
+        bot_name:
+          type: string
+        bot_avatar:
+          type: string
+      description: member_type=1 (USER) 仅含 user_id；member_type=2 (BOT) 仅含 bot_id；另一引用缺失
 
     CreateConversationReq:
       type: object
       required:
-        - type
+      - type
       properties:
         type:
           $ref: '#/components/schemas/ConversationType'
         peer_user_id:
-          type: integer
-          format: int64
-          description: "私聊时: 对方用户 ID"
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         name:
           type: string
-          description: "群聊时: 群名称"
+          description: '群聊时: 群名称'
         avatar:
           type: string
           description: 群头像
         member_ids:
           type: array
           items:
-            type: integer
-            format: int64
-          description: "群聊时: 初始成员列表"
+            type: string
+            format: uuid
+          description: '群聊时: 初始成员列表'
+        bot_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
 
     CreateConversationResp:
       type: object
       properties:
         conversation_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         conversation:
           $ref: '#/components/schemas/Conversation'
 
@@ -824,13 +878,13 @@ components:
     AddMembersReq:
       type: object
       required:
-        - user_ids
+      - user_ids
       properties:
         user_ids:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
 
     AddMembersResp:
       type: object
@@ -838,24 +892,24 @@ components:
         added_user_ids:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
         failed_user_ids:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
 
     RemoveMembersReq:
       type: object
       required:
-        - user_ids
+      - user_ids
       properties:
         user_ids:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
 
     GetMembersResp:
       type: object
@@ -897,11 +951,11 @@ components:
     TransferOwnerReq:
       type: object
       required:
-        - new_owner_id
+      - new_owner_id
       properties:
         new_owner_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
 
     UpdateConversationSettingsReq:
       type: object
@@ -925,17 +979,25 @@ components:
         seq:
           type: integer
           format: int64
-          description: 已读到的消息 seq
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号，不是实体身份
 
     ReadUser:
       type: object
       properties:
         user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         read_at:
           type: integer
           format: int64
+        last_read_seq:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号，不是实体身份
 
     GetReadStatusResp:
       type: object
@@ -968,8 +1030,8 @@ components:
         mention_user_ids:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
         mention_all:
           type: boolean
 
@@ -977,8 +1039,8 @@ components:
       type: object
       properties:
         file_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         url:
           type: string
         thumbnail_url:
@@ -997,8 +1059,8 @@ components:
       type: object
       properties:
         file_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         url:
           type: string
         name:
@@ -1015,8 +1077,8 @@ components:
       type: object
       properties:
         file_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         url:
           type: string
         thumbnail_url:
@@ -1035,8 +1097,8 @@ components:
       type: object
       properties:
         file_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         url:
           type: string
         duration:
@@ -1069,15 +1131,23 @@ components:
         related_user_ids:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
+        actor_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        actor_type:
+          type: string
+        payload:
+          type: string
 
     BotContent:
       type: object
       properties:
         bot_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         bot_name:
           type: string
         bot_avatar:
@@ -1103,17 +1173,21 @@ components:
       type: object
       properties:
         message_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         conversation_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         seq:
           type: integer
           format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号，不是实体身份
         from_user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 用户消息含用户 UUID；Bot/系统消息缺失，发送者由 bot/系统载荷表达
         type:
           $ref: '#/components/schemas/MessageType'
         status:
@@ -1137,8 +1211,9 @@ components:
         custom:
           $ref: '#/components/schemas/CustomContent'
         reply_to_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         edited_at:
           type: integer
           format: int64
@@ -1150,76 +1225,160 @@ components:
         updated_at:
           type: integer
           format: int64
+        reply_to:
+          $ref: '#/components/schemas/ReplyMessageSummary'
+      required:
+      - message_id
+      - conversation_id
 
     SendMessageReq:
       type: object
       required:
-        - conversation_id
-        - type
+      - conversation_id
+      - content
+      - client_msg_id
       properties:
         conversation_id:
-          type: integer
-          format: int64
-        type:
-          $ref: '#/components/schemas/MessageType'
-        text:
-          $ref: '#/components/schemas/TextContent'
-        image:
-          $ref: '#/components/schemas/ImageContent'
-        file:
-          $ref: '#/components/schemas/FileContent'
-        video:
-          $ref: '#/components/schemas/VideoContent'
-        audio:
-          $ref: '#/components/schemas/AudioContent'
-        location:
-          $ref: '#/components/schemas/LocationContent'
-        custom:
-          $ref: '#/components/schemas/CustomContent'
-        reply_to_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         client_msg_id:
           type: string
-          description: 客户端消息 ID，用于去重
+          format: uuid
+          description: 客户端生成的 UUIDv4 提交键；同一发送重试复用，作用域为发送者与会话；不是消息实体 ID
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        reply_to_msg_id:
+          type: string
+          format: uuid
+          description: 无回复时省略；必须是消息实体 UUID
+        content:
+          type: object
+          description: 文本发送使用 text；附件发送使用 files 的首个 file_id，消息类型与元数据由服务解析
+          properties:
+            text:
+              type: string
+            mentions:
+              type: array
+              items:
+                type: string
+                format: uuid
+            mention_user_ids:
+              type: array
+              items:
+                type: string
+                format: uuid
+            mention_all:
+              type: boolean
+            files:
+              type: array
+              items:
+                $ref: '#/components/schemas/AttachmentContent'
 
     SendMessageResp:
       type: object
+      required:
+      - id
+      - message_id
+      - conv_id
+      - from_user_id
+      - seq
+      - client_msg_id
       properties:
+        id:
+          type: string
+          format: uuid
         message_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+        conv_id:
+          type: string
+          format: uuid
+        from_user_id:
+          type: string
+          format: uuid
         seq:
           type: integer
           format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号
+        type:
+          $ref: '#/components/schemas/MessageType'
         created_at:
-          type: integer
-          format: int64
+          type: string
+          description: 十进制时间戳；不是业务序号
+        client_msg_id:
+          type: string
+          format: uuid
+          description: 客户端生成的 UUIDv4 提交键；同一发送重试复用，作用域为发送者与会话；不是消息实体 ID
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        reply_to_msg_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 无回复时为 null
+        content:
+          type: object
+          description: 确认正文包含文本/UUID 提及，或服务解析后的附件元数据；嵌套 file_id 使用 UUID 字符串
+          properties:
+            text:
+              type: string
+            mentions:
+              type: array
+              items:
+                type: string
+                format: uuid
+            mention_user_ids:
+              type: array
+              items:
+                type: string
+                format: uuid
+            files:
+              type: array
+              items:
+                type: object
+                required:
+                - file_id
+                properties:
+                  file_id:
+                    type: string
+                    format: uuid
+                  file_name:
+                    type: string
+                  mime_type:
+                    type: string
+                  size:
+                    type: integer
+                    format: int64
+                  duration:
+                    type: integer
+                  width:
+                    type: integer
+                  height:
+                    type: integer
 
     RecallMessageReq:
       type: object
       properties:
         conversation_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
 
     EditMessageReq:
       type: object
       required:
-        - text
+      - text
       properties:
-        conversation_id:
-          type: integer
-          format: int64
         text:
-          $ref: '#/components/schemas/TextContent'
+          type: string
 
     DeleteMessageReq:
       type: object
       properties:
         conversation_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         delete_for_all:
           type: boolean
           default: false
@@ -1230,14 +1389,28 @@ components:
         position:
           type: integer
           format: int64
-          description: 用户流中的独立位点，与会话 seq 无关
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号，不是实体身份
         conversation_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         kind:
           type: string
         message:
           $ref: '#/components/schemas/Message'
+        message_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        conversation:
+          $ref: '#/components/schemas/Conversation'
+        last_read_seq:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号，不是实体身份
 
     ConversationSnapshot:
       type: object
@@ -1264,7 +1437,9 @@ components:
         next_position:
           type: integer
           format: int64
-          description: 增量为本页最后返回的位置；重建为可继续增量的正位点
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号，不是实体身份
         rebuild_required:
           type: boolean
           description: 为 true 时使用完整快照重建本地会话状态，不视为普通增量
@@ -1275,8 +1450,11 @@ components:
             $ref: '#/components/schemas/ConversationSnapshot'
         rebuild_reason:
           type: string
-          description: 仅重建时返回；零位点为 new_device，未知位点（含负位点）为 unknown_position，超过保留期为 expired_position
-          enum: [new_device, unknown_position, expired_position]
+          description: 仅重建时返回；零位点为 new_device，安全整数范围内未知位点为 unknown_position，超过保留期为 expired_position；负数、分数或越界输入拒绝
+          enum:
+          - new_device
+          - unknown_position
+          - expired_position
 
     GetMessageByIDResp:
       type: object
@@ -1287,17 +1465,17 @@ components:
     ForwardMessageReq:
       type: object
       required:
-        - message_ids
-        - target_conversation_id
+      - message_ids
+      - target_conversation_id
       properties:
         message_ids:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
         target_conversation_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
 
     ForwardMessageResp:
       type: object
@@ -1305,19 +1483,20 @@ components:
         message_ids:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
 
     SearchMessagesReq:
       type: object
       required:
-        - keyword
+      - keyword
       properties:
         keyword:
           type: string
         conversation_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         start_time:
           type: integer
           format: int64
@@ -1326,6 +1505,12 @@ components:
           format: int64
         pagination:
           $ref: '#/components/schemas/Pagination'
+        sender_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        sender_type:
+          type: string
 
     SearchMessagesResp:
       type: object
@@ -1345,7 +1530,7 @@ components:
           items:
             $ref: '#/components/schemas/Message'
         pagination:
-          $ref: '#/components/schemas/CursorPaginationResp'
+          $ref: '#/components/schemas/MessagePaginationResp'
 
     # ========== File ==========
     FilePurpose:
@@ -1362,8 +1547,8 @@ components:
       type: object
       properties:
         file_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         name:
           type: string
         key:
@@ -1388,13 +1573,16 @@ components:
         access:
           $ref: '#/components/schemas/FileAccess'
         uploader_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         bucket:
           type: string
         created_at:
           type: integer
           format: int64
+      required:
+      - file_id
+      - uploader_id
 
     GetUploadURLReq:
       type: object
@@ -1426,8 +1614,8 @@ components:
       type: object
       properties:
         file_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         upload_url:
           type: string
         key:
@@ -1439,11 +1627,11 @@ components:
     ConfirmUploadReq:
       type: object
       required:
-        - file_id
+      - file_id
       properties:
         file_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         md5:
           type: string
           description: 可选的文件 MD5
@@ -1475,27 +1663,29 @@ components:
     SendBroadcastReq:
       type: object
       required:
-        - content
-        - scope
+      - content
+      - scope
       properties:
         content:
           type: string
           description: JSON 格式的广播内容
         scope:
           type: string
-          enum: [all, group]
+          enum:
+          - all
+          - group
           description: 广播范围
         scope_target_id:
-          type: integer
-          format: int64
-          description: 范围目标 ID
+          type: string
+          format: uuid
+          description: scope=all 时缺失；scope=user/group 时为目标实体 UUID
 
     SendBroadcastResp:
       type: object
       properties:
         broadcast_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         created_at:
           type: integer
           format: int64
@@ -1527,10 +1717,18 @@ components:
         reference_id:
           type: string
           format: uuid
-          description: 本地实体引用，与 reference_type 一同提供或一同缺失
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         reference_type:
           type: string
-          enum: [user, friend_request, conversation, message, bot, knowledge_base, document, model]
+          enum:
+          - user
+          - friend_request
+          - conversation
+          - message
+          - bot
+          - knowledge_base
+          - document
+          - model
         created_at:
           type: integer
           format: int64
@@ -1549,59 +1747,70 @@ components:
     PipelineConfig:
       type: object
       properties:
-        preset:
-          type: string
-          enum: [general, tech_doc, legal, customer_service, academic, custom]
         parsing:
           type: object
           properties:
-            strategy:
-              type: string
-              enum: [builtin, mineru, self_developed, self_first, mineru_first]
-            mineru_url:
-              type: string
-            preserve_structure:
-              type: boolean
-              default: true
-            extract_headers_footers:
-              type: boolean
-              default: false
-            table_mode:
-              type: string
-              enum: [text, markdown, ignore]
-            image_mode:
-              type: string
-              enum: [ignore, ocr]
-            max_file_size:
-              type: integer
-              format: int64
-              description: 字节数，默认 10MB
-            encoding_detection:
-              type: boolean
-              default: true
+            engines:
+              type: array
+              items:
+                type: string
+            mineru_precision:
+              type: object
+              properties:
+                api_url:
+                  type: string
+                api_token:
+                  type: string
+                api_key:
+                  type: string
+            mineru_agent:
+              type: object
+              properties:
+                api_url:
+                  type: string
+                api_token:
+                  type: string
+                api_key:
+                  type: string
+            vlm:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                provider:
+                  type: string
+                model:
+                  type: string
+                api_key:
+                  type: string
+                base_url:
+                  type: string
+                model_id:
+                  type: string
+                  format: uuid
+                  description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+                clear_model_id:
+                  type: boolean
+                  description: true 解除对应引用；省略引用且此值为 false 保持；同时提供引用与 true 拒绝
+              allOf:
+              - not:
+                  required: [model_id, clear_model_id]
+                  properties:
+                    clear_model_id:
+                      enum: [true]
         chunking:
           type: object
           properties:
-            strategy:
-              type: string
-              enum: [recursive, fixed_size, sentence, markdown]
             chunk_size:
               type: integer
-              description: tokens，默认 512
+              format: int32
             overlap:
               type: integer
-              description: tokens，默认 128
+              format: int32
             separators:
               type: array
               items:
                 type: string
-            header_level:
-              type: integer
-              minimum: 1
-              maximum: 6
-            min_chunk_size:
-              type: integer
-              default: 50
             parent_child:
               type: object
               properties:
@@ -1609,58 +1818,62 @@ components:
                   type: boolean
                 parent_size:
                   type: integer
-                  description: tokens，默认 1024
+                  format: int32
                 child_size:
                   type: integer
-                  description: tokens，默认 256
-                child_overlap:
-                  type: integer
-                  description: tokens，默认 64
+                  format: int32
         retrieval:
           type: object
           properties:
             mode:
               type: string
-              enum: [vector, hybrid, fulltext]
             top_k:
               type: integer
-              default: 5
+              format: int32
             candidate_top_k:
               type: integer
-              default: 20
+              format: int32
             score_threshold:
               type: number
               format: float
-              default: 0.7
             dense_weight:
               type: number
               format: float
-              default: 0.7
             sparse_weight:
               type: number
               format: float
-              default: 0.3
             rerank:
               type: object
               properties:
                 enabled:
                   type: boolean
-                model:
+                model_id:
                   type: string
-                  example: bge-reranker-v2-m3
+                  format: uuid
+                  description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
                 top_n:
                   type: integer
-                  default: 20
+                  format: int32
+                clear_model_id:
+                  type: boolean
+                  description: true 解除对应引用；省略引用且此值为 false 保持；同时提供引用与 true 拒绝
+              allOf:
+              - not:
+                  required: [model_id, clear_model_id]
+                  properties:
+                    clear_model_id:
+                      enum: [true]
 
     KB:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         owner_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         name:
           type: string
         description:
@@ -1682,11 +1895,38 @@ components:
         updated_at:
           type: integer
           format: int64
+        embedding_model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        owner_type:
+          type: string
+          enum:
+          - platform
+          - user
+          description: platform 不含用户 owner_id；user 必须含有效 owner_id；不改变既有管理权限
+      required:
+      - id
+      - owner_type
+      oneOf:
+      - properties:
+          owner_type:
+            enum:
+            - user
+        required:
+        - owner_id
+      - properties:
+          owner_type:
+            enum:
+            - platform
+        not:
+          required:
+          - owner_id
 
     CreateKBReq:
       type: object
       required:
-        - name
+      - name
       properties:
         name:
           type: string
@@ -1697,6 +1937,10 @@ components:
           default: text-embedding-3-small
         pipeline_config:
           $ref: '#/components/schemas/PipelineConfig'
+        embedding_model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
 
     UpdateKBReq:
       type: object
@@ -1711,7 +1955,22 @@ components:
           $ref: '#/components/schemas/PipelineConfig'
         status:
           type: string
-          enum: [active, disabled]
+          enum:
+          - active
+          - disabled
+        embedding_model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        clear_embedding_model_id:
+          type: boolean
+          description: true 解除对应引用；省略引用且此值为 false 保持；同时提供引用与 true 拒绝
+      allOf:
+      - not:
+          required: [clear_embedding_model_id, embedding_model_id]
+          properties:
+            clear_embedding_model_id:
+              enum: [true]
 
     ListKBsResp:
       type: object
@@ -1728,16 +1987,21 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         kb_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         title:
           type: string
         file_type:
           type: string
-          enum: [pdf, md, txt, docx, html]
+          enum:
+          - pdf
+          - md
+          - txt
+          - docx
+          - html
         file_size:
           type: integer
           format: int64
@@ -1745,7 +2009,13 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, parsing, chunking, embedding, ready, failed]
+          enum:
+          - pending
+          - parsing
+          - chunking
+          - embedding
+          - ready
+          - failed
         chunk_count:
           type: integer
         error_message:
@@ -1760,7 +2030,10 @@ components:
             properties:
               name:
                 type: string
-                enum: [parsing, chunking, embedding]
+                enum:
+                - parsing
+                - chunking
+                - embedding
               status:
                 type: string
               retries:
@@ -1779,6 +2052,9 @@ components:
         updated_at:
           type: integer
           format: int64
+      required:
+      - id
+      - kb_id
 
     ListDocumentsResp:
       type: object
@@ -1795,11 +2071,11 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         kb_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         title:
           type: string
         file_type:
@@ -1842,40 +2118,45 @@ components:
         updated_at:
           type: integer
           format: int64
+      required:
+      - id
+      - kb_id
 
     RetrieveReq:
       type: object
       required:
-        - query
+      - query
       properties:
         query:
           type: string
         bot_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         conv_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
 
     RetrieveItem:
       type: object
       properties:
         chunk_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         content:
           type: string
         score:
           type: number
           format: float
         doc_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         doc_title:
           type: string
         kb_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         kb_name:
           type: string
         matched_content:
@@ -1895,6 +2176,10 @@ components:
               type: integer
             doc_title:
               type: string
+      required:
+      - chunk_id
+      - doc_id
+      - kb_id
 
     RetrieveResp:
       type: object
@@ -1907,32 +2192,38 @@ components:
     BindReq:
       type: object
       required:
-        - kb_id
+      - kb_id
       properties:
         kb_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
 
     BindingItem:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         kb_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         kb_name:
           type: string
         target_type:
           type: string
-          enum: [bot, conv]
+          enum:
+          - bot
+          - conv
         target_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         created_at:
           type: integer
           format: int64
+      required:
+      - id
+      - kb_id
+      - target_id
 
     ListBindingsResp:
       type: object
@@ -1947,10 +2238,12 @@ components:
       properties:
         target_type:
           type: string
-          enum: [bot, conv]
+          enum:
+          - bot
+          - conv
         target_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         created_at:
           type: integer
           format: int64
@@ -1968,74 +2261,200 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         owner_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         name:
           type: string
         avatar:
           type: string
-        description:
+        type:
+          type: string
+        status:
+          type: string
+        use_platform_model:
+          type: boolean
+        model_name:
+          type: string
+        base_url:
           type: string
         system_prompt:
           type: string
-        model:
+        persona:
           type: string
+        enable_knowledge:
+          type: boolean
         temperature:
           type: number
-          format: float
-        max_tokens:
+          format: double
+        max_context_messages:
           type: integer
-        greeting:
-          type: string
-        webhook_url:
-          type: string
-        secret:
-          type: string
-        token:
-          type: string
-        is_public:
+          format: int32
+        streaming_enabled:
           type: boolean
-        knowledge_base_ids:
+        max_context_tokens:
+          type: integer
+          format: int32
+        memory_model_name:
+          type: string
+        memory_model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        memory_use_platform_model:
+          type: boolean
+        memory_limit:
+          type: integer
+          format: int32
+        memory_embedding_model_name:
+          type: string
+        memory_embedding_model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        conn_mode:
+          type: string
+        callback_url:
+          type: string
+        has_webhook_secret:
+          type: boolean
+        has_app_secret:
+          type: boolean
+        bot_tags:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+        capabilities:
+          type: string
+        settings:
+          type: string
+        model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        template_id:
+          type: string
+        sub_type:
+          type: string
+        response_triggers:
+          type: array
+          items:
+            type: string
+        owner_type:
+          type: string
+          enum:
+          - platform
+          - user
+          description: platform 不含用户 owner_id；user 必须含有效 owner_id；不改变既有管理权限
         created_at:
-          type: integer
-          format: int64
+          type: string
+          pattern: ^-?[0-9]+$
+          description: protobuf int64 十进制字符串；不是业务序号
         updated_at:
-          type: integer
-          format: int64
+          type: string
+          pattern: ^-?[0-9]+$
+          description: protobuf int64 十进制字符串；不是业务序号
+      required:
+      - id
+      - owner_type
+      oneOf:
+      - properties:
+          owner_type:
+            enum:
+            - user
+        required:
+        - owner_id
+      - properties:
+          owner_type:
+            enum:
+            - platform
+        not:
+          required:
+          - owner_id
 
     CreateBotReq:
       type: object
-      required:
-        - name
       properties:
         name:
           type: string
+        type:
+          type: string
         avatar:
           type: string
-        description:
+        use_platform_model:
+          type: boolean
+        model_name:
+          type: string
+        base_url:
+          type: string
+        api_key:
           type: string
         system_prompt:
           type: string
-        model:
+        persona:
           type: string
+        enable_knowledge:
+          type: boolean
         temperature:
           type: number
-          format: float
-        max_tokens:
+          format: double
+        max_context_messages:
           type: integer
-        greeting:
-          type: string
-        webhook_url:
-          type: string
-        is_public:
+          format: int32
+        streaming_enabled:
           type: boolean
+        max_context_tokens:
+          type: integer
+          format: int32
+        memory_model_name:
+          type: string
+        memory_model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        memory_use_platform_model:
+          type: boolean
+        memory_api_key:
+          type: string
+        memory_limit:
+          type: integer
+          format: int32
+        memory_embedding_model_name:
+          type: string
+        memory_embedding_model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        conn_mode:
+          type: string
+        callback_url:
+          type: string
+        bot_tags:
+          type: array
+          items:
+            type: string
+        capabilities:
+          type: string
+        settings:
+          type: string
+        model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        template_id:
+          type: string
+        sub_type:
+          type: string
+        response_triggers:
+          type: array
+          items:
+            type: string
+      required:
+      - name
+      description: 公开创建入口由登录身份确定 user 所有权；禁止指定其他 owner_id 或提升为 platform
 
     UpdateBotReq:
       type: object
@@ -2044,23 +2463,101 @@ components:
           type: string
         avatar:
           type: string
-        description:
+        status:
+          type: string
+        use_platform_model:
+          type: boolean
+        model_name:
+          type: string
+        base_url:
+          type: string
+        api_key:
           type: string
         system_prompt:
           type: string
-        model:
+        persona:
           type: string
+        enable_knowledge:
+          type: boolean
         temperature:
           type: number
-          format: float
-        max_tokens:
+          format: double
+        max_context_messages:
           type: integer
-        greeting:
-          type: string
-        webhook_url:
-          type: string
-        is_public:
+          format: int32
+        streaming_enabled:
           type: boolean
+        max_context_tokens:
+          type: integer
+          format: int32
+        memory_model_name:
+          type: string
+        memory_model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        memory_use_platform_model:
+          type: boolean
+        memory_api_key:
+          type: string
+        memory_limit:
+          type: integer
+          format: int32
+        memory_embedding_model_name:
+          type: string
+        memory_embedding_model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        conn_mode:
+          type: string
+        callback_url:
+          type: string
+        bot_tags:
+          type: array
+          items:
+            type: string
+        capabilities:
+          type: string
+        settings:
+          type: string
+        model_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        template_id:
+          type: string
+        sub_type:
+          type: string
+        response_triggers:
+          type: array
+          items:
+            type: string
+        clear_model_id:
+          type: boolean
+          description: true 解除对应引用；省略引用且此值为 false 保持；同时提供引用与 true 拒绝
+        clear_memory_model_id:
+          type: boolean
+          description: true 解除对应引用；省略引用且此值为 false 保持；同时提供引用与 true 拒绝
+        clear_memory_embedding_model_id:
+          type: boolean
+          description: true 解除对应引用；省略引用且此值为 false 保持；同时提供引用与 true 拒绝
+      allOf:
+      - not:
+          required: [clear_model_id, model_id]
+          properties:
+            clear_model_id:
+              enum: [true]
+      - not:
+          required: [clear_memory_model_id, memory_model_id]
+          properties:
+            clear_memory_model_id:
+              enum: [true]
+      - not:
+          required: [clear_memory_embedding_model_id, memory_embedding_model_id]
+          properties:
+            clear_memory_embedding_model_id:
+              enum: [true]
 
     CreateBotResp:
       type: object
@@ -2094,7 +2591,10 @@ components:
     IssueTokenReq:
       type: object
       properties:
-        bot_id:
+        user_id:
+          type: string
+          format: uuid
+        ttl_seconds:
           type: integer
           format: int64
 
@@ -2103,6 +2603,9 @@ components:
       properties:
         token:
           type: string
+        expires_at:
+          type: integer
+          format: int64
 
     ValidateTokenReq:
       type: object
@@ -2117,8 +2620,22 @@ components:
       properties:
         valid:
           type: boolean
-        bot:
-          $ref: '#/components/schemas/Bot'
+        bot_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        owner_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        type:
+          type: string
+        owner_type:
+          type: string
+          enum:
+          - platform
+          - user
+          description: platform 不含用户 owner_id；user 必须含有效 owner_id；不改变既有管理权限
 
     # ========== Bot Memory ==========
     BotMemory:
@@ -2126,12 +2643,13 @@ components:
       properties:
         id:
           type: string
+          format: uuid
         user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         bot_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         content:
           type: string
         importance:
@@ -2157,41 +2675,77 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         name:
           type: string
         description:
           type: string
         transport:
           type: string
-          enum: [stdio, sse, streamable_http]
         url:
           type: string
         command:
           type: string
         args:
+          type: array
+          items:
+            type: string
+        env:
           type: string
-        env_vars:
-          type: string
-        headers:
-          type: string
-        timeout_sec:
+        timeout_ms:
           type: integer
-        is_global:
-          type: boolean
+          format: int32
+        status:
+          type: string
+        created_by:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         created_at:
-          type: integer
-          format: int64
+          type: string
+          pattern: ^-?[0-9]+$
+          description: protobuf int64 十进制字符串；不是业务序号
         updated_at:
-          type: integer
-          format: int64
+          type: string
+          pattern: ^-?[0-9]+$
+          description: protobuf int64 十进制字符串；不是业务序号
+        auth_config:
+          type: string
+        advanced_config:
+          type: string
+        enabled:
+          type: boolean
+        owner_type:
+          type: string
+          enum:
+          - platform
+          - user
+          description: platform 不含用户 owner_id；user 必须含有效 owner_id；不改变既有管理权限
+        owner_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+      required:
+      - id
+      - owner_type
+      oneOf:
+      - properties:
+          owner_type:
+            enum:
+            - user
+        required:
+        - owner_id
+      - properties:
+          owner_type:
+            enum:
+            - platform
+        not:
+          required:
+          - owner_id
 
     CreateMcpServerReq:
       type: object
-      required:
-        - name
-        - transport
       properties:
         name:
           type: string
@@ -2199,21 +2753,29 @@ components:
           type: string
         transport:
           type: string
-          enum: [stdio, sse, streamable_http]
         url:
           type: string
         command:
           type: string
         args:
+          type: array
+          items:
+            type: string
+        env:
           type: string
-        env_vars:
-          type: string
-        headers:
-          type: string
-        timeout_sec:
+        timeout_ms:
           type: integer
-        is_global:
+          format: int32
+        auth_config:
+          type: string
+        advanced_config:
+          type: string
+        enabled:
           type: boolean
+      required:
+      - name
+      - transport
+      description: 公开创建入口由登录身份确定 user 所有权；禁止指定其他 owner_id 或提升为 platform
 
     UpdateMcpServerReq:
       type: object
@@ -2229,14 +2791,21 @@ components:
         command:
           type: string
         args:
+          type: array
+          items:
+            type: string
+        env:
           type: string
-        env_vars:
-          type: string
-        headers:
-          type: string
-        timeout_sec:
+        timeout_ms:
           type: integer
-        is_global:
+          format: int32
+        status:
+          type: string
+        auth_config:
+          type: string
+        advanced_config:
+          type: string
+        enabled:
           type: boolean
 
     ListMcpServersResp:
@@ -2259,12 +2828,25 @@ components:
     McpTool:
       type: object
       properties:
+        id:
+          type: string
+          format: uuid
+        mcp_server_id:
+          type: string
+          format: uuid
         name:
           type: string
         description:
           type: string
         input_schema:
-          type: object
+          type: string
+        updated_at:
+          type: string
+          pattern: ^-?[0-9]+$
+          description: protobuf int64 十进制字符串；不是业务序号
+      required:
+      - id
+      - mcp_server_id
 
     DiscoverMcpToolsResp:
       type: object
@@ -2286,41 +2868,50 @@ components:
     AssignMcpReq:
       type: object
       required:
-        - mcp_server_id
+      - mcp_server_id
       properties:
         mcp_server_id:
-          type: integer
-          format: int64
-        enabled_tools:
-          type: array
-          items:
-            type: string
-        config:
           type: string
-          description: JSON 配置
+          format: uuid
 
     BotMcpBinding:
       type: object
       properties:
-        mcp_server_id:
-          type: integer
-          format: int64
-        server_name:
+        id:
           type: string
-        enabled_tools:
+          format: uuid
+        mcp_server_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        transport:
+          type: string
+        url:
+          type: string
+        discovery:
+          type: string
+        tools:
           type: array
           items:
             type: string
-        config:
-          type: string
-        created_at:
+        timeout_ms:
           type: integer
-          format: int64
+          format: int32
+        status:
+          type: string
+        enabled:
+          type: boolean
+      required:
+      - id
+      - mcp_server_id
 
     ListBotMcpServersResp:
       type: object
       properties:
-        bindings:
+        servers:
           type: array
           items:
             $ref: '#/components/schemas/BotMcpBinding'
@@ -2328,46 +2919,46 @@ components:
     UpdateBotMcpReq:
       type: object
       properties:
-        enabled_tools:
-          type: array
-          items:
-            type: string
-        config:
-          type: string
+        enabled:
+          type: boolean
 
     # ========== Conversation Bot ==========
     AddBotToConvReq:
       type: object
       required:
-        - bot_id
+      - bot_id
       properties:
         bot_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+        bot_settings:
+          type: string
+          description: JSON 配置，嵌套实体引用仍使用 UUID 字符串
 
     UpdateBotInConvReq:
       type: object
       properties:
-        enabled:
-          type: boolean
-        bot_profile:
+        bot_settings:
           type: string
-          description: JSON 覆盖 bot 配置
+          description: JSON 配置，嵌套实体引用仍使用 UUID 字符串
 
     ConvBot:
       type: object
       properties:
         bot_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         name:
           type: string
         avatar:
           type: string
-        enabled:
-          type: boolean
-        bot_profile:
+        type:
           type: string
+        bot_settings:
+          type: string
+        added_by:
+          type: string
+          format: uuid
         added_at:
           type: integer
           format: int64
@@ -2385,98 +2976,106 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
-        name:
+          type: string
+          format: uuid
+        model_name:
           type: string
         provider:
           type: string
-        display_name:
+        capability:
           type: string
-        api_base:
+        base_url:
           type: string
+        owner_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        status:
+          type: string
+        input_price_per_mtok:
+          type: number
+          format: double
+        output_price_per_mtok:
+          type: number
+          format: double
         api_key:
           type: string
-        max_input_tokens:
-          type: integer
-        max_output_tokens:
-          type: integer
-        cost_per_input_token:
-          type: number
-          format: double
-        cost_per_output_token:
-          type: number
-          format: double
-        is_active:
-          type: boolean
-        created_at:
-          type: integer
-          format: int64
-        updated_at:
-          type: integer
-          format: int64
+        owner_type:
+          type: string
+          enum:
+          - platform
+          - user
+          description: platform 不含用户 owner_id；user 必须含有效 owner_id；不改变既有管理权限
+      required:
+      - id
+      - owner_type
+      oneOf:
+      - properties:
+          owner_type:
+            enum:
+            - user
+        required:
+        - owner_id
+      - properties:
+          owner_type:
+            enum:
+            - platform
+        not:
+          required:
+          - owner_id
 
     CreateModelReq:
       type: object
-      required:
-        - name
-        - provider
       properties:
-        name:
+        model_name:
           type: string
         provider:
           type: string
-        display_name:
+        capability:
           type: string
-        api_base:
+        base_url:
           type: string
         api_key:
           type: string
-        max_input_tokens:
-          type: integer
-        max_output_tokens:
-          type: integer
-        cost_per_input_token:
+        input_price_per_mtok:
           type: number
           format: double
-        cost_per_output_token:
+        output_price_per_mtok:
           type: number
           format: double
-        is_active:
-          type: boolean
+      required:
+      - provider
+      description: 公开创建入口由登录身份确定 user 所有权；禁止指定其他 owner_id 或提升为 platform
 
     UpdateModelReq:
       type: object
       properties:
-        display_name:
+        model_name:
           type: string
-        api_base:
+        provider:
+          type: string
+        capability:
+          type: string
+        base_url:
           type: string
         api_key:
           type: string
-        max_input_tokens:
-          type: integer
-        max_output_tokens:
-          type: integer
-        cost_per_input_token:
+        input_price_per_mtok:
           type: number
           format: double
-        cost_per_output_token:
+        output_price_per_mtok:
           type: number
           format: double
-        is_active:
-          type: boolean
 
     ListModelsResp:
       type: object
       properties:
-        models:
+        items:
           type: array
           items:
             $ref: '#/components/schemas/ModelRecord'
         total:
           type: integer
-          format: int64
 
     GetModelResp:
       type: object
@@ -2511,20 +3110,67 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+        bot_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         model_name:
+          type: string
+        capability:
           type: string
         input_tokens:
           type: integer
+          format: int32
         output_tokens:
           type: integer
-        cost:
+          format: int32
+        input_cost:
           type: number
           format: double
+        output_cost:
+          type: number
+          format: double
+        total_cost:
+          type: number
+          format: double
+        provider:
+          type: string
         created_at:
-          type: integer
-          format: int64
+          type: string
+          description: 计费记录时间文本
+        model_id:
+          type: string
+          format: uuid
+        owner_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        owner_type:
+          type: string
+          enum:
+          - platform
+          - user
+          description: platform 不含用户 owner_id；user 必须含有效 owner_id；不改变既有管理权限
+      required:
+      - id
+      - model_id
+      - owner_type
+      oneOf:
+      - properties:
+          owner_type:
+            enum:
+            - user
+        required:
+        - owner_id
+      - properties:
+          owner_type:
+            enum:
+            - platform
+        not:
+          required:
+          - owner_id
 
     GetBillingStatsResp:
       type: object
@@ -2535,118 +3181,110 @@ components:
     ListBillingRecordsResp:
       type: object
       properties:
-        records:
+        items:
           type: array
           items:
             $ref: '#/components/schemas/BillingRecord'
         total:
           type: integer
-          format: int64
 
     # ========== Conversation Tools ==========
     CreateSummaryReq:
       type: object
       properties:
-        start_seq:
+        last_message_count:
+          type: integer
+          format: int32
+        start_time:
           type: integer
           format: int64
-        end_seq:
+        end_time:
           type: integer
           format: int64
-        style:
-          type: string
-          enum: [concise, detailed, bullet]
-          default: concise
+        all:
+          type: boolean
 
     Summary:
       type: object
       properties:
-        id:
-          type: integer
-          format: int64
-        conversation_id:
-          type: integer
-          format: int64
-        start_seq:
-          type: integer
-          format: int64
-        end_seq:
-          type: integer
-          format: int64
-        content:
+        summary_id:
           type: string
-        style:
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        summary:
           type: string
+        todos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Todo'
+        total_messages:
+          type: integer
+          format: int32
         created_at:
-          type: integer
-          format: int64
+          type: string
+          pattern: ^-?[0-9]+$
+          description: protobuf int64 十进制字符串；不是业务序号
+        status:
+          type: string
 
     GetSummariesResp:
       type: object
       properties:
-        summaries:
+        items:
           type: array
           items:
             $ref: '#/components/schemas/Summary'
+        standalone_todos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Todo'
 
     CreateTodoReq:
       type: object
-      required:
-        - title
       properties:
-        title:
+        summary_id:
           type: string
-        description:
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        content:
           type: string
-        assigned_to:
-          type: integer
-          format: int64
-        due_at:
-          type: integer
-          format: int64
 
     Todo:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
-        conversation_id:
-          type: integer
-          format: int64
-        title:
           type: string
-        description:
+          format: uuid
+        summary_id:
           type: string
-        assigned_to:
-          type: integer
-          format: int64
-        status:
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        conv_id:
           type: string
-          enum: [pending, in_progress, done]
-        due_at:
-          type: integer
-          format: int64
+          format: uuid
+        content:
+          type: string
+        done:
+          type: boolean
         created_at:
-          type: integer
-          format: int64
+          type: string
+          pattern: ^-?[0-9]+$
+          description: protobuf int64 十进制字符串；不是业务序号
+        updated_at:
+          type: string
+          pattern: ^-?[0-9]+$
+          description: protobuf int64 十进制字符串；不是业务序号
+      required:
+      - id
+      - conv_id
 
     UpdateTodoReq:
       type: object
       properties:
-        title:
+        content:
           type: string
-        description:
-          type: string
-        assigned_to:
-          type: integer
-          format: int64
-        status:
-          type: string
-          enum: [pending, in_progress, done]
-        due_at:
-          type: integer
-          format: int64
+        done:
+          type: boolean
 
     ReplyCandidate:
       type: object
@@ -2702,6 +3340,80 @@ components:
           type: integer
           format: int64
           description: 充值后余额（分）
+
+    ChunkInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        doc_id:
+          type: string
+          format: uuid
+        chunk_index:
+          type: integer
+          format: int32
+        content:
+          type: string
+        token_count:
+          type: integer
+          format: int32
+        metadata:
+          type: string
+        created_at:
+          type: string
+          pattern: ^-?[0-9]+$
+          description: protobuf int64 十进制字符串；不是业务序号
+      required:
+      - id
+      - doc_id
+    AttachmentContent:
+      type: object
+      properties:
+        file_id:
+          type: string
+          format: uuid
+        duration:
+          type: integer
+          format: int32
+      required:
+      - file_id
+    ReplyMessageSummary:
+      type: object
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        sender_id:
+          type: string
+          format: uuid
+          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
+        sender_type:
+          type: string
+        sender_name:
+          type: string
+        type:
+          $ref: '#/components/schemas/MessageType'
+        preview:
+          type: string
+        deleted:
+          type: boolean
+      required:
+      - message_id
+    MessagePaginationResp:
+      type: object
+      properties:
+        next_cursor:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号，不是实体身份
+        has_more:
+          type: boolean
+        total:
+          type: integer
+          format: int64
 
 paths:
   # ==================== Health ====================
@@ -3648,13 +4360,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: 会话详情
@@ -3676,13 +4388,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -3704,13 +4416,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: 删除成功
@@ -3728,13 +4440,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: 成员列表
@@ -3756,13 +4468,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -3790,13 +4502,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -3820,20 +4532,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
-        - name: uid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 用户 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
+      - name: uid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 用户 ID
       requestBody:
         required: true
         content:
@@ -3857,20 +4569,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
-        - name: uid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 用户 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
+      - name: uid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 用户 ID
       requestBody:
         required: true
         content:
@@ -3892,20 +4604,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
-        - name: uid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 用户 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
+      - name: uid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 用户 ID
       responses:
         "200":
           description: 取消禁言成功
@@ -3923,13 +4635,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: 全员禁言成功
@@ -3945,13 +4657,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: 取消全员禁言成功
@@ -3969,13 +4681,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -3997,13 +4709,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: 删除成功
@@ -4021,13 +4733,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -4051,13 +4763,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: 会话设置（免打扰/置顶）
@@ -4077,13 +4789,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -4107,13 +4819,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -4165,21 +4877,23 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: position
-          in: query
-          schema:
-            type: integer
-            format: int64
-            default: 0
-          description: 用户同步位点（不是会话 seq）；省略或 0 为新设备重建，负位点进入 unknown_position 重建。格式错误、空值或溢出返回参数错误。
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            format: int32
-            minimum: 0
-            default: 50
-          description: 增量每页数量或重建每会话历史数量；省略或 0 默认 50，上限为 Message.MaxPageSize（默认 100）。负数、空值、格式错误或 int32 溢出返回参数错误。
+      - name: position
+        in: query
+        schema:
+          type: integer
+          format: int64
+          default: 0
+          minimum: 0
+          maximum: 9007199254740991
+        description: 用户同步位点（不是会话 seq）；省略或 0 为新设备重建；安全整数范围内未知或过期位点按重建合同处理；空值、负数、分数或越界返回参数错误。
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 0
+          default: 50
+        description: 增量每页数量或重建每会话历史数量；省略或 0 默认 50，上限为 Message.MaxPageSize（默认 100）。负数、空值、格式错误或 int32 溢出返回参数错误。
       responses:
         "200":
           description: 跨会话增量或显式重建快照
@@ -4207,25 +4921,27 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: conversation_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
-        - name: seq
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 消息 seq
-        - name: limit
-          in: query
-          schema:
-            type: integer
-          description: 每页数量
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
+      - name: seq
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+        description: 消息 seq
+      - name: limit
+        in: query
+        schema:
+          type: integer
+        description: 每页数量
       responses:
         "200":
           description: 附近消息
@@ -4247,13 +4963,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: message_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 消息 ID
+      - name: message_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 消息 ID
       responses:
         "200":
           description: 消息详情
@@ -4275,13 +4991,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: message_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 消息 ID
+      - name: message_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 消息 ID
       requestBody:
         required: true
         content:
@@ -4304,13 +5020,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: message_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 消息 ID
+      - name: message_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 消息 ID
       requestBody:
         required: true
         content:
@@ -4334,13 +5050,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: message_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 消息 ID
+      - name: message_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 消息 ID
       requestBody:
         required: true
         content:
@@ -4364,13 +5080,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: message_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 被回复的消息 ID
+      - name: message_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 被回复的消息 ID
       requestBody:
         required: true
         content:
@@ -4398,13 +5114,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: message_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 消息 ID
+      - name: message_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 消息 ID
       responses:
         "200":
           description: 已读状态
@@ -4426,40 +5142,40 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: keyword
-          in: query
-          required: true
-          schema:
-            type: string
-          description: 搜索关键词
-        - name: conversation_id
-          in: query
-          schema:
-            type: integer
-            format: int64
-          description: 按会话筛选
-        - name: start_time
-          in: query
-          schema:
-            type: integer
-            format: int64
-          description: 起始时间戳
-        - name: end_time
-          in: query
-          schema:
-            type: integer
-            format: int64
-          description: 结束时间戳
-        - name: page
-          in: query
-          schema:
-            type: integer
-          description: 页码
-        - name: page_size
-          in: query
-          schema:
-            type: integer
-          description: 每页数量
+      - name: keyword
+        in: query
+        required: true
+        schema:
+          type: string
+        description: 搜索关键词
+      - name: conversation_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+        description: 按会话筛选
+      - name: start_time
+        in: query
+        schema:
+          type: integer
+          format: int64
+        description: 起始时间戳
+      - name: end_time
+        in: query
+        schema:
+          type: integer
+          format: int64
+        description: 结束时间戳
+      - name: page
+        in: query
+        schema:
+          type: integer
+        description: 页码
+      - name: page_size
+        in: query
+        schema:
+          type: integer
+        description: 每页数量
       responses:
         "200":
           description: 搜索结果
@@ -4560,13 +5276,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 文件 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 文件 ID
       responses:
         "200":
           description: 文件信息
@@ -4588,13 +5304,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 文件 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 文件 ID
       responses:
         "200":
           description: 删除成功
@@ -4612,13 +5328,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 文件 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 文件 ID
       responses:
         "200":
           description: 下载 URL
@@ -4697,13 +5413,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 广播 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 广播 ID
       responses:
         "200":
           description: 广播详情
@@ -4906,13 +5622,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 知识库 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 知识库 ID
       responses:
         "200":
           description: 知识库详情
@@ -4934,13 +5650,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 知识库 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 知识库 ID
       requestBody:
         required: true
         content:
@@ -4966,13 +5682,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 知识库 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 知识库 ID
       responses:
         "200":
           description: 删除成功
@@ -4990,13 +5706,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 知识库 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 知识库 ID
       requestBody:
         required: true
         content:
@@ -5035,29 +5751,35 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 知识库 ID
-        - name: offset
-          in: query
-          schema:
-            type: integer
-          description: 偏移量
-        - name: limit
-          in: query
-          schema:
-            type: integer
-          description: 每页数量
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [pending, parsing, chunking, embedding, ready, failed]
-          description: 按状态筛选
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 知识库 ID
+      - name: offset
+        in: query
+        schema:
+          type: integer
+        description: 偏移量
+      - name: limit
+        in: query
+        schema:
+          type: integer
+        description: 每页数量
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - pending
+          - parsing
+          - chunking
+          - embedding
+          - ready
+          - failed
+        description: 按状态筛选
       responses:
         "200":
           description: 文档列表
@@ -5079,13 +5801,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 文档 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 文档 ID
       responses:
         "200":
           description: 文档详情
@@ -5107,13 +5829,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 文档 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 文档 ID
       responses:
         "200":
           description: 删除成功
@@ -5131,13 +5853,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 文档 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 文档 ID
       responses:
         "200":
           description: 重试结果
@@ -5159,13 +5881,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 知识库 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 知识库 ID
       requestBody:
         required: true
         content:
@@ -5193,13 +5915,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 知识库 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 知识库 ID
       responses:
         "200":
           description: 绑定目标列表
@@ -5222,13 +5944,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: bid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: bid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       requestBody:
         required: true
         content:
@@ -5250,13 +5972,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: bid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: bid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       responses:
         "200":
           description: 绑定列表
@@ -5278,20 +6000,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: bid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
-        - name: kid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 知识库 ID
+      - name: bid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
+      - name: kid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 知识库 ID
       responses:
         "200":
           description: 解除绑定成功
@@ -5310,13 +6032,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: cid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: cid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -5338,13 +6060,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: cid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: cid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: 绑定列表
@@ -5366,20 +6088,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: cid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
-        - name: kid
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 知识库 ID
+      - name: cid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
+      - name: kid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 知识库 ID
       responses:
         "200":
           description: 解除绑定成功
@@ -5475,13 +6197,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       responses:
         "200":
           description: Bot 详情
@@ -5503,13 +6225,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       requestBody:
         required: true
         content:
@@ -5531,13 +6253,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       responses:
         "200":
           description: 删除成功
@@ -5555,13 +6277,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       requestBody:
         required: true
         content:
@@ -5591,13 +6313,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       responses:
         "200":
           description: 轮换成功
@@ -5619,13 +6341,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       responses:
         "200":
           description: 签发成功
@@ -5649,25 +6371,25 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
-        - name: message
-          in: query
-          required: true
-          schema:
-            type: string
-          description: 用户消息
-        - name: conversation_id
-          in: query
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID（可选，用于上下文）
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
+      - name: message
+        in: query
+        required: true
+        schema:
+          type: string
+        description: 用户消息
+      - name: conversation_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID（可选，用于上下文）
       responses:
         "200":
           description: SSE 流式响应
@@ -5685,21 +6407,21 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
-        - name: page
-          in: query
-          schema:
-            type: integer
-        - name: page_size
-          in: query
-          schema:
-            type: integer
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
+      - name: page
+        in: query
+        schema:
+          type: integer
+      - name: page_size
+        in: query
+        schema:
+          type: integer
       responses:
         "200":
           description: 记忆列表
@@ -5719,13 +6441,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       responses:
         "200":
           description: 清除成功
@@ -5743,19 +6465,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
-        - name: memory_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: 记忆 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
+      - name: memory_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 记忆 ID
       responses:
         "200":
           description: 删除成功
@@ -5818,13 +6541,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: MCP Server ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: MCP Server ID
       responses:
         "200":
           description: 服务器详情
@@ -5846,13 +6569,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: MCP Server ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: MCP Server ID
       requestBody:
         required: true
         content:
@@ -5874,13 +6597,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: MCP Server ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: MCP Server ID
       responses:
         "200":
           description: 删除成功
@@ -5898,13 +6621,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: MCP Server ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: MCP Server ID
       responses:
         "200":
           description: 工具列表
@@ -5926,13 +6649,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: MCP Server ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: MCP Server ID
       responses:
         "200":
           description: 工具列表
@@ -5955,13 +6678,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       requestBody:
         required: true
         content:
@@ -5983,13 +6706,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       responses:
         "200":
           description: MCP 绑定列表
@@ -6011,20 +6734,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
-        - name: mcp_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: MCP Server ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
+      - name: mcp_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: MCP Server ID
       responses:
         "200":
           description: 取消成功
@@ -6040,20 +6763,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
-        - name: mcp_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: MCP Server ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
+      - name: mcp_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: MCP Server ID
       requestBody:
         required: true
         content:
@@ -6078,13 +6801,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -6106,13 +6829,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: Bot 列表
@@ -6134,20 +6857,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
-        - name: bot_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
+      - name: bot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       requestBody:
         required: true
         content:
@@ -6169,20 +6892,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
-        - name: bot_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: Bot ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
+      - name: bot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Bot ID
       responses:
         "200":
           description: 移除成功
@@ -6201,13 +6924,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -6235,13 +6958,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: 摘要列表
@@ -6263,13 +6986,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       requestBody:
         required: true
         content:
@@ -6297,20 +7020,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
-        - name: todoId
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 待办 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
+      - name: todoId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 待办 ID
       requestBody:
         required: true
         content:
@@ -6332,20 +7055,20 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
-        - name: todoId
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 待办 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
+      - name: todoId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 待办 ID
       responses:
         "200":
           description: 删除成功
@@ -6363,13 +7086,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 会话 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 ID
       responses:
         "200":
           description: 候选回复列表
@@ -6391,13 +7114,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 消息 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 消息 ID
       requestBody:
         required: true
         content:
@@ -6470,13 +7193,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 模型 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 模型 ID
       requestBody:
         required: true
         content:
@@ -6498,13 +7221,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 模型 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 模型 ID
       responses:
         "200":
           description: 删除成功
@@ -6521,6 +7244,13 @@ paths:
       operationId: modelGetBillingStats
       security:
         - BearerAuth: []
+      parameters:
+      - name: bot_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+        description: 省略不按 Bot 过滤；提供时必须是有效 Bot UUID
       responses:
         "200":
           description: 账单统计
@@ -6572,13 +7302,13 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 文档 ID
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 文档 ID
       responses:
         "200":
           description: 文档内容
@@ -6596,28 +7326,41 @@ paths:
       security:
         - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: 文档 ID
-        - name: offset
-          in: query
-          schema:
-            type: integer
-        - name: limit
-          in: query
-          schema:
-            type: integer
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 文档 ID
+      - name: offset
+        in: query
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        schema:
+          type: integer
       responses:
-        "200":
+        '200':
           description: 分块列表
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Response'
+                allOf:
+                - $ref: '#/components/schemas/Response'
+                - properties:
+                    data:
+                      type: object
+                      properties:
+                        chunks:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/ChunkInfo'
+                        total:
+                          type: string
+                          pattern: ^[0-9]+$
+                          description: protobuf int64 计数
 
   # ==================== User Extras ====================
   /users/me/avatar:
@@ -6714,3 +7457,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Response'
+
+  /convs/{id}/messages:
+    get:
+      tags:
+      - Message
+      summary: 会话可见消息历史
+      operationId: getConversationMessages
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: 会话 UUID
+      - name: cursor
+        in: query
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: JSON number；JavaScript 安全整数业务序号
+          default: 0
+        description: 会话 seq 分页边界；0 为最新消息，不是实体 ID 或不透明字符串
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 20
+      responses:
+        '200':
+          description: 可见历史与数字 next_cursor
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Response'
+                - properties:
+                    data:
+                      $ref: '#/components/schemas/GetMessagesResp'
+        '400':
+          description: 无效实体身份或非安全整数序号

@@ -35,7 +35,7 @@ type BotConfig struct {
 type MilvusConfig struct {
 	Host     string `json:"host,default=localhost"`
 	Port     int    `json:"port,default=19530"`
-	Database string `json:"database,default=aim"`
+	Database string `json:"database,default=default"`
 }
 
 type MemoryConfig struct {

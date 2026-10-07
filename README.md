@@ -176,9 +176,20 @@ make proto
 
 可选实体引用使用 protobuf presence 和数据库 `NULL`。更新省略引用表示保持，`clear_<字段名>=true` 表示解除，同时设置与清除必须拒绝。对象所有权通过 `owner_type=platform|user` 表达：平台没有 `owner_id`，用户所有必须关联有效用户 UUID；该合同不授予平台管理权限。
 
-第 02 票的用户、关系和通知链路采用上述合同。JWT 分别携带用户 UUID、稳定专用 `device_id`、设备记录 UUID `session_id` 和专用 `jti`；gateway 与 realtime 经 user 的真实 `ValidateToken` 校验记录/撤销状态。撤销后同设备重新登录创建新 session，旧 token 不复活。好友解除分组发送 `clear_group_id=true`，省略保持；通知引用同时提供 `reference_type` 与 UUID `reference_id`，无引用时二者缺失。presence 使用 `presence.subscribe` / `presence.unsubscribe` 与 `presence.state` 的 `online` 布尔值。
+用户、关系和通知链路采用上述合同。JWT 分别携带用户 UUID、稳定专用 `device_id`、设备记录 UUID `session_id` 和专用 `jti`；gateway 与 realtime 经 user 的真实 `ValidateToken` 校验记录/撤销状态。撤销后同设备重新登录创建新 session，旧 token 不复活。好友解除分组发送 `clear_group_id=true`，省略保持；通知引用同时提供 `reference_type` 与 UUID `reference_id`，无引用时二者缺失。presence 使用 `presence.subscribe` / `presence.unsubscribe` 与 `presence.state` 的 `online` 布尔值。
 
-新环境应用 `migrations/postgres/000_uuid_identity.sql` 及其后续 UUID 合同迁移，服务通过 `database.RunMigrations` 消费同一嵌入迁移集；旧迁移的有效表、索引和约束已合并。`001_inbox_checkpoint_provenance.sql` 保留已分配同步位点的来源，使已读记录合并后仍可续读；不推测此前已经丢失的位点。旧整数结构/旧迁移记录会显式失败，不自动映射或清空。第 01 票只交付共享宽改型：业务调用链迁移归第 02–07 票，全仓绿色与协调重建归第 08 票；本阶段不能启动完整新系统，也未清理现有开发数据。
+新环境应用 `migrations/postgres/000_uuid_identity.sql` 及其后续 UUID 合同迁移，服务通过 `database.RunMigrations` 消费同一嵌入迁移集；旧迁移的有效表、索引和约束已合并。`001_inbox_checkpoint_provenance.sql` 保留已分配同步位点的来源，使已读记录合并后仍可续读；不推测此前已经丢失的位点。旧整数结构/旧迁移记录会显式失败，不自动映射或清空。第 01–07 票的共享合同和业务调用链已切换；第 08 票协调存储重建、全部角色初始化、缓存拒绝、部署合同和全系统验收，具体运行证据及环境边界见 [实施票](.scratch/id-system/issues/08-storage-rebuild-final-cutover.md)。
+
+#### 开发存储协调重建
+
+重建不是 UUID 迁移自动行为。只允许对已核实属于本仓库的开发资源执行：先保存 Compose 的解析模型、容器 `com.docker.compose.project.working_dir/config_files/project` 标签、卷标签及实际挂载；仅凭 `aim-*` 名称不能证明归属。生产、外部共享资源、归属不明的匿名卷一律排除，不运行全局 `flush`、`prune` 或批量猜名删除。
+
+1. 停止 gateway 和 realtime 的新流量，再停止 Bot runtime、knowledge ingest 及所有其它应用写入角色；确认它们已退出。离线旧容器也必须移除，不能在重建后重启旧镜像。
+2. 核实所有连接目标。独占且归属已确认的 Compose 开发 project 按其原始 `--env-file`、`--project-directory`、`--project-name`、`-f` 执行 `down --volumes`，同步移除 PostgreSQL、Redis、Kafka（事件及消费位点）、Milvus（含内嵌 etcd）、Neo4j、Elasticsearch、MinIO 的项目卷与引用。共享后端不能用此整卷方法，只能对有所有权证据的 AIM schema/collection/database/index/topic/group/bucket/键空间实施同范围重建。
+3. 先启动真实中间件并等待 readiness，再执行 `init-kafka-topics`，最后启动全部 10 个工作负载。PostgreSQL 初始化与服务启动共用迁移集；Milvus 使用 `default` database 下的 `kb_chunks_uuid_v1` 和 `bot_memory_facts_uuid_v1`，不可用的已配置记忆向量后端会阻止 Bot runtime 启动。平台模板在事务锁下幂等创建，重启不重复生成。
+4. 运行隔离 runner `--scenario all`、真实数据库事务回归和 Web 同步回归，再在真实浏览器验收。旧 JWT、旧实体缓存命名空间不回退；当前快照中的字符串位点或数字实体引用整份作废，从 `position=0` 重建。保留 `aim_device_id`，不清空整个 localStorage。
+
+`--keep-environment` 的 `environment.json` 保存该轮隔离 project 的精确连接地址与清理 argv；运行证据需分别记录资源目标、端到端、数据库、浏览器及静态检查结果。没有真实后端或角色启动失败不能标记切换完成。
 
 
 ---
@@ -233,17 +244,19 @@ python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifact
 
 每次使用独立 Compose project、网络与数据卷，默认无宿主端口映射。所选场景全部依赖就绪后才施加流量；realtime 的两个实例分别可寻址，但共用一个 Kafka 消费组。成功或失败后均清理该 project 的容器、数据卷与本次构建的镜像，不清理共享 BuildKit 缓存；`--artifacts` 保留诊断日志。显式 `--keep-environment DIR` 保留本轮私有环境，`environment.json` 记录清理命令；配合 `--browser-access` 或 `--database-access` 只发布随机回环端口。浏览器验收须将保留环境的 realtime 心跳/登记 TTL 恢复生产配置（30/90 秒），不能让 Web 的 25 秒心跳运行于故障场景的 1/6 秒配置。
 
-默认 `all` 检查关系链、同实例与 A/B 跨实例双向投递；`--scenario` 可选择单个场景。P6 已用连接登记取代旧的单实例 gRPC 推送目标，同实例与跨实例走同一条 Redis 定向投递路径。
+默认 `all` 启动全部 10 个工作负载与 realtime B，检查 relationships、user-identity、conversations、conversation-unread、broadcasts、user-sync、attachments、同实例 A/B、Bot 同/跨实例、knowledge-ingest 和跨实例双向投递；`--scenario` 可选择单个场景。同实例与跨实例走同一条 Redis 定向投递路径。隔离 runner 限定 Java heap 与 Milvus 线程并行度，保留真实后端、四个大文档、既有 online/ingest 配额与检索截止时间；不要与宿主全仓编译同时运行重负载存储验收。
 
-`user-identity` 只启动 user、gateway、双 realtime 及其真实中间件，复用 relationships 并验证注册/登录/刷新/资料/设置、跨账号拒绝、通知持久化/跨实例 WS/离线列表、设备稳定重连和撤销后旧 token 不复活。它不证明尚未迁移的其它 domain 可用；全仓和完整栈验收由第 08 票完成。
+`user-identity` 只启动 user、gateway、双 realtime 及其真实中间件，复用 relationships 并验证注册/登录/刷新/资料/设置、跨账号拒绝、通知持久化/跨实例 WS/离线列表、设备稳定重连和撤销后旧 token 不复活。单场景结果不能代替 `all` 的完整 domain 验收。
 
-`messaging` 只启动 user、message、gateway、双 realtime 与 PostgreSQL/Redis/Kafka/Elasticsearch 等真实依赖，复用 conversation-unread、broadcasts、user-sync、同实例 A/B 和跨实例场景。覆盖丢确认后的原结果重试、并发唯一提交、异义冲突、发送者/会话隔离、权限恢复、历史序号分页、个人删除与搜索；不替换尚未迁移的 Bot、文件或知识业务。
+`messaging` 只启动 user、message、gateway、双 realtime 与 PostgreSQL/Redis/Kafka/Elasticsearch 等真实依赖，复用 conversation-unread、broadcasts、user-sync、同实例 A/B 和跨实例场景。覆盖丢确认后的原结果重试、并发唯一提交、异义冲突、发送者/会话隔离、权限恢复、历史序号分页、个人删除与搜索；不以替身冒充 Bot、文件或知识业务。
 
 `attachments` 启动 user、message、file、gateway、双 realtime 与真实 MinIO/PostgreSQL/Redis/Kafka/Elasticsearch。验证真实 PUT/确认/下载的字节一致性、四种附件的 UUID 在确认/WS/历史/离线收件箱中一致、同键重试与换文件冲突（包括文件删除后的原提交回放）、回复与文本搜索引用、私有对象匿名访问拒绝，以及消息删除、单个/批量文件删除的对象隔离。没有 Bot 或知识 service 替身。普通聊天上传显式使用既有公开访问级别；私有附件仅上传者读取，未新增会话成员授权策略。文件实体身份与对象键、临时签名 URL 各司其职；消息 domain 分配提交结果，gateway 不拥有附件提交判定。
 
 使用 `attachments --keep-environment DIR --browser-access` 时，清单额外记录真实 MinIO 的随机回环端口。容器验收默认使用 `minio:9000`；浏览器验证前将该隔离环境 file-service 的 `MINIO_PUBLIC_ENDPOINT` 设置为清单的 MinIO 地址并重建该容器。SDK 对浏览器可见 host 本身签名，不在签名后替换 host。公开对象只允许 `public/*` 匿名读取，私有对象通过鉴权后的有效期下载 URL 访问。
 
 `user-sync` 检查空流重建、单个位点跨会话分页、消息正文与账号隔离、新设备最近历史及置顶/免打扰设置、未知位点重建和续增量；同账号两设备个人删除他人消息后同步隐藏，原发送者仍可读取，搜索/历史/回复摘要/会话预览及新设备重建不泄露正文。过期回收后不复活与并发未提交写入窗口由真实 PostgreSQL 的集成回归覆盖。
+
+真实消息事务补充验收使用无应用消费者连接的隔离 PostgreSQL database：设置 `INBOX_TEST_DSN=postgres://.../<isolated_database>?sslmode=disable&search_path=messaging`，执行 `go test -tags integration -count=1 ./app/message-service/internal/repo ./app/message-service/internal/logic/messageservice`。不与运行中的 Outbox dispatcher 共库；活跃消费者会合法取走测试待发布记录，造成错误的并发判定。Web 补充边界为 `cd web-client && node --test tests/user-sync.test.mjs`。
 
 `broadcasts` 检查 `user/group/all` 范围、并发首次广播只创建一个用户系统会话、后续复用与递增 `seq`、两副本上的普通 `message.new` 投递，以及离线账号经用户收件箱增量/重建和会话历史读取广播。广播无需客户端专用事件分支。
 

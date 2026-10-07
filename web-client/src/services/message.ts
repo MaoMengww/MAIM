@@ -2,7 +2,7 @@ import client, { unwrap } from './client';
 import type { SendMessageReq, SyncMessagesReq, SearchMessagesReq } from '@/types/api';
 import type { APIResponse, Conversation, Message, MsgContentOneof, MsgType, ReplySummary } from '@/types/model';
 import { normConv } from './conversation';
-import { entityId, optionalEntityId, sequence, quantity } from '@/utils/json';
+import { entityId, optionalEntityId, sequence, quantity, knowledgeSources } from '@/utils/json';
 
 interface InboxChangeBase {
   position: number;
@@ -134,7 +134,10 @@ function syncContent(type: number, value: unknown): Record<string, unknown> {
     body[field] = syncArray(body[field], `content.${field}`).map((id) => entityId(id, field));
   }
   if (key === 'text') body.mention_all = syncBoolean(body.mention_all, 'content.mention_all');
-  if (key === 'bot') body.is_streaming = syncBoolean(body.is_streaming, 'content.is_streaming');
+  if (key === 'bot') {
+    body.is_streaming = syncBoolean(body.is_streaming, 'content.is_streaming');
+    if (typeof body.raw_payload === 'string' && body.raw_payload) knowledgeSources(JSON.parse(body.raw_payload).kb_sources);
+  }
   if (key === 'location') {
     for (const field of ['latitude', 'longitude']) {
       const coordinate = body[field] === undefined ? 0 : body[field];
@@ -239,7 +242,7 @@ function normalizeUserSyncPage(value: unknown, requestedPosition: number): UserS
     const conversationId = entityId(change.conversation_id, 'change.conversation_id');
     const base = { position, conversation_id: conversationId };
     const conversation = change.conversation === undefined ? undefined : syncConversation(change.conversation);
-    if (conversation && String(conversation.id) !== conversationId) throw new Error('同步会话 ID 与变更不一致');
+    if (conversation && conversation.id !== conversationId) throw new Error('同步会话 ID 与变更不一致');
     switch (change.kind) {
       case 'message.new':
       case 'message.edited':
@@ -265,7 +268,7 @@ function normalizeUserSyncPage(value: unknown, requestedPosition: number): UserS
   const normalizedConversations = conversations.map((value): ConversationSnapshot => {
     const snapshot = syncRecord(value, 'snapshot');
     const conversation = syncConversation(snapshot.conversation);
-    const conversationId = String(conversation.id);
+    const conversationId = conversation.id;
     if (conversationIds.has(conversationId)) throw new Error('同步重建页包含重复会话');
     conversationIds.add(conversationId);
     let previousSeq = 0;

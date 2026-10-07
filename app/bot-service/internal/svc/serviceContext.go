@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"encoding/json"
 	"github.com/cloudwego/eino/schema"
 	"github.com/maomeng/aim/app/bot-service/internal/client"
 	"github.com/maomeng/aim/app/bot-service/internal/config"
@@ -27,6 +26,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"
+	"gorm.io/gorm"
 )
 
 type ServiceContext struct {
@@ -72,7 +72,15 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		panic(fmt.Sprintf("delivery publisher init failed: %v", err))
 	}
 	if c.Role != "runtime" {
-		ensureSeedTemplates(context.Background(), r, logger)
+		ctx := context.Background()
+		if err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "aim:bot:official-templates").Error; err != nil {
+				return fmt.Errorf("lock official templates: %w", err)
+			}
+			return ensureSeedTemplates(ctx, repo.NewBotRepo(&database.DB{DB: tx}))
+		}); err != nil {
+			panic(fmt.Sprintf("official template initialization failed: %v", err))
+		}
 		base.MessageClient = msgpb.NewMessageServiceClient(zrpc.MustNewClient(c.MessageService).Conn())
 	}
 	if c.Role == "control" {
@@ -120,12 +128,12 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if c.Milvus.Host != "" {
 		vecStore, vecErr := memory.NewMemoryVectorStore(c.Milvus, c.Memory.VectorCollection, c.Memory.EmbeddingDim)
 		if vecErr != nil {
-			logger.Errorf("memory vector store init failed, hybrid retrieval disabled: %v", vecErr)
-		} else if err := vecStore.EnsureCollection(context.Background()); err != nil {
-			logger.Errorf("memory vector collection ensure failed, hybrid retrieval disabled: %v", err)
-		} else {
-			memoryVector = vecStore
+			panic(fmt.Sprintf("memory vector store init failed: %v", vecErr))
 		}
+		if err := vecStore.EnsureCollection(context.Background()); err != nil {
+			panic(fmt.Sprintf("memory vector collection ensure failed: %v", err))
+		}
+		memoryVector = vecStore
 	}
 
 	memoryManager := memory.NewManager(logger, memoryStore, nil, memoryEmbedder, memoryVector)
@@ -167,11 +175,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	return base
 }
 
-func ensureSeedTemplates(ctx context.Context, r repo.BotRepoInterface, log logx.Logger) {
+func ensureSeedTemplates(ctx context.Context, r repo.BotRepoInterface) error {
 	bots, err := r.ListOfficialTemplates(ctx)
 	if err != nil {
-		log.Errorf("failed to list official templates: %v", err)
-		return
+		return fmt.Errorf("list official templates: %w", err)
 	}
 
 	hasQA := false
@@ -186,27 +193,26 @@ func ensureSeedTemplates(ctx context.Context, r repo.BotRepoInterface, log logx.
 	}
 
 	if !hasQA {
-		createTemplateBot(ctx, r, log, "qa", "智能问答助手",
-			"你是一个智能问答助手，请用中文回答用户的问题。", 0.7, 10, false)
-		log.Infof("created qa template bot")
+		if err := createTemplateBot(ctx, r, "qa", "智能问答助手",
+			"你是一个智能问答助手，请用中文回答用户的问题。", 0.7, 10, false); err != nil {
+			return err
+		}
 	}
 
 	if !hasKnowledge {
-		createTemplateBot(ctx, r, log, "knowledge", "知识库问答助手",
-			"你是一个知识库问答助手。基于提供的知识库内容回答用户问题。如果知识库中没有相关信息，请如实告知。", 0.3, 15, true)
-		log.Infof("created knowledge template bot")
+		if err := createTemplateBot(ctx, r, "knowledge", "知识库问答助手",
+			"你是一个知识库问答助手。基于提供的知识库内容回答用户问题。如果知识库中没有相关信息，请如实告知。", 0.3, 15, true); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func createTemplateBot(ctx context.Context, r repo.BotRepoInterface, log logx.Logger, templateID, name, systemPrompt string, temperature float64, maxContextMessages int, enableKnowledge bool) {
+func createTemplateBot(ctx context.Context, r repo.BotRepoInterface, templateID, name, systemPrompt string, temperature float64, maxContextMessages int, enableKnowledge bool) error {
 	id, err := identity.New()
 	if err != nil {
-		log.Errorf("create template bot %s: generate identity failed: %v", templateID, err)
-		return
+		return fmt.Errorf("create template bot %s identity: %w", templateID, err)
 	}
-	settings, _ := json.Marshal(map[string]any{
-		"prompt_locale": "zh-CN",
-	})
 
 	bot := &model.Bot{
 		ID:                 id,
@@ -221,10 +227,11 @@ func createTemplateBot(ctx context.Context, r repo.BotRepoInterface, log logx.Lo
 		Temperature:        temperature,
 		MaxContextMessages: maxContextMessages,
 		ConnMode:           "ws",
-		Settings:           settings,
+		Settings:           []byte(`{"prompt_locale":"zh-CN"}`),
 	}
 
 	if err := r.CreateBot(ctx, bot); err != nil {
-		log.Errorf("create template bot %s: create failed: %v", templateID, err)
+		return fmt.Errorf("create template bot %s: %w", templateID, err)
 	}
+	return nil
 }

@@ -34,7 +34,7 @@ Bot:
 Milvus:
   host: ${MILVUS_HOST}
   port: ${MILVUS_PORT}
-  database: aim
+  database: default
 
 Memory:
   embeddingDim: 1536

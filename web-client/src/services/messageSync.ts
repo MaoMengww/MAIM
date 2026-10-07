@@ -196,9 +196,9 @@ class MessageSyncEngine {
         else if (change.conversation) removedConversations.delete(change.conversation_id);
       });
       if (page.rebuild_required) {
-        const rebuiltIds = new Set(next.conversations.map((conversation) => String(conversation.id)));
+        const rebuiltIds = new Set(next.conversations.map((conversation) => conversation.id));
         this.cache.conversations.forEach((conversation) => {
-          if (!rebuiltIds.has(String(conversation.id))) removedConversations.add(String(conversation.id));
+          if (!rebuiltIds.has(conversation.id)) removedConversations.add(conversation.id);
         });
       }
       // New messages arriving while the request was in flight are not in its snapshot.

@@ -32,7 +32,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource } from '@/types/model';
 import type { SendMsgContent, SearchMessagesReq } from '@/types/api';
-import { entityId, sequence } from '@/utils/json';
+import { entityId, optionalEntityId, sequence, knowledgeSources } from '@/utils/json';
 
 import './ChatPage.css';
 
@@ -240,23 +240,6 @@ function renderContent(content: MsgContentOneof, onFilePreview?: (file: FileCont
   return <span>[未知消息]</span>;
 }
 
-function knowledgeSources(value: unknown): KnowledgeSource[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((source) => {
-    if (!source || source.type !== 'rag' || typeof source.kb_name !== 'string' || typeof source.title !== 'string' || typeof source.content !== 'string') {
-      throw new Error('知识来源格式无效');
-    }
-    return {
-      type: 'rag',
-      kb_id: entityId(source.kb_id, 'source.kb_id'),
-      doc_id: entityId(source.doc_id, 'source.doc_id'),
-      chunk_id: entityId(source.chunk_id, 'source.chunk_id'),
-      kb_name: source.kb_name,
-      title: source.title,
-      content: source.content,
-    };
-  });
-}
 
 /** Parse KnowledgeSource[] from BotContent.raw_payload */
 function parseSources(b: any): KnowledgeSource[] {
@@ -759,7 +742,7 @@ export function ChatPage() {
       const key = `${id}:${payload.bot_id}`;
       setStreamingMap((prev) => {
         const existing = prev[key];
-        const replyToMsgId = existing?.replyToMsgId || String(payload.reply_to_msg_id || '');
+        const replyToMsgId = existing?.replyToMsgId ?? optionalEntityId(payload.reply_to_msg_id, 'stream.reply_to_msg_id');
         return {
           ...prev,
           [key]: {
@@ -1035,7 +1018,7 @@ export function ChatPage() {
     }
     const currentUser = useAuthStore.getState().user;
     if (currentUser) {
-      map.set(String(currentUser.id), {
+      map.set(currentUser.id, {
         username: currentUser.username,
         avatar: currentUser.avatar,
       });
@@ -1622,7 +1605,7 @@ export function ChatPage() {
               const announcementText = payload.content || '';
               const operatorInfo = getMsgUserInfo({ from_user_id: sysContent.actor_id }, userMap);
               const operatorName = operatorInfo?.username || `用户${sysContent.actor_id}`;
-              const operatorRole = memberRoleMap.get(String(sysContent.actor_id));
+              const operatorRole = sysContent.actor_id ? memberRoleMap.get(sysContent.actor_id) : undefined;
               const roleLabel = roleLabels[operatorRole || ''] || '成员';
               const roleColor = roleColors[operatorRole || ''] || 'default';
 
@@ -1727,7 +1710,7 @@ export function ChatPage() {
               const displayNames = relatedNames.length > 0
                 ? relatedNames.join('、')
                 : '';
-              if (action === 'member.left' && relatedNames.length === 1 && String(sysContent.actor_id) === String(relatedIDs[0])) {
+              if (action === 'member.left' && relatedNames.length === 1 && sysContent.actor_id === relatedIDs[0]) {
                 // 自己退出
                 return (
                   <div key={msg.message_id || msg.seq} className="chat-system-msg">

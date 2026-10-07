@@ -215,6 +215,7 @@ spec:
             - {name: MINIO_ADDRESS, value: "aim-minio:9000"}
             - {name: MINIO_ACCESS_KEY_ID, value: "minioadmin"}
             - {name: MINIO_SECRET_ACCESS_KEY, value: "minioadmin123"}
+            - {name: MINIO_BUCKET_NAME, value: "aim-milvus"}
           volumeMounts: [{name: data, mountPath: /var/lib/milvus}]
       volumes: [{name: data, persistentVolumeClaim: {claimName: milvus-pvc}}]
 ---

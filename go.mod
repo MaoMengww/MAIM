@@ -4,9 +4,7 @@ go 1.25.0
 
 require (
 	firebase.google.com/go/v4 v4.20.0
-	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/IBM/sarama v1.48.0
-	github.com/bwmarrin/snowflake v0.3.0
 	github.com/cloudwego/eino v0.8.13
 	github.com/cloudwego/eino-ext/components/tool/duckduckgo/v2 v2.0.0-20260527130239-95019b303cc6
 	github.com/cloudwego/eino-ext/components/tool/mcp v0.0.8
@@ -28,6 +26,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.43.0
 	golang.org/x/crypto v0.51.0
 	golang.org/x/net v0.54.0
+	golang.org/x/time v0.15.0
 	google.golang.org/api v0.279.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260511170946-3700d4141b60
 	google.golang.org/grpc v1.81.1
@@ -236,7 +235,6 @@ require (
 	golang.org/x/sys v0.44.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/appengine/v2 v2.0.6 // indirect
 	google.golang.org/genproto v0.0.0-20260511170946-3700d4141b60 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260511170946-3700d4141b60 // indirect
