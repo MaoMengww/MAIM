@@ -23,6 +23,10 @@ func NewUnmuteMemberLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Unmu
 }
 
 func (l *UnmuteMemberLogic) UnmuteMember(in *conversation.UnmuteMemberReq) (*common.BaseResponse, error) {
+
+	if err := validateRequest(l.ctx, in.OperatorId, in.ConversationId, in.UserId); err != nil {
+		return nil, err
+	}
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
 			return err
@@ -40,7 +44,7 @@ func (l *UnmuteMemberLogic) UnmuteMember(in *conversation.UnmuteMemberReq) (*com
 	}
 
 	// 发送系统消息
-	emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "member.unmuted", "被取消禁言", []int64{in.UserId})
+	emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "member.unmuted", "被取消禁言", []string{in.UserId})
 
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

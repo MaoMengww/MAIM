@@ -5,6 +5,7 @@ import { Modal, Input, Select, message, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { MoreOutlined, PushpinOutlined, BellOutlined, SettingOutlined, TeamOutlined, DeleteOutlined, LogoutOutlined, SearchOutlined } from '@ant-design/icons';
 import { SearchFilterBar } from '@/components/common/SearchFilterBar';
+import { SearchHighlight } from '@/components/common/SearchHighlight';
 import { convApi } from '@/services/conversation';
 import { msgApi } from '@/services/message';
 import { messageSync } from '@/services/messageSync';
@@ -168,7 +169,7 @@ export function ConvListPage() {
     if (!friendsData) return; // wait for friends list (needed for sender name lookup)
 
     const toFetch = conversations.filter(c => {
-      if (!c.last_message_id || String(c.last_message_id) === '0' || String(c.last_message_id).startsWith('-')) return false;
+      if (!c.last_message_id) return false;
       if (previewMap[String(c.id)]) return false; // already fetched
       return c.type === 'group' || !c.last_message_preview;
     }).slice(0, 30);
@@ -177,7 +178,7 @@ export function ConvListPage() {
 
     (async () => {
       const results = await Promise.allSettled(
-        toFetch.map(c => msgApi.getById(String(c.last_message_id)))
+        toFetch.map(c => msgApi.getById(c.last_message_id!))
       );
 
       const updates: Record<string, string> = {};
@@ -189,9 +190,10 @@ export function ConvListPage() {
         if (!text) return;
 
         if (conv.type === 'group' && msg.from_user_id) {
-          const sender = friends.find((f: any) => f.user_id === String(msg.from_user_id));
-          const name = sender?.remark || sender?.username || `用户${msg.from_user_id}`;
-          updates[String(conv.id)] = `${name}: ${text}`;
+          const sender = friends.find((f: any) => f.user_id === msg.from_user_id);
+          const name = sender?.remark || sender?.username
+            || (msg.from_user_id === useAuthStore.getState().user?.id ? useAuthStore.getState().user?.username : undefined);
+          updates[String(conv.id)] = name ? `${name}: ${text}` : text;
         } else {
           updates[String(conv.id)] = text;
         }
@@ -289,7 +291,7 @@ export function ConvListPage() {
   });
 
   const renameMutation = useMutation({
-    mutationFn: ({ id, name }: { id: number | string; name: string }) =>
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
       convApi.update(id, { name }),
     onSuccess: () => {
       message.success('已重命名');
@@ -302,7 +304,7 @@ export function ConvListPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number | string) => convApi.delete(id),
+    mutationFn: (id: string) => convApi.delete(id),
     onSuccess: (_data, id) => {
       message.success('已删除会话');
       queryClient.setQueryData(['conversations'], (old: any) => {
@@ -316,7 +318,7 @@ export function ConvListPage() {
   });
 
   const leaveMutation = useMutation({
-    mutationFn: (convId: number | string) =>
+    mutationFn: (convId: string) =>
       convApi.removeMembers(convId, [currentUserId!]),
     onSuccess: (_data, convId) => {
       message.success('已退出群聊');
@@ -331,7 +333,7 @@ export function ConvListPage() {
   });
 
   const updateSettingMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number | string; data: Record<string, unknown> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       convApi.updateSettings(id, data),
     onSuccess: (_data, variables) => {
       const action = variables.data.is_pinned !== undefined
@@ -493,9 +495,9 @@ export function ConvListPage() {
                 onPageChange={setSearchPage}
               />
               {searchResults.map((msg: any) => {
-                const conv = convMap.get(String(msg.conversation_id));
-                const highlight = searchHighlights[String(msg.message_id)];
-                const senderName = friendNameMap.get(String(msg.from_user_id));
+                const conv = convMap.get(msg.conversation_id);
+                const highlight = searchHighlights[msg.message_id];
+                const senderName = friendNameMap.get(msg.from_user_id);
                 return (
                   <div
                     key={msg.message_id}
@@ -519,7 +521,7 @@ export function ConvListPage() {
                     )}
                     <div className="conv-search-result-preview">
                       {highlight ? (
-                        <span dangerouslySetInnerHTML={{ __html: highlight }} />
+                        <SearchHighlight text={highlight} />
                       ) : extractTextPreview(msg.content)}
                     </div>
                   </div>

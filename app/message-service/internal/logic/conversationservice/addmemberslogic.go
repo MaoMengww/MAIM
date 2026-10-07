@@ -2,8 +2,10 @@ package conversationservice
 
 import (
 	"context"
+
 	"errors"
 	"fmt"
+	"github.com/maomeng/aim/pkg/identity"
 	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
@@ -26,26 +28,33 @@ func NewAddMembersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AddMem
 }
 
 func (l *AddMembersLogic) AddMembers(in *conversation.AddMembersReq) (*conversation.AddMembersResp, error) {
+
+	if err := validateRequest(l.ctx, in.OperatorId, in.ConversationId); err != nil {
+		return nil, err
+	}
+	if err := validateRequest(l.ctx, in.OperatorId, in.UserIds...); err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	memberRole := int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)
 	members := make([]model.ConversationMember, 0, len(in.UserIds))
 
 	for _, uid := range in.UserIds {
-		memberID, err := l.svcCtx.Snowflake.Generate()
+		memberID, err := identity.New()
 		if err != nil {
 			return nil, fmt.Errorf("generate member id failed: %w", err)
 		}
 		members = append(members, model.ConversationMember{
 			ID:         memberID,
 			ConvID:     in.ConversationId,
-			UserID:     uid,
+			UserID:     &uid,
 			MemberType: model.MemberTypeUser,
 			Role:       memberRole,
 			JoinedAt:   now,
 		})
 	}
 
-	var added, failed []int64
+	var added, failed []string
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
 			return err
@@ -68,7 +77,7 @@ func (l *AddMembersLogic) AddMembers(in *conversation.AddMembersReq) (*conversat
 		emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, consts.ConvActionMemberJoined, "成员加入了群聊", added)
 	}
 
-	l.Infof("members added: conv_id=%d count=%d", in.ConversationId, len(added))
+	l.Infof("members added: conv_id=%s count=%d", in.ConversationId, len(added))
 	return &conversation.AddMembersResp{
 		AddedUserIds:  added,
 		FailedUserIds: failed,

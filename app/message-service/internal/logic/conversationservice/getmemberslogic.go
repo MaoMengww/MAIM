@@ -22,6 +22,13 @@ func NewGetMembersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetMem
 }
 
 func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversation.GetMembersResp, error) {
+
+	if err := validateRequest(l.ctx, in.UserId, in.ConversationId); err != nil {
+		return nil, err
+	}
+	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.UserId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
+		return nil, err
+	}
 	page := 1
 	pageSize := 50
 	if in.Pagination != nil {
@@ -51,13 +58,13 @@ func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversat
 	}
 
 	// 收集需要获取用户信息的 user_id
-	var userIDs []int64
+	var userIDs []string
 	for _, m := range members {
-		if m.MemberType != model.MemberTypeBot {
-			userIDs = append(userIDs, m.UserID)
+		if m.MemberType == model.MemberTypeUser && m.UserID != nil {
+			userIDs = append(userIDs, *m.UserID)
 		}
 	}
-	userInfoMap := make(map[int64]repo.Profile)
+	userInfoMap := make(map[string]repo.Profile)
 	if len(userIDs) > 0 {
 		userInfoMap, _ = l.svcCtx.ProfileRepo.UserProfiles(l.ctx, userIDs)
 	}
@@ -68,7 +75,7 @@ func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversat
 		l.Logger.Errorf("get member read sequences failed: %v", err)
 		return nil, err
 	}
-	readSeqMap := make(map[int64]int64, len(readSeqs))
+	readSeqMap := make(map[string]int64, len(readSeqs))
 	for _, rs := range readSeqs {
 		readSeqMap[rs.UserID] = rs.LastReadSeq
 	}
@@ -89,18 +96,20 @@ func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversat
 			MemberType: memberType,
 			BotId:      m.BotID,
 		}
-		if m.MemberType == model.MemberTypeBot {
-			if bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, m.BotID); err == nil {
+		if m.MemberType == model.MemberTypeBot && m.BotID != nil {
+			if bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, *m.BotID); err == nil {
 				pbMember.Username = bot.Name
 				pbMember.Avatar = bot.Avatar
 				pbMember.BotName = bot.Name
 				pbMember.BotAvatar = bot.Avatar
 			}
-		} else if u, ok := userInfoMap[m.UserID]; ok {
-			pbMember.Username = u.Username
-			pbMember.Avatar = u.Avatar
+		} else if m.UserID != nil {
+			if u, ok := userInfoMap[*m.UserID]; ok {
+				pbMember.Username = u.Username
+				pbMember.Avatar = u.Avatar
+			}
+			pbMember.LastReadSeq = readSeqMap[*m.UserID]
 		}
-		pbMember.LastReadSeq = readSeqMap[m.UserID]
 		pbMembers[i] = pbMember
 	}
 

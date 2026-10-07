@@ -1,9 +1,12 @@
 package messageservicelogic
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	stderrors "errors"
-	"fmt"
+	"math/big"
+	"slices"
 	"strconv"
 	"time"
 
@@ -11,8 +14,8 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -35,56 +38,35 @@ func NewSendMessageLogic(ctx context.Context, svcCtx *svc.ServiceContext) *SendM
 
 func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.SendMessageResp, error) {
 	ctx := l.ctx
-
-	// 1. 幂等校验
-	if in.ClientMsgId != "" {
-		key := fmt.Sprintf("messaging:idempotent:%s", in.ClientMsgId)
-		ok, err := l.svcCtx.Redis.SetNX(ctx, key, "1", consts.MsgIdempotentTTL).Result()
-		if err != nil {
-			l.Errorf("idempotent check failed: %v", err)
-			return nil, ErrIdempotentCheckFailed
-		} else if !ok {
-			return nil, ErrDuplicateMessage
-		}
-	}
-
-	// 2. 验证调用方身份：从 gRPC metadata 提取 user-id 并与请求中的 from_user_id 比对
 	callerID := callerUserID(ctx)
-	if callerID == 0 {
+	if callerID == "" {
 		return nil, ErrUserIDMissing
+	}
+	if in == nil || validateIdentities(in.ConversationId, in.FromUserId) != nil {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid sending identity")
 	}
 	if callerID != in.FromUserId {
 		return nil, ErrSendAsOtherUser
 	}
-
-	// 3. 构造消息；展示资料可以在事务外预取，授权状态不能。
-	msgID, err := l.svcCtx.Snowflake.Generate()
+	if identity.ValidateSubmissionKey(in.ClientMsgId) != nil {
+		return nil, errors.New(errors.CodeInvalidParam, "client_msg_id must be a UUIDv4")
+	}
+	if in.ReplyToId != nil && identity.Validate(*in.ReplyToId) != nil {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid reply identity")
+	}
+	content := extractSendContent(in)
+	if err := validateSendContent(in); err != nil {
+		return nil, err
+	}
+	submission, err := originalSubmission(in.Type, content, in.ReplyToId)
 	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "generate msg id failed", err)
+		return nil, errors.Wrap(errors.CodeInvalidParam, "invalid submission content", err)
 	}
-	now := time.Now()
-	contentJSON := extractSendContent(in)
-
-	msg := &model.Message{
-		ID:           msgID,
-		ConvID:       in.ConversationId,
-		SenderID:     in.FromUserId,
-		ClientMsgID:  in.ClientMsgId,
-		MsgType:      int32(in.Type),
-		Content:      contentJSON,
-		ReplyToMsgID: in.GetReplyToId(),
-		Status:       model.MessageStatusNormal,
-		EditHistory:  model.JSONArray{},
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-
-	// 4. 单事务：锁会话 + 权限校验 + seq + 消息 + outbox + 最新消息
-	senderName := resolveReplySenderName(ctx, l.svcCtx, msg.SenderID, "user")
-
-	var seq int64
+	senderName := resolveReplySenderName(ctx, l.svcCtx, &in.FromUserId, "user")
+	var msg *model.Message
+	created := false
 	err = l.svcCtx.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		perm, err := l.svcCtx.ConversationRepo.CheckSendPermission(ctx, tx, in.ConversationId, in.FromUserId)
+		perm, err := l.svcCtx.ConversationRepo.CheckSendPermission(ctx, tx, in.ConversationId, in.FromUserId, model.MemberTypeUser)
 		if err != nil {
 			return err
 		}
@@ -94,11 +76,8 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 		if perm.IsMutedAll || (perm.IsMuted && (perm.MuteUntil == 0 || time.Now().Unix() < perm.MuteUntil)) {
 			return ErrSenderMuted
 		}
-		// 群聊拉黑不阻止发消息；私聊直接使用同一事务读取 user 域。
 		if perm.ConversationType == model.ConvTypePrivate && len(perm.OtherMemberIDs) > 0 {
-			var blocks []struct {
-				UserID int64
-			}
+			var blocks []struct{ UserID string }
 			if err := tx.Table(`"user".user_blocks`).Select("user_id").
 				Clauses(clause.Locking{Strength: "SHARE"}).
 				Where("(user_id = ? AND blocked_user_id IN ?) OR (user_id IN ? AND blocked_user_id = ?)",
@@ -110,11 +89,43 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 				return ErrBlockedByMember
 			}
 		}
-
+		// Permission locks the conversation, serializing every submission and its
+		// side effects. A failed transaction never reserves the client's key.
+		var existing model.Message
+		err = tx.Where("sender_id = ? AND conv_id = ? AND client_msg_id = ?",
+			in.FromUserId, in.ConversationId, in.ClientMsgId).Take(&existing).Error
+		if err == nil {
+			same, err := sameSubmission(existing.SubmissionContent, submission)
+			if err != nil {
+				return err
+			}
+			if !same {
+				return ErrContentConflict
+			}
+			msg = &existing
+			return nil
+		}
+		if !stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err := validateReplyTarget(ctx, l.svcCtx, tx, in.ConversationId, in.FromUserId, in.ReplyToId); err != nil {
+			return err
+		}
+		msgID, err := identity.New()
+		if err != nil {
+			return err
+		}
+		now := time.Now()
+		msg = &model.Message{
+			ID: msgID, ConvID: in.ConversationId, SenderID: &in.FromUserId, SenderType: "user",
+			ClientMsgID: &in.ClientMsgId, SubmissionContent: submission,
+			MsgType: int32(in.Type), Content: content, ReplyToMsgID: in.ReplyToId,
+			Status: model.MessageStatusNormal, EditHistory: model.JSONArray{}, CreatedAt: now, UpdatedAt: now,
+		}
 		if err := persistMessage(ctx, l.svcCtx, tx, msg, senderName); err != nil {
 			return err
 		}
-		seq = msg.Seq
+		created = true
 		return nil
 	})
 	if err != nil {
@@ -126,16 +137,177 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 		}
 		return nil, errors.Wrap(errors.CodeInternal, "insert message failed", err)
 	}
+	if created {
+		metrics.MessagesSentTotal.Inc(strconv.FormatInt(int64(in.Type), 10))
+		l.Infof("message sent: msg_id=%s conv_id=%s sender=%s", msg.ID, in.ConversationId, in.FromUserId)
+	}
+	return &message.SendMessageResp{MessageId: msg.ID, Seq: msg.Seq, CreatedAt: msg.CreatedAt.Unix()}, nil
+}
 
-	metrics.MessagesSentTotal.Inc(strconv.FormatInt(int64(in.Type), 10))
+// Normalize JSON through the persisted representation. Object ordering is not
+// semantic, including JSON documents carried in custom-message data.
+func originalSubmission(kind message.MessageType, content model.JSONContent, reply *string) (model.JSONContent, error) {
+	semantic := make(model.JSONContent, len(content))
+	for key, value := range content {
+		semantic[key] = value
+	}
+	var mentions []string
+	switch values := semantic["mention_user_ids"].(type) {
+	case []string:
+		mentions = slices.Clone(values)
+	case []any:
+		mentions = make([]string, 0, len(values))
+		for _, value := range values {
+			if id, ok := value.(string); ok {
+				mentions = append(mentions, id)
+			}
+		}
+	}
+	if _, hasMentions := semantic["mention_user_ids"]; hasMentions {
+		slices.Sort(mentions)
+		mentions = slices.Compact(mentions)
+		if len(mentions) == 0 {
+			semantic["mention_user_ids"] = []string{}
+		} else {
+			semantic["mention_user_ids"] = mentions
+		}
+	}
+	if data, ok := semantic["data"].(string); ok {
+		var value any
+		decoder := json.NewDecoder(bytes.NewBufferString(data))
+		decoder.UseNumber()
+		if json.Valid([]byte(data)) && decoder.Decode(&value) == nil {
+			semantic["data"] = map[string]any{"json": value}
+		}
+	}
+	return model.JSONContent{"type": int32(kind), "content": semantic, "reply_to_id": reply}, nil
+}
 
-	l.Infof("message sent: msg_id=%d conv_id=%d sender=%d", msgID, in.ConversationId, in.FromUserId)
+func sameSubmission(left, right model.JSONContent) (bool, error) {
+	leftJSON, err := json.Marshal(left)
+	if err != nil {
+		return false, err
+	}
+	rightJSON, err := json.Marshal(right)
+	if err != nil {
+		return false, err
+	}
+	if bytes.Equal(leftJSON, rightJSON) {
+		return true, nil
+	}
+	var leftValue, rightValue any
+	leftDecoder := json.NewDecoder(bytes.NewReader(leftJSON))
+	leftDecoder.UseNumber()
+	if err := leftDecoder.Decode(&leftValue); err != nil {
+		return false, err
+	}
+	rightDecoder := json.NewDecoder(bytes.NewReader(rightJSON))
+	rightDecoder.UseNumber()
+	if err := rightDecoder.Decode(&rightValue); err != nil {
+		return false, err
+	}
+	return equalSubmissionJSON(leftValue, rightValue), nil
+}
 
-	return &message.SendMessageResp{
-		MessageId: msgID,
-		Seq:       seq,
-		CreatedAt: now.Unix(),
-	}, nil
+// JSONB may rewrite numeric lexemes (1e2 -> 100). Compare exact rational
+// values, not floating-point approximations, while preserving JSON types.
+func equalSubmissionJSON(left, right any) bool {
+	switch value := left.(type) {
+	case nil:
+		return right == nil
+	case bool:
+		other, ok := right.(bool)
+		return ok && value == other
+	case string:
+		other, ok := right.(string)
+		return ok && value == other
+	case json.Number:
+		other, ok := right.(json.Number)
+		if !ok {
+			return false
+		}
+		var leftNumber, rightNumber big.Rat
+		if _, ok := leftNumber.SetString(string(value)); !ok {
+			return false
+		}
+		if _, ok := rightNumber.SetString(string(other)); !ok {
+			return false
+		}
+		return leftNumber.Cmp(&rightNumber) == 0
+	case []any:
+		other, ok := right.([]any)
+		if !ok || len(value) != len(other) {
+			return false
+		}
+		for i := range value {
+			if !equalSubmissionJSON(value[i], other[i]) {
+				return false
+			}
+		}
+		return true
+	case map[string]any:
+		other, ok := right.(map[string]any)
+		if !ok || len(value) != len(other) {
+			return false
+		}
+		for key, entry := range value {
+			otherEntry, exists := other[key]
+			if !exists || !equalSubmissionJSON(entry, otherEntry) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func validateSendContent(in *message.SendMessageReq) error {
+	valid := false
+	var ids []string
+	switch c := in.Content.(type) {
+	case *message.SendMessageReq_Text:
+		valid = in.Type == message.MessageType_MESSAGE_TYPE_TEXT && c.Text != nil
+		ids = c.Text.GetMentionUserIds()
+	case *message.SendMessageReq_Image:
+		valid = in.Type == message.MessageType_MESSAGE_TYPE_IMAGE && c.Image != nil
+		ids = []string{c.Image.GetFileId()}
+	case *message.SendMessageReq_File:
+		valid = in.Type == message.MessageType_MESSAGE_TYPE_FILE && c.File != nil
+		ids = []string{c.File.GetFileId()}
+	case *message.SendMessageReq_Video:
+		valid = in.Type == message.MessageType_MESSAGE_TYPE_VIDEO && c.Video != nil
+		ids = []string{c.Video.GetFileId()}
+	case *message.SendMessageReq_Audio:
+		valid = in.Type == message.MessageType_MESSAGE_TYPE_AUDIO && c.Audio != nil
+		ids = []string{c.Audio.GetFileId()}
+	case *message.SendMessageReq_Location:
+		valid = in.Type == message.MessageType_MESSAGE_TYPE_LOCATION && c.Location != nil
+	case *message.SendMessageReq_Custom:
+		valid = in.Type == message.MessageType_MESSAGE_TYPE_CUSTOM && c.Custom != nil
+	}
+	if !valid || validateIdentities(ids...) != nil {
+		return errors.New(errors.CodeInvalidParam, "invalid message content")
+	}
+	return nil
+}
+
+func validateReplyTarget(ctx context.Context, s *svc.ServiceContext, tx *gorm.DB, convID, userID string, reply *string) error {
+	if reply == nil {
+		return nil
+	}
+	var target model.Message
+	query := tx.Where("id = ? AND conv_id = ?", *reply, convID)
+	if userID != "" {
+		query = query.Where("NOT EXISTS (SELECT 1 FROM personal_message_deletions d WHERE d.user_id = ? AND d.conv_id = messages.conv_id AND d.message_id = messages.id)", userID)
+	}
+	if err := query.Take(&target).Error; err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New(errors.CodeInvalidParam, "reply message is unavailable in this conversation")
+		}
+		return err
+	}
+	return nil
 }
 
 func extractSendContent(req *message.SendMessageReq) model.JSONContent {

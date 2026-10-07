@@ -2,25 +2,40 @@ package messageservicelogic
 
 import (
 	"context"
-	"strconv"
+	"github.com/maomeng/aim/pkg/identity"
 
 	"google.golang.org/grpc/metadata"
 )
 
-// callerUserID returns the authenticated caller carried in gRPC metadata by the
-// gateway's interceptor, or 0 when it is absent or malformed.
-func callerUserID(ctx context.Context) int64 {
+// callerUserID returns the authenticated UUID from incoming metadata.
+func callerUserID(ctx context.Context) string {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return 0
+		return ""
 	}
 	values := md.Get("user-id")
-	if len(values) == 0 {
-		return 0
+	if len(values) != 1 || identity.Validate(values[0]) != nil {
+		return ""
 	}
-	id, err := strconv.ParseInt(values[0], 10, 64)
-	if err != nil {
-		return 0
+	return values[0]
+}
+
+func validateIdentities(ids ...string) error {
+	for _, id := range ids {
+		if err := identity.Validate(id); err != nil {
+			return err
+		}
 	}
-	return id
+	return nil
+}
+
+func requireCaller(ctx context.Context, userID string) error {
+	caller := callerUserID(ctx)
+	if caller == "" {
+		return ErrUserIDMissing
+	}
+	if caller != userID {
+		return ErrSendAsOtherUser
+	}
+	return nil
 }

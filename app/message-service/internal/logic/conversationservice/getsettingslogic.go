@@ -19,6 +19,13 @@ func NewGetSettingsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetSe
 }
 
 func (l *GetSettingsLogic) GetSettings(in *conversation.GetSettingsReq) (*conversation.GetSettingsResp, error) {
+
+	if err := validateRequest(l.ctx, in.UserId, in.ConversationId); err != nil {
+		return nil, err
+	}
+	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.UserId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
+		return nil, err
+	}
 	settings, err := l.svcCtx.ConversationRepo.GetSettings(l.ctx, in.ConversationId, in.UserId)
 	if err != nil {
 		l.Logger.Errorf("get settings failed: %v", err)

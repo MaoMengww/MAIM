@@ -2,7 +2,7 @@ package conversationservice
 
 import (
 	"context"
-	"strconv"
+	"github.com/maomeng/aim/pkg/identity"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
@@ -22,14 +22,21 @@ func NewListConversationsLogic(ctx context.Context, svcCtx *svc.ServiceContext) 
 }
 
 func (l *ListConversationsLogic) ListConversations(in *conversation.ListConversationsReq) (*conversation.ListConversationsResp, error) {
+
+	if err := validateRequest(l.ctx, in.UserId); err != nil {
+		return nil, err
+	}
 	pageSize := 50
-	cursor := int64(0)
+	cursor := ""
 	if in.Pagination != nil {
 		if in.Pagination.Limit > 0 {
 			pageSize = int(in.Pagination.Limit)
 		}
 		if in.Pagination.Cursor != "" {
-			cursor, _ = strconv.ParseInt(in.Pagination.Cursor, 10, 64)
+			cursor = in.Pagination.Cursor
+			if identity.Validate(cursor) != nil {
+				return nil, ErrInvalidParam
+			}
 		}
 	}
 
@@ -39,41 +46,34 @@ func (l *ListConversationsLogic) ListConversations(in *conversation.ListConversa
 		typ = &v
 	}
 
-	var convs []model.Conversation
-
-	if in.PinnedFirst {
-		pinnedConvs, _ := l.svcCtx.ConversationRepo.ListConversationsByUserPinned(l.ctx, in.UserId, true)
-		convs = append(convs, pinnedConvs...)
+	convs, err := l.svcCtx.ConversationRepo.ListConversationsByUser(l.ctx, in.UserId, cursor, pageSize+1, typ, in.PinnedFirst)
+	if err != nil {
+		l.Logger.Errorf("list conversations failed: %v", err)
+		return nil, err
 	}
-
-	remain := pageSize - len(convs)
-	if remain > 0 {
-		rest, err := l.svcCtx.ConversationRepo.ListConversationsByUser(l.ctx, in.UserId, cursor, remain, typ)
-		if err != nil {
-			l.Logger.Errorf("list conversations failed: %v", err)
-			return nil, err
-		}
-		convs = append(convs, rest...)
+	hasMore := len(convs) > pageSize
+	if hasMore {
+		convs = convs[:pageSize]
 	}
 
 	if err := l.svcCtx.MessageRepo.ProjectConversationPreviews(l.ctx, in.UserId, convs); err != nil {
 		return nil, err
 	}
 	// 批量查询已读序列（避免 N+1）
-	convIDs := make([]int64, len(convs))
+	convIDs := make([]string, len(convs))
 	for i := range convs {
 		convIDs[i] = convs[i].ID
 	}
 	readSeqMap, err := l.svcCtx.ConversationRepo.GetReadSeqsByUser(l.ctx, convIDs, in.UserId)
 	if err != nil {
-		l.Logger.Errorf("get read sequences failed for user=%d: %v", in.UserId, err)
+		l.Logger.Errorf("get read sequences failed for user=%s: %v", in.UserId, err)
 		return nil, err
 	}
 
 	// 未读由消息域本地读模型给出（唯一真相源），一次查询覆盖整页
 	unreadByConv, err := l.svcCtx.ConversationRepo.UnreadCountsByUser(l.ctx, in.UserId, convIDs)
 	if err != nil {
-		l.Logger.Errorf("unread counts failed for user=%d: %v", in.UserId, err)
+		l.Logger.Errorf("unread counts failed for user=%s: %v", in.UserId, err)
 		return nil, err
 	}
 
@@ -83,7 +83,7 @@ func (l *ListConversationsLogic) ListConversations(in *conversation.ListConversa
 			return nil, err
 		}
 	}
-	settingsByConv := make(map[int64]model.ConvSettings, len(settings))
+	settingsByConv := make(map[string]model.ConvSettings, len(settings))
 	for _, setting := range settings {
 		settingsByConv[setting.ConvID] = setting
 	}
@@ -94,35 +94,20 @@ func (l *ListConversationsLogic) ListConversations(in *conversation.ListConversa
 		pbConvs[i] = toProtoConv(&convs[i], lastReadSeq, unreadByConv[convs[i].ID], setting.IsMuted, setting.IsPinned)
 	}
 
-	// Resolve peer info for private conversations
-	for i, conv := range convs {
-		if convs[i].Type == 1 { // PRIVATE
-			members, err := l.svcCtx.ConversationRepo.GetMembers(l.ctx, convs[i].ID, 0, BotResolveLimit)
-			if err == nil {
-				for _, m := range members {
-					if m.UserID != in.UserId {
-						if m.MemberType == model.MemberTypeBot {
-							if bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, m.UserID); err == nil {
-								pbConvs[i].Name = bot.Name
-								pbConvs[i].Avatar = bot.Avatar
-							}
-						} else if user, err := l.svcCtx.ProfileRepo.UserProfile(l.ctx, m.UserID); err == nil {
-							pbConvs[i].Name = user.Username
-							pbConvs[i].Avatar = user.Avatar
-						}
-						break
-					}
-				}
-			}
-		}
-		_ = conv
+	for _, conv := range pbConvs {
+		NewCreateConversationLogic(l.ctx, l.svcCtx).resolvePrivatePeerInfo(conv, in.UserId)
 	}
 
-	l.Infof("conversations listed: user_id=%d count=%d", in.UserId, len(pbConvs))
+	nextCursor := ""
+	if len(convs) > 0 {
+		nextCursor = convs[len(convs)-1].ID
+	}
+	l.Infof("conversations listed: user_id=%s count=%d", in.UserId, len(pbConvs))
 	return &conversation.ListConversationsResp{
 		Conversations: pbConvs,
 		Pagination: &common.CursorPaginationResp{
-			HasMore: int32(len(convs)) >= int32(pageSize),
+			NextCursor: nextCursor,
+			HasMore:    hasMore,
 		},
 	}, nil
 }

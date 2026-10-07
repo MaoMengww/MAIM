@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,14 +14,16 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	convpb "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/config"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zeromicro/go-zero/core/conf"
+	"google.golang.org/grpc/metadata"
 	"gorm.io/gorm"
 )
 
-func cleanupConversation(t *testing.T, svcCtx *svc.ServiceContext, convID int64) {
+func cleanupConversation(t *testing.T, svcCtx *svc.ServiceContext, convID string) {
 	t.Helper()
 	for _, table := range []string{"conv_bots", "conv_settings", "conv_read_seqs", "conv_members"} {
 		require.NoError(t, svcCtx.DB.Exec("DELETE FROM messaging."+table+" WHERE conv_id = ?", convID).Error)
@@ -51,28 +54,33 @@ func newConvSvcCtx(t *testing.T) *svc.ServiceContext {
 }
 
 // createTestUser inserts a minimal user record via GORM and returns the ID.
-func createTestUser(t *testing.T, svcCtx *svc.ServiceContext) int64 {
+func createTestUser(t *testing.T, svcCtx *svc.ServiceContext) string {
 	t.Helper()
-	snowID, err := svcCtx.Snowflake.Generate()
+	id, err := identity.New()
 	require.NoError(t, err)
 	now := time.Now()
 	err = svcCtx.DB.WithContext(t.Context()).Exec(
 		`INSERT INTO "user".users (id, username, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-		snowID, "convusr_"+strconv.FormatInt(snowID%1000000, 36), "hash", now, now,
+		id, "convusr_"+id, "hash", now, now,
 	).Error
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		assert.NoError(t, svcCtx.DB.Exec(`DELETE FROM "user".users WHERE id = ?`, snowID).Error)
+		assert.NoError(t, svcCtx.DB.Exec(`DELETE FROM "user".users WHERE id = ?`, id).Error)
 	})
-	return snowID
+	return id
+}
+
+func conversationContext(t *testing.T, userID string) context.Context {
+	t.Helper()
+	return metadata.NewIncomingContext(t.Context(), metadata.Pairs("user-id", userID))
 }
 
 func TestConversationPrivate(t *testing.T) {
 	svcCtx := newConvSvcCtx(t)
-	ctx := t.Context()
 
 	user1 := createTestUser(t, svcCtx)
 	user2 := createTestUser(t, svcCtx)
+	ctx := conversationContext(t, user1)
 
 	logic := conversationservice.NewCreateConversationLogic(ctx, svcCtx)
 	resp, err := logic.CreateConversation(&convpb.CreateConversationReq{
@@ -82,7 +90,7 @@ func TestConversationPrivate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	require.Greater(t, resp.ConversationId, int64(0))
+	require.NoError(t, identity.Validate(resp.ConversationId))
 	convID := resp.ConversationId
 
 	t.Cleanup(func() {
@@ -106,18 +114,61 @@ func TestConversationPrivate(t *testing.T) {
 		UserId:         user1,
 	})
 	require.NoError(t, err)
-	memberIDs := make([]int64, len(members.Members))
+	memberIDs := make([]string, len(members.Members))
 	for i, member := range members.Members {
-		memberIDs[i] = member.UserId
+		memberIDs[i] = member.GetUserId()
 	}
-	assert.ElementsMatch(t, []int64{user1, user2}, memberIDs)
+	assert.ElementsMatch(t, []string{user1, user2}, memberIDs)
+
+	// Opposite participants concurrently creating an absent pair get one entity.
+	user3 := createTestUser(t, svcCtx)
+	user4 := createTestUser(t, svcCtx)
+	start := make(chan struct{})
+	type result struct {
+		id  string
+		err error
+	}
+	results := make(chan result, 2)
+	var requests sync.WaitGroup
+	for _, pair := range [][2]string{{user3, user4}, {user4, user3}} {
+		requests.Go(func() {
+			<-start
+			response, err := conversationservice.NewCreateConversationLogic(conversationContext(t, pair[0]), svcCtx).CreateConversation(&convpb.CreateConversationReq{
+				Type:      convpb.ConversationType_CONVERSATION_TYPE_PRIVATE,
+				CreatorId: pair[0], PeerUserId: &pair[1],
+			})
+			if err != nil {
+				results <- result{err: err}
+				return
+			}
+			results <- result{id: response.ConversationId}
+		})
+	}
+	close(start)
+	requests.Wait()
+	close(results)
+	firstID := ""
+	seenIDs := make(map[string]bool)
+	for result := range results {
+		require.NoError(t, result.err)
+		if !seenIDs[result.id] {
+			seenIDs[result.id] = true
+			t.Cleanup(func() { cleanupConversation(t, svcCtx, result.id) })
+		}
+		if firstID == "" {
+			firstID = result.id
+		}
+		assert.Equal(t, firstID, result.id)
+	}
+
 }
 
 func TestConversationGroup(t *testing.T) {
 	svcCtx := newConvSvcCtx(t)
-	ctx := t.Context()
+	var ctx context.Context
 
 	ownerID := createTestUser(t, svcCtx)
+	ctx = conversationContext(t, ownerID)
 	name := "test-group-" + strconv.FormatInt(time.Now().UnixMilli(), 36)
 
 	logic := conversationservice.NewCreateConversationLogic(ctx, svcCtx)
@@ -174,9 +225,10 @@ func TestConversationGroup(t *testing.T) {
 
 func TestConversationMemberRole(t *testing.T) {
 	svcCtx := newConvSvcCtx(t)
-	ctx := t.Context()
+	var ctx context.Context
 
 	ownerID := createTestUser(t, svcCtx)
+	ctx = conversationContext(t, ownerID)
 	memberID := createTestUser(t, svcCtx)
 	name := "role-test-" + strconv.FormatInt(time.Now().UnixMilli(), 36)
 
@@ -187,7 +239,7 @@ func TestConversationMemberRole(t *testing.T) {
 		Type:      convpb.ConversationType_CONVERSATION_TYPE_GROUP,
 		CreatorId: ownerID,
 		Name:      &name,
-		MemberIds: []int64{memberID},
+		MemberIds: []string{memberID},
 	})
 	require.NoError(t, err)
 	convID := resp.ConversationId
@@ -229,9 +281,10 @@ func TestConversationMemberRole(t *testing.T) {
 
 func TestConversationReadStatus(t *testing.T) {
 	svcCtx := newConvSvcCtx(t)
-	ctx := t.Context()
+	var ctx context.Context
 
 	ownerID := createTestUser(t, svcCtx)
+	ctx = conversationContext(t, ownerID)
 	name := "read-test-" + strconv.FormatInt(time.Now().UnixMilli(), 36)
 
 	createLogic := conversationservice.NewCreateConversationLogic(ctx, svcCtx)
@@ -272,9 +325,10 @@ func TestConversationReadStatus(t *testing.T) {
 
 func TestConversationDelete(t *testing.T) {
 	svcCtx := newConvSvcCtx(t)
-	ctx := t.Context()
+	var ctx context.Context
 
 	ownerID := createTestUser(t, svcCtx)
+	ctx = conversationContext(t, ownerID)
 	name := "del-test-" + strconv.FormatInt(time.Now().UnixMilli(), 36)
 
 	createLogic := conversationservice.NewCreateConversationLogic(ctx, svcCtx)

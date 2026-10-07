@@ -114,6 +114,7 @@ func New(
 	convs := protected.Group("/convs")
 	convs.POST("", convH.CreateConversation)
 	convs.GET("/:id", convH.GetConversation)
+	convs.GET("/:id/messages", msgH.GetMessages)
 	convs.DELETE("/:id", convH.DeleteConversation)
 	convs.PUT("/:id/info", convH.UpdateConversation)
 	convs.POST("/:id/avatar", convH.UploadConvAvatar)

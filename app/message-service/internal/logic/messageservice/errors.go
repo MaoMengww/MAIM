@@ -34,8 +34,6 @@ var (
 	ErrUserIDMissing            = errors.New(errors.CodeUnauthorized, "missing user-id in metadata")
 	ErrInvalidUserID            = errors.New(errors.CodeUnauthorized, "invalid user-id in metadata")
 	ErrSendAsOtherUser          = errors.New(errors.CodeForbidden, "cannot send message as another user")
-	ErrDuplicateMessage         = errors.New(errors.CodeConflict, "duplicate message")
-	ErrIdempotentCheckFailed    = errors.New(errors.CodeInternal, "service temporarily unavailable, please retry")
 	ErrBlockedByMember          = errors.New(errors.CodeForbidden, "you have been blocked by a member of this conversation")
 	ErrBlockCheckFailed         = errors.New(errors.CodeInternal, "block check failed")
 	ErrBotNotInConversation     = errors.New(errors.CodeForbidden, "bot is not a member of this conversation")

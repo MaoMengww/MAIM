@@ -25,6 +25,10 @@ func NewSetAnnouncementLogic(ctx context.Context, svcCtx *svc.ServiceContext) *S
 }
 
 func (l *SetAnnouncementLogic) SetAnnouncement(in *conversation.SetAnnouncementReq) (*common.BaseResponse, error) {
+
+	if err := validateRequest(l.ctx, in.OperatorId, in.ConversationId); err != nil {
+		return nil, err
+	}
 	oldContent := ""
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
@@ -47,7 +51,7 @@ func (l *SetAnnouncementLogic) SetAnnouncement(in *conversation.SetAnnouncementR
 }
 
 // sendAnnouncementSystemMsg 发送公告变更系统消息
-func sendAnnouncementSystemMsg(ctx context.Context, svcCtx *svc.ServiceContext, convID, operatorID int64, action, content, oldContent string) {
+func sendAnnouncementSystemMsg(ctx context.Context, svcCtx *svc.ServiceContext, convID, operatorID string, action, content, oldContent string) {
 	if svcCtx.SendSystemMessage == nil {
 		return
 	}
@@ -62,13 +66,13 @@ func sendAnnouncementSystemMsg(ctx context.Context, svcCtx *svc.ServiceContext, 
 	go func() {
 		if err := svcCtx.SendSystemMessage(context.Background(), &messagepb.SendSystemMessageReq{
 			ConversationId: convID,
-			ActorId:        operatorID,
+			ActorId:        &operatorID,
 			ActorType:      "user",
 			Action:         action,
 			Detail:         detail,
 			Payload:        string(payloadBytes),
 		}); err != nil {
-			svcCtx.Logger.WithContext(context.Background()).Errorf("send announcement system message failed: conv=%d action=%s err=%v", convID, action, err)
+			svcCtx.Logger.WithContext(context.Background()).Errorf("send announcement system message failed: conv=%s action=%s err=%v", convID, action, err)
 		}
 	}()
 }

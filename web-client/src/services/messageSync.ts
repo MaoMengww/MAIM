@@ -8,19 +8,19 @@ interface ConvState {
   loading: boolean;
   error: string | null;
 }
-type Mutation = (messages: Record<string, Message[]>) => void;
+type Mutation = (cache: UserSyncCache) => void;
 
 function mergeMessage(messages: Record<string, Message[]>, convId: string, msg: Message) {
   const list = messages[convId] ?? [];
-  const index = list.findIndex((m) => String(m.message_id) === String(msg.message_id));
+  const index = list.findIndex((m) => m.message_id === msg.message_id);
   messages[convId] = index < 0 ? [...list, msg] : list.map((m, i) => i === index ? msg : m);
   messages[convId].sort((a, b) => a.seq - b.seq);
 }
 
 function removeMessageAndRedactReplies(messages: Record<string, Message[]>, convId: string, messageId: string) {
-  messages[convId] = (messages[convId] ?? []).filter((msg) => String(msg.message_id) !== messageId).map((msg) => {
-    if (String(msg.reply_to_id) !== messageId && String(msg.reply_to?.message_id) !== messageId) return msg;
-    return { ...msg, reply_to: { message_id: messageId, deleted: true, sender_id: '0',
+  messages[convId] = (messages[convId] ?? []).filter((msg) => msg.message_id !== messageId).map((msg) => {
+    if (msg.reply_to_id !== messageId && msg.reply_to?.message_id !== messageId) return msg;
+    return { ...msg, reply_to: { message_id: messageId, deleted: true, sender_id: undefined,
       sender_type: '', sender_name: '', type: 0, preview: '' } };
   });
 }
@@ -28,13 +28,13 @@ function removeMessageAndRedactReplies(messages: Record<string, Message[]>, conv
 function applyChange(cache: UserSyncCache, change: InboxChange) {
   const convId = change.conversation_id;
   if (change.kind === 'conversation.removed') {
-    cache.conversations = cache.conversations.filter((conv) => String(conv.id) !== convId);
+    cache.conversations = cache.conversations.filter((conv) => conv.id !== convId);
     delete cache.messages[convId];
     return;
   }
   if (change.conversation) {
     const conversation = change.conversation;
-    const index = cache.conversations.findIndex((conv) => String(conv.id) === convId);
+    const index = cache.conversations.findIndex((conv) => conv.id === convId);
     cache.conversations = index < 0
       ? [...cache.conversations, conversation]
       : cache.conversations.map((conv, i) => i === index ? conversation : conv);
@@ -43,18 +43,26 @@ function applyChange(cache: UserSyncCache, change: InboxChange) {
     case 'message.new':
     case 'message.edited':
     case 'message.recalled':
-      mergeMessage(cache.messages, convId, change.message);
+      if (!(cache.deletedMessages[convId] ?? []).includes(change.message.message_id)) mergeMessage(cache.messages, convId, change.message);
       break;
     case 'message.deleted':
+      cache.deletedMessages[convId] = [...new Set([...(cache.deletedMessages[convId] ?? []), change.message_id])];
+      cache.conversations = cache.conversations.map((conv) => conv.id === convId && conv.last_message_id === change.message_id
+        ? { ...conv, last_message_id: undefined, last_message_preview: '' } : conv);
       removeMessageAndRedactReplies(cache.messages, convId, change.message_id);
       break;
+  }
+  for (const hiddenId of cache.deletedMessages[convId] ?? []) {
+    removeMessageAndRedactReplies(cache.messages, convId, hiddenId);
+    cache.conversations = cache.conversations.map((conv) => conv.id === convId && conv.last_message_id === hiddenId
+      ? { ...conv, last_message_id: undefined, last_message_preview: '' } : conv);
   }
 }
 
 class MessageSyncEngine {
   private userId: string | null = null;
   private generation = 0;
-  private cache: UserSyncCache = { position: '0', messages: {}, conversations: [] };
+  private cache: UserSyncCache = { position: 0, messages: {}, conversations: [], deletedMessages: {} };
   private loading = true;
   private error: string | null = null;
   private boot: Promise<void> = Promise.resolve();
@@ -96,9 +104,9 @@ class MessageSyncEngine {
     const generation = this.generation;
     this.boot = this.writes.then(() => loadUserSyncCache(userId)).then((cache) => {
       if (generation !== this.generation) return;
-      const messages = cache?.messages ?? {};
-      this.mutations.forEach((apply) => apply(messages));
-      this.cache = { position: cache?.position ?? '0', conversations: cache?.conversations ?? [], messages };
+      const restored: UserSyncCache = cache ?? { position: 0, conversations: [], messages: {}, deletedMessages: {} };
+      this.mutations.forEach((apply) => apply(restored));
+      this.cache = restored;
       this.hydrated = true;
       this.notify('*', true);
     });
@@ -114,7 +122,7 @@ class MessageSyncEngine {
   reset(): void {
     this.generation++;
     this.userId = null;
-    this.cache = { position: '0', messages: {}, conversations: [] };
+    this.cache = { position: 0, messages: {}, conversations: [], deletedMessages: {} };
     this.loading = true;
     this.error = null;
     this.syncing = null;
@@ -156,8 +164,8 @@ class MessageSyncEngine {
     // A second tab may have committed since this runtime loaded its cache.
     const durable = await loadUserSyncCache(userId);
     if (generation !== this.generation) return;
-    if (durable && durable.position !== this.cache.position) {
-      this.mutations.forEach((apply) => apply(durable.messages));
+    if (durable) {
+      this.mutations.forEach((apply) => apply(durable));
       this.cache = durable;
     }
     let page: UserSyncPage;
@@ -171,10 +179,16 @@ class MessageSyncEngine {
       if (page.rebuild_required) {
         conversations = page.conversations.map((snapshot) => snapshot.conversation);
         page.conversations.forEach((snapshot) => {
-          messages[String(snapshot.conversation.id)] = snapshot.messages;
+          messages[snapshot.conversation.id] = snapshot.messages;
         });
       }
-      const next: UserSyncCache = { position: page.next_position, messages, conversations };
+      const next: UserSyncCache = { position: page.next_position, messages, conversations,
+        deletedMessages: structuredClone(this.cache.deletedMessages) };
+      Object.entries(next.deletedMessages).forEach(([convId, ids]) => ids.forEach((messageId) => {
+        removeMessageAndRedactReplies(next.messages, convId, messageId);
+        next.conversations = next.conversations.map((conv) => conv.id === convId && conv.last_message_id === messageId
+          ? { ...conv, last_message_id: undefined, last_message_preview: '' } : conv);
+      }));
       if (!page.rebuild_required) page.changes.forEach((change) => applyChange(next, change));
       const removedConversations = new Set<string>();
       page.changes.forEach((change) => {
@@ -190,7 +204,7 @@ class MessageSyncEngine {
       // New messages arriving while the request was in flight are not in its snapshot.
       // Rebuild replaces old state but retains live changes arriving after its request began.
       const replayLiveChanges = (start: number) => {
-        this.mutations.slice(start).forEach((apply) => apply(messages));
+        this.mutations.slice(start).forEach((apply) => apply(next));
         // Live echoes cannot revive messages or conversations removed by this page.
         page.changes.forEach((change) => {
           if (change.kind === 'message.deleted'
@@ -213,13 +227,14 @@ class MessageSyncEngine {
   private mutate(convId: string, apply: Mutation): Promise<void> {
     if (!this.userId) return Promise.resolve();
     if (!this.hydrated || this.syncing) this.mutations.push(apply);
-    apply(this.cache.messages);
+    apply(this.cache);
     this.notify(convId);
     const userId = this.userId;
     const generation = this.generation;
     const boot = this.boot;
     return this.enqueueWrite(async () => {
       await boot;
+      if (generation !== this.generation) return;
       await updateUserSyncCache(userId, apply);
     }).catch((error) => {
       if (generation !== this.generation) return;
@@ -230,29 +245,29 @@ class MessageSyncEngine {
 
   onWsMessage(convId: string, rawPayload: unknown): void {
     const msg = normalizeRealtimeMessageContent(rawPayload);
-    if (!msg?.message_id || String(msg.conversation_id) !== convId) return;
+    if (!msg?.message_id || msg.conversation_id !== convId) return;
     void this.addMessage(convId, msg);
   }
 
   addMessage(convId: string, msg: Message): Promise<void> {
     if (!msg?.message_id) return Promise.resolve();
-    return this.mutate(convId, (messages) => {
-      // HTTP sync owns current message state; a delayed new-message echo must not
-      // overwrite a recall/edit already present in the authoritative page.
-      if (messages[convId]?.some((m) => String(m.message_id) === String(msg.message_id))) return;
-      mergeMessage(messages, convId, msg);
+    return this.mutate(convId, (cache) => {
+      if ((cache.deletedMessages[convId] ?? []).includes(msg.message_id)
+        || cache.messages[convId]?.some((m) => m.message_id === msg.message_id)) return;
+      mergeMessage(cache.messages, convId, msg);
+      for (const hiddenId of cache.deletedMessages[convId] ?? []) removeMessageAndRedactReplies(cache.messages, convId, hiddenId);
     });
   }
 
-  updateMessage(convId: string, messageId: number | string, updater: (msg: Message) => Message): Promise<void> {
-    return this.mutate(convId, (messages) => {
-      messages[convId] = (messages[convId] ?? []).map((m) => String(m.message_id) === String(messageId) ? updater(m) : m);
+  updateMessage(convId: string, messageId: string, updater: (msg: Message) => Message): Promise<void> {
+    return this.mutate(convId, (cache) => {
+      cache.messages[convId] = (cache.messages[convId] ?? []).map((m) => m.message_id === messageId ? updater(m) : m);
     });
   }
 
-  removeMessage(convId: string, messageId: number | string): Promise<void> {
-    return this.mutate(convId, (messages) => {
-      removeMessageAndRedactReplies(messages, convId, String(messageId));
+  removeMessage(convId: string, messageId: string): Promise<void> {
+    return this.mutate(convId, (cache) => {
+      applyChange(cache, { position: cache.position, conversation_id: convId, kind: 'message.deleted', message_id: messageId });
     });
   }
 }

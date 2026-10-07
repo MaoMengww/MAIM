@@ -25,8 +25,11 @@ func NewGetMessageByIDLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Ge
 }
 
 func (l *GetMessageByIDLogic) GetMessageByID(in *message.GetMessageByIDReq) (*message.GetMessageByIDResp, error) {
+	if in == nil || validateIdentities(in.MessageId) != nil {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid message identity")
+	}
 	callerID := callerUserID(l.ctx)
-	if callerID == 0 {
+	if callerID == "" {
 		return nil, ErrUserIDMissing
 	}
 	// Authorization precedes account visibility: a non-member is forbidden, while a

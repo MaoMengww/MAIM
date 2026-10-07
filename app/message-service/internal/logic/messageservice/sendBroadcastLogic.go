@@ -10,6 +10,7 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -31,11 +32,14 @@ func NewSendBroadcastLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Sen
 }
 
 func (l *SendBroadcastLogic) SendBroadcast(in *message.SendBroadcastReq) (*message.SendBroadcastResp, error) {
+	if in == nil || validateIdentities(in.SenderId) != nil || (in.ScopeTargetId != nil && validateIdentities(*in.ScopeTargetId) != nil) {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid broadcast identity")
+	}
 	if in.Content == "" {
 		return nil, ErrBroadcastContentRequired
 	}
 
-	scopeTargetID := in.GetScopeTargetId()
+	scopeTargetID := in.ScopeTargetId
 	users, err := l.resolveTargetUsers(in.Scope, scopeTargetID)
 	if err != nil {
 		if _, ok := errors.IsBizError(err); ok {
@@ -47,7 +51,7 @@ func (l *SendBroadcastLogic) SendBroadcast(in *message.SendBroadcastReq) (*messa
 	// overlap, so multi-user broadcasts cannot deadlock on their system chats.
 	slices.Sort(users)
 	users = slices.Compact(users)
-	broadcastID, err := l.svcCtx.Snowflake.Generate()
+	broadcastID, err := identity.New()
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "generate broadcast id failed", err)
 	}
@@ -58,12 +62,12 @@ func (l *SendBroadcastLogic) SendBroadcast(in *message.SendBroadcastReq) (*messa
 		detail = in.Content
 	}
 	systemContent := model.SystemContent{
-		Action: "broadcast", Detail: detail, ActorID: in.SenderId,
+		Action: "broadcast", Detail: detail, ActorID: &in.SenderId,
 		ActorType: "system", Payload: in.Content,
 	}.ToJSONContent()
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&model.Broadcast{
-			ID: broadcastID, SenderID: in.SenderId, Content: content,
+			ID: broadcastID, SenderID: &in.SenderId, Content: content,
 			Scope: in.Scope, ScopeTargetID: scopeTargetID, CreatedAt: now,
 		}).Error; err != nil {
 			return err
@@ -73,12 +77,12 @@ func (l *SendBroadcastLogic) SendBroadcast(in *message.SendBroadcastReq) (*messa
 			if err != nil {
 				return err
 			}
-			msgID, err := l.svcCtx.Snowflake.Generate()
+			msgID, err := identity.New()
 			if err != nil {
 				return err
 			}
 			msg := &model.Message{
-				ID: msgID, ConvID: conv.ID, SenderID: in.SenderId, SenderType: "system",
+				ID: msgID, ConvID: conv.ID, SenderID: &in.SenderId, SenderType: "system",
 				MsgType: model.MsgTypeSystem, Content: systemContent,
 				Status: model.MessageStatusNormal, EditHistory: model.JSONArray{},
 				CreatedAt: now, UpdatedAt: now,
@@ -99,30 +103,30 @@ func (l *SendBroadcastLogic) SendBroadcast(in *message.SendBroadcastReq) (*messa
 	}, nil
 }
 
-func (l *SendBroadcastLogic) resolveTargetUsers(scope string, scopeTargetID int64) ([]int64, error) {
+func (l *SendBroadcastLogic) resolveTargetUsers(scope string, scopeTargetID *string) ([]string, error) {
 	switch scope {
 	case "all":
 		return l.svcCtx.ProfileRepo.AllUserIDs(l.ctx)
 	case "group":
-		if scopeTargetID <= 0 {
+		if scopeTargetID == nil {
 			return nil, errors.New(errors.CodeInvalidParam, "scope_target_id is required for group scope")
 		}
-		var users []int64
+		var users []string
 		err := l.svcCtx.DB.WithContext(l.ctx).Model(&model.ConversationMember{}).
-			Where("conv_id = ? AND member_type = ?", scopeTargetID, model.MemberTypeUser).
+			Where("conv_id = ? AND member_type = ?", *scopeTargetID, model.MemberTypeUser).
 			Pluck("user_id", &users).Error
 		return users, err
 	case "user":
-		if scopeTargetID <= 0 {
+		if scopeTargetID == nil {
 			return nil, errors.New(errors.CodeInvalidParam, "scope_target_id is required for user scope")
 		}
-		if _, err := l.svcCtx.ProfileRepo.UserProfile(l.ctx, scopeTargetID); err != nil {
+		if _, err := l.svcCtx.ProfileRepo.UserProfile(l.ctx, *scopeTargetID); err != nil {
 			if stderrors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, errors.New(errors.CodeNotFound, "broadcast recipient not found")
 			}
 			return nil, err
 		}
-		return []int64{scopeTargetID}, nil
+		return []string{*scopeTargetID}, nil
 	default:
 		return nil, errors.New(errors.CodeInvalidParam, "unknown broadcast scope")
 	}
@@ -130,7 +134,7 @@ func (l *SendBroadcastLogic) resolveTargetUsers(scope string, scopeTargetID int6
 
 // The partial unique index arbitrates concurrent first broadcasts. A conflicting
 // insert waits for its winner; the following locked read observes that commit.
-func (l *SendBroadcastLogic) systemConversation(tx *gorm.DB, userID int64) (*model.Conversation, error) {
+func (l *SendBroadcastLogic) systemConversation(tx *gorm.DB, userID string) (*model.Conversation, error) {
 	var conv model.Conversation
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("type = ? AND owner_id = ?", model.ConvTypeSystem, userID).Take(&conv).Error
@@ -140,16 +144,16 @@ func (l *SendBroadcastLogic) systemConversation(tx *gorm.DB, userID int64) (*mod
 	if !stderrors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-	convID, err := l.svcCtx.Snowflake.Generate()
+	convID, err := identity.New()
 	if err != nil {
 		return nil, err
 	}
-	memberID, err := l.svcCtx.Snowflake.Generate()
+	memberID, err := identity.New()
 	if err != nil {
 		return nil, err
 	}
 	conv = model.Conversation{
-		ID: convID, Type: model.ConvTypeSystem, OwnerID: userID,
+		ID: convID, Type: model.ConvTypeSystem, OwnerID: &userID,
 		Name: "系统通知", MemberCount: 1,
 	}
 	if err := tx.Clauses(clause.OnConflict{
@@ -165,7 +169,7 @@ func (l *SendBroadcastLogic) systemConversation(tx *gorm.DB, userID int64) (*mod
 		return nil, err
 	}
 	member := model.ConversationMember{
-		ID: memberID, ConvID: conv.ID, UserID: userID, MemberType: model.MemberTypeUser,
+		ID: memberID, ConvID: conv.ID, UserID: &userID, MemberType: model.MemberTypeUser,
 		Role: int32(message.MemberRole_MEMBER_ROLE_MEMBER),
 	}
 	if err := tx.Clauses(clause.OnConflict{

@@ -1,78 +1,25 @@
-const MAX_SAFE_INTEGER = '9007199254740991';
-
-// Quote unsafe integer tokens before JSON.parse can round snowflake IDs.
-// JSON.parse still validates strings, escapes and the surrounding JSON structure.
-export function parseJsonWithExactIntegers(text: string): unknown {
-  let index = 0;
-  let copiedUntil = 0;
-  let parts: string[] | undefined;
-
-  while (index < text.length) {
-    const char = text[index];
-    if (char === '"') {
-      index++;
-      while (index < text.length) {
-        if (text[index] === '\\') {
-          index += 2;
-        } else if (text[index++] === '"') {
-          break;
-        }
-      }
-      continue;
-    }
-    if (char !== '-' && (char < '0' || char > '9')) {
-      index++;
-      continue;
-    }
-
-    const start = index;
-    if (char === '-') index++;
-    const digitsStart = index;
-    if (text[index] === '0') {
-      index++;
-    } else {
-      if (!(text[index] >= '1' && text[index] <= '9')) throw new SyntaxError('Invalid JSON number');
-      while (text[index] >= '0' && text[index] <= '9') index++;
-    }
-    const digitsEnd = index;
-    let integer = true;
-    if (text[index] === '.') {
-      integer = false;
-      index++;
-      if (!(text[index] >= '0' && text[index] <= '9')) throw new SyntaxError('Invalid JSON number');
-      while (text[index] >= '0' && text[index] <= '9') index++;
-    }
-    if (text[index] === 'e' || text[index] === 'E') {
-      integer = false;
-      index++;
-      if (text[index] === '+' || text[index] === '-') index++;
-      if (!(text[index] >= '0' && text[index] <= '9')) throw new SyntaxError('Invalid JSON number');
-      while (text[index] >= '0' && text[index] <= '9') index++;
-    }
-    // Reject leading zeros and bare numeric keys instead of making invalid JSON valid.
-    const end = index;
-    while (index < text.length && ' \t\r\n'.includes(text[index])) index++;
-    if (index < text.length && !',]}'.includes(text[index])) throw new SyntaxError('Invalid JSON number');
-
-    const digitsLength = digitsEnd - digitsStart;
-    if (integer && (digitsLength > MAX_SAFE_INTEGER.length ||
-      (digitsLength === MAX_SAFE_INTEGER.length && text.slice(digitsStart, digitsEnd) > MAX_SAFE_INTEGER))) {
-      parts ??= [];
-      parts.push(text.slice(copiedUntil, start), `"${text.slice(start, end)}"`);
-      copiedUntil = end;
-    }
+export function entityId(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)) {
+    throw new Error(`${field} 必须是标准 UUID`);
   }
-
-  if (!parts) return JSON.parse(text);
-  parts.push(text.slice(copiedUntil));
-  return JSON.parse(parts.join(''));
+  return value;
 }
 
-export function safeJsonParse<T = any>(text: string): T {
-  if (typeof text !== 'string') return text as T;
-  try {
-    return parseJsonWithExactIntegers(text) as T;
-  } catch {
-    return text as T;
+export function optionalEntityId(value: unknown, field: string): string | undefined {
+  return value === undefined || value === null ? undefined : entityId(value, field);
+}
+
+export function sequence(value: unknown, field: string, positive = false): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < (positive ? 1 : 0)) {
+    throw new Error(`${field} 必须是安全整数 number`);
   }
+  return value;
+}
+
+// Protobuf timestamps and attachment sizes retain their own int64 text contract.
+// This is never used for identity, seq, read or inbox position.
+export function quantity(value: unknown, field: string): number {
+  if (value === undefined) return 0;
+  if (typeof value === 'string' && /^\d+$/.test(value)) value = Number(value);
+  return sequence(value, field);
 }

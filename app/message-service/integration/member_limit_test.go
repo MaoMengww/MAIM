@@ -3,7 +3,7 @@
 package integration
 
 import (
-	"strconv"
+	"github.com/google/uuid"
 	"sync"
 	"testing"
 
@@ -18,14 +18,14 @@ import (
 
 // sendText drives the same call the gateway makes, including the caller identity
 // it carries in gRPC metadata.
-func sendText(t *testing.T, svcCtx *svc.ServiceContext, convID, senderID int64, text string) {
+func sendText(t *testing.T, svcCtx *svc.ServiceContext, convID, senderID string, text string) {
 	t.Helper()
 	ctx := metadata.NewIncomingContext(t.Context(),
-		metadata.Pairs("user-id", strconv.FormatInt(senderID, 10), "device-id", "member-limit-test"))
+		metadata.Pairs("user-id", senderID, "device-id", "member-limit-test"))
 	resp, err := messageservicelogic.NewSendMessageLogic(ctx, svcCtx).SendMessage(&convpb.SendMessageReq{
 		ConversationId: convID,
 		FromUserId:     senderID,
-		ClientMsgId:    text,
+		ClientMsgId:    uuid.NewString(),
 		Type:           convpb.MessageType_MESSAGE_TYPE_TEXT,
 		Content:        &convpb.SendMessageReq_Text{Text: &convpb.TextContent{Text: text}},
 	})
@@ -33,21 +33,21 @@ func sendText(t *testing.T, svcCtx *svc.ServiceContext, convID, senderID int64, 
 	require.Positive(t, resp.Seq)
 }
 
-func assertConversationMembers(t *testing.T, svcCtx *svc.ServiceContext, convID, ownerID int64, want []int64) {
+func assertConversationMembers(t *testing.T, svcCtx *svc.ServiceContext, convID, ownerID string, want []string) {
 	t.Helper()
-	members, err := conversationservice.NewGetMembersLogic(t.Context(), svcCtx).GetMembers(&convpb.GetMembersReq{
+	members, err := conversationservice.NewGetMembersLogic(conversationContext(t, ownerID), svcCtx).GetMembers(&convpb.GetMembersReq{
 		ConversationId: convID,
 		UserId:         ownerID,
 	})
 	require.NoError(t, err)
-	ids := make([]int64, len(members.Members))
+	ids := make([]string, len(members.Members))
 	for i, member := range members.Members {
-		ids[i] = member.UserId
+		ids[i] = member.GetUserId()
 	}
 	assert.ElementsMatch(t, want, ids)
 	assert.Equal(t, int64(len(want)), members.Pagination.Total)
 
-	conv, err := conversationservice.NewGetConversationLogic(t.Context(), svcCtx).GetConversation(&convpb.GetConversationReq{
+	conv, err := conversationservice.NewGetConversationLogic(conversationContext(t, ownerID), svcCtx).GetConversation(&convpb.GetConversationReq{
 		ConversationId: convID,
 		UserId:         ownerID,
 	})
@@ -58,15 +58,16 @@ func assertConversationMembers(t *testing.T, svcCtx *svc.ServiceContext, convID,
 func TestConversationMemberLimitAtomicBatch(t *testing.T) {
 	svcCtx := newConvSvcCtx(t)
 	svcCtx.Config.Conv.MaxMemberCount = 3
-	ctx := t.Context()
+
 	ownerID := createTestUser(t, svcCtx)
+	ctx := conversationContext(t, ownerID)
 	existingID := createTestUser(t, svcCtx)
 	firstID := createTestUser(t, svcCtx)
 	secondID := createTestUser(t, svcCtx)
 	created, err := conversationservice.NewCreateConversationLogic(ctx, svcCtx).CreateConversation(&convpb.CreateConversationReq{
 		Type:      convpb.ConversationType_CONVERSATION_TYPE_GROUP,
 		CreatorId: ownerID,
-		MemberIds: []int64{existingID},
+		MemberIds: []string{existingID},
 	})
 	require.NoError(t, err)
 	convID := created.ConversationId
@@ -77,54 +78,54 @@ func TestConversationMemberLimitAtomicBatch(t *testing.T) {
 	_, err = add.AddMembers(&convpb.AddMembersReq{
 		ConversationId: convID,
 		OperatorId:     ownerID,
-		UserIds:        []int64{existingID, firstID, firstID, secondID},
+		UserIds:        []string{existingID, firstID, firstID, secondID},
 	})
 	require.ErrorIs(t, err, conversationservice.ErrConvMaxMembers)
-	assertConversationMembers(t, svcCtx, convID, ownerID, []int64{ownerID, existingID})
+	assertConversationMembers(t, svcCtx, convID, ownerID, []string{ownerID, existingID})
 
 	// Existing members and repeated IDs do not consume additional slots.
 	added, err := add.AddMembers(&convpb.AddMembersReq{
 		ConversationId: convID,
 		OperatorId:     ownerID,
-		UserIds:        []int64{existingID, firstID, firstID},
+		UserIds:        []string{existingID, firstID, firstID},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []int64{firstID}, added.AddedUserIds)
-	assert.Equal(t, []int64{existingID, firstID}, added.FailedUserIds)
-	assertConversationMembers(t, svcCtx, convID, ownerID, []int64{ownerID, existingID, firstID})
+	assert.Equal(t, []string{firstID}, added.AddedUserIds)
+	assert.Equal(t, []string{existingID, firstID}, added.FailedUserIds)
+	assertConversationMembers(t, svcCtx, convID, ownerID, []string{ownerID, existingID, firstID})
 
 	duplicates, err := add.AddMembers(&convpb.AddMembersReq{
 		ConversationId: convID,
 		OperatorId:     ownerID,
-		UserIds:        []int64{ownerID, existingID, firstID},
+		UserIds:        []string{ownerID, existingID, firstID},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, duplicates.AddedUserIds)
-	assert.Equal(t, []int64{ownerID, existingID, firstID}, duplicates.FailedUserIds)
+	assert.Equal(t, []string{ownerID, existingID, firstID}, duplicates.FailedUserIds)
 
 	_, err = add.AddMembers(&convpb.AddMembersReq{
 		ConversationId: convID,
 		OperatorId:     ownerID,
-		UserIds:        []int64{secondID},
+		UserIds:        []string{secondID},
 	})
 	require.ErrorIs(t, err, conversationservice.ErrConvMaxMembers)
-	assertConversationMembers(t, svcCtx, convID, ownerID, []int64{ownerID, existingID, firstID})
+	assertConversationMembers(t, svcCtx, convID, ownerID, []string{ownerID, existingID, firstID})
 
 	// Leaving releases capacity, and the persisted count follows the replacement.
-	_, err = conversationservice.NewRemoveMembersLogic(ctx, svcCtx).RemoveMembers(&convpb.RemoveMembersReq{
+	_, err = conversationservice.NewRemoveMembersLogic(conversationContext(t, firstID), svcCtx).RemoveMembers(&convpb.RemoveMembersReq{
 		ConversationId: convID,
 		OperatorId:     firstID,
-		UserIds:        []int64{firstID},
+		UserIds:        []string{firstID},
 	})
 	require.NoError(t, err)
 	added, err = add.AddMembers(&convpb.AddMembersReq{
 		ConversationId: convID,
 		OperatorId:     ownerID,
-		UserIds:        []int64{secondID},
+		UserIds:        []string{secondID},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []int64{secondID}, added.AddedUserIds)
-	assertConversationMembers(t, svcCtx, convID, ownerID, []int64{ownerID, existingID, secondID})
+	assert.Equal(t, []string{secondID}, added.AddedUserIds)
+	assertConversationMembers(t, svcCtx, convID, ownerID, []string{ownerID, existingID, secondID})
 
 	// A rejected addition must leave the rest of the conversation working.
 	sendText(t, svcCtx, convID, ownerID, "still usable after rejection")
@@ -133,35 +134,36 @@ func TestConversationMemberLimitAtomicBatch(t *testing.T) {
 func TestConversationMemberLimitConcurrentAdds(t *testing.T) {
 	svcCtx := newConvSvcCtx(t)
 	svcCtx.Config.Conv.MaxMemberCount = 3
-	ctx := t.Context()
+
 	ownerID := createTestUser(t, svcCtx)
+	ctx := conversationContext(t, ownerID)
 	existingID := createTestUser(t, svcCtx)
 	firstID := createTestUser(t, svcCtx)
 	secondID := createTestUser(t, svcCtx)
 	created, err := conversationservice.NewCreateConversationLogic(ctx, svcCtx).CreateConversation(&convpb.CreateConversationReq{
 		Type:      convpb.ConversationType_CONVERSATION_TYPE_GROUP,
 		CreatorId: ownerID,
-		MemberIds: []int64{existingID},
+		MemberIds: []string{existingID},
 	})
 	require.NoError(t, err)
 	convID := created.ConversationId
 	t.Cleanup(func() { cleanupConversation(t, svcCtx, convID) })
 
 	type result struct {
-		userID int64
+		userID string
 		resp   *convpb.AddMembersResp
 		err    error
 	}
 	start := make(chan struct{})
 	results := make(chan result, 2)
 	var requests sync.WaitGroup
-	for _, uid := range []int64{firstID, secondID} {
+	for _, uid := range []string{firstID, secondID} {
 		requests.Go(func() {
 			<-start
 			resp, err := conversationservice.NewAddMembersLogic(ctx, svcCtx).AddMembers(&convpb.AddMembersReq{
 				ConversationId: convID,
 				OperatorId:     ownerID,
-				UserIds:        []int64{uid},
+				UserIds:        []string{uid},
 			})
 			results <- result{userID: uid, resp: resp, err: err}
 		})
@@ -170,7 +172,7 @@ func TestConversationMemberLimitConcurrentAdds(t *testing.T) {
 	requests.Wait()
 	close(results)
 
-	var winnerID int64
+	var winnerID string
 	succeeded, rejected := 0, 0
 	for res := range results {
 		if res.err != nil {
@@ -179,12 +181,12 @@ func TestConversationMemberLimitConcurrentAdds(t *testing.T) {
 			continue
 		}
 		require.NotNil(t, res.resp)
-		assert.Equal(t, []int64{res.userID}, res.resp.AddedUserIds)
+		assert.Equal(t, []string{res.userID}, res.resp.AddedUserIds)
 		assert.Empty(t, res.resp.FailedUserIds)
 		winnerID = res.userID
 		succeeded++
 	}
 	require.Equal(t, 1, succeeded)
 	require.Equal(t, 1, rejected)
-	assertConversationMembers(t, svcCtx, convID, ownerID, []int64{ownerID, existingID, winnerID})
+	assertConversationMembers(t, svcCtx, convID, ownerID, []string{ownerID, existingID, winnerID})
 }

@@ -24,6 +24,10 @@ func NewUpdateBotLogic(ctx context.Context, svcCtx *svc.ServiceContext) *UpdateB
 }
 
 func (l *UpdateBotLogic) UpdateBot(in *conversation.UpdateBotReq) (*common.BaseResponse, error) {
+
+	if err := validateRequest(l.ctx, in.OperatorId, in.ConversationId, in.BotId); err != nil {
+		return nil, err
+	}
 	var settings map[string]any
 	if in.BotSettings != "" {
 		if err := json.Unmarshal([]byte(in.BotSettings), &settings); err != nil {

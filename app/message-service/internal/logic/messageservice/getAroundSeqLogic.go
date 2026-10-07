@@ -6,6 +6,7 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/sequence"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -25,6 +26,12 @@ func NewGetAroundSeqLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetA
 }
 
 func (l *GetAroundSeqLogic) GetAroundSeq(in *message.GetAroundSeqReq) (*message.GetMessagesResp, error) {
+	if in == nil || validateIdentities(in.ConversationId, in.UserId) != nil || sequence.Validate(in.Seq) != nil {
+		return nil, ErrInvalidSeq
+	}
+	if err := requireCaller(l.ctx, in.UserId); err != nil {
+		return nil, err
+	}
 	limit := in.Limit
 	if limit <= 0 {
 		limit = 20

@@ -2,13 +2,15 @@ package conversationservice
 
 import (
 	"context"
+
 	"errors"
 	"fmt"
+	"github.com/maomeng/aim/pkg/identity"
 
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/pb/common"
+	"github.com/maomeng/aim/pkg/sequence"
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
 )
@@ -24,16 +26,22 @@ func NewMarkAsReadLogic(ctx context.Context, svcCtx *svc.ServiceContext) *MarkAs
 }
 
 func (l *MarkAsReadLogic) MarkAsRead(in *conversation.MarkAsReadReq) (*common.BaseResponse, error) {
-	// Extract user ID from gRPC context (set by UnaryUserIDInterceptor)
-	userID := in.UserId
-	if uid, ok := l.ctx.Value(interceptor.ContextKeyUserID).(int64); ok {
-		userID = uid
+
+	if err := validateRequest(l.ctx, in.UserId, in.ConversationId); err != nil {
+		return nil, err
+	}
+	if sequence.Validate(in.Seq) != nil {
+		return nil, ErrInvalidParam
+	}
+	userID, err := currentUser(l.ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	var lastReadSeq int64
 	var advanced bool
-	err := l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
-		readID, err := l.svcCtx.Snowflake.Generate()
+	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+		readID, err := identity.New()
 		if err != nil {
 			return fmt.Errorf("generate read id failed: %w", err)
 		}
@@ -56,6 +64,6 @@ func (l *MarkAsReadLogic) MarkAsRead(in *conversation.MarkAsReadReq) (*common.Ba
 		return nil, err
 	}
 
-	l.Infof("marked as read: conv_id=%d user_id=%d seq=%d", in.ConversationId, userID, lastReadSeq)
+	l.Infof("marked as read: conv_id=%s user_id=%s seq=%d", in.ConversationId, userID, lastReadSeq)
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

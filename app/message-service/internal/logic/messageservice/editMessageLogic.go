@@ -30,13 +30,19 @@ func NewEditMessageLogic(ctx context.Context, svcCtx *svc.ServiceContext) *EditM
 }
 
 func (l *EditMessageLogic) EditMessage(in *message.EditMessageReq) (*common.BaseResponse, error) {
+	if in == nil || validateIdentities(in.MessageId, in.UserId) != nil || (in.ConversationId != nil && validateIdentities(*in.ConversationId) != nil) || in.Text == nil || validateIdentities(in.Text.GetMentionUserIds()...) != nil {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid edit request")
+	}
+	if err := requireCaller(l.ctx, in.UserId); err != nil {
+		return nil, err
+	}
 	msgRepo := l.svcCtx.MessageRepo
 	msg, err := msgRepo.GetByID(l.ctx, in.MessageId)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeNotFound, "message not found", err)
 	}
 
-	if msg.SenderID != in.UserId {
+	if msg.SenderID == nil || *msg.SenderID != in.UserId {
 		return nil, ErrEditNotSender
 	}
 
@@ -49,7 +55,7 @@ func (l *EditMessageLogic) EditMessage(in *message.EditMessageReq) (*common.Base
 		return nil, ErrEditNotText
 	}
 
-	if in.ConversationId != 0 && in.ConversationId != msg.ConvID {
+	if in.ConversationId != nil && *in.ConversationId != msg.ConvID {
 		return nil, errors.New(errors.CodeInvalidParam, "conversation does not match message")
 	}
 	newContent := model.TextContent{Text: in.Text.GetText(), MentionUserIDs: in.Text.GetMentionUserIds(),

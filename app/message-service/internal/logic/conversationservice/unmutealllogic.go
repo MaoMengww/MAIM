@@ -23,6 +23,10 @@ func NewUnmuteAllLogic(ctx context.Context, svcCtx *svc.ServiceContext) *UnmuteA
 }
 
 func (l *UnmuteAllLogic) UnmuteAll(in *conversation.UnmuteAllReq) (*common.BaseResponse, error) {
+
+	if err := validateRequest(l.ctx, in.OperatorId, in.ConversationId); err != nil {
+		return nil, err
+	}
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
 			return err

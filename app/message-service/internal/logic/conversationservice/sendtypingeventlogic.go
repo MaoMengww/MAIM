@@ -8,9 +8,6 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	message "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/delivery"
-	"github.com/maomeng/aim/pkg/interceptor"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type SendTypingEventLogic struct {
@@ -23,10 +20,11 @@ func NewSendTypingEventLogic(ctx context.Context, svcCtx *svc.ServiceContext) *S
 }
 
 func (l *SendTypingEventLogic) SendTypingEvent(in *message.SendTypingEventReq) (*message.SendTypingEventResp, error) {
-	uid, ok := l.ctx.Value(interceptor.ContextKeyUserID).(int64)
-	if !ok || uid <= 0 || uid != in.UserId {
-		return nil, status.Error(codes.Unauthenticated, "user identity required")
+	if err := validateRequest(l.ctx, in.UserId, in.ConversationId); err != nil {
+		return nil, err
 	}
+	uid := in.UserId
+
 	member, err := l.svcCtx.ConversationRepo.GetMember(l.ctx, in.ConversationId, uid)
 	if err != nil || member.MemberType != model.MemberTypeUser {
 		return nil, ErrNotMember
@@ -35,7 +33,7 @@ func (l *SendTypingEventLogic) SendTypingEvent(in *message.SendTypingEventReq) (
 	if err != nil {
 		return nil, err
 	}
-	var users []int64
+	var users []string
 	if err := l.svcCtx.DB.WithContext(l.ctx).Model(&model.ConversationMember{}).
 		Where("conv_id = ? AND member_type = ? AND user_id <> ?", in.ConversationId, model.MemberTypeUser, uid).Pluck("user_id", &users).Error; err != nil {
 		return nil, err

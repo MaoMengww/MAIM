@@ -25,24 +25,24 @@ export interface AsyncResult {
 }
 
 export const convToolApi = {
-  summarize: (convId: number | string, range: { last_message_count?: number; all?: boolean }) =>
+  summarize: (convId: string, range: { last_message_count?: number; all?: boolean }) =>
     client.post<APIResponse<{ summary_id: number; status: string }>>(`/convs/${convId}/summarize`, range).then(unwrap),
 
-  getSummaries: (convId: number | string, limit?: number) =>
+  getSummaries: (convId: string, limit?: number) =>
     client.get<APIResponse<SummariesResponse>>(`/convs/${convId}/summaries`, { params: { limit } }).then(unwrap),
 
-  createTodo: (convId: number | string, data: { summary_id: number; content: string }) =>
+  createTodo: (convId: string, data: { summary_id: number; content: string }) =>
     client.post<APIResponse<TodoItem>>(`/convs/${convId}/todos`, data).then(unwrap),
 
-  updateTodo: (convId: number | string, todoId: number, data: { content?: string; done?: boolean }) =>
+  updateTodo: (convId: string, todoId: number, data: { content?: string; done?: boolean }) =>
     client.put<APIResponse<TodoItem>>(`/convs/${convId}/todos/${todoId}`, data).then(unwrap),
 
-  deleteTodo: (convId: number | string, todoId: number) =>
+  deleteTodo: (convId: string, todoId: number) =>
     client.delete<APIResponse<null>>(`/convs/${convId}/todos/${todoId}`).then(unwrap),
 
-  replyCandidates: (convId: number | string, replyToMsgId?: number | string) =>
+  replyCandidates: (convId: string, replyToMsgId?: string) =>
     client.post<APIResponse<{ candidates: string[]; status: string }>>(`/convs/${convId}/reply-candidates`, { reply_to_msg_id: replyToMsgId }).then(unwrap),
 
-  translate: (msgId: number | string, text: string, targetLang: string) =>
+  translate: (msgId: string, text: string, targetLang: string) =>
     client.post<APIResponse<{ translated_text: string; detected_lang: string; status: string }>>(`/messages/${msgId}/translate`, { text, target_lang: targetLang }).then(unwrap),
 };

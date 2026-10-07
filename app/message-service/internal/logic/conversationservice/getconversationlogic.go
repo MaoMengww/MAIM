@@ -25,7 +25,11 @@ func NewGetConversationLogic(ctx context.Context, svcCtx *svc.ServiceContext) *G
 }
 
 func (l *GetConversationLogic) GetConversation(in *conversation.GetConversationReq) (*conversation.GetConversationResp, error) {
-	if in.UserId != 0 {
+
+	if err := validateRequest(l.ctx, in.UserId, in.ConversationId); err != nil {
+		return nil, err
+	}
+	{
 		isMember, err := l.svcCtx.ConversationRepo.IsMember(l.ctx, in.ConversationId, in.UserId)
 		if err != nil {
 			return nil, err
@@ -53,16 +57,16 @@ func (l *GetConversationLogic) GetConversation(in *conversation.GetConversationR
 	}
 	seq, err := l.svcCtx.ConversationRepo.GetReadSeq(l.ctx, in.ConversationId, in.UserId)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		l.Logger.Errorf("get read sequence failed for conv=%d user=%d: %v", in.ConversationId, in.UserId, err)
+		l.Logger.Errorf("get read sequence failed for conv=%s user=%s: %v", in.ConversationId, in.UserId, err)
 		return nil, err
 	}
 	if seq != nil {
 		lastReadSeq = seq.LastReadSeq
 	}
-	if in.UserId != 0 {
+	{
 		count, err := l.svcCtx.ConversationRepo.UnreadCount(l.ctx, in.ConversationId, in.UserId)
 		if err != nil {
-			l.Logger.Errorf("unread count failed for conv=%d user=%d: %v", in.ConversationId, in.UserId, err)
+			l.Logger.Errorf("unread count failed for conv=%s user=%s: %v", in.ConversationId, in.UserId, err)
 			return nil, err
 		}
 		unread = count
@@ -75,26 +79,9 @@ func (l *GetConversationLogic) GetConversation(in *conversation.GetConversationR
 	conv = &projected[0]
 	pbConv := toProtoConv(conv, lastReadSeq, unread, muted, pinned)
 
-	// Resolve peer info for private conversations.
-	if conv.Type == 1 {
-		members, err := l.svcCtx.ConversationRepo.GetMembers(l.ctx, conv.ID, 0, BotResolveLimit)
-		if err == nil {
-			for _, m := range members {
-				if m.UserID != in.UserId {
-					if bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, m.UserID); err == nil {
-						pbConv.Name = bot.Name
-						pbConv.Avatar = bot.Avatar
-					} else if user, err := l.svcCtx.ProfileRepo.UserProfile(l.ctx, m.UserID); err == nil {
-						pbConv.Name = user.Username
-						pbConv.Avatar = user.Avatar
-					}
-					break
-				}
-			}
-		}
-	}
+	NewCreateConversationLogic(l.ctx, l.svcCtx).resolvePrivatePeerInfo(pbConv, in.UserId)
 
-	l.Infof("conversation fetched: conv_id=%d", in.ConversationId)
+	l.Infof("conversation fetched: conv_id=%s", in.ConversationId)
 	return &conversation.GetConversationResp{
 		Conversation: pbConv,
 	}, nil

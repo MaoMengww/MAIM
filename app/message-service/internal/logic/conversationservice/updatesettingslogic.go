@@ -2,8 +2,10 @@ package conversationservice
 
 import (
 	"context"
+
 	"errors"
 	"fmt"
+	"github.com/maomeng/aim/pkg/identity"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/repo"
@@ -25,13 +27,17 @@ func NewUpdateSettingsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Up
 }
 
 func (l *UpdateSettingsLogic) UpdateSettings(in *conversation.UpdateSettingsReq) (*common.BaseResponse, error) {
+
+	if err := validateRequest(l.ctx, in.UserId, in.ConversationId); err != nil {
+		return nil, err
+	}
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if err := requireRole(l.ctx, r, conv.ID, in.UserId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
 			return err
 		}
 		s, err := r.GetSettings(l.ctx, conv.ID, in.UserId)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			id, err := l.svcCtx.Snowflake.Generate()
+			id, err := identity.New()
 			if err != nil {
 				return fmt.Errorf("generate settings id failed: %w", err)
 			}
@@ -48,7 +54,7 @@ func (l *UpdateSettingsLogic) UpdateSettings(in *conversation.UpdateSettingsReq)
 		if err := r.UpsertSettings(l.ctx, s); err != nil {
 			return err
 		}
-		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, []int64{in.UserId}, nil)
+		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, []string{in.UserId}, nil)
 	})
 	if err != nil {
 		return nil, err

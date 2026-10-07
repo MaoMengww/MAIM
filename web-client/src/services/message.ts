@@ -1,11 +1,11 @@
 import client, { unwrap } from './client';
 import type { SendMessageReq, SyncMessagesReq, SearchMessagesReq } from '@/types/api';
-import type { APIResponse, Conversation, Message } from '@/types/model';
+import type { APIResponse, Conversation, Message, MsgContentOneof, MsgType, ReplySummary } from '@/types/model';
 import { normConv } from './conversation';
-import { parseJsonWithExactIntegers } from '@/utils/json';
+import { entityId, optionalEntityId, sequence, quantity } from '@/utils/json';
 
 interface InboxChangeBase {
-  position: string;
+  position: number;
   conversation_id: string;
 }
 
@@ -23,7 +23,7 @@ export interface ConversationSnapshot {
 }
 
 export interface UserSyncPage {
-  next_position: string;
+  next_position: number;
   has_more: boolean;
   rebuild_required: boolean;
   rebuild_reason: string;
@@ -59,104 +59,31 @@ const SYNC_CONTENT_ID: Record<string, string> = {
   image: 'file_id', file: 'file_id', video: 'file_id', audio: 'file_id', bot: 'bot_id', system: 'actor_id',
 };
 
-function normalizeFlatContent(type: number | undefined, content: any) {
-  if (!content || typeof content !== 'object') return content;
-  // Bot messages from Kafka have flat fields (text, bot_id, bot_name, etc.)
-  // that need wrapping in { bot: ... } for the oneof format.
-  if (type === 9 && !content.bot) {
-    return { bot: content };
-  }
-  // Content already uses oneof keys (text/image/file/audio/etc.)
-  // but values may be flat strings (from Kafka event) or nested objects (from protobuf HTTP sync).
-  if (MSG_CONTENT_KEYS.some((key) => content[key] !== undefined)) {
-    if (type === 1 && typeof content.text === 'string') {
-      return {
-        text: {
-          text: content.text,
-          mentions: content.mentions ?? content.mention_user_ids ?? [],
-          mention_all: content.mention_all ?? false,
-        },
-      };
-    }
-    return content;
-  }
-
-  switch (type) {
-    case 2:
-      return {
-        image: {
-          file_id: content.file_id,
-          url: content.url ?? content.image_url,
-          thumbnail_url: content.thumbnail_url ?? content.image_thumb ?? content.image_url,
-          width: content.width ?? content.image_width ?? 0,
-          height: content.height ?? content.image_height ?? 0,
-          size: content.size ?? content.file_size ?? 0,
-          format: content.format ?? '',
-        },
-      };
-    case 3:
-      return {
-        file: {
-          file_id: content.file_id,
-          url: content.url ?? content.file_url,
-          name: content.name ?? content.file_name,
-          size: content.size ?? content.file_size ?? 0,
-          ext: content.ext ?? '',
-          mime_type: content.mime_type ?? content.file_mime ?? '',
-        },
-      };
-    case 5:
-      return {
-        audio: {
-          file_id: content.file_id,
-          url: content.url ?? content.file_url,
-          duration: content.duration ?? 0,
-          size: content.size ?? content.file_size ?? 0,
-        },
-      };
-    default: {
-      const key = type ? MSG_TYPE_KEY[type] : undefined;
-      return key ? { [key]: content } : content;
-    }
-  }
+// WS events have a defined flat content schema; HTTP protobuf oneofs are decoded separately.
+export function normalizeRealtimeMessageContent(value: unknown): Message {
+  const event = syncRecord(value, 'event');
+  const type = sequence(event.msg_type, 'event.msg_type', true);
+  const body = syncRecord(event.content, 'event.content');
+  const key = MSG_TYPE_KEY[type];
+  if (!key) throw new Error('实时消息类型无效');
+  const content = { ...body };
+  if (type === 1) content.mention_user_ids = body.mentions;
+  if (type === 2) Object.assign(content, { url: body.image_url, thumbnail_url: body.image_thumb,
+    width: body.image_width, height: body.image_height, size: body.file_size });
+  if (type === 3) Object.assign(content, { url: body.file_url, name: body.file_name,
+    size: body.file_size, mime_type: body.file_mime });
+  if (type === 5) Object.assign(content, { url: body.file_url, size: body.file_size });
+  return syncMessage({ ...event, conversation_id: event.conv_id, from_user_id: event.sender_id,
+    type, reply_to_id: event.reply_to_msg_id, content: { [key]: content } }, entityId(event.conv_id, 'event.conv_id'));
 }
 
-export function normalizeRealtimeMessageContent(msg: any): Message {
-  if (!msg) return msg;
-
-  // Keep message_id as string to avoid JS precision loss for int64 IDs
-
-  // Map Kafka event field names → frontend Message field names
-  if (msg.conv_id !== undefined && msg.conversation_id === undefined) {
-    msg.conversation_id = msg.conv_id;
-  }
-  if (msg.sender_id !== undefined && msg.from_user_id === undefined) {
-    msg.from_user_id = msg.sender_id;
-  }
-  if (msg.msg_type !== undefined && msg.type === undefined) {
-    msg.type = msg.msg_type;
-  }
-  if (msg.status === undefined) msg.status = 1;
-
-  const type = msg?.type ?? msg?.msg_type;
-  if (msg?.content) {
-    msg.content = normalizeFlatContent(type, msg.content);
-  } else {
-    for (const key of MSG_CONTENT_KEYS) {
-      if (msg[key] !== undefined) {
-        msg.content = { [key]: msg[key] };
-        break;
-      }
-    }
-  }
-  return msg;
+function normalizeHttpMessage(value: unknown): Message {
+  const message = syncRecord(value, 'message');
+  return syncMessage(message, entityId(message.conversation_id, 'message.conversation_id'));
 }
 
-function normalizeMessages(data: any): any {
-  if (data?.messages) {
-    data.messages = data.messages.map(normalizeRealtimeMessageContent);
-  }
-  return data;
+function normalizeMessages(data: { messages?: unknown[] }): Message[] {
+  return (data.messages ?? []).map(normalizeHttpMessage);
 }
 
 function syncRecord(value: unknown, field: string): Record<string, unknown> {
@@ -166,27 +93,8 @@ function syncRecord(value: unknown, field: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function syncDecimal(value: unknown, field: string, positive = false): string {
-  if (typeof value === 'number') {
-    if (!Number.isSafeInteger(value)) throw new Error(`同步响应的 ${field} 超出安全整数范围`);
-    value = String(value);
-  }
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
-    throw new Error(`同步响应的 ${field} 必须是十进制整数`);
-  }
-  const integer = BigInt(value);
-  if (integer < (positive ? 1n : 0n) || integer > 9223372036854775807n) {
-    throw new Error(`同步响应的 ${field} 超出 int64 范围`);
-  }
-  return integer.toString();
-}
-
 function syncInteger(value: unknown, field: string, positive = false): number {
-  const decimal = syncDecimal(value, field, positive);
-  if (BigInt(decimal) > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error(`同步响应的 ${field} 超出安全整数范围`);
-  }
-  return Number(decimal);
+  return sequence(value, field, positive);
 }
 
 function syncBoolean(value: unknown, field: string): boolean {
@@ -216,13 +124,14 @@ function syncContent(type: number, value: unknown): Record<string, unknown> {
   const body = { ...syncRecord(content[key], `message.content.${key}`) };
   for (const field of SYNC_CONTENT_STRINGS[key]) body[field] = syncString(body[field], `content.${field}`);
   for (const field of SYNC_CONTENT_INTEGERS[key] ?? []) {
-    body[field] = syncInteger(body[field] === undefined ? '0' : body[field], `content.${field}`);
+    body[field] = quantity(body[field], `content.${field}`);
   }
   const idField = SYNC_CONTENT_ID[key];
-  if (idField) body[idField] = syncDecimal(body[idField] === undefined ? '0' : body[idField], `content.${idField}`);
+  if (idField) body[idField] = key === 'system'
+    ? optionalEntityId(body[idField], `content.${idField}`) : entityId(body[idField], `content.${idField}`);
   if (key === 'text' || key === 'system') {
     const field = key === 'text' ? 'mention_user_ids' : 'related_user_ids';
-    body[field] = syncArray(body[field], `content.${field}`).map((id) => syncDecimal(id, field, true));
+    body[field] = syncArray(body[field], `content.${field}`).map((id) => entityId(id, field));
   }
   if (key === 'text') body.mention_all = syncBoolean(body.mention_all, 'content.mention_all');
   if (key === 'bot') body.is_streaming = syncBoolean(body.is_streaming, 'content.is_streaming');
@@ -241,8 +150,8 @@ function syncContent(type: number, value: unknown): Record<string, unknown> {
 
 function syncMessage(value: unknown, conversationId: string): Message {
   const raw = syncRecord(value, 'message');
-  const messageId = syncDecimal(raw.message_id, 'message.message_id', true);
-  if (syncDecimal(raw.conversation_id, 'message.conversation_id', true) !== conversationId) {
+  const messageId = entityId(raw.message_id, 'message.message_id');
+  if (entityId(raw.conversation_id, 'message.conversation_id') !== conversationId) {
     throw new Error('同步消息的会话 ID 与所属会话不一致');
   }
   const type = syncInteger(raw.type, 'message.type', true);
@@ -255,47 +164,45 @@ function syncMessage(value: unknown, conversationId: string): Message {
   }
   const rawContent = raw.content === undefined ? raw : syncRecord(raw.content, 'message.content');
   syncRecord(rawContent[MSG_TYPE_KEY[type]], `message.content.${MSG_TYPE_KEY[type]}`);
-  // HTTP protobuf oneof 位于消息顶层；复用实时消息的正文归一化。
-  const message = normalizeRealtimeMessageContent({ ...raw, type });
-  const content = syncContent(type, message.content);
-  const normalized = {
-    ...message, message_id: messageId, conversation_id: conversationId,
+  const content = syncContent(type, { [MSG_TYPE_KEY[type]]: rawContent[MSG_TYPE_KEY[type]] });
+  const normalized: Message = {
+    message_id: messageId, conversation_id: conversationId,
     seq: syncInteger(raw.seq, 'message.seq', true),
-    from_user_id: syncDecimal(raw.from_user_id === undefined ? '0' : raw.from_user_id, 'message.from_user_id'),
-    type, status, content,
+    from_user_id: optionalEntityId(raw.from_user_id, 'message.from_user_id'),
+    type: type as MsgType, status, content: content as unknown as MsgContentOneof,
+    edited_at: quantity(raw.edited_at, 'message.edited_at'), edit_count: quantity(raw.edit_count, 'message.edit_count'),
+    created_at: quantity(raw.created_at, 'message.created_at'), updated_at: quantity(raw.updated_at, 'message.updated_at'),
   };
-  for (const field of ['edited_at', 'edit_count', 'created_at', 'updated_at'] as const) {
-    normalized[field] = syncInteger(raw[field] === undefined ? '0' : raw[field], `message.${field}`);
+  const clientMsgId = optionalEntityId(raw.client_msg_id, 'message.client_msg_id');
+  const replyId = optionalEntityId(raw.reply_to_id, 'message.reply_to_id');
+  let reply: ReplySummary | undefined;
+  if (raw.reply_to !== undefined && raw.reply_to !== null) {
+    const summary = syncRecord(raw.reply_to, 'message.reply_to');
+    const replyMessageId = entityId(summary.message_id, 'reply_to.message_id');
+    if (replyId !== replyMessageId) throw new Error('同步消息的引用 ID 不一致');
+    const replyType = syncInteger(summary.type ?? 0, 'reply_to.type');
+    if (replyType > 9) throw new Error('同步消息的引用类型无效');
+    reply = { message_id: replyMessageId, sender_id: optionalEntityId(summary.sender_id, 'reply_to.sender_id'),
+      type: replyType as MsgType | 0, sender_type: syncString(summary.sender_type, 'reply_to.sender_type'),
+      sender_name: syncString(summary.sender_name, 'reply_to.sender_name'), preview: syncString(summary.preview, 'reply_to.preview'),
+      deleted: syncBoolean(summary.deleted, 'reply_to.deleted') };
   }
-  if (raw.client_msg_id !== undefined) normalized.client_msg_id = syncString(raw.client_msg_id, 'message.client_msg_id');
-  const replyId = raw.reply_to_id === undefined ? undefined : syncDecimal(raw.reply_to_id, 'message.reply_to_id');
-  let reply: Record<string, unknown> | undefined;
-  if (raw.reply_to !== undefined) {
-    reply = { ...syncRecord(raw.reply_to, 'message.reply_to') };
-    reply.message_id = syncDecimal(reply.message_id, 'reply_to.message_id', true);
-    if (replyId !== reply.message_id) throw new Error('同步消息的引用 ID 不一致');
-    reply.sender_id = syncDecimal(reply.sender_id === undefined ? '0' : reply.sender_id, 'reply_to.sender_id');
-    reply.type = syncInteger(reply.type === undefined ? '0' : reply.type, 'reply_to.type');
-    if (Number(reply.type) > 9) throw new Error('同步消息的引用类型无效');
-    for (const field of ['sender_type', 'sender_name', 'preview']) reply[field] = syncString(reply[field], `reply_to.${field}`);
-    reply.deleted = syncBoolean(reply.deleted, 'reply_to.deleted');
-  }
-  return normalizeRealtimeMessageContent({ ...normalized, reply_to_id: replyId, reply_to: reply });
+  return { ...normalized, client_msg_id: clientMsgId, reply_to_id: replyId, reply_to: reply };
 }
 
 function syncConversation(value: unknown): Conversation {
   const raw = syncRecord(value, 'conversation');
-  const conversation = { ...raw, id: syncDecimal(raw.id, 'conversation.id', true),
+  const conversation = { ...raw, id: entityId(raw.id, 'conversation.id'),
     type: syncInteger(raw.type, 'conversation.type', true) };
   if (conversation.type < 1 || conversation.type > 3) throw new Error('同步会话类型无效');
   const fields: Record<string, unknown> = conversation;
   for (const field of ['owner_id', 'last_message_id']) {
-    fields[field] = syncDecimal(raw[field] === undefined ? '0' : raw[field], `conversation.${field}`);
+    fields[field] = optionalEntityId(raw[field], `conversation.${field}`);
   }
   for (const field of ['member_count', 'max_seq', 'last_read_seq', 'unread_count', 'created_at', 'updated_at']) {
-    fields[field] = syncInteger(raw[field] === undefined ? '0' : raw[field], `conversation.${field}`);
+    fields[field] = field.endsWith('_at') ? quantity(raw[field], `conversation.${field}`)
+      : syncInteger(raw[field] ?? 0, `conversation.${field}`);
   }
-  if (Number(fields.last_read_seq) > Number(fields.max_seq)) throw new Error('同步会话已读序号超出消息范围');
   for (const field of ['is_muted', 'is_pinned', 'is_muted_all']) fields[field] = syncBoolean(raw[field], `conversation.${field}`);
   for (const field of ['name', 'avatar', 'last_message_preview', 'announcement', 'background']) {
     fields[field] = syncString(raw[field], `conversation.${field}`);
@@ -303,33 +210,33 @@ function syncConversation(value: unknown): Conversation {
   return normConv(conversation);
 }
 
-function normalizeUserSyncPage(value: unknown, requestedPosition: string): UserSyncPage {
+function normalizeUserSyncPage(value: unknown, requestedPosition: number): UserSyncPage {
   const raw = syncRecord(value, 'page');
-  const nextPosition = syncDecimal(raw.next_position, 'next_position');
+  const nextPosition = syncInteger(raw.next_position, 'next_position');
   const hasMore = syncBoolean(raw.has_more, 'has_more');
   const rebuildRequired = syncBoolean(raw.rebuild_required, 'rebuild_required');
   const rebuildReason = syncString(raw.rebuild_reason, 'rebuild_reason');
   const changes = syncArray(raw.changes, 'changes');
   const conversations = syncArray(raw.conversations, 'conversations');
   if (rebuildRequired) {
-    if (hasMore || nextPosition === '0' || !rebuildReason || changes.length !== 0) {
+    if (hasMore || nextPosition === 0 || !rebuildReason || changes.length !== 0) {
       throw new Error('同步重建页必须包含有效位点、原因与完整快照，不能分页或混入增量');
     }
-  } else if (BigInt(nextPosition) < BigInt(requestedPosition)
-    || (hasMore && BigInt(nextPosition) <= BigInt(requestedPosition))
+  } else if (nextPosition < requestedPosition
+    || (hasMore && nextPosition <= requestedPosition)
     || conversations.length !== 0 || rebuildReason !== '') {
     throw new Error('同步增量页的位点或快照状态无效');
   }
   const messageIds = new Set<string>();
-  let previousPosition = BigInt(requestedPosition);
+  let previousPosition = requestedPosition;
   const normalizedChanges = changes.map((value): InboxChange => {
     const change = syncRecord(value, 'change');
-    const position = syncDecimal(change.position, 'change.position', true);
-    if (BigInt(position) <= previousPosition || BigInt(position) > BigInt(nextPosition)) {
+    const position = syncInteger(change.position, 'change.position', true);
+    if (position <= previousPosition || position > nextPosition) {
       throw new Error('同步变更位点重复、倒序或超出当前页范围');
     }
-    previousPosition = BigInt(position);
-    const conversationId = syncDecimal(change.conversation_id, 'change.conversation_id', true);
+    previousPosition = position;
+    const conversationId = entityId(change.conversation_id, 'change.conversation_id');
     const base = { position, conversation_id: conversationId };
     const conversation = change.conversation === undefined ? undefined : syncConversation(change.conversation);
     if (conversation && String(conversation.id) !== conversationId) throw new Error('同步会话 ID 与变更不一致');
@@ -339,7 +246,7 @@ function normalizeUserSyncPage(value: unknown, requestedPosition: string): UserS
       case 'message.recalled':
         return { ...base, kind: change.kind, message: syncMessage(change.message, conversationId), conversation };
       case 'message.deleted':
-        return { ...base, kind: change.kind, message_id: syncDecimal(change.message_id, 'change.message_id', true), conversation };
+        return { ...base, kind: change.kind, message_id: entityId(change.message_id, 'change.message_id'), conversation };
       case 'conversation.upsert':
         if (!conversation) throw new Error('同步会话变更缺少完整快照');
         return { ...base, kind: change.kind, conversation };
@@ -364,7 +271,7 @@ function normalizeUserSyncPage(value: unknown, requestedPosition: string): UserS
     let previousSeq = 0;
     const messages = syncArray(snapshot.messages, 'snapshot.messages').map((value) => {
       const message = syncMessage(value, conversationId);
-      const id = String(message.message_id);
+      const id = message.message_id;
       if (messageIds.has(id) || message.seq <= previousSeq || message.seq > conversation.max_seq) {
         throw new Error('同步重建消息重复、倒序或超出会话序号范围');
       }
@@ -379,41 +286,58 @@ function normalizeUserSyncPage(value: unknown, requestedPosition: string): UserS
 }
 
 export const msgApi = {
-  send: (data: SendMessageReq) =>
-    client.post<APIResponse<Message>>('/messages/send', data).then(unwrap),
+  send: async (data: SendMessageReq): Promise<Message> => {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(data.client_msg_id)) throw new Error('提交键必须是 UUIDv4');
+    const ack = syncRecord(await client.post<APIResponse<unknown>>('/messages/send', data).then(unwrap), 'ack');
+    const type = syncInteger(ack.type, 'ack.type', true);
+    const body = syncRecord(ack.content, 'ack.content');
+    if (type === 1) return normalizeRealtimeMessageContent({ message_id: ack.message_id, conv_id: ack.conv_id,
+      sender_id: ack.from_user_id, seq: ack.seq, created_at: ack.created_at, reply_to_msg_id: ack.reply_to_msg_id,
+      msg_type: type, content: body, client_msg_id: data.client_msg_id });
+    const file = syncRecord(syncArray(body.files, 'ack.content.files')[0], 'ack.content.files[0]');
+    return normalizeHttpMessage({ message_id: ack.message_id, conversation_id: ack.conv_id,
+      from_user_id: ack.from_user_id, seq: ack.seq, created_at: ack.created_at, reply_to_id: ack.reply_to_msg_id,
+      type, client_msg_id: data.client_msg_id, content: { [MSG_TYPE_KEY[type]]: { ...file,
+        name: file.file_name, thumbnail_url: type === 2 ? file.url : undefined, mime_type: file.mime_type } } });
+  },
 
+  history: (convId: string, cursor = 0, limit = 50) =>
+    client.get<APIResponse<{ messages: unknown[]; pagination: { next_cursor: number; has_more: boolean } }>>(`/convs/${convId}/messages`,
+      { params: { cursor: sequence(cursor, 'history.cursor'), limit } }).then((r) => ({
+        messages: normalizeMessages(r.data.data),
+        nextCursor: sequence(r.data.data.pagination.next_cursor, 'history.next_cursor'),
+        hasMore: r.data.data.pagination.has_more,
+      })),
   sync: async (params: SyncMessagesReq = {}): Promise<UserSyncPage> => {
-    const position = syncDecimal(params.position === undefined ? '0' : params.position, 'position');
+    const position = syncInteger(params.position ?? 0, 'position');
     if (params.limit !== undefined && (!Number.isSafeInteger(params.limit) || params.limit < 0 || params.limit > 2147483647)) {
       throw new Error('同步请求的 limit 无效');
     }
     const response = await client.get<APIResponse<unknown>>('/messages/sync', {
       params: { position, limit: params.limit },
-      // Preserve int64 literals before parsing, and reject malformed JSON before committing a page.
-      transformResponse: [(data: unknown): unknown => typeof data === 'string' ? parseJsonWithExactIntegers(data) : data],
+      transformResponse: [(data: unknown): unknown => typeof data === 'string' ? JSON.parse(data) : data],
     });
     return normalizeUserSyncPage(response.data.data, position);
   },
 
-  getById: (id: number | string) =>
+  getById: (id: string) =>
     client.get<APIResponse<{ message: Message }>>(`/messages/${id}`)
-      .then((r) => { const d = r.data.data; return normalizeRealtimeMessageContent(d.message ?? d); }),
+      .then((r) => normalizeHttpMessage(r.data.data.message)),
 
-  recall: (id: number | string) =>
+  recall: (id: string) =>
     client.post<APIResponse<null>>(`/messages/${id}/recall`, {}).then(unwrap),
 
-  edit: (id: number | string, text: string) =>
-    client.put<APIResponse<any>>(`/messages/${id}`, { text }).then(unwrap),
+  edit: (id: string, text: string) =>
+    client.put<APIResponse<unknown>>(`/messages/${id}`, { text }).then(unwrap),
 
-  delete: (id: number | string) =>
-    client.delete<APIResponse<null>>(`/messages/${id}`, { data: {} }).then(unwrap),
-
+  delete: (id: string, deleteForAll = false) =>
+    client.delete<APIResponse<null>>(`/messages/${id}`, { data: { delete_for_all: deleteForAll } }).then(unwrap),
   search: (params: SearchMessagesReq) =>
-    client.get<APIResponse<{ messages: Message[]; pagination?: any; highlights?: Record<string, string>; type_counts?: { msg_type: number; count: number }[] }>>('/messages/search', { params })
+    client.get<APIResponse<{ messages: unknown[]; pagination?: { total: number; page: number; page_size: number }; highlights?: Record<string, string>; type_counts?: { msg_type: number; count: number }[] }>>('/messages/search', { params })
       .then((r) => {
         const data = r.data.data;
         return {
-          list: (data.messages ?? []).map(normalizeRealtimeMessageContent),
+          list: (data.messages ?? []).map(normalizeHttpMessage),
           total: data.pagination?.total ?? 0,
           page: data.pagination?.page,
           page_size: data.pagination?.page_size,
@@ -424,7 +348,7 @@ export const msgApi = {
 
 
 
-  getAroundSeq: (convId: number, seq: number) =>
-    client.get<APIResponse<{ messages: Message[] }>>(`/messages/${convId}/around/${seq}`)
-      .then((r) => (normalizeMessages(r.data.data)?.messages ?? [])),
+  getAroundSeq: (convId: string, seq: number) =>
+    client.get<APIResponse<{ messages: unknown[] }>>(`/messages/${convId}/around/${sequence(seq, 'seq', true)}`)
+      .then((r) => normalizeMessages(r.data.data)),
 };

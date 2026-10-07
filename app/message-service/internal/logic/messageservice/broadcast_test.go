@@ -12,14 +12,14 @@ import (
 
 func TestSendBroadcast_Validation(t *testing.T) {
 	logic := NewSendBroadcastLogic(t.Context(), &svc.ServiceContext{})
-	resp, err := logic.SendBroadcast(&message.SendBroadcastReq{Content: "", Scope: "all"})
+	resp, err := logic.SendBroadcast(&message.SendBroadcastReq{SenderId: "018f0000-0000-7000-8000-000000000001", Content: "", Scope: "all"})
 	require.ErrorIs(t, err, ErrBroadcastContentRequired)
 	assert.Nil(t, resp)
 }
 
 func TestSendBroadcastRejectsUnknownScope(t *testing.T) {
 	logic := NewSendBroadcastLogic(t.Context(), &svc.ServiceContext{})
-	_, err := logic.SendBroadcast(&message.SendBroadcastReq{SenderId: 10, Content: `{"text":"notice"}`, Scope: "unknown"})
+	_, err := logic.SendBroadcast(&message.SendBroadcastReq{SenderId: "018f0000-0000-7000-8000-000000000001", Content: `{"text":"notice"}`, Scope: "unknown"})
 	biz, ok := bizerrors.IsBizError(err)
 	require.True(t, ok)
 	assert.Equal(t, bizerrors.CodeInvalidParam, biz.Code)

@@ -680,12 +680,16 @@ CREATE INDEX IF NOT EXISTS idx_inbox_entries_conv ON messaging.inbox_entries(use
 CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_change_id ON messaging.inbox_entries(user_id, change_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_own_read ON messaging.inbox_entries(user_id, conv_id, kind) WHERE kind = 'read.updated';
 
--- Replay deduplication outlives read coalescing and retention.
+-- Replay deduplication and allocated checkpoint provenance outlive coalescing and retention.
 CREATE TABLE IF NOT EXISTS messaging.inbox_applied_changes (
     user_id UUID NOT NULL REFERENCES messaging.inbox_streams(user_id) ON DELETE CASCADE CHECK (user_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     change_id UUID NOT NULL CHECK (change_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    position BIGINT CHECK (position BETWEEN 1 AND 9007199254740991),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, change_id)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_applied_position ON messaging.inbox_applied_changes(user_id, position) WHERE position IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_inbox_applied_created ON messaging.inbox_applied_changes(created_at) WHERE position IS NOT NULL;
 
 -- Account deletion state survives inbox collection and physical message deletion.
 CREATE TABLE IF NOT EXISTS messaging.personal_message_deletions (

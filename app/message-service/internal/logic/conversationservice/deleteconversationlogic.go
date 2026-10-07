@@ -23,11 +23,15 @@ func NewDeleteConversationLogic(ctx context.Context, svcCtx *svc.ServiceContext)
 }
 
 func (l *DeleteConversationLogic) DeleteConversation(in *conversation.DeleteConversationReq) (*common.BaseResponse, error) {
+
+	if err := validateRequest(l.ctx, in.UserId, in.ConversationId); err != nil {
+		return nil, err
+	}
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if err := requireRole(l.ctx, r, in.ConversationId, in.UserId, ownerRole); err != nil {
 			return err
 		}
-		var removed []int64
+		var removed []string
 		if err := tx.Model(&model.ConversationMember{}).
 			Where("conv_id = ? AND member_type = ?", conv.ID, model.MemberTypeUser).
 			Order("user_id").Pluck("user_id", &removed).Error; err != nil {
@@ -38,10 +42,10 @@ func (l *DeleteConversationLogic) DeleteConversation(in *conversation.DeleteConv
 				return err
 			}
 		}
-		if err := r.DeleteConversation(l.ctx, conv.ID); err != nil {
+		if err := publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, []string{}, removed); err != nil {
 			return err
 		}
-		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, []int64{}, removed)
+		return r.DeleteConversation(l.ctx, conv.ID)
 	})
 	if err != nil {
 		return nil, err

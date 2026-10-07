@@ -13,8 +13,8 @@ import (
 
 // lockMutableMessage follows the send path's conversation-first lock order.
 // Removal cannot race authorization, nor can concurrent edits lose edit history.
-func lockMutableMessage(ctx context.Context, s *svc.ServiceContext, tx *gorm.DB, convID, messageID, userID int64) (*model.Message, error) {
-	permission, err := s.ConversationRepo.CheckSendPermission(ctx, tx, convID, userID)
+func lockMutableMessage(ctx context.Context, s *svc.ServiceContext, tx *gorm.DB, convID, messageID, userID string) (*model.Message, error) {
+	permission, err := s.ConversationRepo.CheckSendPermission(ctx, tx, convID, userID, model.MemberTypeUser)
 	if err != nil {
 		return nil, err
 	}
@@ -25,7 +25,7 @@ func lockMutableMessage(ctx context.Context, s *svc.ServiceContext, tx *gorm.DB,
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND conv_id = ?", messageID, convID).Take(&msg).Error; err != nil {
 		return nil, err
 	}
-	if msg.SenderID != userID {
+	if msg.SenderID == nil || *msg.SenderID != userID {
 		return nil, errors.New(errors.CodeForbidden, "only sender can change a message")
 	}
 	return &msg, nil
@@ -38,8 +38,8 @@ func publishMessageChange(ctx context.Context, s *svc.ServiceContext, tx *gorm.D
 	if err := tx.Where("id = ?", msg.ConvID).Take(&conv).Error; err != nil {
 		return err
 	}
-	if conv.LastMessageID == msg.ID {
-		lastID, preview := msg.ID, model.MessagePreview(msg.MsgType, msg.Content)
+	if conv.LastMessageID != nil && *conv.LastMessageID == msg.ID {
+		lastID, preview := &msg.ID, model.MessagePreview(msg.MsgType, msg.Content)
 		switch kind {
 		case model.InboxMessageRecalled:
 			preview = "[消息已撤回]"
@@ -48,8 +48,9 @@ func publishMessageChange(ctx context.Context, s *svc.ServiceContext, tx *gorm.D
 			if err := tx.Where("conv_id = ?", msg.ConvID).Order("seq DESC").Limit(1).Find(&latest).Error; err != nil {
 				return err
 			}
-			lastID, preview = latest.ID, ""
-			if latest.ID > 0 {
+			lastID, preview = nil, ""
+			if latest.ID != "" {
+				lastID = &latest.ID
 				preview = model.MessagePreview(latest.MsgType, latest.Content)
 				if latest.Status == model.MessageStatusRecalled {
 					preview = "[消息已撤回]"

@@ -35,14 +35,14 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
     if (!open) return;
 
     const unsubDone = wsOn('conv.summarize.done', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== String(convId)) return;
+      if (payload.conv_id == null || payload.conv_id !== String(convId)) return;
       setSummarizing(false);
       message.success('总结完成');
       queryClient.invalidateQueries({ queryKey: ['conv-summaries', convId] });
     });
 
     const unsubFailed = wsOn('conv.summarize.failed', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== String(convId)) return;
+      if (payload.conv_id == null || payload.conv_id !== String(convId)) return;
       setSummarizing(false);
       message.error(payload.error || '总结失败');
     });

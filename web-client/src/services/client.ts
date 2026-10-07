@@ -1,6 +1,5 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/auth';
-import { safeJsonParse } from '@/utils/json';
 import type { APIResponse, LoginResp } from '@/types/model';
 
 type SessionRequest = InternalAxiosRequestConfig & { _authRevision?: number; _retry?: boolean };
@@ -10,14 +9,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
 const client = axios.create({
   baseURL: `${API_BASE}/api/v1`,
   timeout: 15000,
-  transformResponse: [(data: string) => {
-    if (typeof data !== 'string') return data;
-    try {
-      return safeJsonParse(data);
-    } catch {
-      return data;
-    }
-  }],
+  transformResponse: [(data: unknown) => typeof data === 'string' ? JSON.parse(data) : data],
 });
 
 // ─── Request: inject JWT ───

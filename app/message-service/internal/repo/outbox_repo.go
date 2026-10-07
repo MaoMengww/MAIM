@@ -36,15 +36,15 @@ func (r *OutboxRepo) FetchPending(ctx context.Context, limit int) ([]model.Outbo
 		Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 		Where("status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)", model.OutboxStatusPending, time.Now()).
 		Where(`NOT EXISTS (SELECT 1 FROM messaging.outbox_events older
-			WHERE older.topic = outbox_events.topic AND older.key = outbox_events.key
-			AND older.status <> ? AND (older.created_at, older.id) < (outbox_events.created_at, outbox_events.id))`, model.OutboxStatusSent).
-		Order("created_at ASC, id ASC").
+			WHERE older.conv_id = outbox_events.conv_id
+			AND older.status <> ? AND older.publication_sequence < outbox_events.publication_sequence)`, model.OutboxStatusSent).
+		Order("created_at ASC, publication_sequence ASC").
 		Limit(limit).
 		Find(&events).Error
 	return events, err
 }
 
-func (r *OutboxRepo) MarkSent(ctx context.Context, id int64) error {
+func (r *OutboxRepo) MarkSent(ctx context.Context, id string) error {
 	now := time.Now()
 	return r.db.WithContext(ctx).
 		Model(&model.OutboxEvent{}).
@@ -55,7 +55,7 @@ func (r *OutboxRepo) MarkSent(ctx context.Context, id int64) error {
 		}).Error
 }
 
-func (r *OutboxRepo) MarkRetry(ctx context.Context, id int64, nextRetryAt time.Time, lastError string) error {
+func (r *OutboxRepo) MarkRetry(ctx context.Context, id string, nextRetryAt time.Time, lastError string) error {
 	return r.db.WithContext(ctx).
 		Model(&model.OutboxEvent{}).
 		Where("id = ?", id).
@@ -66,7 +66,7 @@ func (r *OutboxRepo) MarkRetry(ctx context.Context, id int64, nextRetryAt time.T
 		}).Error
 }
 
-func (r *OutboxRepo) MarkFailed(ctx context.Context, id int64, lastError string) error {
+func (r *OutboxRepo) MarkFailed(ctx context.Context, id string, lastError string) error {
 	return r.db.WithContext(ctx).
 		Model(&model.OutboxEvent{}).
 		Where("id = ?", id).

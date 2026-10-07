@@ -66,15 +66,16 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 		return
 	}
 	response.Created(c, map[string]any{
-		"id":            resp.MessageId,
-		"message_id":    resp.MessageId,
-		"conv_id":       rawDTO.ConvID,
-		"from_user_id":  rawDTO.UserID,
-		"seq":           resp.Seq,
-		"type":          protoReq.Type,
-		"created_at":    strconv.FormatInt(resp.CreatedAt, 10),
-		"client_msg_id": rawDTO.ClientMsgID,
-		"content":       rawDTO.Content,
+		"id":              resp.MessageId,
+		"message_id":      resp.MessageId,
+		"conv_id":         rawDTO.ConvID,
+		"from_user_id":    rawDTO.UserID,
+		"seq":             resp.Seq,
+		"type":            protoReq.Type,
+		"created_at":      strconv.FormatInt(resp.CreatedAt, 10),
+		"client_msg_id":   rawDTO.ClientMsgID,
+		"reply_to_msg_id": rawDTO.ReplyToMsgID,
+		"content":         rawDTO.Content,
 	})
 }
 
@@ -112,6 +113,48 @@ func (h *MessageHandler) SyncMessages(c *gin.Context) {
 		return
 	}
 	resp, err := h.msgClient.SyncMessages(ctx, req)
+	if err != nil {
+		response.GRPCError(c, err)
+		return
+	}
+	response.Success(c, resp)
+}
+
+func (h *MessageHandler) GetMessages(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	query, err := url.ParseQuery(c.Request.URL.RawQuery)
+	if err != nil {
+		response.BadRequest(c, "invalid query")
+		return
+	}
+	pagination := &msgpb.MessagePagination{}
+	if query.Has("cursor") {
+		cursor, err := strconv.ParseInt(query.Get("cursor"), 10, 64)
+		if err != nil || sequence.Validate(cursor) != nil {
+			response.BadRequest(c, "invalid history cursor")
+			return
+		}
+		pagination.Cursor = cursor
+	}
+	if query.Has("limit") {
+		limit, err := strconv.ParseInt(query.Get("limit"), 10, 32)
+		if err != nil || limit < 0 {
+			response.BadRequest(c, "invalid limit")
+			return
+		}
+		pagination.Limit = int32(limit)
+	}
+	req := &msgpb.GetMessagesReq{
+		ConversationId: c.Param("id"),
+		UserId:         c.GetString(middleware.CtxKeyUserID),
+		Pagination:     pagination,
+	}
+	if !requireRequestIdentities(c, req) {
+		return
+	}
+	resp, err := h.msgClient.GetMessages(middleware.WithGRPCMetadata(c), req)
 	if err != nil {
 		response.GRPCError(c, err)
 		return
@@ -236,15 +279,16 @@ func (h *MessageHandler) ReplyMessage(c *gin.Context) {
 		return
 	}
 	response.Created(c, map[string]any{
-		"id":            resp.MessageId,
-		"message_id":    resp.MessageId,
-		"conv_id":       rawDTO.ConvID,
-		"from_user_id":  rawDTO.UserID,
-		"seq":           resp.Seq,
-		"type":          protoReq.Type,
-		"created_at":    strconv.FormatInt(resp.CreatedAt, 10),
-		"client_msg_id": rawDTO.ClientMsgID,
-		"content":       rawDTO.Content,
+		"id":              resp.MessageId,
+		"message_id":      resp.MessageId,
+		"conv_id":         rawDTO.ConvID,
+		"from_user_id":    rawDTO.UserID,
+		"seq":             resp.Seq,
+		"type":            protoReq.Type,
+		"created_at":      strconv.FormatInt(resp.CreatedAt, 10),
+		"client_msg_id":   rawDTO.ClientMsgID,
+		"reply_to_msg_id": rawDTO.ReplyToMsgID,
+		"content":         rawDTO.Content,
 	})
 }
 

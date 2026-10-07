@@ -25,7 +25,14 @@ func NewUpdateMemberLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Upda
 }
 
 func (l *UpdateMemberLogic) UpdateMember(in *conversation.UpdateMemberReq) (*common.BaseResponse, error) {
+
+	if err := validateRequest(l.ctx, in.OperatorId, in.ConversationId, in.UserId); err != nil {
+		return nil, err
+	}
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+		if conv.Type == model.ConvTypeSystem {
+			return pkg_errors.ErrForbidden
+		}
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
 			return err
 		}

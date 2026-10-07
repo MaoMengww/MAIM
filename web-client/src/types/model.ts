@@ -75,14 +75,15 @@ export interface UserSettings {
 export type ConvType = 'private' | 'group' | 'system';
 
 export interface Conversation {
-  id: number | string;
+  id: string;
   type: ConvType;
   name: string;
   avatar: string;
-  owner_id: number | string;
+  owner_id?: string;
+  peer_user_id?: string;
   member_count: number;
   max_seq: number;
-  last_message_id: number | string;
+  last_message_id?: string;
   last_message_preview: string;
   last_read_seq: number;
   unread_count: number;
@@ -96,7 +97,7 @@ export interface Conversation {
 }
 
 export interface ConvMember {
-  user_id: string;
+  user_id?: string;
   username: string;
   avatar: string;
   role: 'MEMBER_ROLE_OWNER' | 'MEMBER_ROLE_ADMIN' | 'MEMBER_ROLE_MEMBER' | number;
@@ -106,7 +107,7 @@ export interface ConvMember {
   is_muted: boolean;
   mute_until: number;
   member_type: 'user' | 'bot';
-  bot_id?: number;
+  bot_id?: string;
   bot_name?: string;
   bot_avatar?: string;
 }
@@ -137,8 +138,8 @@ export interface BotInConv {
 export type MsgType = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 export interface ReplySummary {
-  message_id: number | string;
-  sender_id: number | string;
+  message_id: string;
+  sender_id?: string;
   sender_type: string;
   sender_name: string;
   type: MsgType | 0;
@@ -148,12 +149,12 @@ export interface ReplySummary {
 
 export interface TextContent {
   text: string;
-  mention_user_ids: number[];
+  mention_user_ids: string[];
   mention_all: boolean;
 }
 
 export interface ImageContent {
-  file_id: number;
+  file_id: string;
   url: string;
   thumbnail_url: string;
   width: number;
@@ -163,7 +164,7 @@ export interface ImageContent {
 }
 
 export interface FileContent {
-  file_id: number;
+  file_id: string;
   url: string;
   name: string;
   size: number;
@@ -172,14 +173,14 @@ export interface FileContent {
 }
 
 export interface AudioContent {
-  file_id: number;
+  file_id: string;
   url: string;
   duration: number;
   size: number;
 }
 
 export interface VideoContent {
-  file_id: number;
+  file_id: string;
   url: string;
   thumbnail_url: string;
   duration: number;
@@ -191,14 +192,14 @@ export interface VideoContent {
 export interface SystemContent {
   action: string;
   detail: string;
-  related_user_ids: number[];
-  actor_id: number;
+  related_user_ids: string[];
+  actor_id?: string;
   actor_type: string;
   payload: string;
 }
 
 export interface BotContent {
-  bot_id: number;
+  bot_id: string;
   bot_name: string;
   bot_avatar: string;
   text: string;
@@ -210,7 +211,7 @@ export interface BotContent {
 export interface KnowledgeSource {
   type: 'rag';
   kb_name: string;
-  kb_id: number;
+  kb_id: string;
   title: string;
   content: string;
 }
@@ -231,14 +232,14 @@ export type MsgContentOneof =
   | { custom: CustomContent };
 
 export interface Message {
-  message_id: number | string;
-  conversation_id: number | string;
+  message_id: string;
+  conversation_id: string;
   seq: number;
-  from_user_id: number | string;
+  from_user_id?: string;
   type: MsgType;
   status: number; // 1=normal, 2=recalled, 3=edited, 4=streaming
   content: MsgContentOneof;
-  reply_to_id?: number | string;
+  reply_to_id?: string;
   reply_to?: ReplySummary;
   edited_at: number;
   edit_count: number;

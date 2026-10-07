@@ -1,13 +1,10 @@
 package messageservicelogic
 
 import (
-	"context"
 	"encoding/json"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
-	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/pb/message"
-	"gorm.io/gorm"
 )
 
 func modelToPbMessage(msg *model.Message) *message.Message {
@@ -140,8 +137,4 @@ func broadcastContentJSON(content string) model.JSONContent {
 		m = model.JSONContent{"raw": content}
 	}
 	return m
-}
-
-func nextSeq(seqRepo *repo.SequenceRepo, db *gorm.DB, ctx context.Context, convID int64) (int64, error) {
-	return seqRepo.NextSeq(ctx, db, convID)
 }

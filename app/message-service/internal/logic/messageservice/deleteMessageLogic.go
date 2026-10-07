@@ -29,8 +29,11 @@ func NewDeleteMessageLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Del
 }
 
 func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*common.BaseResponse, error) {
-	if in.UserId <= 0 || in.MessageId <= 0 {
+	if in == nil || validateIdentities(in.UserId, in.MessageId) != nil || (in.ConversationId != nil && validateIdentities(*in.ConversationId) != nil) {
 		return nil, errors.New(errors.CodeInvalidParam, "invalid deletion request")
+	}
+	if err := requireCaller(l.ctx, in.UserId); err != nil {
+		return nil, err
 	}
 	msgRepo := l.svcCtx.MessageRepo
 	msg, err := msgRepo.GetByID(l.ctx, in.MessageId)
@@ -38,11 +41,11 @@ func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*commo
 		return nil, errors.Wrap(errors.CodeNotFound, "message not found", err)
 	}
 
-	if in.DeleteForAll && msg.SenderID != in.UserId {
+	if in.DeleteForAll && (msg.SenderID == nil || *msg.SenderID != in.UserId) {
 		return nil, ErrDeleteNotSender
 	}
 
-	if in.ConversationId != 0 && in.ConversationId != msg.ConvID {
+	if in.ConversationId != nil && *in.ConversationId != msg.ConvID {
 		return nil, errors.New(errors.CodeInvalidParam, "conversation does not match message")
 	}
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
@@ -56,7 +59,7 @@ func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*commo
 			}
 			return publishMessageChange(l.ctx, l.svcCtx, tx, current, model.InboxMessageDeleted)
 		}
-		permission, err := l.svcCtx.ConversationRepo.CheckSendPermission(l.ctx, tx, msg.ConvID, in.UserId)
+		permission, err := l.svcCtx.ConversationRepo.CheckSendPermission(l.ctx, tx, msg.ConvID, in.UserId, model.MemberTypeUser)
 		if err != nil {
 			return err
 		}
@@ -74,7 +77,7 @@ func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*commo
 		// A tombstone contains no content and targets only the actor's account.
 		return l.svcCtx.PublishInboxChange(l.ctx, tx, map[string]any{
 			"kind": model.InboxMessageDeleted, "conv_id": current.ConvID, "message_id": current.ID,
-			"user_id": in.UserId, "recipient_ids": []int64{in.UserId},
+			"user_id": in.UserId, "recipient_ids": []string{in.UserId},
 		})
 	})
 	if err != nil {
@@ -84,7 +87,7 @@ func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*commo
 		return nil, errors.Wrap(errors.CodeInternal, "delete operation failed", err)
 	}
 
-	l.Infof("message deleted: msg_id=%d", in.MessageId)
+	l.Infof("message deleted: msg_id=%s", in.MessageId)
 
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

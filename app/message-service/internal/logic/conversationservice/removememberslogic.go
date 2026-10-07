@@ -25,7 +25,14 @@ func NewRemoveMembersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Rem
 }
 
 func (l *RemoveMembersLogic) RemoveMembers(in *conversation.RemoveMembersReq) (*common.BaseResponse, error) {
-	var removed []int64
+
+	if err := validateRequest(l.ctx, in.OperatorId, in.ConversationId); err != nil {
+		return nil, err
+	}
+	if err := validateRequest(l.ctx, in.OperatorId, in.UserIds...); err != nil {
+		return nil, err
+	}
+	var removed []string
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if conv.Type == model.ConvTypeSystem {
 			return pkg_errors.ErrForbidden
@@ -33,7 +40,7 @@ func (l *RemoveMembersLogic) RemoveMembers(in *conversation.RemoveMembersReq) (*
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
 			return err
 		}
-		seen := make(map[int64]bool, len(in.UserIds))
+		seen := make(map[string]bool, len(in.UserIds))
 		var members []*model.ConversationMember
 		for _, uid := range in.UserIds {
 			if seen[uid] {
@@ -58,7 +65,7 @@ func (l *RemoveMembersLogic) RemoveMembers(in *conversation.RemoveMembersReq) (*
 			}
 		}
 		for _, member := range members {
-			if err := r.RemoveMember(l.ctx, conv.ID, member.UserID); err != nil {
+			if err := r.RemoveMember(l.ctx, conv.ID, memberIdentity(member)); err != nil {
 				return err
 			}
 		}
@@ -77,8 +84,8 @@ func (l *RemoveMembersLogic) RemoveMembers(in *conversation.RemoveMembersReq) (*
 		if uid == in.OperatorId {
 			detail = "退出了群聊"
 		}
-		emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, uid, action, detail, []int64{uid})
+		emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, uid, action, detail, []string{uid})
 	}
-	l.Infof("members removed: conv_id=%d count=%d", in.ConversationId, len(in.UserIds))
+	l.Infof("members removed: conv_id=%s count=%d", in.ConversationId, len(in.UserIds))
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

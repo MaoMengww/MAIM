@@ -10,6 +10,7 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -31,7 +32,10 @@ func NewSendSystemMessageLogic(ctx context.Context, svcCtx *svc.ServiceContext) 
 }
 
 func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessageReq) (*message.SendMessageResp, error) {
-	msgID, err := l.svcCtx.Snowflake.Generate()
+	if in == nil || validateIdentities(in.ConversationId) != nil || validateIdentities(in.RelatedUserIds...) != nil || (in.ActorId != nil && validateIdentities(*in.ActorId) != nil) {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid system message identity")
+	}
+	msgID, err := identity.New()
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "generate msg id failed", err)
 	}
@@ -51,6 +55,7 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 		ConvID:      in.ConversationId,
 		SenderID:    in.ActorId,
 		MsgType:     model.MsgTypeSystem,
+		SenderType:  "system",
 		Content:     sysContent.ToJSONContent(),
 		Status:      model.MessageStatusNormal,
 		EditHistory: model.JSONArray{},
@@ -87,7 +92,7 @@ func (l *SendSystemMessageLogic) SendSystemMessage(in *message.SendSystemMessage
 
 	metrics.MessagesSentTotal.Inc("7")
 
-	l.Infof("system message sent: msg_id=%d conv_id=%d action=%s", msgID, in.ConversationId, in.Action)
+	l.Infof("system message sent: msg_id=%s conv_id=%s action=%s", msgID, in.ConversationId, in.Action)
 
 	return &message.SendMessageResp{
 		MessageId: msgID,

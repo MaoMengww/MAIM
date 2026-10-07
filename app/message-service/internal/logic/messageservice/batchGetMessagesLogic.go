@@ -25,12 +25,15 @@ func NewBatchGetMessagesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *
 }
 
 func (l *BatchGetMessagesLogic) BatchGetMessages(in *message.BatchGetMessagesReq) (*message.BatchGetMessagesResp, error) {
+	if in == nil || validateIdentities(in.MessageIds...) != nil {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid message identity")
+	}
 	if len(in.MessageIds) == 0 {
 		return &message.BatchGetMessagesResp{Messages: []*message.Message{}}, nil
 	}
 
 	callerID := callerUserID(l.ctx)
-	if callerID == 0 {
+	if callerID == "" {
 		return nil, ErrUserIDMissing
 	}
 	msgRepo := l.svcCtx.MessageRepo.ForUser(callerID)
@@ -41,6 +44,13 @@ func (l *BatchGetMessagesLogic) BatchGetMessages(in *message.BatchGetMessagesReq
 
 	var pbMsgs []*message.Message
 	for i := range msgs {
+		member, err := l.svcCtx.ConversationRepo.IsMember(l.ctx, msgs[i].ConvID, callerID)
+		if err != nil {
+			return nil, ErrMemberCheckFailed
+		}
+		if !member {
+			continue
+		}
 		pbMsgs = append(pbMsgs, modelToPbMessage(&msgs[i]))
 	}
 	hydrateReplySummaries(l.ctx, msgRepo, l.svcCtx.ProfileRepo, l.svcCtx.ConversationRepo, pbMsgs)

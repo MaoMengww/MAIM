@@ -21,17 +21,24 @@ func NewListBotsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListBots
 }
 
 func (l *ListBotsLogic) ListBots(in *conversation.ListBotsReq) (*conversation.ListBotsResp, error) {
+
+	if err := validateRequest(l.ctx, in.UserId, in.ConversationId); err != nil {
+		return nil, err
+	}
+	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.UserId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
+		return nil, err
+	}
 	cbs, err := l.svcCtx.ConversationRepo.ListBotsByConv(l.ctx, in.ConversationId)
 	if err != nil {
 		return nil, err
 	}
 
 	// Batch-fetch bot details for Name and Avatar.
-	botIDs := make([]int64, len(cbs))
+	botIDs := make([]string, len(cbs))
 	for i, cb := range cbs {
 		botIDs[i] = cb.BotID
 	}
-	botMap := make(map[int64]*botpb.Bot, len(botIDs))
+	botMap := make(map[string]*botpb.Bot, len(botIDs))
 	if bots, err := l.svcCtx.ConversationRepo.GetBotsByIDs(l.ctx, botIDs); err == nil {
 		for i := range bots {
 			botMap[bots[i].Id] = bots[i]
@@ -62,6 +69,6 @@ func (l *ListBotsLogic) ListBots(in *conversation.ListBotsReq) (*conversation.Li
 			AddedAt:     cb.CreatedAt.Unix(),
 		})
 	}
-	l.Infof("bots listed: conv_id=%d count=%d", in.ConversationId, len(bots))
+	l.Infof("bots listed: conv_id=%s count=%d", in.ConversationId, len(bots))
 	return &conversation.ListBotsResp{Bots: bots}, nil
 }

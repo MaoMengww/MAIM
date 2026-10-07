@@ -30,11 +30,11 @@ export interface UpdateConvReq {
 
 // ─── Message ───
 export interface SendMessageReq {
-  conversation_id: number;
+  conversation_id: string;
   type: number;
   content: SendMsgContent;
-  reply_to_msg_id?: number;
-  client_msg_id?: string;
+  reply_to_msg_id?: string;
+  client_msg_id: string;
 }
 
 export interface SendMsgContent {
@@ -42,14 +42,14 @@ export interface SendMsgContent {
   mentions?: string[];
   mention_all?: boolean;
   files?: Array<{
-    file_id: number;
+    file_id: string;
     url?: string;
     file_name?: string;
     size?: number;
     mime_type?: string;
     duration?: number;
   }>;
-  file_id?: number;
+  file_id?: string;
   file_name?: string;
   file_size?: number;
   file_mime?: string;
@@ -62,13 +62,13 @@ export interface SendMsgContent {
 }
 
 export interface SyncMessagesReq {
-  position?: string;
+  position?: number;
   limit?: number;
 }
 
 export interface SearchMessagesReq {
   keyword?: string;
-  conversation_id?: number;
+  conversation_id?: string;
   sender_id?: string;
   sender_type?: string;
   message_types?: number[];

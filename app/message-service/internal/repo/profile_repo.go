@@ -21,16 +21,16 @@ func NewProfileRepo(db *database.DB) *ProfileRepo {
 
 // Profile is the display projection of one account.
 type Profile struct {
-	ID       int64
+	ID       string
 	Username string
 	Avatar   string
 }
 
 // UserProfile returns the display projection of one account. A missing account
 // yields an error and a zero value.
-func (r *ProfileRepo) UserProfile(ctx context.Context, userID int64) (Profile, error) {
+func (r *ProfileRepo) UserProfile(ctx context.Context, userID string) (Profile, error) {
 	var profile Profile
-	if userID == 0 {
+	if userID == "" {
 		return profile, gorm.ErrRecordNotFound
 	}
 	err := r.DB.WithContext(ctx).Table(`"user".users`).
@@ -40,8 +40,8 @@ func (r *ProfileRepo) UserProfile(ctx context.Context, userID int64) (Profile, e
 
 // UserProfiles returns the display projection of the requested accounts. Unknown
 // ids are absent from the result.
-func (r *ProfileRepo) UserProfiles(ctx context.Context, userIDs []int64) (map[int64]Profile, error) {
-	profiles := make(map[int64]Profile, len(userIDs))
+func (r *ProfileRepo) UserProfiles(ctx context.Context, userIDs []string) (map[string]Profile, error) {
+	profiles := make(map[string]Profile, len(userIDs))
 	if len(userIDs) == 0 {
 		return profiles, nil
 	}
@@ -58,13 +58,13 @@ func (r *ProfileRepo) UserProfiles(ctx context.Context, userIDs []int64) (map[in
 
 // UserNames returns id → username for the requested accounts. Unknown ids are
 // absent from the result.
-func (r *ProfileRepo) UserNames(ctx context.Context, userIDs []int64) (map[int64]string, error) {
-	names := make(map[int64]string, len(userIDs))
+func (r *ProfileRepo) UserNames(ctx context.Context, userIDs []string) (map[string]string, error) {
+	names := make(map[string]string, len(userIDs))
 	if len(userIDs) == 0 {
 		return names, nil
 	}
 	var rows []struct {
-		ID       int64  `gorm:"column:id"`
+		ID       string `gorm:"column:id"`
 		Username string `gorm:"column:username"`
 	}
 	if err := r.DB.WithContext(ctx).Table(`"user".users`).
@@ -78,8 +78,8 @@ func (r *ProfileRepo) UserNames(ctx context.Context, userIDs []int64) (map[int64
 }
 
 // AllUserIDs lists every account id, used by broadcast sends.
-func (r *ProfileRepo) AllUserIDs(ctx context.Context) ([]int64, error) {
-	var ids []int64
+func (r *ProfileRepo) AllUserIDs(ctx context.Context) ([]string, error) {
+	var ids []string
 	err := r.DB.WithContext(ctx).Table(`"user".users`).Pluck("id", &ids).Error
 	return ids, err
 }

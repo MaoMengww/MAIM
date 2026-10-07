@@ -8,7 +8,6 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/config"
 	"github.com/maomeng/aim/app/message-service/internal/dispatcher"
 	"github.com/maomeng/aim/app/message-service/internal/es"
-	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/migrations/postgres"
@@ -17,7 +16,6 @@ import (
 	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
-	"github.com/maomeng/aim/pkg/snowflake"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -33,7 +31,6 @@ type ServiceContext struct {
 	BotEventProducer       *kafka.Producer
 	DeliveryPublisher      *delivery.Publisher
 	ESClient               *es.Client
-	Snowflake              *snowflake.Node
 	Logger                 logx.Logger
 	MessageRepo            *repo.MessageRepo
 	InboxRepo              *repo.InboxRepo
@@ -61,17 +58,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		panic(fmt.Sprintf("database init failed: %v", err))
 	}
-	// Migrations run before AutoMigrate: the conversation tables must be moved
-	// into the msg schema before GORM creates anything with the new names.
+	// The UUID schema lineage is authoritative; never infer it with AutoMigrate.
 	if err := database.RunMigrations(db.DB, postgres.FS); err != nil {
 		panic(fmt.Sprintf("run migrations failed: %v", err))
-	}
-	if err := db.AutoMigrate(
-		&model.Message{}, &model.Sequence{}, &model.OutboxEvent{},
-		&model.Conversation{}, &model.ConversationMember{}, &model.ConvReadSeq{},
-		&model.ConvSettings{}, &model.ConvBot{},
-	); err != nil {
-		panic(fmt.Sprintf("auto migrate failed: %v", err))
 	}
 
 	rdb := goredis.NewClient(&goredis.Options{
@@ -111,10 +100,11 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		"mappings": map[string]any{
 			"properties": map[string]any{
 				"message_id":  map[string]any{"type": "keyword"},
-				"conv_id":     map[string]any{"type": "long"},
-				"sender_id":   map[string]any{"type": "long"},
+				"conv_id":     map[string]any{"type": "keyword"},
+				"sender_id":   map[string]any{"type": "keyword"},
 				"sender_type": map[string]any{"type": "keyword"},
 				"msg_type":    map[string]any{"type": "integer"},
+				"seq":         map[string]any{"type": "long"},
 				"content":     map[string]any{"type": "object", "enabled": false},
 				"text": map[string]any{
 					"type":     "text",
@@ -127,12 +117,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			},
 		},
 	}); err != nil {
-		logger.Infof("ensure es index skipped: %v", err)
-	}
-
-	sf, err := snowflake.NewNode(c.Snowflake.WorkerID)
-	if err != nil {
-		panic(fmt.Sprintf("snowflake init failed: %v", err))
+		panic(fmt.Sprintf("ensure message search index failed: %v", err))
 	}
 
 	return &ServiceContext{
@@ -143,7 +128,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		BotEventProducer:       botEventProducer,
 		DeliveryPublisher:      deliveryPublisher,
 		ESClient:               esClient,
-		Snowflake:              sf,
 		Logger:                 logger,
 		MessageRepo:            repo.NewMessageRepo(db),
 		InboxRepo:              repo.NewInboxRepo(db),

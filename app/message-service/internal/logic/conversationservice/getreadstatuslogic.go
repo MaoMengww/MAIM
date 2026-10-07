@@ -3,6 +3,7 @@ package conversationservice
 import (
 	"context"
 	"errors"
+	"github.com/maomeng/aim/pkg/identity"
 
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
@@ -21,17 +22,30 @@ func NewGetReadStatusLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Get
 }
 
 func (l *GetReadStatusLogic) GetReadStatus(in *conversation.GetReadStatusReq) (*conversation.GetReadStatusResp, error) {
+	uid, err := currentUser(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRequest(l.ctx, uid, in.ConversationId); err != nil {
+		return nil, err
+	}
+	if in.MessageId != "" && identity.Validate(in.MessageId) != nil {
+		return nil, ErrInvalidParam
+	}
+	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, uid, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
+		return nil, err
+	}
 	seqs, err := l.svcCtx.ConversationRepo.GetReadSeqs(l.ctx, in.ConversationId)
 	if err != nil {
 		l.Logger.Errorf("get read status failed: %v", err)
 		return nil, err
 	}
 
-	// message_id 是 Snowflake 主键，与 seq 不是同一量纲：先解析该消息在会话内
+	// message_id 是实体身份，与 seq 不是同一量纲：先解析该消息在会话内
 	// 的 seq，再判断谁读到了它。
 	threshold := int64(0)
-	if in.MessageId != 0 {
-		msg, err := l.svcCtx.MessageRepo.GetByID(l.ctx, in.MessageId)
+	if in.MessageId != "" {
+		msg, err := l.svcCtx.MessageRepo.ForUser(uid).GetByID(l.ctx, in.MessageId)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, ErrMessageNotFound
@@ -54,7 +68,7 @@ func (l *GetReadStatusLogic) GetReadStatus(in *conversation.GetReadStatusReq) (*
 	var readUsers []*conversation.ReadUser
 
 	for _, seq := range seqs {
-		if in.MessageId == 0 || seq.LastReadSeq >= threshold {
+		if in.MessageId == "" || seq.LastReadSeq >= threshold {
 			readCount++
 			readUsers = append(readUsers, &conversation.ReadUser{
 				UserId:      seq.UserID,

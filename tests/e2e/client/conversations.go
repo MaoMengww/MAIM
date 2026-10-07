@@ -30,10 +30,17 @@ type storedMessage struct {
 	ConvID    entityID       `json:"conversation_id"`
 	SenderID  *entityID      `json:"from_user_id"`
 	Seq       sequenceNumber `json:"seq"`
+	CreatedAt int64          `json:"created_at,string"`
 	Type      int32          `json:"type"`
 	Status    int32          `json:"status"`
 	EditCount int32          `json:"edit_count"`
-	ReplyToID *entityID      `json:"reply_to_id"`
+	System    *struct {
+		Action         string     `json:"action"`
+		ActorID        *entityID  `json:"actor_id"`
+		ActorType      string     `json:"actor_type"`
+		RelatedUserIDs []entityID `json:"related_user_ids"`
+	} `json:"system"`
+	ReplyToID *entityID `json:"reply_to_id"`
 	ReplyTo   *struct {
 		MessageID  entityID  `json:"message_id"`
 		SenderID   *entityID `json:"sender_id"`
@@ -230,6 +237,45 @@ func (d *driver) conversations(address string, unread bool) error {
 		if err := d.conversationReceipt("no.regression", owner, invitee, latest, true); err != nil {
 			return err
 		}
+	}
+	// Numeric positions are rejected before RPC dispatch; no string coercion.
+	for _, invalid := range []any{-1, 1.5, int64(9007199254740992), "1"} {
+		err := d.request(http.MethodPut, path+"/read", invitee.token, map[string]any{"seq": invalid}, nil)
+		var rejected *apiError
+		if !errors.As(err, &rejected) || rejected.status != http.StatusBadRequest {
+			return fmt.Errorf("conversations.invalid-read: 期望HTTP400，实际%v", err)
+		}
+	}
+	for _, invalid := range []string{"-1", "1.5", "9007199254740992"} {
+		err := d.request(http.MethodGet, "/messages/"+convID.String()+"/around/"+invalid, invitee.token, nil, nil)
+		var rejected *apiError
+		if !errors.As(err, &rejected) || rejected.status != http.StatusBadRequest {
+			return fmt.Errorf("conversations.invalid-history: 期望HTTP400，实际%v", err)
+		}
+	}
+	rolePath := path + "/members/" + member.id.String() + "/role"
+	if err := d.conversationForbidden("role.denied", http.MethodPut, rolePath, invitee, map[string]any{"role": 2}); err != nil {
+		return err
+	}
+	if err := d.conversationCall("role.promote", http.MethodPut, rolePath, owner, map[string]any{"role": 2}, nil); err != nil {
+		return err
+	}
+	mutePath := path + "/members/" + invitee.id.String() + "/mute"
+	if err := d.conversationCall("admin.mute", http.MethodPut, mutePath, member, map[string]any{"duration_seconds": 60}, nil); err != nil {
+		return err
+	}
+	mutedBody := map[string]any{"conversation_id": convID, "client_msg_id": latest.SubmissionKey, "content": map[string]string{"text": latest.Content.Text}}
+	if err := d.conversationForbidden("muted.send", http.MethodPost, "/messages/send", invitee, mutedBody); err != nil {
+		return err
+	}
+	if err := d.conversationCall("admin.unmute", http.MethodDelete, mutePath, member, nil, nil); err != nil {
+		return err
+	}
+	if err := d.conversationCall("role.demote", http.MethodPut, rolePath, owner, map[string]any{"role": 3}, nil); err != nil {
+		return err
+	}
+	if err := d.conversationForbidden("former-admin.mute", http.MethodPut, mutePath, member, map[string]any{"duration_seconds": 60}); err != nil {
+		return err
 	}
 	if err := d.conversationCall("owner.kick", http.MethodPost, path+"/members/kick", owner, inviteBody, nil); err != nil {
 		return err

@@ -4,19 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/IBM/sarama"
 	"github.com/maomeng/aim/app/message-service/internal/es"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/event"
 	"github.com/maomeng/aim/pkg/logx"
-	"strings"
 )
 
 type ESMessageDoc struct {
 	MessageID  string         `json:"message_id"`
-	ConvID     int64          `json:"conv_id"`
-	SenderID   int64          `json:"sender_id"`
+	ConvID     string         `json:"conv_id"`
+	SenderID   *string        `json:"sender_id,omitempty"`
 	SenderType string         `json:"sender_type"`
 	MsgType    int32          `json:"msg_type"`
 	Content    map[string]any `json:"content"`
@@ -67,6 +67,12 @@ func (i *SearchIndexer) handleMessage(ctx context.Context, topic string, data []
 	if err := json.Unmarshal(data, &evt); err != nil {
 		return err
 	}
+	if evt.MessageID == nil {
+		switch evt.Kind {
+		case "message.new", "message.edited", "message.deleted", "message.recalled":
+			return fmt.Errorf("message change requires a message identity")
+		}
+	}
 	switch evt.Kind {
 	case "message.new", "message.edited":
 		return i.indexMessage(ctx, evt)
@@ -75,9 +81,9 @@ func (i *SearchIndexer) handleMessage(ctx context.Context, topic string, data []
 		if !evt.DeleteForAll {
 			return nil
 		}
-		return i.es.Delete(ctx, consts.ESIndexMessages, fmt.Sprintf("%d", evt.MessageID))
+		return i.es.Delete(ctx, consts.ESIndexMessages, *evt.MessageID)
 	case "message.recalled":
-		return i.es.Delete(ctx, consts.ESIndexMessages, fmt.Sprintf("%d", evt.MessageID))
+		return i.es.Delete(ctx, consts.ESIndexMessages, *evt.MessageID)
 	default:
 		// Conversation/read changes are never message documents.
 		return nil
@@ -87,7 +93,7 @@ func (i *SearchIndexer) handleMessage(ctx context.Context, topic string, data []
 func (i *SearchIndexer) indexMessage(ctx context.Context, evt event.InboxChangeEvent) error {
 	logger := i.logger.WithContext(ctx)
 
-	msgIDStr := fmt.Sprintf("%d", evt.MessageID)
+	msgIDStr := *evt.MessageID
 	doc := ESMessageDoc{
 		MessageID:  msgIDStr,
 		ConvID:     evt.ConvID,
@@ -100,10 +106,10 @@ func (i *SearchIndexer) indexMessage(ctx context.Context, evt event.InboxChangeE
 	}
 
 	if err := i.es.Index(ctx, consts.ESIndexMessages, msgIDStr, doc); err != nil {
-		return fmt.Errorf("es index failed: msg_id=%d err=%w", evt.MessageID, err)
+		return fmt.Errorf("es index failed: msg_id=%s err=%w", msgIDStr, err)
 	}
 
-	logger.Infof("search indexer: indexed message: msg_id=%d conv_id=%d", evt.MessageID, evt.ConvID)
+	logger.Infof("search indexer: indexed message: msg_id=%s conv_id=%s", msgIDStr, evt.ConvID)
 	return nil
 }
 

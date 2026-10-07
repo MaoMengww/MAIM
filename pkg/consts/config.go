@@ -1,7 +1,5 @@
 package consts
 
-import "time"
-
 // ---- Retry & backoff ----
 
 const (
@@ -14,7 +12,6 @@ const (
 const (
 	JWTDefaultExpireSec  = 3600
 	JWTDefaultRefreshSec = 2592000 // 30 days
-	MsgIdempotentTTL     = 2 * time.Hour
 )
 
 // ---- Webhook ----

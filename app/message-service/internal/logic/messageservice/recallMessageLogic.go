@@ -30,13 +30,19 @@ func NewRecallMessageLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Rec
 }
 
 func (l *RecallMessageLogic) RecallMessage(in *message.RecallMessageReq) (*common.BaseResponse, error) {
+	if in == nil || validateIdentities(in.MessageId, in.UserId) != nil || (in.ConversationId != nil && validateIdentities(*in.ConversationId) != nil) {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid recall request")
+	}
+	if err := requireCaller(l.ctx, in.UserId); err != nil {
+		return nil, err
+	}
 	msgRepo := l.svcCtx.MessageRepo
 	msg, err := msgRepo.GetByID(l.ctx, in.MessageId)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeNotFound, "message not found", err)
 	}
 
-	if msg.SenderID != in.UserId {
+	if msg.SenderID == nil || *msg.SenderID != in.UserId {
 		return nil, ErrRecallNotSender
 	}
 
@@ -45,7 +51,7 @@ func (l *RecallMessageLogic) RecallMessage(in *message.RecallMessageReq) (*commo
 		return nil, ErrRecallWindowExpired
 	}
 
-	if in.ConversationId != 0 && in.ConversationId != msg.ConvID {
+	if in.ConversationId != nil && *in.ConversationId != msg.ConvID {
 		return nil, errors.New(errors.CodeInvalidParam, "conversation does not match message")
 	}
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
@@ -73,7 +79,7 @@ func (l *RecallMessageLogic) RecallMessage(in *message.RecallMessageReq) (*commo
 	}
 
 	metrics.MessageEditRecalledTotal.Inc("recall")
-	l.Infof("message recalled: msg_id=%d user_id=%d", in.MessageId, in.UserId)
+	l.Infof("message recalled: msg_id=%s user_id=%s", in.MessageId, in.UserId)
 
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

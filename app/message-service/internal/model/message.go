@@ -10,20 +10,21 @@ import (
 )
 
 type Message struct {
-	ID           int64       `gorm:"primaryKey;column:id" json:"id"`
-	ConvID       int64       `gorm:"column:conv_id;index:idx_conv_seq" json:"conv_id"`
-	SenderID     int64       `gorm:"column:sender_id" json:"sender_id"`
-	SenderType   string      `gorm:"column:sender_type;default:user" json:"sender_type"`
-	ClientMsgID  string      `gorm:"column:client_msg_id" json:"client_msg_id"`
-	Seq          int64       `gorm:"column:seq" json:"seq"`
-	MsgType      int32       `gorm:"column:msg_type" json:"msg_type"`
-	Content      JSONContent `gorm:"column:content;type:jsonb" json:"content"`
-	ReplyToMsgID int64       `gorm:"column:reply_to_msg_id" json:"reply_to_msg_id"`
-	Status       int32       `gorm:"column:status;default:1" json:"status"`
-	EditHistory  JSONArray   `gorm:"column:edit_history;type:jsonb" json:"edit_history"`
-	EditCount    int32       `gorm:"column:edit_count" json:"edit_count"`
-	CreatedAt    time.Time   `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt    time.Time   `gorm:"column:updated_at" json:"updated_at"`
+	ID                string      `gorm:"primaryKey;type:uuid;column:id" json:"id"`
+	ConvID            string      `gorm:"type:uuid;column:conv_id;index:idx_conv_seq" json:"conv_id"`
+	SenderID          *string     `gorm:"type:uuid;column:sender_id" json:"sender_id"`
+	SenderType        string      `gorm:"column:sender_type;default:user" json:"sender_type"`
+	ClientMsgID       *string     `gorm:"type:uuid;column:client_msg_id" json:"client_msg_id"`
+	Seq               int64       `gorm:"column:seq" json:"seq"`
+	MsgType           int32       `gorm:"column:msg_type" json:"msg_type"`
+	Content           JSONContent `gorm:"column:content;type:jsonb" json:"content"`
+	SubmissionContent JSONContent `gorm:"column:submission_content;type:jsonb" json:"-"`
+	ReplyToMsgID      *string     `gorm:"type:uuid;column:reply_to_msg_id" json:"reply_to_msg_id"`
+	Status            int32       `gorm:"column:status;default:1" json:"status"`
+	EditHistory       JSONArray   `gorm:"column:edit_history;type:jsonb" json:"edit_history"`
+	EditCount         int32       `gorm:"column:edit_count" json:"edit_count"`
+	CreatedAt         time.Time   `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt         time.Time   `gorm:"column:updated_at" json:"updated_at"`
 }
 
 func (Message) TableName() string {
@@ -43,12 +44,12 @@ const (
 // UserInbox stores a change reference; Position is assigned by InboxRepo, not
 // by the caller or the conversation's message sequence.
 type UserInbox struct {
-	UserID      int64     `gorm:"primaryKey;autoIncrement:false;column:user_id" json:"user_id"`
+	UserID      string    `gorm:"primaryKey;autoIncrement:false;type:uuid;column:user_id" json:"user_id"`
 	Position    int64     `gorm:"primaryKey;autoIncrement:false;column:position" json:"position"`
-	ConvID      int64     `gorm:"column:conv_id" json:"conv_id"`
-	MessageID   int64     `gorm:"column:message_id" json:"message_id"`
+	ConvID      string    `gorm:"type:uuid;column:conv_id" json:"conv_id"`
+	MessageID   *string   `gorm:"type:uuid;column:message_id" json:"message_id"`
 	Kind        string    `gorm:"column:kind" json:"kind"`
-	ChangeID    int64     `gorm:"column:change_id" json:"change_id"`
+	ChangeID    string    `gorm:"type:uuid;column:change_id" json:"change_id"`
 	LastReadSeq int64     `gorm:"column:last_read_seq" json:"last_read_seq"`
 	CreatedAt   time.Time `gorm:"column:created_at" json:"created_at"`
 }
@@ -60,19 +61,22 @@ func (UserInbox) TableName() string {
 // InboxStream.Position is the committed end of the user's stream. Its row lock
 // serializes allocation and entry insertion until their shared transaction ends.
 type InboxStream struct {
-	UserID           int64 `gorm:"primaryKey;autoIncrement:false;column:user_id"`
-	Position         int64 `gorm:"column:position"`
-	RetainedPosition int64 `gorm:"column:retained_position"`
+	UserID           string `gorm:"primaryKey;autoIncrement:false;type:uuid;column:user_id"`
+	Position         int64  `gorm:"column:position"`
+	RetainedPosition int64  `gorm:"column:retained_position"`
 }
 
 func (InboxStream) TableName() string {
 	return "inbox_streams"
 }
 
-// InboxAppliedChange survives read coalescing and inbox retention for replay deduplication.
+// InboxAppliedChange keeps replay deduplication and allocated checkpoint provenance
+// after coalescing or retention. Changes without an allocation have no position.
 type InboxAppliedChange struct {
-	UserID   int64 `gorm:"primaryKey;autoIncrement:false;column:user_id"`
-	ChangeID int64 `gorm:"primaryKey;autoIncrement:false;column:change_id"`
+	UserID    string    `gorm:"primaryKey;autoIncrement:false;type:uuid;column:user_id"`
+	ChangeID  string    `gorm:"primaryKey;autoIncrement:false;type:uuid;column:change_id"`
+	Position  *int64    `gorm:"column:position"`
+	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime"`
 }
 
 func (InboxAppliedChange) TableName() string { return "inbox_applied_changes" }
@@ -80,9 +84,9 @@ func (InboxAppliedChange) TableName() string { return "inbox_applied_changes" }
 // PersonalMessageDeletion is account state, independent of inbox retention and
 // the message's lifetime. No foreign key to inbox entries or message rows.
 type PersonalMessageDeletion struct {
-	UserID    int64     `gorm:"primaryKey;autoIncrement:false;column:user_id"`
-	ConvID    int64     `gorm:"primaryKey;autoIncrement:false;column:conv_id"`
-	MessageID int64     `gorm:"primaryKey;autoIncrement:false;column:message_id"`
+	UserID    string    `gorm:"primaryKey;autoIncrement:false;type:uuid;column:user_id"`
+	ConvID    string    `gorm:"primaryKey;autoIncrement:false;type:uuid;column:conv_id"`
+	MessageID string    `gorm:"primaryKey;autoIncrement:false;type:uuid;column:message_id"`
 	CreatedAt time.Time `gorm:"column:created_at"`
 }
 
@@ -106,11 +110,11 @@ func MessagePreview(msgType int32, content JSONContent) string {
 }
 
 type Broadcast struct {
-	ID            int64       `gorm:"primaryKey;column:id" json:"id"`
-	SenderID      int64       `gorm:"column:sender_id" json:"sender_id"`
+	ID            string      `gorm:"primaryKey;type:uuid;column:id" json:"id"`
+	SenderID      *string     `gorm:"type:uuid;column:sender_id" json:"sender_id"`
 	Content       JSONContent `gorm:"column:content;type:jsonb" json:"content"`
 	Scope         string      `gorm:"column:scope" json:"scope"`
-	ScopeTargetID int64       `gorm:"column:scope_target_id" json:"scope_target_id"`
+	ScopeTargetID *string     `gorm:"type:uuid;column:scope_target_id" json:"scope_target_id"`
 	CreatedAt     time.Time   `gorm:"column:created_at" json:"created_at"`
 }
 
@@ -119,8 +123,8 @@ func (Broadcast) TableName() string {
 }
 
 type Sequence struct {
-	ConvID     int64 `gorm:"primaryKey;column:conv_id" json:"conv_id"`
-	CurrentSeq int64 `gorm:"column:current_seq" json:"current_seq"`
+	ConvID     string `gorm:"primaryKey;type:uuid;column:conv_id" json:"conv_id"`
+	CurrentSeq int64  `gorm:"column:current_seq" json:"current_seq"`
 }
 
 func (Sequence) TableName() string {
@@ -130,6 +134,9 @@ func (Sequence) TableName() string {
 type JSONContent map[string]any
 
 func (j JSONContent) Value() (driver.Value, error) {
+	if j == nil {
+		return nil, nil
+	}
 	return json.Marshal(j)
 }
 
@@ -152,13 +159,13 @@ type JSONArray []map[string]any
 // ---- Typed content structs ----
 
 type TextContent struct {
-	Text           string  `json:"text"`
-	MentionUserIDs []int64 `json:"mention_user_ids"`
-	MentionAll     bool    `json:"mention_all"`
+	Text           string   `json:"text"`
+	MentionUserIDs []string `json:"mention_user_ids"`
+	MentionAll     bool     `json:"mention_all"`
 }
 
 type ImageContent struct {
-	FileID       int64  `json:"file_id"`
+	FileID       string `json:"file_id"`
 	URL          string `json:"url"`
 	ThumbnailURL string `json:"thumbnail_url"`
 	Width        int32  `json:"width"`
@@ -168,7 +175,7 @@ type ImageContent struct {
 }
 
 type FileContent struct {
-	FileID   int64  `json:"file_id"`
+	FileID   string `json:"file_id"`
 	URL      string `json:"url"`
 	Name     string `json:"name"`
 	Size     int64  `json:"size"`
@@ -177,7 +184,7 @@ type FileContent struct {
 }
 
 type VideoContent struct {
-	FileID       int64  `json:"file_id"`
+	FileID       string `json:"file_id"`
 	URL          string `json:"url"`
 	ThumbnailURL string `json:"thumbnail_url"`
 	Duration     int32  `json:"duration"`
@@ -187,7 +194,7 @@ type VideoContent struct {
 }
 
 type AudioContent struct {
-	FileID   int64  `json:"file_id"`
+	FileID   string `json:"file_id"`
 	URL      string `json:"url"`
 	Duration int32  `json:"duration"`
 	Size     int64  `json:"size"`
@@ -201,16 +208,16 @@ type LocationContent struct {
 }
 
 type SystemContent struct {
-	Action         string  `json:"action"`
-	Detail         string  `json:"detail"`
-	RelatedUserIDs []int64 `json:"related_user_ids"`
-	ActorID        int64   `json:"actor_id"`
-	ActorType      string  `json:"actor_type"`
-	Payload        string  `json:"payload"`
+	Action         string   `json:"action"`
+	Detail         string   `json:"detail"`
+	RelatedUserIDs []string `json:"related_user_ids"`
+	ActorID        *string  `json:"actor_id"`
+	ActorType      string   `json:"actor_type"`
+	Payload        string   `json:"payload"`
 }
 
 type BotContent struct {
-	BotID          int64  `json:"bot_id"`
+	BotID          string `json:"bot_id"`
 	BotName        string `json:"bot_name"`
 	BotAvatar      string `json:"bot_avatar"`
 	Text           string `json:"text"`

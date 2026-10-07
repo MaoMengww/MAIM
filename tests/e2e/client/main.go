@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -108,6 +109,7 @@ type sentMessage struct {
 	ConvID        entityID       `json:"conv_id"`
 	SenderID      entityID       `json:"from_user_id"`
 	Seq           sequenceNumber `json:"seq"`
+	CreatedAt     int64          `json:"created_at,string"`
 	Content       struct {
 		Text string `json:"text"`
 	} `json:"content"`
@@ -171,7 +173,7 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://realtime-service:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
@@ -201,6 +203,15 @@ func run(args []string) error {
 			{"same-instance-b", *realtimeB, *realtimeB},
 			{"bot-runtime", *realtimeA, *realtimeA},
 			{"knowledge-ingest", "", ""},
+			{"cross-instance", *realtimeA, *realtimeB},
+		}
+	case "messaging":
+		scenarios = []scenarioSpec{
+			{"conversation-unread", *realtimeA, *realtimeB},
+			{"broadcasts", *realtimeA, *realtimeB},
+			{"user-sync", *realtimeA, *realtimeB},
+			{"same-instance-a", *realtimeA, *realtimeA},
+			{"same-instance-b", *realtimeB, *realtimeB},
 			{"cross-instance", *realtimeA, *realtimeB},
 		}
 	case "stage-p3":
@@ -235,9 +246,9 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	}
-	if *cross && *selected != "all" && *selected != "cross-instance" && *selected != "stage-p6" {
+	if *cross && *selected != "all" && *selected != "messaging" && *selected != "cross-instance" && *selected != "stage-p6" {
 		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
 	}
 	for _, scenario := range scenarios {
@@ -255,7 +266,7 @@ func run(args []string) error {
 			}
 		}
 	}
-	if (*selected == "all" || *selected == "user-sync" || *selected == "cross-instance" || *selected == "broadcasts" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
+	if (*selected == "all" || *selected == "messaging" || *selected == "user-sync" || *selected == "cross-instance" || *selected == "broadcasts" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
 		return errors.New("realtime A/B 必须使用不同地址，不能将单实例冒充两实例")
 	}
 	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout,
@@ -297,7 +308,7 @@ func run(args []string) error {
 		} else if scenario.name == "user-identity" {
 			fmt.Println("E2E PASS: user-identity UUID注册/登录/刷新/资料/设置 → 真实通知落库/跨实例投递/离线列表/权限 → 稳定设备重连/撤销/旧token不复活")
 		} else if scenario.name == "user-sync" {
-			fmt.Println("E2E PASS: user-sync 双账号注册/登录 → 空流正位点重建 → 单位点跨单聊/群聊limit=1分页正文/无遗漏/隔离 → 最近2条历史与置顶免打扰重建 → 续增量 → 未知/负位点显式重建 → 非法参数HTTP400")
+			fmt.Println("E2E PASS: user-sync 双账号注册/登录 → 空流正位点重建 → 单位点跨单聊/群聊limit=1分页正文/无遗漏/隔离 → 最近2条历史与置顶免打扰重建 → 续增量 → 范围内未知位点显式重建 → 负数/分数/越界参数HTTP400")
 			fmt.Println("E2E PASS: inbox-changes 双realtime离线编辑两次/撤回/全删 → 完整状态重放/重复读取 → 在线变更提示 → 会话元数据/私有设置 → 自己已读合并/边界/列表详情回执一致 → 他人已读不入流 → 移除后无消息/重加入/解散")
 			fmt.Println("E2E PASS: personal-deletion 他人消息个人删除 → 同账号双设备跨实例tombstone/删除前位点重放 → 原发送者不受影响 → byID/around历史/search计数与摘要隔离 → 会话预览回退 → 新设备/未知位点重建不复活 → 旧会话同步URL HTTP404")
 		} else if scenario.name == "broadcasts" {
@@ -315,6 +326,7 @@ func run(args []string) error {
 			fmt.Println("E2E PASS: stage-p6 定向跨实例/多端/权限/群消息变更/已读未读/Bot流式 → 连接登记心跳与重连 → SIGKILL/TTL/用户位点补拉/恢复 → readiness503/平滑drain/恢复")
 		} else {
 			fmt.Printf("E2E PASS: %s 注册 → 登录 → 身份 → 私聊 → 双向 WS 投递\n", scenario.name)
+			fmt.Println("E2E PASS: message-submissions 确认丢失/并发同键同结果与单次历史/未读/收件箱 → 原始语义冲突/编辑后原请求重放 → 发送者/会话作用域 → 权限拒绝/恢复后重试")
 		}
 	}
 	return errors.Join(failures...)
@@ -495,9 +507,330 @@ func (d *driver) scenario(addressA, addressB string) error {
 			return fmt.Errorf("realtime.ready 用户 %d: %w", i+1, err)
 		}
 	}
-	forward, forwardErr := d.sendAndReceive(a, connB, conv.ID, suffix+"_a_to_b", 0)
-	_, backwardErr := d.sendAndReceive(b, connA, conv.ID, suffix+"_b_to_a", forward)
-	return errors.Join(forwardErr, backwardErr)
+	initial, err := d.inboxRead("submission-initial", b, 0, 50)
+	if err != nil {
+		return err
+	}
+	forward, err := d.sendMessage(a, conv.ID, suffix+"_a_to_b", 0)
+	if err != nil {
+		return err
+	}
+	if err := d.receiveMessage(connB, forward); err != nil {
+		return err
+	}
+	backward, err := d.sendMessage(b, conv.ID, suffix+"_b_to_a", forward.Seq)
+	if err != nil {
+		return err
+	}
+	if err := d.receiveMessage(connA, backward); err != nil {
+		return err
+	}
+	position, err := d.inboxDrain("submission-before", b, initial.NextPosition, []sentMessage{forward, backward}, false)
+	if err != nil {
+		return err
+	}
+	return d.messageSubmissions(a, b, connB, backward, position, suffix)
+}
+
+// This extends the existing bidirectional HTTP/WS scene; all fences and state
+// assertions use the same public history, sync, search and membership endpoints.
+func (d *driver) messageSubmissions(sender, receiver account, socket *websocket.Conn, previous sentMessage, position sequenceNumber, suffix string) error {
+	convID := previous.ConvID
+	before, err := d.conversationList("submission-before-tail", receiver, convID, true)
+	if err != nil {
+		return err
+	}
+	key, err := uuid.NewRandom()
+	if err != nil {
+		return err
+	}
+	text := "重试确认" + suffix
+	body := map[string]any{"conversation_id": convID, "client_msg_id": key.String(), "content": map[string]any{"text": text}}
+	// Deliberately discard the successful HTTP confirmation. The recipient's real
+	// WS event is the commit fence; retry must recover that exact persisted entity.
+	if err := d.request(http.MethodPost, "/messages/send", sender.token, body, nil); err != nil {
+		return err
+	}
+	if err := socket.SetReadDeadline(time.Now().Add(d.timeout)); err != nil {
+		return err
+	}
+	var delivered event
+	for {
+		delivered, err = readEvent(socket)
+		if err != nil {
+			return err
+		}
+		if delivered.Type == "error" {
+			return errors.New("message-submissions: 确认丢失后WS返回错误")
+		}
+		if delivered.Type == "message.new" && delivered.Message.Content.Text == text {
+			break
+		}
+	}
+	first, err := d.sendMessageWithKey(sender, convID, text, previous.Seq, key.String())
+	if err != nil {
+		return err
+	}
+	if first.MessageID != delivered.Message.MessageID || first.Seq != delivered.Message.Seq || first.Seq != previous.Seq+1 || first.CreatedAt <= 0 {
+		return errors.New("message-submissions: 确认丢失重试未返回原message ID/seq/创建时间")
+	}
+	start := make(chan struct{})
+	results := make([]sentMessage, 4)
+	failures := make([]error, len(results))
+	var retries sync.WaitGroup
+	for i := range results {
+		retries.Go(func() {
+			<-start
+			results[i], failures[i] = d.sendMessageWithKey(sender, convID, text, previous.Seq, key.String())
+		})
+	}
+	close(start)
+	retries.Wait()
+	if err := errors.Join(failures...); err != nil {
+		return err
+	}
+	for _, replay := range results {
+		if replay.MessageID != first.MessageID || replay.Seq != first.Seq || replay.CreatedAt != first.CreatedAt {
+			return errors.New("message-submissions: 并发同键重试返回了不同业务结果")
+		}
+	}
+	var direct struct {
+		Message storedMessage `json:"message"`
+	}
+	if err := d.request(http.MethodGet, "/messages/"+first.MessageID.String(), receiver.token, nil, &direct); err != nil {
+		return err
+	}
+	if err := checkStoredMessage("submission-original", direct.Message, first); err != nil {
+		return err
+	}
+	if direct.Message.CreatedAt != first.CreatedAt || direct.Message.ReplyToID != nil {
+		return errors.New("message-submissions: 持久化创建时间或无回复引用不符合确认")
+	}
+	var history struct {
+		Messages []storedMessage `json:"messages"`
+	}
+	if err := d.request(http.MethodGet, "/messages/"+convID.String()+"/around/"+first.Seq.String(), receiver.token, nil, &history); err != nil {
+		return err
+	}
+	count := 0
+	for _, row := range history.Messages {
+		if row.Seq > previous.Seq {
+			if row.MessageID != first.MessageID || row.Seq != first.Seq {
+				return errors.New("message-submissions: 重试重复追加了历史")
+			}
+			count++
+		}
+	}
+	if count != 1 {
+		return errors.New("message-submissions: 历史中原提交不是唯一消息")
+	}
+	var latestPage struct {
+		Messages   []storedMessage `json:"messages"`
+		Pagination struct {
+			HasMore    bool           `json:"has_more"`
+			NextCursor sequenceNumber `json:"next_cursor"`
+		} `json:"pagination"`
+	}
+	if err := d.request(http.MethodGet, "/convs/"+convID.String()+"/messages?cursor=0&limit=1", receiver.token, nil, &latestPage); err != nil {
+		return err
+	}
+	if len(latestPage.Messages) != 1 || !latestPage.Pagination.HasMore || latestPage.Pagination.NextCursor != first.Seq {
+		return errors.New("message-submissions: 历史首页未返回最新消息及数字seq游标")
+	}
+	if err := checkStoredMessage("history-latest-page", latestPage.Messages[0], first); err != nil {
+		return err
+	}
+	var olderPage struct {
+		Messages []storedMessage `json:"messages"`
+	}
+	if err := d.request(http.MethodGet, "/convs/"+convID.String()+"/messages?cursor="+latestPage.Pagination.NextCursor.String()+"&limit=1", receiver.token, nil, &olderPage); err != nil {
+		return err
+	}
+	if len(olderPage.Messages) != 1 {
+		return errors.New("message-submissions: 历史续页未返回上一seq消息")
+	}
+	if err := checkStoredMessage("history-older-page", olderPage.Messages[0], previous); err != nil {
+		return err
+	}
+	for _, invalid := range []string{"-1", "1.5", "9007199254740992"} {
+		err := d.request(http.MethodGet, "/convs/"+convID.String()+"/messages?cursor="+invalid+"&limit=1", receiver.token, nil, nil)
+		var rejected *apiError
+		if !errors.As(err, &rejected) || rejected.status != http.StatusBadRequest {
+			return fmt.Errorf("message-submissions: 非法历史seq游标期望HTTP400，实际%v", err)
+		}
+	}
+	row, err := d.conversationList("submission-tail", receiver, convID, true)
+	if err != nil {
+		return err
+	}
+	if row.MaxSeq != first.Seq || !hasEntityID(row.LastMessageID, first.MessageID) || row.UnreadCount != before.UnreadCount+1 {
+		return errors.New("message-submissions: 重试改变了会话尾部或重复增加未读")
+	}
+	position, err = d.inboxDrain("submission-once", receiver, position, []sentMessage{first}, false)
+	if err != nil {
+		return err
+	}
+	if _, err := d.inboxDrain("submission-repeat-tail", receiver, position, nil, false); err != nil {
+		return err
+	}
+	if _, err := d.inboxSearchVisible(receiver, first); err != nil {
+		return err
+	}
+	concurrentKey, err := uuid.NewRandom()
+	if err != nil {
+		return err
+	}
+	start = make(chan struct{})
+	clear(results)
+	clear(failures)
+	for i := range results {
+		retries.Go(func() {
+			<-start
+			results[i], failures[i] = d.sendMessageWithKey(sender, convID, "首次并发"+suffix, first.Seq, concurrentKey.String())
+		})
+	}
+	close(start)
+	retries.Wait()
+	if err := errors.Join(failures...); err != nil {
+		return err
+	}
+	concurrent := results[0]
+	for _, result := range results {
+		if result.MessageID != concurrent.MessageID || result.Seq != first.Seq+1 || result.CreatedAt != concurrent.CreatedAt {
+			return errors.New("message-submissions: 首次并发同键产生多个业务提交")
+		}
+	}
+	if err := d.receiveMessage(socket, concurrent); err != nil {
+		return err
+	}
+	position, err = d.inboxDrain("submission-fresh-concurrent", receiver, position, []sentMessage{concurrent}, false)
+	if err != nil {
+		return err
+	}
+	concurrentRow, err := d.conversationList("submission-concurrent-tail", receiver, convID, true)
+	if err != nil {
+		return err
+	}
+	if concurrentRow.MaxSeq != concurrent.Seq || !hasEntityID(concurrentRow.LastMessageID, concurrent.MessageID) || concurrentRow.UnreadCount != before.UnreadCount+2 {
+		return errors.New("message-submissions: 首次并发重复增长seq/未读/会话尾部")
+	}
+	for _, invalid := range []any{nil, "not-a-submission-key", sender.id, 123} {
+		input := map[string]any{"conversation_id": convID, "content": map[string]string{"text": text}}
+		if invalid != nil {
+			input["client_msg_id"] = invalid
+		}
+		err := d.request(http.MethodPost, "/messages/send", sender.token, input, nil)
+		var rejected *apiError
+		if !errors.As(err, &rejected) || rejected.status != http.StatusBadRequest {
+			return fmt.Errorf("message-submissions: 非UUIDv4提交键未被HTTP400拒绝: %v", err)
+		}
+	}
+	// JSON key order carries no semantics; mention and reply targets do.
+	ordered := map[string]any{"conversation_id": convID, "client_msg_id": key.String(),
+		"content": json.RawMessage(fmt.Sprintf(`{"mention_all":false,"text":%q}`, text))}
+	var reordered sentMessage
+	if err := d.request(http.MethodPost, "/messages/send", sender.token, ordered, &reordered); err != nil {
+		return err
+	}
+	if reordered.MessageID != first.MessageID || reordered.CreatedAt != first.CreatedAt {
+		return errors.New("message-submissions: JSON顺序/缺省无语义字段改变了幂等结果")
+	}
+	for _, content := range []map[string]any{
+		{"text": text + "不同"}, {"text": text, "mention_all": true}, {"text": text, "mentions": []entityID{receiver.id}},
+	} {
+		if err := d.submissionConflict(sender, map[string]any{"conversation_id": convID, "client_msg_id": key.String(), "content": content}); err != nil {
+			return err
+		}
+	}
+	replyBody := map[string]any{"conversation_id": convID, "client_msg_id": key.String(), "content": map[string]string{"text": text}, "reply_to_msg_id": previous.MessageID}
+	if err := d.submissionConflict(sender, replyBody); err != nil {
+		return err
+	}
+	edited := "编辑后原始重试" + suffix
+	if err := d.request(http.MethodPut, "/messages/"+first.MessageID.String(), sender.token, map[string]string{"text": edited}, nil); err != nil {
+		return err
+	}
+	replayed, err := d.sendMessageWithKey(sender, convID, text, previous.Seq, key.String())
+	if err != nil {
+		return err
+	}
+	if replayed.MessageID != first.MessageID || replayed.Seq != first.Seq || replayed.CreatedAt != first.CreatedAt {
+		return errors.New("message-submissions: 编辑后原请求未重放原结果")
+	}
+	if err := d.submissionConflict(sender, map[string]any{"conversation_id": convID, "client_msg_id": key.String(), "content": map[string]string{"text": edited}}); err != nil {
+		return err
+	}
+	editedExpected := first
+	editedExpected.Content.Text = edited
+	if err := d.conversationMessage("submission-edit-preserved", receiver, editedExpected); err != nil {
+		return err
+	}
+	otherSender, err := d.sendMessageWithKey(receiver, convID, "另一发送者"+suffix, first.Seq, key.String())
+	if err != nil {
+		return err
+	}
+	if otherSender.MessageID == first.MessageID {
+		return errors.New("message-submissions: 不同发送者抢占提交键")
+	}
+	var group struct {
+		ID entityID `json:"conversation_id"`
+	}
+	if err := d.request(http.MethodPost, "/convs", sender.token, map[string]any{"type": "group", "group_name": "retry_" + suffix, "member_ids": []entityID{receiver.id}}, &group); err != nil {
+		return err
+	}
+	otherConv, err := d.sendMessageWithKey(sender, group.ID, "另一会话"+suffix, 0, key.String())
+	if err != nil {
+		return err
+	}
+	if otherConv.MessageID == first.MessageID {
+		return errors.New("message-submissions: 不同会话抢占提交键")
+	}
+	memberBody := map[string]any{"user_ids": []entityID{sender.id}}
+	// Transfer management first, so the original sender can be removed normally.
+	if err := d.request(http.MethodPost, "/convs/"+group.ID.String()+"/transfer", sender.token, map[string]any{"new_owner_id": receiver.id}, nil); err != nil {
+		return err
+	}
+	if err := d.request(http.MethodPost, "/convs/"+group.ID.String()+"/members/kick", receiver.token, memberBody, nil); err != nil {
+		return err
+	}
+	if err := d.conversationForbidden("submission-replay-membership", http.MethodPost, "/messages/send", sender, map[string]any{"conversation_id": group.ID, "client_msg_id": key.String(), "content": map[string]string{"text": otherConv.Content.Text}}); err != nil {
+		return err
+	}
+	failedKey, err := uuid.NewRandom()
+	if err != nil {
+		return err
+	}
+	failedBody := map[string]any{"conversation_id": group.ID, "client_msg_id": failedKey.String(), "content": map[string]string{"text": "权限恢复重试" + suffix}}
+	if err := d.conversationForbidden("submission-failed-before-commit", http.MethodPost, "/messages/send", sender, failedBody); err != nil {
+		return err
+	}
+	if err := d.request(http.MethodPost, "/convs/"+group.ID.String()+"/members/invite", receiver.token, memberBody, nil); err != nil {
+		return err
+	}
+	restored, err := d.sendMessageWithKey(sender, group.ID, otherConv.Content.Text, 0, key.String())
+	if err != nil {
+		return err
+	}
+	if restored.MessageID != otherConv.MessageID || restored.Seq != otherConv.Seq || restored.CreatedAt != otherConv.CreatedAt {
+		return errors.New("message-submissions: 恢复成员后原提交身份不一致")
+	}
+	var recovered sentMessage
+	if err := d.request(http.MethodPost, "/messages/send", sender.token, failedBody, &recovered); err != nil {
+		return err
+	}
+	if recovered.MessageID == "" || recovered.Seq <= otherConv.Seq {
+		return errors.New("message-submissions: 未提交失败占用了提交键")
+	}
+	return d.conversationMessage("submission-recovered", receiver, recovered)
+}
+
+func (d *driver) submissionConflict(sender account, input any) error {
+	err := d.request(http.MethodPost, "/messages/send", sender.token, input, nil)
+	var rejected *apiError
+	if !errors.As(err, &rejected) || rejected.status != http.StatusConflict || rejected.code == 0 {
+		return fmt.Errorf("message-submissions: 异义同键期望HTTP409，实际%v", err)
+	}
+	return nil
 }
 
 func (d *driver) connect(address string, a account) (*websocket.Conn, error) {

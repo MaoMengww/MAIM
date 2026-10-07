@@ -25,6 +25,10 @@ func NewMuteMemberLogic(ctx context.Context, svcCtx *svc.ServiceContext) *MuteMe
 }
 
 func (l *MuteMemberLogic) MuteMember(in *conversation.MuteMemberReq) (*common.BaseResponse, error) {
+
+	if err := validateRequest(l.ctx, in.OperatorId, in.ConversationId, in.UserId); err != nil {
+		return nil, err
+	}
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
 			return err
@@ -50,7 +54,7 @@ func (l *MuteMemberLogic) MuteMember(in *conversation.MuteMemberReq) (*common.Ba
 	if in.DurationSeconds > 0 {
 		detail = fmt.Sprintf("被禁言 %d 秒", in.DurationSeconds)
 	}
-	emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "member.muted", detail, []int64{in.UserId})
+	emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "member.muted", detail, []string{in.UserId})
 
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

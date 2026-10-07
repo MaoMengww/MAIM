@@ -106,7 +106,12 @@ func checkInboxRebuild(step, reason string, result inboxSyncResult) error {
 
 // inboxDrain keeps one user position across every conversation. Empty tail pages
 // are retried only while confirmed Kafka-backed messages remain outstanding.
-func (d *driver) inboxDrain(step string, caller account, position sequenceNumber, expected []sentMessage, requirePagination bool) (sequenceNumber, error) {
+func (d *driver) inboxDrain(step string, caller account, position sequenceNumber, expected []sentMessage, requirePagination bool, lifecycle ...storedMessage) (sequenceNumber, error) {
+	for _, message := range lifecycle {
+		if message.MessageID == "" || message.ConvID == "" || message.Type != 7 || message.SenderID == nil || message.System == nil || message.System.ActorID == nil {
+			return position, fmt.Errorf("user-sync.%s: 系统消息预期缺少身份/主体/内容", step)
+		}
+	}
 	pending := make(map[entityID]sentMessage, len(expected))
 	for _, message := range expected {
 		pending[message.MessageID] = message
@@ -135,6 +140,14 @@ func (d *driver) inboxDrain(step string, caller account, position sequenceNumber
 		}
 		for _, change := range page.Changes {
 			if change.Kind == "conversation.upsert" {
+				continue
+			}
+			if index := slices.IndexFunc(lifecycle, func(message storedMessage) bool { return message.MessageID == change.Message.MessageID }); index >= 0 {
+				actual, confirmed := change.Message, lifecycle[index]
+				if seen[actual.MessageID] || change.Kind != "message.new" || change.ConversationID != confirmed.ConvID || actual.ConvID != confirmed.ConvID || actual.Type != 7 || actual.Seq != confirmed.Seq || actual.CreatedAt != confirmed.CreatedAt || actual.System == nil || confirmed.System == nil || !hasEntityID(actual.SenderID, *confirmed.SenderID) || actual.System.Action != confirmed.System.Action || actual.System.ActorType != confirmed.System.ActorType || !hasEntityID(actual.System.ActorID, *confirmed.System.ActorID) || !slices.Equal(actual.System.RelatedUserIDs, confirmed.System.RelatedUserIDs) {
+					return position, fmt.Errorf("user-sync.%s: 成员变更系统消息身份/语义不匹配或重复", step)
+				}
+				seen[actual.MessageID] = true
 				continue
 			}
 			message, ok := pending[change.Message.MessageID]
@@ -1039,15 +1052,44 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 		return err
 	}
 	removedPosition := position
+	// Member removal asynchronously writes a real ordinary system message for
+	// remaining members. Fence its public history identity before the later send;
+	// its inbox entry may already precede ownerState's cursor or arrive afterward.
+	var memberLeft storedMessage
+	if err := d.broadcastPoll("removed-member-system-history", func(bounded *driver) (bool, error) {
+		var history struct {
+			Messages []storedMessage `json:"messages"`
+		}
+		if err := bounded.request(http.MethodGet, "/convs/"+convID.String()+"/messages?cursor=0&limit=50", owner.token, nil, &history); err != nil {
+			return false, err
+		}
+		matches := 0
+		for _, message := range history.Messages {
+			if message.Seq <= marker.Seq {
+				continue
+			}
+			if message.Type != 7 || message.System == nil || message.System.Action != "member.left" || message.ConvID != convID || !hasEntityID(message.SenderID, member.id) || !hasEntityID(message.System.ActorID, member.id) || message.System.ActorType != "user" || !slices.Equal(message.System.RelatedUserIDs, []entityID{member.id}) {
+				return false, errors.New("user-sync.removal-history: 非预期会话/成员/动作的系统消息")
+			}
+			memberLeft = message
+			matches++
+		}
+		if matches > 1 {
+			return false, errors.New("user-sync.removal-history: 成员退出系统消息重复")
+		}
+		return matches == 1, nil
+	}); err != nil {
+		return err
+	}
 	ownerState, err := d.inboxRead("owner-tail", owner, 0, 50)
 	if err != nil {
 		return err
 	}
-	afterRemoval, err := d.sendMessage(owner, convID, suffix+"_after_removal", marker.Seq)
+	afterRemoval, err := d.sendMessage(owner, convID, suffix+"_after_removal", memberLeft.Seq)
 	if err != nil {
 		return err
 	}
-	if _, err := d.inboxDrain("after-removal-published", owner, ownerState.NextPosition, []sentMessage{afterRemoval}, false); err != nil {
+	if _, err := d.inboxDrain("after-removal-published", owner, ownerState.NextPosition, []sentMessage{afterRemoval}, false, memberLeft); err != nil {
 		return err
 	}
 	removed, err := d.inboxRead("removed-no-further-message", member, removedPosition, 50)

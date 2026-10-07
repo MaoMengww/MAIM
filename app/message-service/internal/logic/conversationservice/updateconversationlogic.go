@@ -26,6 +26,10 @@ func NewUpdateConversationLogic(ctx context.Context, svcCtx *svc.ServiceContext)
 }
 
 func (l *UpdateConversationLogic) UpdateConversation(in *conversation.UpdateConversationReq) (*common.BaseResponse, error) {
+
+	if err := validateRequest(l.ctx, in.UserId, in.ConversationId); err != nil {
+		return nil, err
+	}
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if conv.Type != int32(conversation.ConversationType_CONVERSATION_TYPE_GROUP) {
 			return pkg_errors.New(pkg_errors.CodeForbidden, "only group conversations can be updated")

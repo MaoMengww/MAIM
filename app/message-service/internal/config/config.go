@@ -11,7 +11,6 @@ type Config struct {
 	Kafka         config.KafkaConfig         `json:"kafka"`
 	Elasticsearch config.ElasticsearchConfig `json:"elasticsearch"`
 	Message       MessageConfig              `json:"message"`
-	Snowflake     SnowflakeConfig            `json:"snowflake"`
 	Conv          ConvConfig                 `json:"conv"`
 	RateLimit     config.RateLimitConfig     `json:"rateLimit"`
 }
@@ -28,8 +27,4 @@ type MessageConfig struct {
 	EditWindowSeconds   int `json:"editWindowSeconds" default:"120"`
 	MaxPageSize         int `json:"maxPageSize" default:"100"`
 	InboxRetentionDays  int `json:"inboxRetentionDays,default=30"`
-}
-
-type SnowflakeConfig struct {
-	WorkerID int64 `json:"workerId" default:"1"`
 }

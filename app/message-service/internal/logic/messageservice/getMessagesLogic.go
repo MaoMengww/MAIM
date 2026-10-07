@@ -1,13 +1,13 @@
 package messageservicelogic
 
 import (
+	"cmp"
 	"context"
-	"strconv"
+	"github.com/maomeng/aim/pkg/sequence"
 
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/errors"
-	"github.com/maomeng/aim/pkg/pb/common"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -27,6 +27,12 @@ func NewGetMessagesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetMe
 }
 
 func (l *GetMessagesLogic) GetMessages(in *message.GetMessagesReq) (*message.GetMessagesResp, error) {
+	if in == nil || validateIdentities(in.ConversationId, in.UserId) != nil {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid history identity")
+	}
+	if err := requireCaller(l.ctx, in.UserId); err != nil {
+		return nil, err
+	}
 	limit := 30
 	var cursor int64
 
@@ -34,16 +40,13 @@ func (l *GetMessagesLogic) GetMessages(in *message.GetMessagesReq) (*message.Get
 		if in.Pagination.Limit > 0 {
 			limit = int(in.Pagination.Limit)
 		}
-		if in.Pagination.Cursor != "" {
-			c, err := strconv.ParseInt(in.Pagination.Cursor, 10, 64)
-			if err != nil {
-				return nil, errors.Wrap(errors.CodeInvalidParam, "invalid cursor", err)
-			}
-			cursor = c
+		if sequence.Validate(in.Pagination.GetCursor()) != nil || in.Pagination.Limit < 0 {
+			return nil, ErrInvalidSeq
 		}
+		cursor = in.Pagination.GetCursor()
 	}
 
-	maxPageSize := l.svcCtx.Config.Message.MaxPageSize
+	maxPageSize := cmp.Or(l.svcCtx.Config.Message.MaxPageSize, 100)
 	if limit > maxPageSize {
 		limit = maxPageSize
 	}
@@ -89,14 +92,14 @@ func (l *GetMessagesLogic) GetMessages(in *message.GetMessagesReq) (*message.Get
 
 	resp := &message.GetMessagesResp{
 		Messages: pbMsgs,
-		Pagination: &common.CursorPaginationResp{
+		Pagination: &message.MessagePaginationResp{
 			HasMore: hasMore,
 		},
 	}
 
 	if hasMore && len(msgs) > 0 {
 		last := msgs[len(msgs)-1]
-		resp.Pagination.NextCursor = strconv.FormatInt(last.Seq, 10)
+		resp.Pagination.NextCursor = last.Seq
 		resp.Pagination.Total = int64(len(pbMsgs))
 	}
 

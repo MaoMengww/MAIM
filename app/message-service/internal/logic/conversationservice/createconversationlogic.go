@@ -8,8 +8,11 @@ import (
 
 	"github.com/maomeng/aim/app/message-service/internal/metrics"
 	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/database"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
 )
@@ -25,133 +28,131 @@ func NewCreateConversationLogic(ctx context.Context, svcCtx *svc.ServiceContext)
 }
 
 func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConversationReq) (*conversation.CreateConversationResp, error) {
-	if in.CreatorId == 0 {
-		l.Logger.Error("creator_id is required")
-		return nil, fmt.Errorf("creator_id is required")
+	if err := validateRequest(l.ctx, in.CreatorId, in.MemberIds...); err != nil {
+		return nil, err
 	}
-
-	convType := int32(in.GetType())
-
-	// For private chats, return existing conversation if already exists
-	if convType == int32(conversation.ConversationType_CONVERSATION_TYPE_PRIVATE) && in.PeerUserId != nil {
-		existing, err := l.svcCtx.ConversationRepo.FindPrivateConv(l.ctx, in.CreatorId, in.GetPeerUserId())
+	if in.PeerUserId != nil && identity.Validate(*in.PeerUserId) != nil {
+		return nil, ErrInvalidParam
+	}
+	convType := int32(in.Type)
+	switch convType {
+	case model.ConvTypePrivate:
+		if in.PeerUserId == nil || *in.PeerUserId == in.CreatorId || len(in.MemberIds) != 0 {
+			return nil, ErrInvalidParam
+		}
+	case model.ConvTypeGroup:
+	default:
+		return nil, ErrInvalidConvType
+	}
+	if convType == model.ConvTypePrivate {
+		existing, err := l.svcCtx.ConversationRepo.FindPrivateConv(l.ctx, in.CreatorId, *in.PeerUserId)
 		if err == nil {
-			conv := toProtoConv(existing, 0, 0, false, false)
-			l.resolvePrivatePeerInfo(conv, in.CreatorId)
-			return &conversation.CreateConversationResp{
-				ConversationId: existing.ID,
-				Conversation:   conv,
-			}, nil
+			fetched, err := NewGetConversationLogic(l.ctx, l.svcCtx).GetConversation(&conversation.GetConversationReq{ConversationId: existing.ID, UserId: in.CreatorId})
+			if err != nil {
+				return nil, err
+			}
+			return &conversation.CreateConversationResp{ConversationId: existing.ID, Conversation: fetched.Conversation}, nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
 		}
 	}
-
 	now := time.Now()
-	id, err := l.svcCtx.Snowflake.Generate()
+	id, err := identity.New()
 	if err != nil {
-		return nil, fmt.Errorf("generate conv id failed: %w", err)
+		return nil, err
 	}
-
-	conv := &model.Conversation{
-		ID:        id,
-		Type:      convType,
-		OwnerID:   in.CreatorId,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
+	conv := &model.Conversation{ID: id, Type: convType, OwnerID: &in.CreatorId, CreatedAt: now, UpdatedAt: now}
 	if in.Name != nil {
-		conv.Name = in.GetName()
+		conv.Name = *in.Name
 	}
 	if in.Avatar != nil {
-		conv.Avatar = in.GetAvatar()
+		conv.Avatar = *in.Avatar
 	}
-
 	members := make([]model.ConversationMember, 0, len(in.MemberIds)+2)
-	seen := make(map[int64]bool, len(in.MemberIds)+2)
-	addMember := func(uid int64, role int32, memberType string) error {
+	seen := make(map[string]bool, len(in.MemberIds)+2)
+	addMember := func(uid string, role int32) error {
 		if seen[uid] {
 			return nil
 		}
-		memberID, err := l.svcCtx.Snowflake.Generate()
+		memberID, err := identity.New()
 		if err != nil {
-			return fmt.Errorf("generate member id failed: %w", err)
+			return err
 		}
-		member := model.ConversationMember{
-			ID: memberID, ConvID: id, UserID: uid, MemberType: memberType,
-			Role: role, JoinedAt: now,
-		}
-		if memberType == model.MemberTypeBot {
-			member.BotID = uid
-		}
-		members = append(members, member)
+		members = append(members, model.ConversationMember{ID: memberID, ConvID: id, UserID: &uid, MemberType: model.MemberTypeUser, Role: role, JoinedAt: now})
 		seen[uid] = true
 		return nil
 	}
-	if err := addMember(in.CreatorId, ownerRole, model.MemberTypeUser); err != nil {
+	if err := addMember(in.CreatorId, ownerRole); err != nil {
 		return nil, err
 	}
-	var convBot *model.ConvBot
-	if in.PeerUserId != nil && !seen[in.GetPeerUserId()] {
-		memberType := model.MemberTypeUser
-		bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, in.GetPeerUserId())
-		if err == nil {
-			memberType = model.MemberTypeBot
-			botID, err := l.svcCtx.Snowflake.Generate()
-			if err != nil {
-				return nil, fmt.Errorf("generate conv bot id failed: %w", err)
-			}
-			convBot = &model.ConvBot{ID: botID, ConvID: id, BotID: bot.Id, AddedBy: in.CreatorId, CreatedAt: now}
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
-		}
-		if err := addMember(in.GetPeerUserId(), int32(conversation.MemberRole_MEMBER_ROLE_MEMBER), memberType); err != nil {
+	if in.PeerUserId != nil {
+		if err := addMember(*in.PeerUserId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
 			return nil, err
 		}
 	}
 	for _, uid := range in.MemberIds {
-		if err := addMember(uid, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER), model.MemberTypeUser); err != nil {
+		if err := addMember(uid, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
 			return nil, err
 		}
 	}
 	conv.MemberCount = int32(len(members))
+	created := false
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+		if convType == model.ConvTypePrivate {
+			first, second := in.CreatorId, *in.PeerUserId
+			if first > second {
+				first, second = second, first
+			}
+			// The sorted identities identify an unordered pair, not business order.
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "private:"+first+":"+second).Error; err != nil {
+				return err
+			}
+			r := repo.NewConversationRepo(&database.DB{DB: tx})
+			existing, err := r.FindPrivateConv(l.ctx, in.CreatorId, *in.PeerUserId)
+			if err == nil {
+				conv = existing
+				return nil
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
+		if l.svcCtx.Config.Conv.MaxMemberCount > 0 && len(members) > l.svcCtx.Config.Conv.MaxMemberCount {
+			return ErrConvMaxMembers
+		}
 		if err := tx.Create(conv).Error; err != nil {
 			return err
 		}
 		if err := tx.Create(&members).Error; err != nil {
 			return err
 		}
-		if convBot != nil {
-			if err := tx.Create(convBot).Error; err != nil {
-				return err
-			}
+		if err := publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil); err != nil {
+			return err
 		}
-		return publishConversationChange(l.ctx, l.svcCtx, tx, id, nil, nil)
+		created = true
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	l.Infof("conversation created: conv_id=%d type=%d", id, conv.Type)
-
-	convTypeLabel := "single"
-	if convType == int32(conversation.ConversationType_CONVERSATION_TYPE_GROUP) {
-		convTypeLabel = "group"
+	if created {
+		label := "single"
+		if convType == model.ConvTypeGroup {
+			label = "group"
+		}
+		metrics.ConversationsCreatedTotal.Inc(label)
+		metrics.ConvMembersTotal.Add(float64(len(members)))
+		l.Infof("conversation created: conv_id=%s type=%d", conv.ID, conv.Type)
 	}
-	metrics.ConversationsCreatedTotal.Inc(convTypeLabel)
-	metrics.ConvMembersTotal.Add(float64(len(members)))
-
-	pbConv := toProtoConv(conv, 0, 0, false, false)
-	l.resolvePrivatePeerInfo(pbConv, in.CreatorId)
-	return &conversation.CreateConversationResp{
-		ConversationId: id,
-		Conversation:   pbConv,
-	}, nil
+	fetched, err := NewGetConversationLogic(l.ctx, l.svcCtx).GetConversation(&conversation.GetConversationReq{ConversationId: conv.ID, UserId: in.CreatorId})
+	if err != nil {
+		return nil, fmt.Errorf("read created conversation: %w", err)
+	}
+	return &conversation.CreateConversationResp{ConversationId: conv.ID, Conversation: fetched.Conversation}, nil
 }
 
-func (l *CreateConversationLogic) resolvePrivatePeerInfo(conv *conversation.Conversation, creatorID int64) {
+func (l *CreateConversationLogic) resolvePrivatePeerInfo(conv *conversation.Conversation, creatorID string) {
 	if conv == nil || conv.Type != conversation.ConversationType_CONVERSATION_TYPE_PRIVATE {
 		return
 	}
@@ -159,18 +160,18 @@ func (l *CreateConversationLogic) resolvePrivatePeerInfo(conv *conversation.Conv
 	if err != nil {
 		return
 	}
-	for _, m := range members {
-		if m.UserID == creatorID {
+	for _, member := range members {
+		if member.UserID != nil && *member.UserID == creatorID {
 			continue
 		}
-		if m.MemberType == model.MemberTypeBot {
-			if bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, m.UserID); err == nil {
-				conv.Name = bot.Name
-				conv.Avatar = bot.Avatar
+		if member.MemberType == model.MemberTypeBot && member.BotID != nil {
+			if bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, *member.BotID); err == nil {
+				conv.Name, conv.Avatar = bot.Name, bot.Avatar
 			}
-		} else if user, err := l.svcCtx.ProfileRepo.UserProfile(l.ctx, m.UserID); err == nil {
-			conv.Name = user.Username
-			conv.Avatar = user.Avatar
+		} else if member.UserID != nil {
+			if user, err := l.svcCtx.ProfileRepo.UserProfile(l.ctx, *member.UserID); err == nil {
+				conv.Name, conv.Avatar = user.Username, user.Avatar
+			}
 		}
 		return
 	}

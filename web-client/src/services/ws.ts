@@ -1,7 +1,6 @@
 import { getDeviceId } from './device';
 import { useAuthStore } from '@/stores/auth';
 import { useWSStore } from '@/stores/ws';
-import { safeJsonParse } from '@/utils/json';
 import { refreshSession } from './client';
 
 type Handler = (payload: any) => void;
@@ -85,7 +84,7 @@ export function wsConnect() {
   socket.onmessage = (event) => {
     if (currentWs !== socket) return;
     try {
-      const payload = safeJsonParse(event.data);
+      const payload = JSON.parse(event.data);
       const type = payload.type as string;
 
       // Track streaming sessions for reconnection replay

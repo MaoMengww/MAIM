@@ -178,7 +178,7 @@ make proto
 
 第 02 票的用户、关系和通知链路采用上述合同。JWT 分别携带用户 UUID、稳定专用 `device_id`、设备记录 UUID `session_id` 和专用 `jti`；gateway 与 realtime 经 user 的真实 `ValidateToken` 校验记录/撤销状态。撤销后同设备重新登录创建新 session，旧 token 不复活。好友解除分组发送 `clear_group_id=true`，省略保持；通知引用同时提供 `reference_type` 与 UUID `reference_id`，无引用时二者缺失。presence 使用 `presence.subscribe` / `presence.unsubscribe` 与 `presence.state` 的 `online` 布尔值。
 
-新环境只应用 `migrations/postgres/000_uuid_identity.sql`，服务通过 `database.RunMigrations` 消费同一嵌入基线；旧迁移的有效表、索引和约束已合并。旧结构/旧迁移记录会显式失败，不自动映射或清空。第 01 票只交付共享宽改型：业务调用链迁移归第 02–07 票，全仓绿色与协调重建归第 08 票；本阶段不能启动完整新系统，也未清理现有开发数据。
+新环境应用 `migrations/postgres/000_uuid_identity.sql` 及其后续 UUID 合同迁移，服务通过 `database.RunMigrations` 消费同一嵌入迁移集；旧迁移的有效表、索引和约束已合并。`001_inbox_checkpoint_provenance.sql` 保留已分配同步位点的来源，使已读记录合并后仍可续读；不推测此前已经丢失的位点。旧整数结构/旧迁移记录会显式失败，不自动映射或清空。第 01 票只交付共享宽改型：业务调用链迁移归第 02–07 票，全仓绿色与协调重建归第 08 票；本阶段不能启动完整新系统，也未清理现有开发数据。
 
 
 ---
@@ -221,6 +221,7 @@ docker compose up -d --build
 ```bash
 python3 tests/e2e/run.py --scenario all --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario user-identity --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --scenario messaging --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p5 --artifacts /tmp/aim-e2e-artifacts
@@ -229,11 +230,13 @@ python3 tests/e2e/run.py --scenario user-sync --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifacts
 ```
 
-每次使用独立 Compose project、网络与数据卷，无宿主端口映射。所选场景全部依赖就绪后才施加流量；realtime 的两个实例分别可寻址，但共用一个 Kafka 消费组。成功或失败后均清理该 project 的容器、数据卷与本次构建的镜像，不清理共享 BuildKit 缓存；`--artifacts` 保留诊断日志。
+每次使用独立 Compose project、网络与数据卷，默认无宿主端口映射。所选场景全部依赖就绪后才施加流量；realtime 的两个实例分别可寻址，但共用一个 Kafka 消费组。成功或失败后均清理该 project 的容器、数据卷与本次构建的镜像，不清理共享 BuildKit 缓存；`--artifacts` 保留诊断日志。显式 `--keep-environment DIR` 保留本轮私有环境，`environment.json` 记录清理命令；配合 `--browser-access` 或 `--database-access` 只发布随机回环端口。浏览器验收须将保留环境的 realtime 心跳/登记 TTL 恢复生产配置（30/90 秒），不能让 Web 的 25 秒心跳运行于故障场景的 1/6 秒配置。
 
 默认 `all` 检查关系链、同实例与 A/B 跨实例双向投递；`--scenario` 可选择单个场景。P6 已用连接登记取代旧的单实例 gRPC 推送目标，同实例与跨实例走同一条 Redis 定向投递路径。
 
 `user-identity` 只启动 user、gateway、双 realtime 及其真实中间件，复用 relationships 并验证注册/登录/刷新/资料/设置、跨账号拒绝、通知持久化/跨实例 WS/离线列表、设备稳定重连和撤销后旧 token 不复活。它不证明尚未迁移的其它 domain 可用；全仓和完整栈验收由第 08 票完成。
+
+`messaging` 只启动 user、message、gateway、双 realtime 与 PostgreSQL/Redis/Kafka/Elasticsearch 等真实依赖，复用 conversation-unread、broadcasts、user-sync、同实例 A/B 和跨实例场景。覆盖丢确认后的原结果重试、并发唯一提交、异义冲突、发送者/会话隔离、权限恢复、历史序号分页、个人删除与搜索；不替换尚未迁移的 Bot、文件或知识业务。
 
 `user-sync` 检查空流重建、单个位点跨会话分页、消息正文与账号隔离、新设备最近历史及置顶/免打扰设置、未知位点重建和续增量；同账号两设备个人删除他人消息后同步隐藏，原发送者仍可读取，搜索/历史/回复摘要/会话预览及新设备重建不泄露正文。过期回收后不复活与并发未提交写入窗口由真实 PostgreSQL 的集成回归覆盖。
 
@@ -269,7 +272,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 
 | 层级 | 机制 | 实现方式 |
 |------|------|---------|
-| 发送端 | 客户端幂等 key | `client_msg_id` + Redis `SetNX("msg:idempotent:{client_msg_id}", TTL=2小时)`，重复请求直接返回 `ErrDuplicateMessage` |
+| 发送端 | UUIDv4 提交键 + 数据库唯一约束 | `(sender_id, conv_id, client_msg_id)` 唯一，权限检查与提交同事务；相同原始语义返回原消息 UUID、seq 与创建时间，不同语义显式冲突。原始 `submission_content` 不随编辑变化，JSON 对象键序及精确数值语义规范化；无 Redis TTL 占位。Web 在请求前持久保存提交键及原内容，刷新后重试复用 |
 | Inbox 写入 | 用户流事务 + 事件幂等账本 | `BatchInsert` 按用户 ID 顺序锁定 `inbox_streams`，以 `(user_id, change_id)` 去重后分配位置；账本与记录同事务提交，已读合并或记录过期后重放也不增加位置 |
 | Kafka 消费 | 先持久化再投递 | InboxWriter 对同一批人类收件人先写收件箱再发布投递意图；重放不增加同步位置，但仍允许 best-effort 推送重放 |
 
@@ -328,7 +331,7 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 | Seq 生成 | PostgreSQL UPSERT + RETURNING | 同一会话内 seq 严格递增（`INSERT ... ON CONFLICT DO UPDATE SET current_seq = current_seq + 1 RETURNING current_seq`），与消息写入同事务 |
 | 消息存储 | `messaging.messages` 表 `idx_conv_seq (conv_id, seq)` 索引 | 所有查询 `ORDER BY seq`，天然有序 |
 | Inbox 存储 | `messaging.inbox_entries` 主键 `(user_id, position)` | 每个用户一条跨会话流；分配器 `inbox_streams.position` 是已提交末端，与记录同事务提交，较小位置不会晚于较大位置出现 |
-| 变化发布 | 会话锁 + 单一 Kafka 通道 | 消息、会话与自己的已读变化同业务事务写 outbox，`message.created` 以会话 ID 为键；dispatcher 持锁发送，每个 topic/key 的未发送首项阻断后继，消费失败不越过当前记录 |
+| 变化发布 | 会话锁 + 独立发布序号 + 单一 Kafka 通道 | 消息、会话与自己的已读变化同业务事务分配 `publication_sequence` 并写 UUID Outbox；dispatcher 持锁发送，同一会话按发布序号的未发送前驱阻断后继（含重试和终态失败），不依赖 UUID/创建时间排序，不承诺全局顺序或恰好一次 |
 | 增量同步 | `SyncMessages: WHERE position > $request_position ORDER BY position ASC` | 跨会话变化按用户 position 顺序分页；有后续页时 `next_position` 只到本页末位置，末页可到同一快照中的已提交末端；已删除或失去成员资格的引用不会泄露正文 |
 | 游标分页 | `GetMessages: WHERE seq < cursor ORDER BY seq DESC` | 基于 seq，不会跨页乱序 |
 
@@ -336,12 +339,12 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 
 #### Inbox 写扩散模型
 
-新消息（含系统消息与 Bot 回复）、编辑、撤回、全员删除、会话与成员变化、个人会话设置、自己的已读位点均经同一用户流重放。记录仅保存引用与变更种类，不复制正文；变更 `change_id` 在持会话锁的业务事务中生成。消费前冻结的收件人集合与当前成员资格求交，移除标识仍投给原成员。`017_inbox_changes.sql` 移除会话外键以保留解散/删除标识，增加事件幂等账本与自己的已读合并索引。
+新消息（含系统消息与 Bot 回复）、编辑、撤回、全员删除、会话与成员变化、个人会话设置、自己的已读位点均经同一用户流重放。记录仅保存引用与变更种类，不复制正文；UUID `change_id` 与独立发布序号在持会话锁的业务事务中分配。消费前冻结的收件人集合与当前成员资格求交，移除标识仍投给原成员。UUID 基线不为变更引用添加会话外键，以保留删除标识；`inbox_applied_changes` 同事务记录实际分配的位置与时间，已读合并后旧有效位点继续可用，真正未知的位置不被误认。
 
 - **用户同步位置**：由 `messaging.inbox_streams` 独立分配，跨会话且不由会话 `seq` 推导；位置分配与收件箱写入要么一起提交，要么一起回滚。
 - **同步协议**：`SyncMessages` 请求包含 `user_id`、`position` 与 `limit`；HTTP 用户 ID 仅从鉴权上下文读取。每条 `changes` 包含 `position`、`conversation_id`、`kind`：`message.new/edited/recalled` 返回完整当前 `message`，`message.deleted` 返回 `message_id`；消息变化同时附当前完整 `conversation`。`conversation.upsert` 返回当前会话快照，`conversation.removed` 移除会话与缓存。`read.updated` 返回自己的 `last_read_seq` 与当前会话，按用户/会话只保留最新一条并移动到新位点。同一页可多次引用同一消息，客户端严格按位点顺序应用。旧会话级同步入口已移除；历史与 around-seq 接口不变。
-- **重建协议**：省略位点或 `position=0` 返回 `rebuild_required=true`、`rebuild_reason=new_device`；未知位点（含负位点）返回 `unknown_position`；超出收件箱保留期返回 `expired_position`。重建包含完整当前会话列表（含个人设置）与每会话最近 `limit` 条历史，并返回可继续增量的正 `next_position`，即使用户流为空也不静默从最新开始。
-- **参数边界**：`position` 必须可解析为有符号 64 位整数，`limit` 必须可解析为非负有符号 32 位整数；显式空值、格式错误、溢出或负 `limit` 返回参数错误。省略 `limit` 或传 `0` 默认 50，上限为 `Message.MaxPageSize`（默认 100）；重建时每会话使用同一 `limit`。负 `position` 交给重建逻辑而非拒绝请求。
+- **重建协议**：省略位点或 `position=0` 返回 `rebuild_required=true`、`rebuild_reason=new_device`；范围内未分配或超过已提交末端的未知位点返回 `unknown_position`；超出收件箱保留期返回 `expired_position`。已读合并后的已分配位点可正常续读。重建包含完整当前会话列表（含个人设置）与每会话最近 `limit` 条历史，并返回可继续增量的正 `next_position`，即使用户流为空也不静默从最新开始。
+- **参数边界**：`position`、会话 `seq`、已读位点和历史 `cursor` 必须是 `0..9007199254740991` 的整数；负数、分数、溢出或旧 JSON 字符串显式拒绝，HTTP/WS 嵌套响应及 Web 快照均使用 JSON number。`limit` 为非负有符号 32 位整数，省略或 `0` 默认使用既有页大小并受 `Message.MaxPageSize` 限制。历史由 `GET /api/v1/convs/:id/messages?cursor=<seq>&limit=50` 读取，按 `pagination.next_cursor` 续页，不以 UUID 排序或分页。
 - **收件箱保留期**：配置 `Message.inboxRetentionDays`（正整数，默认 30 天），启动时及随后每小时回收过期前缀；`inbox_streams.retained_position` 与删除同事务更新，已提交末端不回退。历史读取不受影响；同步时直接按记录年龄判断过期位点，不依赖回收 worker 是否已运行。
 - **重建可观测性**：Prometheus `aim_service_inbox_sync_rebuild_total{reason="new_device|unknown_position|expired_position"}` 统计成功重建次数；标签只有三种固定原因，不包含用户或设备 ID。
 - **个人删除**：持久状态存于 `messaging.personal_message_deletions`，键为 `(user_id, conv_id, message_id)`，不受收件箱保留期、退群重入或重建影响。当前成员可个人删除任意可见消息；覆盖与仅投给本人的删除变更 outbox 同事务提交，经 `message.created` 统一通道重放 `message.deleted` 标识。历史分页、单条/批量、搜索及其计数/高亮、回复摘要、同步/重建、会话预览与未读数均按该账号过滤；不改消息本体，不影响其他成员。全员删除仍仅允许发送者并物理删除本体，撤回保留撤回状态实体。

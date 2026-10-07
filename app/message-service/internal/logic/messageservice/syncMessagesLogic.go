@@ -16,7 +16,7 @@ import (
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/errors"
-	"github.com/maomeng/aim/pkg/pb/common"
+	"github.com/maomeng/aim/pkg/sequence"
 	"gorm.io/gorm"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -37,8 +37,11 @@ func NewSyncMessagesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Sync
 }
 
 func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.SyncMessagesResp, error) {
-	if in.UserId <= 0 || in.Limit < 0 {
+	if in == nil || validateIdentities(in.UserId) != nil || sequence.Validate(in.Position) != nil || in.Limit < 0 {
 		return nil, errors.New(errors.CodeInvalidParam, "invalid sync request")
+	}
+	if err := requireCaller(l.ctx, in.UserId); err != nil {
+		return nil, err
 	}
 	limit := min(int(cmp.Or(in.Limit, 50)), cmp.Or(l.svcCtx.Config.Message.MaxPageSize, 100))
 	if err := l.svcCtx.InboxRepo.EnsureStream(l.ctx, in.UserId); err != nil {
@@ -74,7 +77,7 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 					return err
 				}
 				history, err := NewGetMessagesLogic(l.ctx, &snapshot).GetMessages(&message.GetMessagesReq{ConversationId: id, UserId: in.UserId,
-					Pagination: &common.CursorPagination{Limit: int32(limit)}})
+					Pagination: &message.MessagePagination{Limit: int32(limit)}})
 				if err != nil {
 					return err
 				}
@@ -84,22 +87,22 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 			}
 			return nil
 		}
-		msgIDs := make([]int64, 0, len(page.Entries))
+		msgIDs := make([]string, 0, len(page.Entries))
 		for _, entry := range page.Entries {
-			if entry.MessageID > 0 {
-				msgIDs = append(msgIDs, entry.MessageID)
+			if entry.MessageID != nil {
+				msgIDs = append(msgIDs, *entry.MessageID)
 			}
 		}
 		msgs, err := snapshot.MessageRepo.GetByIDs(l.ctx, msgIDs)
 		if err != nil {
 			return err
 		}
-		msgMap := make(map[int64]model.Message, len(msgs))
+		msgMap := make(map[string]model.Message, len(msgs))
 		for _, m := range msgs {
 			msgMap[m.ID] = m
 		}
-		membership := make(map[int64]bool)
-		conversations := make(map[int64]*message.Conversation)
+		membership := make(map[string]bool)
+		conversations := make(map[string]*message.Conversation)
 		pbMsgs := make([]*message.Message, 0, len(page.Entries))
 		for _, entry := range page.Entries {
 			change := &message.InboxChange{Position: entry.Position, ConversationId: entry.ConvID, Kind: entry.Kind}
@@ -134,7 +137,11 @@ func (l *SyncMessagesLogic) SyncMessages(in *message.SyncMessagesReq) (*message.
 			case model.InboxReadUpdated:
 				change.LastReadSeq = conv.LastReadSeq
 			case model.InboxMessageNew, model.InboxMessageEdited, model.InboxMessageRecalled, model.InboxMessageDeleted:
-				m, exists := msgMap[entry.MessageID]
+				var m model.Message
+				exists := false
+				if entry.MessageID != nil {
+					m, exists = msgMap[*entry.MessageID]
+				}
 				if entry.Kind == model.InboxMessageDeleted || !exists || m.ConvID != entry.ConvID {
 					// Old new/edit references converge even after physical message deletion.
 					change.Kind = model.InboxMessageDeleted

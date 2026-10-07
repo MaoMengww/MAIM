@@ -3,13 +3,13 @@ package messageservicelogic
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/pb/common"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -31,7 +31,7 @@ func NewSearchMessagesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Se
 
 func hasAnySearchCondition(in *message.SearchMessagesReq) bool {
 	return in.GetKeyword() != "" ||
-		in.GetSenderId() > 0 ||
+		in.SenderId != nil ||
 		in.StartTime != nil ||
 		in.EndTime != nil ||
 		len(in.GetMessageTypes()) > 0
@@ -63,13 +63,13 @@ type esSearchResponse struct {
 	} `json:"aggregations"`
 }
 
-func buildESQuery(in *message.SearchMessagesReq, page, pageSize int, convIDs []int64) map[string]any {
+func buildESQuery(in *message.SearchMessagesReq, page, pageSize int, convIDs []string) map[string]any {
 	boolQ := map[string]any{}
 
 	var musts []map[string]any
 	var filters []map[string]any
 
-	if in.ConversationId != nil && in.GetConversationId() > 0 {
+	if in.ConversationId != nil {
 		musts = append(musts, map[string]any{
 			"term": map[string]any{"conv_id": in.GetConversationId()},
 		})
@@ -90,7 +90,7 @@ func buildESQuery(in *message.SearchMessagesReq, page, pageSize int, convIDs []i
 		})
 	}
 
-	if in.GetSenderId() > 0 {
+	if in.SenderId != nil {
 		filters = append(filters, map[string]any{
 			"term": map[string]any{"sender_id": in.GetSenderId()},
 		})
@@ -177,8 +177,14 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 	if l.svcCtx == nil || in == nil {
 		return nil, errors.New(errors.CodeInternal, "service not initialized")
 	}
+	if validateIdentities(in.UserId) != nil || (in.ConversationId != nil && validateIdentities(*in.ConversationId) != nil) || (in.SenderId != nil && validateIdentities(*in.SenderId) != nil) {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid search identity")
+	}
+	if err := requireCaller(l.ctx, in.UserId); err != nil {
+		return nil, err
+	}
 
-	isConvSearch := in.ConversationId != nil && in.GetConversationId() > 0
+	isConvSearch := in.ConversationId != nil
 	if !hasAnySearchCondition(in) {
 		return nil, errors.New(errors.CodeInvalidParam, "at least one search condition is required")
 	}
@@ -216,7 +222,7 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 		return nil, errors.New(errors.CodeInternal, "es client not configured")
 	}
 
-	var convIDs []int64
+	var convIDs []string
 	if !isConvSearch {
 		ids, err := l.svcCtx.ConversationRepo.ListIDsByUser(l.ctx, in.GetUserId())
 		if err != nil {
@@ -226,7 +232,7 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 	}
 
 	if isConvSearch {
-		convIDs = []int64{in.GetConversationId()}
+		convIDs = []string{in.GetConversationId()}
 	}
 	if len(convIDs) == 0 {
 		return &message.SearchMessagesResp{Pagination: &common.PaginationResp{Page: int32(page), PageSize: int32(pageSize)}}, nil
@@ -252,14 +258,13 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 
 	total := esResp.Hits.Total.Value
 
-	msgIDs := make([]int64, 0, len(esResp.Hits.Hits))
+	msgIDs := make([]string, 0, len(esResp.Hits.Hits))
 	highlights := make(map[string]string)
 	for _, hit := range esResp.Hits.Hits {
-		var id int64
-		if _, err := fmt.Sscanf(hit.Source.MessageID, "%d", &id); err != nil {
-			continue
+		if identity.Validate(hit.Source.MessageID) != nil {
+			return nil, errors.New(errors.CodeInternal, "invalid indexed message identity")
 		}
-		msgIDs = append(msgIDs, id)
+		msgIDs = append(msgIDs, hit.Source.MessageID)
 
 		// Extract first highlight fragment
 		if fragments, ok := hit.Highlight["text"]; ok && len(fragments) > 0 {
@@ -275,14 +280,14 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 		}
 		visibleHighlights := make(map[string]string, len(msgs))
 		for _, msg := range msgs {
-			id := fmt.Sprintf("%d", msg.ID)
+			id := msg.ID
 			if highlight, ok := highlights[id]; ok {
 				visibleHighlights[id] = highlight
 			}
 		}
 		highlights = visibleHighlights
 
-		msgMap := make(map[int64]*model.Message, len(msgs))
+		msgMap := make(map[string]*model.Message, len(msgs))
 		for i := range msgs {
 			msgMap[msgs[i].ID] = &msgs[i]
 		}

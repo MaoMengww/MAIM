@@ -16,6 +16,8 @@ import { convApi } from '@/services/conversation';
 import { msgApi, normalizeRealtimeMessageContent } from '@/services/message';
 import { fileApi } from '@/services/file';
 import { messageSync } from '@/services/messageSync';
+import { createPendingSend, retryPendingSend, loadPendingSends, type PendingSend } from '@/services/pendingSend';
+import { SearchHighlight } from '@/components/common/SearchHighlight';
 import { wsOn, wsSend } from '@/services/ws';
 import { useAuthStore } from '@/stores/auth';
 import { convToolApi } from '@/services/conversation-tool';
@@ -27,8 +29,8 @@ import { SummaryPanel } from './components/SummaryPanel';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { MsgContentOneof, ConvMember, AudioContent, KnowledgeSource } from '@/types/model';
-import type { SendMsgContent } from '@/types/api';
-import { parseJsonWithExactIntegers } from '@/utils/json';
+import type { SendMsgContent, SearchMessagesReq } from '@/types/api';
+import { sequence } from '@/utils/json';
 
 import './ChatPage.css';
 
@@ -216,11 +218,6 @@ function renderContent(content: MsgContentOneof, onFilePreview?: (f: any) => voi
       </div>
     );
   }
-  // Fallback: try to detect audio from raw fields (e.g. sync API flattens oneof)
-  const raw = content as any;
-  if ((raw.url || raw.file_url) && raw.duration !== undefined) {
-    return <AudioPlayer audio={{ url: raw.url || raw.file_url || '', duration: raw.duration || 0, file_id: raw.file_id, size: raw.size || 0 }} />;
-  }
   return <span>[未知消息]</span>;
 }
 
@@ -346,10 +343,8 @@ function SourceItem({ source, expandedMap, setExpandedMap, itemKey }: {
   );
 }
 
-/** Protobuf enum serializes member_type as number (1=user, 2=bot), but TS type says string */
 function isBotMember(m: ConvMember): boolean {
-  const mt = (m as any).member_type;
-  return mt === 2 || mt === 'bot';
+  return m.member_type === 'bot';
 }
 
 // ─── File Preview Modal ───
@@ -428,20 +423,18 @@ function FilePreviewModal({ file, onClose }: { file: any; onClose: () => void })
 
 /** 获取消息发送者的显示名和头像 */
 function getMsgUserInfo(msg: any, userMap: Map<string, { username: string; avatar: string }>): { username: string; avatar: string } | undefined {
-  // Bot 消息的 from_user_id 曾经是伪用户 ID，迁移后改为 bot_id。
-  // 旧消息仍可能带有旧伪用户 ID，兜底用 content.bot.bot_id 查询。
-  const uid = String(msg.from_user_id);
+  const uid = msg.from_user_id;
   const info = userMap.get(uid);
   if (info) return info;
   if (msg.type === 9 && msg.content?.bot?.bot_id != null) {
-    return userMap.get(String(msg.content.bot.bot_id));
+    return userMap.get(msg.content.bot.bot_id);
   }
   return undefined;
 }
 
 function renderReadStatus(conv: any, msg: any, isSelf: boolean, readStatuses: Record<string, { read: boolean; readCount?: number; totalCount?: number }>): any {
   if (!isSelf || msg.status === 2) return null;
-  const rs = readStatuses[String(msg.message_id)];
+  const rs = readStatuses[msg.message_id];
   if (conv?.type === 'group' && rs?.readCount !== undefined && rs?.totalCount !== undefined) {
     return <span className="chat-msg-read chat-msg-read-done">{rs.readCount}/{rs.totalCount} 已读</span>;
   }
@@ -460,6 +453,36 @@ export function ChatPage() {
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const currentUserId = useAuthStore((s) => s.user?.id ?? '');
   const currentUserName = useAuthStore((s) => s.user?.username ?? '');
+  const authRevision = useAuthStore((state) => state.revision);
+  const pageConversation = useRef(id);
+  pageConversation.current = id;
+  const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
+  const [retryingKey, setRetryingKey] = useState<string | null>(null);
+  const newSendLock = useRef(false);
+  const pageAccount = useRef(currentUserId);
+  pageAccount.current = currentUserId;
+  const reloadPending = useCallback(async () => {
+    const account = currentUserId;
+    if (!account) return;
+    const pending = await loadPendingSends(account);
+    if (pageAccount.current === account && authRevision === useAuthStore.getState().revision) setPendingSends(pending);
+  }, [currentUserId, authRevision]);
+  useEffect(() => {
+    setPendingSends([]);
+    setRetryingKey(null);
+    void reloadPending().catch(() => message.error('待发送消息读取失败'));
+  }, [reloadPending]);
+  const retrySend = async (pending: PendingSend) => {
+    if (retryingKey) return;
+    const account = currentUserId;
+    if (account !== useAuthStore.getState().user?.id || authRevision !== useAuthStore.getState().revision) return;
+    setRetryingKey(pending.request.client_msg_id);
+    try {
+      await retryPendingSend(account, pending.request.client_msg_id);
+      if (pageAccount.current === account && authRevision === useAuthStore.getState().revision) void messageSync.reSync();
+    } catch { if (pageAccount.current === account && authRevision === useAuthStore.getState().revision) message.error('发送失败，可再次重试'); }
+    finally { if (pageAccount.current === account && authRevision === useAuthStore.getState().revision) { setRetryingKey(null); void reloadPending(); } }
+  };
   const [typingUsers, setTypingUsers] = useState<Record<string, { name: string; timestamp: number }>>({});
   const [isAtBottom, setIsAtBottom] = useState(true);
   const lastTypingSentRef = useRef(0);
@@ -567,7 +590,7 @@ export function ChatPage() {
     setConvSearching(true);
     convSearchDebounceRef.current = setTimeout(async () => {
       try {
-        const params: any = { conversation_id: id as any, page: convSearchPage, page_size: 20 };
+        const params: SearchMessagesReq = { conversation_id: id, page: convSearchPage, page_size: 20 };
         if (q) params.keyword = q;
         if (activeConvTypeFilters.length > 0) {
           params.message_types = activeConvTypeFilters;
@@ -597,17 +620,27 @@ export function ChatPage() {
     };
   }, [convSearchQuery, id, activeConvTypeFilters, convSenderId, convSenderType, convStartTime, convEndTime, convSearchPage]);
 
-  const scrollToMessage = (msgId: string | number) => {
-    setConvSearchOpen(false);
-    setConvSearchQuery('');
-    setTimeout(() => {
+  const scrollToMessage = async (msgId: string, closeSearch = true) => {
+    const account = currentUserId;
+    const revision = useAuthStore.getState().revision;
+    const hit = convSearchResults.find((msg) => msg.message_id === msgId);
+    if (id && hit) {
+      try {
+        const around = await msgApi.getAroundSeq(id, sequence(hit.seq, 'search.seq', true));
+        for (const msg of around) {
+          if (pageConversation.current !== id || account !== useAuthStore.getState().user?.id || revision !== useAuthStore.getState().revision) return;
+          await messageSync.addMessage(id, msg);
+        }
+      } catch { message.error('定位消息失败'); return; }
+    }
+    if (closeSearch) { setConvSearchOpen(false); setConvSearchQuery(''); }
+    requestAnimationFrame(() => {
       const el = document.querySelector(`[data-msg-id="${msgId}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('chat-msg-highlight');
-        setTimeout(() => el.classList.remove('chat-msg-highlight'), 2000);
-      }
-    }, 100);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('chat-msg-highlight');
+      setTimeout(() => el.classList.remove('chat-msg-highlight'), 2000);
+    });
   };
 
   const navigateSearch = (dir: 'prev' | 'next') => {
@@ -616,16 +649,7 @@ export function ChatPage() {
     setConvSearchIndex((prev) => {
       const next = dir === 'next' ? (prev + 1) % total : (prev - 1 + total) % total;
       const msgId = convSearchResults[next]?.message_id;
-      if (msgId) {
-        setTimeout(() => {
-          const el = document.querySelector(`[data-msg-id="${msgId}"]`);
-          if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            el.classList.add('chat-msg-highlight');
-            setTimeout(() => el.classList.remove('chat-msg-highlight'), 2000);
-          }
-        }, 100);
-      }
+      if (msgId) void scrollToMessage(msgId, false);
       return next;
     });
   };
@@ -633,11 +657,11 @@ export function ChatPage() {
 
   const { data: conv } = useQuery({
     queryKey: ['conversation', id],
-    queryFn: () => convApi.get(id as any),
+    queryFn: () => convApi.get(id!),
     enabled: !!id,
   });
 
-  const { messages, loading: msgsLoading, error: msgsError, reSync } = useMessages(id);
+  const { messages, loading: msgsLoading, error: msgsError, reSync, loadOlder, hasOlder, loadingOlder } = useMessages(id);
 
   // Message synchronization and new-message delivery are owned by the account lifecycle.
   useEffect(() => {
@@ -648,18 +672,18 @@ export function ChatPage() {
     // Real-time read status: when someone reads messages in this conversation,
     // refetch members + conv to get updated last_read_seq
     const unsubRead = wsOn('unread_count', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
+      if (payload.conv_id == null || payload.conv_id !== id) return;
       queryClient.invalidateQueries({ queryKey: ['conv-members', id] });
       queryClient.invalidateQueries({ queryKey: ['conversation', id] });
     });
 
     const unsubReadReceipt = wsOn('read_receipt', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
+      if (payload.conv_id == null || payload.conv_id !== id) return;
       queryClient.setQueryData(['conv-members', id], (old: ConvMember[]) => {
         if (!old) return old;
         return old.map((m) =>
           m.user_id === payload.user_id
-            ? { ...m, last_read_seq: Math.max(m.last_read_seq || 0, payload.last_read_seq || 0) }
+            ? { ...m, last_read_seq: Math.max(m.last_read_seq, sequence(payload.last_read_seq, 'read.last_read_seq')) }
             : m,
         );
       });
@@ -667,7 +691,7 @@ export function ChatPage() {
 
     // Bot streaming: accumulate chunks into a temporary message
     const unsubStreamChunk = wsOn('bot.streaming.chunk', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
+      if (payload.conv_id == null || payload.conv_id !== id) return;
       const key = `${id}:${payload.bot_id}`;
       setStreamingMap((prev) => {
         const existing = prev[key];
@@ -690,11 +714,11 @@ export function ChatPage() {
 
     // Bot streaming sources: store knowledge source metadata for the streaming message
     const unsubStreamSources = wsOn('bot.streaming.sources', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
+      if (payload.conv_id == null || payload.conv_id !== id) return;
       const key = `${id}:${payload.bot_id}`;
       let sources: KnowledgeSource[] = [];
       try {
-        sources = parseJsonWithExactIntegers(payload.content || '[]') as KnowledgeSource[];
+        sources = JSON.parse(payload.content || '[]') as KnowledgeSource[];
       } catch { /* ignore parse errors */ }
       if (sources.length === 0) return;
       setStreamingMap((prev) => {
@@ -709,7 +733,7 @@ export function ChatPage() {
 
     // Bot streaming tool_used: record which tools were used
     const unsubStreamToolUsed = wsOn('bot.streaming.tool_used', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
+      if (payload.conv_id == null || payload.conv_id !== id) return;
       const key = `${id}:${payload.bot_id}`;
       const tools = payload.content ? payload.content.split(',').filter(Boolean) : [];
       if (!tools.length) return;
@@ -724,7 +748,7 @@ export function ChatPage() {
 
     // Bot streaming done: transition streaming message into the real message cache
     const unsubStreamDone = wsOn('bot.streaming.done', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
+      if (payload.conv_id == null || payload.conv_id !== id) return;
       const key = `${id}:${payload.bot_id}`;
       // Read accumulated text from ref to avoid React batching race
       const entry = streamingRef.current[key];
@@ -750,11 +774,11 @@ export function ChatPage() {
 
     // Async reply candidates result
     const unsubReplyCandidatesDone = wsOn('conv.reply_candidates.done', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
+      if (payload.conv_id == null || payload.conv_id !== id) return;
       setReplyCandidates(payload.candidates || []);
     });
     const unsubReplyCandidatesFailed = wsOn('conv.reply_candidates.failed', (payload: any) => {
-      if (payload.conv_id == null || String(payload.conv_id) !== id) return;
+      if (payload.conv_id == null || payload.conv_id !== id) return;
       message.error(payload.error || '生成回复建议失败');
     });
 
@@ -821,7 +845,7 @@ export function ChatPage() {
 
     const unsubTyping = wsOn('typing', (payload: any) => {
       const userId = payload.user_id;
-      if (payload.conv_id == null || String(payload.conv_id) !== id || userId === currentUserId) return;
+      if (payload.conv_id == null || payload.conv_id !== id || userId === currentUserId) return;
       // 群聊不展示 typing 指示器
       if (conv?.type === 'group') return;
 
@@ -836,7 +860,7 @@ export function ChatPage() {
 
     const unsubStop = wsOn('typing.stop', (payload: any) => {
       const userId = payload.user_id;
-      if (payload.conv_id == null || String(payload.conv_id) !== id || userId === currentUserId) return;
+      if (payload.conv_id == null || payload.conv_id !== id || userId === currentUserId) return;
       // 群聊不展示 typing 指示器
       if (conv?.type === 'group') return;
 
@@ -891,7 +915,7 @@ export function ChatPage() {
     const maxSeq = Math.max(...messages.map((m: any) => m.seq || 0));
     if (maxSeq > 0 && maxSeq > lastMarkedSeqRef.current) {
       lastMarkedSeqRef.current = maxSeq;
-      convApi.markRead(id as any, maxSeq)
+      convApi.markRead(id!, maxSeq)
         .catch(() => {
           queryClient.invalidateQueries({ queryKey: ['conversations'] });
         });
@@ -900,7 +924,7 @@ export function ChatPage() {
 
   const { data: members = [], refetch: refetchMembers } = useQuery({
     queryKey: ['conv-members', id],
-    queryFn: () => convApi.getMembers(id as any),
+    queryFn: () => convApi.getMembers(id!),
     enabled: !!id,
   });
 
@@ -909,26 +933,26 @@ export function ChatPage() {
     const result: Record<string, { read: boolean; readCount?: number; totalCount?: number }> = {};
     if (!id || !messages.length || !conv || !members.length) return result;
 
-    const selfMsgs = messages.filter((m: any) => String(m.from_user_id) === currentUserId);
+    const selfMsgs = messages.filter((m: any) => m.from_user_id === currentUserId);
     for (const msg of selfMsgs) {
       if (conv.type === 'private') {
         const peer = members.find((m: ConvMember) => m.user_id !== currentUserId);
-        result[String(msg.message_id)] = {
+        result[msg.message_id] = {
           read: !!peer && (peer.last_read_seq || 0) >= (msg.seq || 0),
         };
       } else {
         const readableMembers = members.filter((m: ConvMember) => !isBotMember(m));
         const totalCount = readableMembers.length;
         const readCount = readableMembers.filter((m: ConvMember) => (m.last_read_seq || 0) >= (msg.seq || 0)).length;
-        result[String(msg.message_id)] = { read: readCount > 0, readCount, totalCount };
+        result[msg.message_id] = { read: readCount > 0, readCount, totalCount };
       }
     }
     return result;
   }, [id, messages, conv, currentUserId, members]);
 
   const currentMember = members.find((m) => m.user_id === currentUserId);
-  const isOwner = String(conv?.owner_id) === currentUserId;
-  const isAdmin = isOwner || currentMember?.role === 'MEMBER_ROLE_ADMIN';
+  const isOwner = conv?.owner_id === currentUserId;
+  const isAdmin = isOwner || currentMember?.role === 'MEMBER_ROLE_ADMIN' || currentMember?.role === 2;
 
   const userMap = useMemo(() => {
     const map = new Map<string, { username: string; avatar: string }>();
@@ -938,11 +962,9 @@ export function ChatPage() {
         const isBot = isBotMember(m);
         const name = isBot ? (m.bot_name || m.username) : m.username;
         const avatar = isBot ? (m.bot_avatar || m.avatar) : m.avatar;
-        map.set(m.user_id, { username: name, avatar });
-        // Bot messages use bot_id (primary key) as sender_id,
-        // not pseudo_user_id, so add both keys for lookup.
+        if (m.user_id) map.set(m.user_id, { username: name, avatar });
         if (m.bot_id) {
-          map.set(String(m.bot_id), { username: name, avatar });
+          map.set(m.bot_id, { username: name, avatar });
         }
       });
     }
@@ -960,9 +982,9 @@ export function ChatPage() {
     const map = new Map<string, ConvMember['role']>();
     if (members?.length) {
       members.forEach((m: ConvMember) => {
-        map.set(m.user_id, m.role);
+        if (m.user_id) map.set(m.user_id, m.role);
         if (m.bot_id) {
-          map.set(String(m.bot_id), m.role);
+          map.set(m.bot_id, m.role);
         }
       });
     }
@@ -974,10 +996,7 @@ export function ChatPage() {
     if (members?.length) {
       members.forEach((m: ConvMember) => {
         if (isBotMember(m)) {
-          set.add(m.user_id);
-          if (m.bot_id) {
-            set.add(String(m.bot_id));
-          }
+          if (m.bot_id) set.add(m.bot_id);
         }
       });
     }
@@ -987,7 +1006,7 @@ export function ChatPage() {
   const convSenderOptions = useMemo(() => {
     if (!members?.length) return [];
     return members.map((m: ConvMember) => ({
-      id: m.user_id,
+      id: (m.user_id ?? m.bot_id)!,
       name: isBotMember(m) ? (m.bot_name || m.username) : m.username,
       isBot: isBotMember(m),
     }));
@@ -1017,7 +1036,7 @@ export function ChatPage() {
       });
       const fileInfo = await fileApi.confirmUpload(uploadData.file_id);
       const downloadData = await fileApi.getDownloadUrl(uploadData.file_id);
-      const fileId = fileInfo.file_id; // string, precision preserved by safeJsonParse
+      const fileId = fileInfo.file_id;
       return { fileId, downloadUrl: downloadData.download_url, fileInfo };
     } finally {
       setUploading(false);
@@ -1037,7 +1056,7 @@ export function ChatPage() {
       const { fileId, downloadUrl } = await uploadFile(file);
       sendMutation.mutate({
         type: 2,
-        content: { file_id: fileId, image_url: downloadUrl, image_thumb: downloadUrl } as any,
+        content: { files: [{ file_id: fileId, url: downloadUrl, file_name: file.name, mime_type: file.type, size: file.size }] },
       });
     } catch {
       message.error('图片发送失败');
@@ -1057,13 +1076,7 @@ export function ChatPage() {
       const { fileId, downloadUrl } = await uploadFile(file);
       sendMutation.mutate({
         type: 3,
-        content: {
-          file_id: fileId,
-          file_url: downloadUrl,
-          file_name: file.name,
-          file_size: file.size,
-          file_mime: file.type,
-        } as any,
+        content: { files: [{ file_id: fileId, url: downloadUrl, file_name: file.name, mime_type: file.type, size: file.size }] },
       });
     } catch {
       message.error('文件发送失败');
@@ -1097,7 +1110,7 @@ export function ChatPage() {
           const { fileId, downloadUrl } = await uploadFile(file);
           sendMutation.mutate({
             type: 5,
-            content: { file_id: fileId, file_url: downloadUrl, duration } as any,
+            content: { files: [{ file_id: fileId, url: downloadUrl, file_name: file.name, mime_type: file.type, size: file.size, duration }] },
           });
         } catch {
           message.error('语音发送失败');
@@ -1191,7 +1204,7 @@ export function ChatPage() {
       const { fileId, downloadUrl } = await uploadFile(file);
       sendMutation.mutate({
         type: 2,
-        content: { file_id: fileId, image_url: downloadUrl, image_thumb: downloadUrl } as any,
+        content: { files: [{ file_id: fileId, url: downloadUrl, file_name: file.name, mime_type: file.type, size: file.size }] },
       });
     } catch {
       message.error('图片发送失败');
@@ -1199,20 +1212,20 @@ export function ChatPage() {
   }, []);
 
   const sendMutation = useMutation({
-    mutationFn: (data: { type: number; content: SendMsgContent }) =>
-      msgApi.send({
-        conversation_id: id as any,
-        ...data,
-        reply_to_msg_id: replyTo?.msg_id as any,
-      }),
-    onSuccess: () => {
-      setInput('');
-      setReplyTo(null);
-      // A delayed send acknowledgement must not resurrect an already deleted
-      // message. Re-read its current state through the ordered user stream.
-      void messageSync.reSync();
+    mutationFn: async (data: { type: number; content: SendMsgContent }) => {
+      if (newSendLock.current) return;
+      newSendLock.current = true;
+      const account = currentUserId;
+      try {
+        const pending = await createPendingSend(account, { conversation_id: id!, ...data, reply_to_msg_id: replyTo?.msg_id });
+        if (pageAccount.current !== account || authRevision !== useAuthStore.getState().revision) return;
+        setInput('');
+        setReplyTo(null);
+        await reloadPending();
+        await retrySend(pending);
+      } finally { newSendLock.current = false; }
     },
-    onError: () => message.error('发送失败'),
+    onError: () => message.error('无法保存发送状态，消息未发送'),
   });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1259,7 +1272,7 @@ export function ChatPage() {
 
   const handleSend = useCallback(() => {
     const text = input.trim();
-    if (!text) return;
+    if (!text || sendMutation.isPending || newSendLock.current) return;
 
     // 发送消息时立即停止 typing 指示器
     if (typingStopTimerRef.current) {
@@ -1278,7 +1291,7 @@ export function ChatPage() {
     while ((match = mentionRegex.exec(text)) !== null) {
       const username = match[1];
       const member = (members as ConvMember[]).find((m) => m.username === username);
-      if (member) {
+      if (member?.user_id) {
         mentionSet.add(member.user_id);
       }
     }
@@ -1286,7 +1299,7 @@ export function ChatPage() {
     // Private chat: auto-mention peer
     if (conv?.type === 'private') {
       (members as ConvMember[]).forEach((m) => {
-        if (m.user_id !== currentUserId) {
+        if (m.user_id && m.user_id !== currentUserId) {
           mentionSet.add(m.user_id);
         }
       });
@@ -1458,7 +1471,7 @@ export function ChatPage() {
               <div className="chat-search-status">未找到相关消息</div>
             )}
             {convSearchResults.map((msg: any) => {
-              const highlight = convSearchHighlights[String(msg.message_id)];
+              const highlight = convSearchHighlights[msg.message_id];
               const senderInfo = getMsgUserInfo(msg, userMap);
               return (
                 <div
@@ -1477,7 +1490,7 @@ export function ChatPage() {
                     </div>
                     <div className="chat-search-result-preview">
                       {highlight ? (
-                        <span dangerouslySetInnerHTML={{ __html: highlight }} />
+                        <SearchHighlight text={highlight} />
                       ) : extractTextPreview(msg.content)}
                     </div>
                   </div>
@@ -1495,11 +1508,12 @@ export function ChatPage() {
         <div className="chat-messages" ref={listRef} onScroll={handleScroll}>
           {msgsError && <div className="chat-loading" role="alert">同步失败：{msgsError} <button onClick={reSync}>重试同步</button></div>}
           {msgsLoading && messages.length === 0 && <div className="chat-loading">加载消息中...</div>}
+          {hasOlder && <Button size="small" loading={loadingOlder} onClick={loadOlder}>加载更早消息</Button>}
           {!msgsLoading && !msgsError && messages.length === 0 && <div className="chat-loading">暂无消息，发送第一条消息吧</div>}
 
           {messages.map((msg: any) => {
-          const isSelf = String(msg.from_user_id) === currentUserId;
-          if (editingMsgId === String(msg.message_id)) {
+          const isSelf = msg.from_user_id === currentUserId;
+          if (editingMsgId === msg.message_id) {
             const editUserInfo = getMsgUserInfo(msg, userMap);
             return (
               <div key={msg.message_id} className="chat-msg chat-msg-self" data-msg-id={msg.message_id} onContextMenu={(e) => showMsgActions(e, msg)}>
@@ -1520,8 +1534,9 @@ export function ChatPage() {
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                     <Button size="small" onClick={() => setEditingMsgId(null)}>取消</Button>
                     <Button size="small" type="primary" onClick={() => {
-                      msgApi.edit(String(msg.message_id), editText).then(() => {
+                      msgApi.edit(msg.message_id, editText).then(() => {
                         setEditingMsgId(null);
+                        void messageSync.reSync();
                       }).catch(() => message.error('编辑失败'));
                     }}>保存</Button>
                   </div>
@@ -1587,7 +1602,7 @@ export function ChatPage() {
             // 解析操作者和被操作者信息
             const actorInfo = getMsgUserInfo({ from_user_id: sysContent.actor_id }, userMap);
             const actorName = actorInfo?.username || `用户${sysContent.actor_id}`;
-            const relatedIDs: (string | number)[] = Array.isArray(sysContent.related_user_ids) ? sysContent.related_user_ids : [];
+            const relatedIDs: string[] = Array.isArray(sysContent.related_user_ids) ? sysContent.related_user_ids : [];
             const relatedNames = relatedIDs.map((uid) => {
               const info = getMsgUserInfo({ from_user_id: uid }, userMap);
               return info?.username || `用户${uid}`;
@@ -1706,8 +1721,8 @@ export function ChatPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
                     <span className="chat-msg-nickname">{msgUserInfo.username}</span>
                     {(() => {
-                      const role = memberRoleMap.get(String(msg.from_user_id));
-                      const isBot = botIdSet.has(String(msg.from_user_id));
+                      const role = memberRoleMap.get(msg.from_user_id);
+                      const isBot = botIdSet.has(msg.from_user_id);
                       return (
                         <>
                           {role && role !== 'MEMBER_ROLE_MEMBER' ? (
@@ -1731,16 +1746,16 @@ export function ChatPage() {
                 <div className={`chat-msg-bubble-wrapper${isMediaMsg ? ' chat-msg-bubble-wrapper-media' : ''}`}>
                   <div className={`chat-msg-bubble${isMediaMsg ? ' chat-msg-bubble-media' : ''} ${msg.status === 2 ? 'recalled' : ''}`}>
                     {msg.status === 2 ? <span style={{ fontStyle: 'italic', opacity: 0.6 }}>消息已撤回</span> : renderContent(msg.content || {}, setFilePreview)}
-                  {translateMap[String(msg.message_id)] && (
+                  {translateMap[msg.message_id] && (
                     <div
                       className="chat-msg-translate"
                       onClick={() => setTranslateMap((prev) => {
                         const next = { ...prev };
-                        delete next[String(msg.message_id)];
+                        delete next[msg.message_id];
                         return next;
                       })}
                     >
-                      🌐 {translateMap[String(msg.message_id)]}
+                      🌐 {translateMap[msg.message_id]}
                       <span className="chat-msg-translate-hide">收起</span>
                     </div>
                   )}
@@ -1798,7 +1813,7 @@ export function ChatPage() {
                     </div>
                   )}
                   {entry.replyToMsgId && (() => {
-                    const replyMsg = messages.find((m: any) => String(m.message_id) === entry.replyToMsgId);
+                    const replyMsg = messages.find((m: any) => m.message_id === entry.replyToMsgId);
                     const replyPreview = replyMsg ? extractTextPreview(replyMsg.content) : `消息 ${entry.replyToMsgId}`;
                     return <div className="chat-msg-reply">回复: {replyPreview}</div>;
                   })()}
@@ -1852,7 +1867,7 @@ export function ChatPage() {
                   sendMutation.mutate({
                     type: 1,
                     content: { text, mentions: [] as string[], mention_all: false },
-                  } as any);
+                  });
                 }}
               >
                 {text}
@@ -1868,6 +1883,16 @@ export function ChatPage() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        {pendingSends.filter((pending) => pending.request.conversation_id === id).map((pending) => (
+          <div key={pending.request.client_msg_id} className="chat-reply-indicator" role="status">
+            <span className="chat-reply-text" title={pending.request.content.text || '附件发送'}>
+              {retryingKey === pending.request.client_msg_id ? '正在确认发送' : '发送结果尚未确认'}
+              {pending.request.content.text ? ` · 原发送：${pending.request.content.text}` : ' · 原发送：附件'}
+              {' · 重试将确认原发送，不会新建消息'}
+            </span>
+            <Button size="small" disabled={retryingKey !== null} onClick={() => void retrySend(pending)}>重试发送</Button>
+          </div>
+        ))}
         <input type="file" ref={imageInputRef} accept="image/*" style={{ display: 'none' }} onChange={handleImageChange} />
         <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
 
@@ -1949,11 +1974,11 @@ export function ChatPage() {
             className="chat-msg-actions-menu"
             style={{ position: 'fixed', left: msgActions.x, top: msgActions.y, zIndex: 1000 }}
           >
-            <div className="chat-msg-action-item" onClick={() => { setReplyTo({ msg_id: String(msgActions.msg.message_id), preview: extractTextPreview(msgActions.msg.content) }); setMsgActions(null); }}>
+            <div className="chat-msg-action-item" onClick={() => { setReplyTo({ msg_id: msgActions.msg.message_id, preview: extractTextPreview(msgActions.msg.content) }); setMsgActions(null); }}>
               回复
             </div>
             <div className="chat-msg-action-item" onClick={() => {
-              const name = userMap.get(String(msgActions.msg.from_user_id))?.username;
+              const name = userMap.get(msgActions.msg.from_user_id)?.username;
               if (name) {
                 setInput((prev) => prev ? `${prev} @${name} ` : `@${name} `);
                 chatInputRef.current?.focus();
@@ -1965,7 +1990,7 @@ export function ChatPage() {
             {(msgActions.msg.type === 1 || msgActions.msg.type === 9) && (
               <>
                 <div className="chat-msg-action-item" onClick={async () => {
-                  const msgId = String(msgActions.msg.message_id);
+                  const msgId = msgActions.msg.message_id;
                   const convId = id;
                   setMsgActions(null);
                   try {
@@ -1984,7 +2009,7 @@ export function ChatPage() {
                 </div>
                 <div className="chat-msg-action-item" onClick={async () => {
                   const text = extractTextPreview(msgActions.msg.content);
-                  const msgId = String(msgActions.msg.message_id);
+                  const msgId = msgActions.msg.message_id;
                   setMsgActions(null);
                   if (!text) { message.info('无法翻译此消息'); return; }
                   try {
@@ -2004,24 +2029,24 @@ export function ChatPage() {
                 </div>
               </>
             )}
-            {String(msgActions.msg.from_user_id) === currentUserId && msgActions.msg.type === 1 && (
-              <div className="chat-msg-action-item" onClick={() => { setEditingMsgId(String(msgActions.msg.message_id)); setEditText(extractTextPreview(msgActions.msg.content)); setMsgActions(null); }}>
+            {msgActions.msg.from_user_id === currentUserId && msgActions.msg.type === 1 && (
+              <div className="chat-msg-action-item" onClick={() => { setEditingMsgId(msgActions.msg.message_id); setEditText(extractTextPreview(msgActions.msg.content)); setMsgActions(null); }}>
                 编辑
               </div>
             )}
-            {String(msgActions.msg.from_user_id) === currentUserId && msgActions.msg.status === 1 && (
+            {msgActions.msg.from_user_id === currentUserId && msgActions.msg.status === 1 && (
               <div className="chat-msg-action-item" onClick={() => {
-                const msgId = String(msgActions.msg.message_id);
+                const msgId = msgActions.msg.message_id;
                 setMsgActions(null);
                 msgApi.recall(msgId)
-                  .then(() => {})
+                  .then(() => { void messageSync.reSync(); })
                   .catch(() => message.error('撤回失败'));
               }}>
                 撤回
               </div>
             )}
             <div className="chat-msg-action-item chat-msg-action-danger" onClick={() => {
-              const msgId = String(msgActions.msg.message_id);
+              const msgId = msgActions.msg.message_id;
               setMsgActions(null);
               msgApi.delete(msgId).then(() => {
                 messageSync.removeMessage(id!, msgId);
@@ -2029,6 +2054,15 @@ export function ChatPage() {
             }}>
               删除
             </div>
+            {(msgActions.msg.from_user_id === currentUserId || isAdmin) && (
+              <div className="chat-msg-action-item chat-msg-action-danger" onClick={() => {
+                const msgId = msgActions.msg.message_id;
+                setMsgActions(null);
+                AntModal.confirm({ title: '为所有成员删除消息？', content: '此消息将从所有成员的历史中移除。',
+                  okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
+                  onOk: async () => { await msgApi.delete(msgId, true); void messageSync.reSync(); } });
+              }}>为所有成员删除</div>
+            )}
           </div>
         </>
       )}

@@ -83,24 +83,24 @@ func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) err
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return err
 	}
-	if payload.ConvID <= 0 || payload.ChangeID <= 0 {
-		return errors.New("inbox change requires a conversation and event id")
+	if payload.PublicationSequence == 0 {
+		return errors.New("inbox change requires a publication sequence")
 	}
-	var recipients []int64
+	var recipients []string
 	switch payload.Kind {
 	case model.InboxConversationRemoved:
 		// A removed user's final change must survive loss of membership.
 		recipients = payload.RecipientIDs
 	case model.InboxReadUpdated:
-		if payload.UserID <= 0 {
+		if payload.UserID == nil {
 			return errors.New("read change requires a user")
 		}
 		members, err := w.fanout.UserIDs(ctx, payload.ConvID)
 		if err != nil {
 			return err
 		}
-		if slices.Contains(members, payload.UserID) {
-			recipients = []int64{payload.UserID}
+		if slices.Contains(members, *payload.UserID) {
+			recipients = []string{*payload.UserID}
 		}
 	case model.InboxConversationUpsert, model.InboxMessageNew, model.InboxMessageEdited, model.InboxMessageRecalled, model.InboxMessageDeleted:
 		members, err := w.fanout.UserIDs(ctx, payload.ConvID)
@@ -114,6 +114,11 @@ func (w *InboxWriter) handleMessageCreated(ctx context.Context, data []byte) err
 		}
 	default:
 		return errors.New("unknown inbox change kind")
+	}
+	if payload.Kind == model.InboxMessageNew || payload.Kind == model.InboxMessageEdited || payload.Kind == model.InboxMessageRecalled || payload.Kind == model.InboxMessageDeleted {
+		if payload.MessageID == nil {
+			return errors.New("message change requires a message identity")
+		}
 	}
 	now := time.Now()
 	inboxes := make([]model.UserInbox, 0, len(recipients))

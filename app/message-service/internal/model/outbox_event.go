@@ -41,17 +41,19 @@ func (j *JSONBytes) Scan(value any) error {
 }
 
 type OutboxEvent struct {
-	ID           int64      `gorm:"primaryKey;column:id"`
-	Topic        string     `gorm:"column:topic;size:64;not null"`
-	Key          string     `gorm:"column:key;size:128;not null"`
-	Payload      JSONBytes  `gorm:"column:payload;type:jsonb;not null"`
-	Status       int16      `gorm:"column:status;not null;default:0"`
-	RetryCount   int        `gorm:"column:retry_count;not null;default:0"`
-	MaxRetries   int        `gorm:"column:max_retries;not null;default:10"`
-	NextRetryAt  *time.Time `gorm:"column:next_retry_at"`
-	LastError    string     `gorm:"column:last_error;type:text"`
-	CreatedAt    time.Time  `gorm:"column:created_at;not null;autoCreateTime"`
-	DispatchedAt *time.Time `gorm:"column:dispatched_at"`
+	ID                  string     `gorm:"primaryKey;type:uuid;column:id"`
+	ConvID              string     `gorm:"column:conv_id;type:uuid;not null"`
+	PublicationSequence int64      `gorm:"column:publication_sequence;not null"`
+	Topic               string     `gorm:"column:topic;size:64;not null"`
+	Key                 string     `gorm:"column:key;size:128;not null"`
+	Payload             JSONBytes  `gorm:"column:payload;type:jsonb;not null"`
+	Status              int16      `gorm:"column:status;not null;default:0"`
+	RetryCount          int        `gorm:"column:retry_count;not null;default:0"`
+	MaxRetries          int        `gorm:"column:max_retries;not null;default:10"`
+	NextRetryAt         *time.Time `gorm:"column:next_retry_at"`
+	LastError           string     `gorm:"column:last_error;type:text"`
+	CreatedAt           time.Time  `gorm:"column:created_at;not null;autoCreateTime"`
+	DispatchedAt        *time.Time `gorm:"column:dispatched_at"`
 }
 
 func (OutboxEvent) TableName() string {

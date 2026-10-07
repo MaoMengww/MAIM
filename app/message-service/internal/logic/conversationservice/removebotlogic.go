@@ -23,6 +23,10 @@ func NewRemoveBotLogic(ctx context.Context, svcCtx *svc.ServiceContext) *RemoveB
 }
 
 func (l *RemoveBotLogic) RemoveBot(in *conversation.RemoveBotReq) (*common.BaseResponse, error) {
+
+	if err := validateRequest(l.ctx, in.OperatorId, in.ConversationId, in.BotId); err != nil {
+		return nil, err
+	}
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
 			return err
@@ -46,6 +50,6 @@ func (l *RemoveBotLogic) RemoveBot(in *conversation.RemoveBotReq) (*common.BaseR
 		return nil, err
 	}
 	emitSystemMessage(l.ctx, l.svcCtx, in.ConversationId, in.OperatorId, "bot.removed", "机器人离开了群聊", nil)
-	l.Infof("bot removed: conv_id=%d bot_id=%d", in.ConversationId, in.BotId)
+	l.Infof("bot removed: conv_id=%s bot_id=%s", in.ConversationId, in.BotId)
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

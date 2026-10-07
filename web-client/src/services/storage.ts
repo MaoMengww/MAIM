@@ -1,12 +1,13 @@
 import { createStore, get } from 'idb-keyval';
 import type { Conversation, Message } from '@/types/model';
 
-const snapshotStore = createStore('aim-user-sync', 'snapshots');
+const snapshotStore = createStore('aim-user-sync-uuid', 'snapshots');
 
 export interface UserSyncCache {
-  position: string;
+  position: number;
   messages: Record<string, Message[]>;
   conversations: Conversation[];
+  deletedMessages: Record<string, string[]>;
 }
 
 export async function loadUserSyncCache(userId: string): Promise<UserSyncCache | null> {
@@ -23,7 +24,7 @@ async function writeUserSyncCache(userId: string, update: (current: UserSyncCach
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       try {
-        const current: UserSyncCache = request.result ?? { position: '0', messages: {}, conversations: [] };
+        const current: UserSyncCache = request.result ?? { position: 0, messages: {}, conversations: [], deletedMessages: {} };
         const write = store.put(update(current), userId);
         write.onerror = () => reject(write.error);
       } catch (error) {
@@ -34,7 +35,7 @@ async function writeUserSyncCache(userId: string, update: (current: UserSyncCach
   }));
 }
 
-export function commitUserSyncCache(userId: string, cache: UserSyncCache, expectedPosition: string): Promise<void> {
+export function commitUserSyncCache(userId: string, cache: UserSyncCache, expectedPosition: number): Promise<void> {
   return writeUserSyncCache(userId, (current) => {
     if (current.position !== expectedPosition) throw new Error('用户同步缓存位点已变更');
     return cache;
@@ -42,9 +43,9 @@ export function commitUserSyncCache(userId: string, cache: UserSyncCache, expect
 }
 
 // Live changes update the latest durable snapshot without advancing its position.
-export function updateUserSyncCache(userId: string, apply: (messages: Record<string, Message[]>) => void): Promise<void> {
+export function updateUserSyncCache(userId: string, apply: (cache: UserSyncCache) => void): Promise<void> {
   return writeUserSyncCache(userId, (current) => {
-    apply(current.messages);
+    apply(current);
     return current;
   });
 }

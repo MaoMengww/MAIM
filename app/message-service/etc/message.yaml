@@ -34,10 +34,6 @@ Conv:
   maxAliasLen: 32
   maxAnnouncementLen: 1024
 
-Snowflake:
-  workerId: 1
-
-
 Log:
   Level: info
   Stat: false

@@ -33,6 +33,9 @@ APPLICATIONS = {
     "gateway": ("gateway", "gateway.yaml", "http", 8080, []),
 }
 USER_IDENTITY_APPLICATIONS = {"user-service", "realtime-service", "gateway"}
+MESSAGING_APPLICATIONS = USER_IDENTITY_APPLICATIONS | {"message-service"}
+MESSAGING_SCENARIOS = {"messaging", "conversations", "conversation-unread", "broadcasts",
+                       "user-sync", "same-instance-a", "same-instance-b", "cross-instance"}
 OPTIONAL = {"prometheus", "kibana", "grafana"}
 CREDENTIALS = {
     "POSTGRES_USER": "aim",
@@ -82,6 +85,7 @@ class Runner:
                        "--project-directory", str(self.repo), "--project-name", self.project]
         self.model = None
         self.applications = (USER_IDENTITY_APPLICATIONS if args.scenario == "user-identity"
+                             else MESSAGING_APPLICATIONS if args.scenario in MESSAGING_SCENARIOS
                              else set(APPLICATIONS))
         self.builds = []
         self.built_images = []
@@ -217,8 +221,10 @@ class Runner:
             service["healthcheck"] = self.health(kind, address)
         # Both replicas share one Kafka delivery group; each owns its unique
         # instance subscription and connection registrations.
+        browser_heartbeat = self.args.browser_access and self.args.scenario != "stage-p6"
         for key, value in {
-            "REALTIME_HEARTBEAT_INTERVAL": "1", "REALTIME_REGISTRY_TTL_SECONDS": "6",
+            "REALTIME_HEARTBEAT_INTERVAL": "30" if browser_heartbeat else "1",
+            "REALTIME_REGISTRY_TTL_SECONDS": "90" if browser_heartbeat else "6",
             "REALTIME_READINESS_DELAY_SECONDS": "2", "REALTIME_DRAIN_SECONDS": "6",
             "REALTIME_WRITE_TIMEOUT_SECONDS": "2", "REALTIME_INSTANCE_ID": "realtime-a",
         }.items():
@@ -247,20 +253,30 @@ class Runner:
         services["e2e-provider"]["healthcheck"] = self.health("http", "http://127.0.0.1:8099/health")
         # Keep real middleware, using bounded Java heaps on developer/CI machines.
         services["kafka"]["environment"]["KAFKA_HEAP_OPTS"] = "-Xmx512m -Xms256m"
+        services["elasticsearch"]["environment"]["ES_JAVA_OPTS"] = "-Xms512m -Xmx512m"
         services["neo4j"]["environment"].update({
             "NEO4J_dbms_memory_pagecache_size": "256m",
             "NEO4J_dbms_memory_heap_initial__size": "256m",
             "NEO4J_dbms_memory_heap_max__size": "512m",
         })
-        if self.args.scenario == "user-identity":
+        if self.args.scenario == "user-identity" or self.args.scenario in MESSAGING_SCENARIOS:
             keep = self.applications | {"realtime-b", "postgres", "redis", "kafka",
                                         "init-kafka-topics", "otel-collector", "jaeger"}
+            if "message-service" in self.applications:
+                keep.add("elasticsearch")
             for name in set(services) - keep:
                 del services[name]
             for service in services.values():
                 for dependency in list(service.get("depends_on", {})):
                     if dependency not in services:
                         del service["depends_on"][dependency]
+        if self.args.browser_access:
+            for name, port in (("gateway", 8080), ("realtime-service", 8081), ("realtime-b", 8081)):
+                services[name]["ports"] = [{"target": port, "published": "0",
+                                            "host_ip": "127.0.0.1", "protocol": "tcp"}]
+        if self.args.database_access:
+            services["postgres"]["ports"] = [{"target": 5432, "published": "0",
+                                             "host_ip": "127.0.0.1", "protocol": "tcp"}]
         self.infrastructure = sorted(set(services) - self.applications -
                                      {"realtime-b", "init-kafka-topics"})
         for name in self.infrastructure:
@@ -311,8 +327,9 @@ class Runner:
         self.compose_written = True
         if self.artifacts:
             shutil.copyfile(self.composefile, self.artifacts / "compose.json")
+        access = "loopback-only random browser ports" if self.args.browser_access else "no published host ports"
         self.emit(f"[isolation] project={self.project}; {len(self.applications)} business services + realtime-b; "
-                  f"{len(self.infrastructure)} middleware; no published host ports")
+                  f"{len(self.infrastructure)} middleware; {access}")
 
     def run(self):
         self.prepare()
@@ -331,6 +348,8 @@ class Runner:
                      "--exit-code-from", "init-kafka-topics", "init-kafka-topics",
                      timeout=self.args.readiness_timeout)
         self.wait_for("application-readiness", sorted(self.applications) + ["realtime-b"])
+        if self.args.keep_environment:
+            self.preserve_access()
         scenario = ["run", "-gateway", "http://gateway:8080",
                     "-realtime-a", "ws://realtime-a:8081/ws",
                     "-realtime-b", "ws://realtime-b:8081/ws",
@@ -347,6 +366,41 @@ class Runner:
             self.compose("acceptance", "run", "--rm", "--no-deps", "e2e-client", *scenario,
                          timeout=max(180, self.args.timeout * 100))
         self.emit("[acceptance] PASS")
+
+    def preserve_access(self):
+        access = {"project": self.project, "directory": str(self.directory),
+                  "compose": self.prefix + ["-f", str(self.composefile), "--profile", "harness"],
+                  "cleanup": self.prefix + ["-f", str(self.composefile), "--profile", "harness",
+                                             "down", "--volumes", "--remove-orphans", "--timeout", "10"],
+                  "cleanup_images": ["docker", "image", "rm", *self.built_images]}
+        states = parse_states(self.compose("environment-containers", "ps", "--all", "--format", "json", capture=True))
+        access["containers"] = {row.get("Service"): row.get("ID") for row in states if row.get("ID")}
+        access["network"] = self.project + "_default"
+        access["postgres_dsn_network"] = "postgres://aim:aim123@postgres:5432/aim?sslmode=disable"
+        access["redis_network"] = "redis:6379"
+        access["kafka_network"] = "kafka:9092"
+        if "elasticsearch" in self.model["services"]:
+            access["elasticsearch_network"] = "http://elasticsearch:9200"
+        if self.args.database_access:
+            address = self.compose("database-port", "port", "postgres", "5432", capture=True).strip()
+            if not address.startswith("127.0.0.1:") or "\n" in address:
+                raise LayerFailure("database-access: postgres did not publish a single loopback address")
+            access["postgres_dsn"] = f"postgres://aim:aim123@{address}/aim?sslmode=disable"
+        if self.args.browser_access:
+            for key, service, port, scheme, path in (
+                ("gateway", "gateway", 8080, "http", ""),
+                ("realtime_a", "realtime-service", 8081, "ws", "/ws"),
+                ("realtime_b", "realtime-b", 8081, "ws", "/ws"),
+            ):
+                address = self.compose("browser-port-" + service, "port", service, str(port), capture=True).strip()
+                if not address.startswith("127.0.0.1:") or "\n" in address:
+                    raise LayerFailure(f"browser-access: {service} did not publish a single loopback address")
+                access[key] = f"{scheme}://{address}{path}"
+        manifest = self.directory / "environment.json"
+        manifest.write_text(json.dumps(access, indent=2) + "\n")
+        manifest.chmod(0o600)
+        self.emit(f"[environment] retained isolated environment: {manifest}")
+        self.emit("[environment] cleanup uses only the manifest's project-scoped cleanup/cleanup_images argv")
 
     def wait_for(self, layer, services):
         self.compose(layer, "up", "--detach", "--no-build", "--wait", "--wait-timeout",
@@ -476,15 +530,25 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery")
-    parser.add_argument("--scenario", choices=("all", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
+    parser.add_argument("--scenario", choices=("all", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")
     parser.add_argument("--build-timeout", type=int, default=1800, help="seconds per build/pull command")
     parser.add_argument("--artifacts", type=Path, help="preserve bounded logs and resolved Compose model under this directory")
+    parser.add_argument("--keep-environment", type=Path,
+                        help="explicitly retain this run's isolated project and private run directory beneath PATH")
+    parser.add_argument("--browser-access", action="store_true",
+                        help="with --keep-environment, publish only gateway and realtime on random 127.0.0.1 ports")
+    parser.add_argument("--database-access", action="store_true",
+                        help="with --keep-environment, publish only isolated PostgreSQL on a random 127.0.0.1 port")
     args = parser.parse_args()
     if args.readiness_timeout <= 0 or args.build_timeout <= 0:
         parser.error("readiness/build timeouts must be positive")
+    if args.browser_access and not args.keep_environment:
+        parser.error("--browser-access requires --keep-environment")
+    if args.database_access and not args.keep_environment:
+        parser.error("--database-access requires --keep-environment")
     result = 0
     runner = None
     interrupted_signal = signal.SIGINT
@@ -495,9 +559,13 @@ def main():
         raise KeyboardInterrupt
 
     previous_term = signal.signal(signal.SIGTERM, interrupt)
-    # TemporaryDirectory is removed even on SIGINT/SIGTERM; a project cleanup failure is
-    # reported as failure rather than silently claiming an isolated successful run.
-    with tempfile.TemporaryDirectory(prefix="aim-e2e-") as directory:
+    # Retention is opt-in and never reuses an existing project or shared data.
+    if args.keep_environment:
+        args.keep_environment.mkdir(parents=True, exist_ok=True)
+        directory = tempfile.mkdtemp(prefix="aim-e2e-", dir=args.keep_environment.resolve())
+    else:
+        directory = tempfile.mkdtemp(prefix="aim-e2e-")
+    try:
         try:
             runner = Runner(args, directory)
             runner.run()
@@ -518,14 +586,20 @@ def main():
                             runner.diagnose()
                         except (LayerFailure, OSError, ValueError) as exc:
                             print(f"[diagnostic] {exc}", file=sys.stderr)
-                    try:
-                        runner.cleanup()
-                    except (LayerFailure, OSError) as exc:
-                        result = result or 1
-                        print(f"[cleanup-failure] {exc}; project={runner.project}", file=sys.stderr)
+                    if args.keep_environment:
+                        print(f"[environment] retained project={runner.project}; directory={directory}", flush=True)
+                    else:
+                        try:
+                            runner.cleanup()
+                        except (LayerFailure, OSError) as exc:
+                            result = result or 1
+                            print(f"[cleanup-failure] {exc}; project={runner.project}", file=sys.stderr)
             finally:
                 signal.signal(signal.SIGINT, previous)
                 signal.signal(signal.SIGTERM, previous_term)
+    finally:
+        if not args.keep_environment:
+            shutil.rmtree(directory)
     return result
 
 

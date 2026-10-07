@@ -90,7 +90,7 @@ func (d *OutboxDispatcher) dispatchBatch(ctx context.Context) {
 							return err
 						}
 						metrics.OutboxFailedCount.Set(1, evt.Topic)
-						d.logger.WithContext(ctx).Errorf("outbox event %d exhausted retries; ordered key %s is blocked: %v", evt.ID, evt.Key, err)
+						d.logger.WithContext(ctx).Errorf("outbox event %s exhausted retries; ordered key %s is blocked: %v", evt.ID, evt.Key, err)
 					} else if err := outbox.MarkRetry(ctx, evt.ID, time.Now().Add(exponentialBackoff(evt.RetryCount+1)), err.Error()); err != nil {
 						return err
 					}

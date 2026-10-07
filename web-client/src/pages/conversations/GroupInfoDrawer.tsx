@@ -14,9 +14,8 @@ import { Avatar } from '@/components/common/Avatar';
 import type { ConvMember, BotInConv } from '@/types/model';
 import './ChatPage.css';
 
-/** Protobuf enum serializes member_type as number (1=user, 2=bot) or string 'MEMBER_TYPE_BOT'/'MEMBER_TYPE_USER', but TS type says string */
 function isBotMember(m: ConvMember): boolean {
-  return (m as any).member_type === 2 || m.member_type === 'bot' || (m.member_type as string) === 'MEMBER_TYPE_BOT';
+  return m.member_type === 'bot';
 }
 
 interface GroupInfoDrawerProps {
@@ -113,7 +112,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
   });
 
   const addMembersMutation = useMutation({
-    mutationFn: (memberIds: string[]) => convApi.addMembers(convId!, memberIds as any),
+    mutationFn: (memberIds: string[]) => convApi.addMembers(convId!, memberIds),
     onSuccess: () => {
       message.success('已添加成员');
       setAddMemberOpen(false);
@@ -170,7 +169,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
   });
 
   const transferMutation = useMutation({
-    mutationFn: (newOwnerId: string) => convApi.transferOwner(convId!, newOwnerId as any),
+    mutationFn: (newOwnerId: string) => convApi.transferOwner(convId!, newOwnerId),
     onSuccess: () => {
       message.success('群主已转让');
       setTransferOpen(false);
@@ -228,7 +227,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
       message.success('已移除机器人');
       queryClient.setQueryData(['conv-bots', convId], (old: any[]) => {
         if (!old) return old;
-        return old.filter((b: any) => String(b.id) !== botId && String(b.bot_id) !== botId);
+        return old.filter((b: any) => String(b.id) !== botId && b.bot_id !== botId);
       });
       queryClient.invalidateQueries({ queryKey: ['conv-bots', convId] });
     },
@@ -355,7 +354,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                 const canRemove = isOwner && member.role !== 'MEMBER_ROLE_OWNER' && member.role !== 1;
                 const isBot = isBotMember(member);
                 return (
-                  <div key={member.user_id} className="group-info-member">
+                  <div key={member.user_id ?? member.bot_id} className="group-info-member">
                     <Avatar name={member.username || `用户${member.user_id}`} src={member.avatar || ''} size={32} />
                     <div className="group-info-member-info">
                       <span className="group-info-member-name">{member.username || `用户${member.user_id}`}</span>
@@ -370,13 +369,13 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                         )}
                       </div>
                     </div>
-                    {!isBot && (isAdmin || isOwner) && member.role !== 'MEMBER_ROLE_OWNER' && member.role !== 1 && (
+                    {member.user_id && !isBot && (isAdmin || isOwner) && member.role !== 'MEMBER_ROLE_OWNER' && member.role !== 1 && (
                       member.is_muted ? (
                         <Button
                           type="text"
                           size="small"
                           icon={<AudioMutedOutlined />}
-                          onClick={() => unmuteMemberMutation.mutate(member.user_id)}
+                          onClick={() => member.user_id && unmuteMemberMutation.mutate(member.user_id)}
                           title="取消禁言"
                           loading={unmuteMemberMutation.isPending}
                           style={{ color: '#ff4d4f' }}
@@ -386,16 +385,16 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                           type="text"
                           size="small"
                           icon={<SoundOutlined />}
-                          onClick={() => muteMemberMutation.mutate({ userId: member.user_id })}
+                          onClick={() => member.user_id && muteMemberMutation.mutate({ userId: member.user_id })}
                           title="禁言"
                         />
                       )
                     )}
-                    {!isBot && canRemove && (
+                    {member.user_id && !isBot && canRemove && (
                       <Popconfirm
                         title="移除成员"
                         description={`确定要移除 ${member.username || `用户${member.user_id}`} 吗？`}
-                        onConfirm={() => removeMemberMutation.mutate(member.user_id)}
+                        onConfirm={() => member.user_id && removeMemberMutation.mutate(member.user_id)}
                         okText="移除"
                         cancelText="取消"
                       >
@@ -403,12 +402,12 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                       </Popconfirm>
                     )}
                     {!isBot && isOwner && (member.role === 'MEMBER_ROLE_MEMBER' || member.role === 3) && (
-                      <Button type="text" size="small" onClick={() => updateMemberRoleMutation.mutate({ userId: member.user_id, role: 2 })} title="设为管理员">
+                      <Button type="text" size="small" onClick={() => member.user_id && updateMemberRoleMutation.mutate({ userId: member.user_id, role: 2 })} title="设为管理员">
                         升管
                       </Button>
                     )}
                     {!isBot && isOwner && (member.role === 'MEMBER_ROLE_ADMIN' || member.role === 2) && (
-                      <Button type="text" size="small" onClick={() => updateMemberRoleMutation.mutate({ userId: member.user_id, role: 3 })} title="取消管理员">
+                      <Button type="text" size="small" onClick={() => member.user_id && updateMemberRoleMutation.mutate({ userId: member.user_id, role: 3 })} title="取消管理员">
                         降级
                       </Button>
                     )}
@@ -434,7 +433,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
               {convBots.map((bot: BotInConv) => {
                 const roleLabels: Record<string, string> = { '1': '群主', MEMBER_ROLE_OWNER: '群主', '2': '管理员', MEMBER_ROLE_ADMIN: '管理员', '3': '成员', MEMBER_ROLE_MEMBER: '成员' };
                 const roleColors: Record<string, string> = { '1': 'gold', MEMBER_ROLE_OWNER: 'gold', '2': 'blue', MEMBER_ROLE_ADMIN: 'blue', '3': 'default', MEMBER_ROLE_MEMBER: 'default' };
-                const botMember = members.find((m) => String(m.bot_id) === bot.bot_id);
+                const botMember = members.find((m) => m.bot_id === bot.bot_id);
                 const botRole = botMember?.role || 'MEMBER_ROLE_MEMBER';
                 return (
                   <div key={bot.bot_id} className="group-info-member">
@@ -578,7 +577,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
           value={transferTarget}
           onChange={setTransferTarget}
           options={members
-            .filter((m) => m.user_id !== currentUserId && !isBotMember(m))
+            .filter((m) => m.user_id && m.user_id !== currentUserId && !isBotMember(m))
             .map((m) => ({
               value: m.user_id,
               label: m.username || `用户${m.user_id}`,
@@ -607,7 +606,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
           value={selectedBotId}
           onChange={setSelectedBotId}
           options={userBots
-            .filter((bot: any) => !convBots.some((b: BotInConv) => String(b.bot_id) === bot.id))
+            .filter((bot: any) => !convBots.some((b: BotInConv) => b.bot_id === bot.id))
             .map((bot: any) => ({
               value: bot.id,
               label: bot.name,
