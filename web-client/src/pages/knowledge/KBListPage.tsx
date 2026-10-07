@@ -71,9 +71,6 @@ const RETRIEVAL_MODES = [
   { value: 'fulltext', label: '全文检索' },
 ];
 
-const EMBED_CHOICES = [
-  { value: 'text-embedding-v4', label: 'text-embedding-v4 (千问)' },
-];
 
 const FM = { marginBottom: 12 };
 
@@ -436,7 +433,7 @@ function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModel
         <Select
           placeholder="选择向量模型"
           allowClear
-          options={embedModelOptions.length > 0 ? embedModelOptions : EMBED_CHOICES}
+          options={embedModelOptions}
           showSearch
           filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())}
         />

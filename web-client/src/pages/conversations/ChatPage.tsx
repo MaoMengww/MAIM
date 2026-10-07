@@ -21,6 +21,7 @@ import { SearchHighlight } from '@/components/common/SearchHighlight';
 import { wsOn, wsSend } from '@/services/ws';
 import { useAuthStore } from '@/stores/auth';
 import { convToolApi } from '@/services/conversation-tool';
+import { authApi } from '@/services/auth';
 import { SearchFilterBar } from '@/components/common/SearchFilterBar';
 import { useMessages } from '@/hooks/useMessages';
 import { Avatar } from '@/components/common/Avatar';
@@ -2047,8 +2048,8 @@ export function ChatPage() {
                   setMsgActions(null);
                   if (!text) { message.info('无法翻译此消息'); return; }
                   try {
-                    const configuredLang = useAuthStore.getState().user?.settings?.language;
-                    const userLang = typeof configuredLang === 'string' ? configuredLang : 'zh-CN';
+                    const settings = await authApi.getSettings();
+                    const userLang = settings.language || 'zh-CN';
                     const resp = await convToolApi.translate(msgId, text, userLang);
                     if (resp?.status === 'processing') {
                       message.info('正在翻译...');

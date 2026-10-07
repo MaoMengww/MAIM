@@ -574,12 +574,21 @@ func (r *ConversationRepo) FindPrivateBotConv(ctx context.Context, userID, botID
 // ========== Bot Management ==========
 
 // GetBot reads only the Bot display projection, never the control API (ADR-0007).
+type botProjection struct {
+	ID        string
+	Name      string
+	Avatar    string
+	OwnerType string
+	OwnerID   *string
+	Status    string
+}
+
 func (r *ConversationRepo) GetBot(ctx context.Context, botID string) (*botpb.Bot, error) {
-	var bot botpb.Bot
+	var bot botProjection
 	if err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar, owner_type, owner_id, status").Where("id = ?", botID).Take(&bot).Error; err != nil {
 		return nil, err
 	}
-	return &bot, nil
+	return &botpb.Bot{Id: bot.ID, Name: bot.Name, Avatar: bot.Avatar, OwnerType: bot.OwnerType, OwnerId: bot.OwnerID, Status: bot.Status}, nil
 }
 
 func (r *ConversationRepo) AddBot(ctx context.Context, bot *model.ConvBot) error {
@@ -634,7 +643,13 @@ func (r *ConversationRepo) GetBotsByIDs(ctx context.Context, ids []string) ([]*b
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	var bots []*botpb.Bot
-	err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar").Where("id IN ?", ids).Find(&bots).Error
-	return bots, err
+	var records []botProjection
+	if err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar").Where("id IN ?", ids).Find(&records).Error; err != nil {
+		return nil, err
+	}
+	bots := make([]*botpb.Bot, len(records))
+	for i, bot := range records {
+		bots[i] = &botpb.Bot{Id: bot.ID, Name: bot.Name, Avatar: bot.Avatar}
+	}
+	return bots, nil
 }
