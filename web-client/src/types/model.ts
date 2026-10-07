@@ -533,7 +533,7 @@ export interface FileInfo {
   md5: string;
   purpose: number;
   access: number;
-  uploader_id: number;
+  uploader_id: string;
   bucket: string;
   created_at: number;
 }
@@ -543,4 +543,10 @@ export interface UploadURLData {
   upload_url: string;
   key: string;
   expires_at: number;
+}
+
+export interface FileDownloadData {
+  download_url: string;
+  expires_at: number;
+  file: FileInfo;
 }

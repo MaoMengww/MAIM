@@ -38,7 +38,7 @@ func New(
 	userH := handler.NewUserHandler(clients.User.Conn())
 	friendH := handler.NewFriendHandler(clients.User.Conn())
 	convH := handler.NewConversationHandler(clients.Message.Conn(), clients.File.Conn())
-	msgH := handler.NewMessageHandler(clients.Message, clients.File.Conn())
+	msgH := handler.NewMessageHandler(clients.Message)
 	fileH := handler.NewFileHandler(clients.File.Conn(), clients.User.Conn())
 	broadcastH := handler.NewBroadcastHandler(clients.Message)
 	notifH := handler.NewRealtimeHandler(clients.Realtime.Conn())

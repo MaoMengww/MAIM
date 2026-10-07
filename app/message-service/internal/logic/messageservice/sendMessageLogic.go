@@ -8,14 +8,19 @@ import (
 	"math/big"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
+	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	"github.com/maomeng/aim/app/message-service/internal/metrics"
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -108,6 +113,30 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 		if !stderrors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		msgType := in.Type
+		if attachment := in.GetAttachment(); attachment != nil || (in.Type >= message.MessageType_MESSAGE_TYPE_IMAGE && in.Type <= message.MessageType_MESSAGE_TYPE_AUDIO) {
+			if l.svcCtx.FileClient == nil {
+				return status.Error(codes.Unavailable, "file service unavailable")
+			}
+			fileID, _ := content["file_id"].(string)
+			fileCtx := metadata.AppendToOutgoingContext(ctx, "user-id", callerID)
+			download, err := l.svcCtx.FileClient.GetDownloadURL(fileCtx, &filepb.GetDownloadURLReq{FileId: fileID, UserId: callerID})
+			if err != nil {
+				return err
+			}
+			if attachment != nil {
+				if download == nil || download.File == nil || download.File.FileId != fileID {
+					return status.Error(codes.Internal, "invalid attachment response")
+				}
+				msgType, content = hydrateAttachmentContent(download.File, attachment.Duration)
+			} else {
+				// Only new submissions need a file capability. Persist no expiring URLs.
+				content["url"] = ""
+				if in.Type == message.MessageType_MESSAGE_TYPE_IMAGE || in.Type == message.MessageType_MESSAGE_TYPE_VIDEO {
+					content["thumbnail_url"] = ""
+				}
+			}
+		}
 		if err := validateReplyTarget(ctx, l.svcCtx, tx, in.ConversationId, in.FromUserId, in.ReplyToId); err != nil {
 			return err
 		}
@@ -119,7 +148,7 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 		msg = &model.Message{
 			ID: msgID, ConvID: in.ConversationId, SenderID: &in.FromUserId, SenderType: "user",
 			ClientMsgID: &in.ClientMsgId, SubmissionContent: submission,
-			MsgType: int32(in.Type), Content: content, ReplyToMsgID: in.ReplyToId,
+			MsgType: int32(msgType), Content: content, ReplyToMsgID: in.ReplyToId,
 			Status: model.MessageStatusNormal, EditHistory: model.JSONArray{}, CreatedAt: now, UpdatedAt: now,
 		}
 		if err := persistMessage(ctx, l.svcCtx, tx, msg, senderName); err != nil {
@@ -135,13 +164,21 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 		if _, ok := errors.IsBizError(err); ok {
 			return nil, err
 		}
+		if _, ok := status.FromError(err); ok {
+			return nil, err
+		}
 		return nil, errors.Wrap(errors.CodeInternal, "insert message failed", err)
 	}
 	if created {
-		metrics.MessagesSentTotal.Inc(strconv.FormatInt(int64(in.Type), 10))
+		metrics.MessagesSentTotal.Inc(strconv.FormatInt(int64(msg.MsgType), 10))
 		l.Infof("message sent: msg_id=%s conv_id=%s sender=%s", msg.ID, in.ConversationId, in.FromUserId)
 	}
-	return &message.SendMessageResp{MessageId: msg.ID, Seq: msg.Seq, CreatedAt: msg.CreatedAt.Unix()}, nil
+	resp := &message.SendMessageResp{MessageId: msg.ID, Seq: msg.Seq, CreatedAt: msg.CreatedAt.Unix(), Message: modelToPbMessage(msg)}
+	if msg.MsgType >= model.MsgTypeImage && msg.MsgType <= model.MsgTypeAudio {
+		file := model.ParseFileContent(msg.Content)
+		resp.FileMetadata = &message.FileContent{FileId: file.FileID, Name: file.Name, MimeType: file.MimeType, Ext: file.Ext, Size: file.Size}
+	}
+	return resp, nil
 }
 
 // Normalize JSON through the persisted representation. Object ordering is not
@@ -150,6 +187,14 @@ func originalSubmission(kind message.MessageType, content model.JSONContent, rep
 	semantic := make(model.JSONContent, len(content))
 	for key, value := range content {
 		semantic[key] = value
+	}
+	// The original typed input remains semantic except for read-time URLs.
+	// Keep blank keys so existing persisted fingerprints retain their shape.
+	if kind >= message.MessageType_MESSAGE_TYPE_IMAGE && kind <= message.MessageType_MESSAGE_TYPE_AUDIO {
+		semantic["url"] = ""
+		if kind == message.MessageType_MESSAGE_TYPE_IMAGE || kind == message.MessageType_MESSAGE_TYPE_VIDEO {
+			semantic["thumbnail_url"] = ""
+		}
 	}
 	var mentions []string
 	switch values := semantic["mention_user_ids"].(type) {
@@ -281,6 +326,9 @@ func validateSendContent(in *message.SendMessageReq) error {
 	case *message.SendMessageReq_Audio:
 		valid = in.Type == message.MessageType_MESSAGE_TYPE_AUDIO && c.Audio != nil
 		ids = []string{c.Audio.GetFileId()}
+	case *message.SendMessageReq_Attachment:
+		valid = in.Type == message.MessageType_MESSAGE_TYPE_UNSPECIFIED && c.Attachment != nil
+		ids = []string{c.Attachment.GetFileId()}
 	case *message.SendMessageReq_Location:
 		valid = in.Type == message.MessageType_MESSAGE_TYPE_LOCATION && c.Location != nil
 	case *message.SendMessageReq_Custom:
@@ -358,6 +406,8 @@ func extractSendContent(req *message.SendMessageReq) model.JSONContent {
 			Duration: v.Audio.GetDuration(),
 			Size:     v.Audio.GetSize(),
 		}.ToJSONContent()
+	case *message.SendMessageReq_Attachment:
+		return model.JSONContent{"file_id": v.Attachment.GetFileId(), "duration": v.Attachment.GetDuration()}
 	case *message.SendMessageReq_Location:
 		return model.LocationContent{
 			Latitude:  v.Location.GetLatitude(),
@@ -372,6 +422,33 @@ func extractSendContent(req *message.SendMessageReq) model.JSONContent {
 		}.ToJSONContent()
 	}
 	return nil
+}
+
+func hydrateAttachmentContent(file *filepb.FileInfo, requestedDuration int32) (message.MessageType, model.JSONContent) {
+	duration := file.Duration
+	if duration == 0 {
+		duration = requestedDuration
+	}
+	var kind message.MessageType
+	var content model.JSONContent
+	switch {
+	case strings.HasPrefix(file.MimeType, "image/"):
+		kind = message.MessageType_MESSAGE_TYPE_IMAGE
+		content = model.ImageContent{FileID: file.FileId, Width: file.Width, Height: file.Height, Size: file.Size, Format: file.Ext}.ToJSONContent()
+	case strings.HasPrefix(file.MimeType, "video/"):
+		kind = message.MessageType_MESSAGE_TYPE_VIDEO
+		content = model.VideoContent{FileID: file.FileId, Duration: duration, Width: file.Width, Height: file.Height, Size: file.Size}.ToJSONContent()
+	case strings.HasPrefix(file.MimeType, "audio/"):
+		kind = message.MessageType_MESSAGE_TYPE_AUDIO
+		content = model.AudioContent{FileID: file.FileId, Duration: duration, Size: file.Size}.ToJSONContent()
+	default:
+		kind = message.MessageType_MESSAGE_TYPE_FILE
+		content = model.FileContent{FileID: file.FileId, Name: file.Name, Size: file.Size, Ext: file.Ext, MimeType: file.MimeType}.ToJSONContent()
+	}
+	// Preserve accepted entity metadata for acknowledgments without a file lookup
+	// on replay. It is not part of the original generic submission fingerprint.
+	content["name"], content["mime_type"], content["ext"] = file.Name, file.MimeType, file.Ext
+	return kind, content
 }
 
 // buildMessageCreatedPayload builds the Kafka event payload for a new message.

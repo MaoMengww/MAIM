@@ -1,13 +1,13 @@
 package logic
 
 import (
-	"fmt"
 	"context"
 	"time"
 
 	"github.com/maomeng/aim/app/file-service/internal/model"
 	"github.com/maomeng/aim/app/file-service/internal/svc"
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
+	"github.com/maomeng/aim/pkg/identity"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -27,16 +27,22 @@ func NewGetUploadURLLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetU
 }
 
 func (l *GetUploadURLLogic) GetUploadURL(in *filepb.GetUploadURLReq) (*filepb.GetUploadURLResp, error) {
+	if err := validateIdentities(in.GetUploaderId()); err != nil {
+		return nil, err
+	}
 	if in.GetName() == "" || in.GetSize() <= 0 {
-		return nil, ErrInvalidParam
+		return nil, grpcError(ErrInvalidParam)
 	}
 
-	fileID, err := l.svcCtx.Snowflake.Generate()
+	fileID, err := identity.New()
 	if err != nil {
-		return nil, fmt.Errorf("generate file id failed: %w", err)
+		return nil, grpcError(err)
 	}
 	ext := extFromName(in.GetName())
 	key := formatObjectKey(fileID, ext)
+	if in.GetAccess() == filepb.FileAccess_FILE_ACCESS_PUBLIC {
+		key = "public/" + key
+	}
 
 	expiry := time.Duration(in.GetExpiresIn()) * time.Second
 	if expiry <= 0 {
@@ -46,7 +52,7 @@ func (l *GetUploadURLLogic) GetUploadURL(in *filepb.GetUploadURLReq) (*filepb.Ge
 	uploadURL, err := l.svcCtx.MinIO.PresignedPutURL(l.ctx, key, expiry)
 	if err != nil {
 		l.Errorf("failed to generate upload URL: file_name=%s err=%v", in.GetName(), err)
-		return nil, err
+		return nil, grpcError(err)
 	}
 
 	now := time.Now()
@@ -64,11 +70,11 @@ func (l *GetUploadURLLogic) GetUploadURL(in *filepb.GetUploadURLReq) (*filepb.Ge
 		CreatedAt:  now,
 	}
 	if err := l.svcCtx.FileRepo.Create(l.ctx, f); err != nil {
-		l.Errorf("failed to save file record: file_id=%d file_name=%s err=%v", fileID, in.GetName(), err)
-		return nil, err
+		l.Errorf("failed to save file record: file_id=%s file_name=%s err=%v", fileID, in.GetName(), err)
+		return nil, grpcError(err)
 	}
 
-	l.Infof("upload URL generated: file_id=%d file_name=%s", fileID, in.GetName())
+	l.Infof("upload URL generated: file_id=%s file_name=%s", fileID, in.GetName())
 	expiresAt := now.Add(expiry)
 	return &filepb.GetUploadURLResp{
 		FileId:    fileID,

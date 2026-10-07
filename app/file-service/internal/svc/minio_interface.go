@@ -17,6 +17,7 @@ type MinIOClient interface {
 	SetPublicBucketPolicy(ctx context.Context) error
 	Upload(ctx context.Context, objectName string, reader io.Reader, size int64, contentType string) (*UploadInfo, error)
 	Delete(ctx context.Context, objectName string) error
+	Stat(ctx context.Context, objectName string) (size int64, etag string, err error)
 	PublicURL(objectName string) string
 	PresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error)
 	PresignedPutURL(ctx context.Context, objectName string, expiry time.Duration) (string, error)

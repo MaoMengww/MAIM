@@ -47,7 +47,7 @@ enum FileAccess {
 // ========== File Info ==========
 
 message FileInfo {
-  string file_id = 1 [(common.entity_id) = true];              // 文件实体 UUID，由 files domain 分配
+  string file_id = 1 [(common.entity_id) = true];              // 文件实体 UUID，由 file domain 分配
   string name = 2;                // original file name
   string key = 3;                 // object storage key/path
   int64 size = 4;                 // file size in bytes

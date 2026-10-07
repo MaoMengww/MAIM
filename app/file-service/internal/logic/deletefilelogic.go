@@ -25,22 +25,26 @@ func NewDeleteFileLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Delete
 }
 
 func (l *DeleteFileLogic) DeleteFile(in *filepb.DeleteFileReq) (*common.BaseResponse, error) {
-	f, err := l.svcCtx.FileRepo.GetByID(l.ctx, in.GetFileId())
-	if err != nil {
-		l.Errorf("file not found for delete: file_id=%d err=%v", in.GetFileId(), err)
-		return nil, ErrFileNotFound
-	}
-	if f.UploaderID != in.GetUserId() {
-		return nil, ErrNotUploader
-	}
-
-	// best-effort delete from MinIO
-	_ = l.svcCtx.MinIO.Delete(l.ctx, f.Key)
-
-	if err := l.svcCtx.FileRepo.Delete(l.ctx, in.GetFileId()); err != nil {
+	if err := validateIdentities(in.GetFileId(), in.GetUserId()); err != nil {
 		return nil, err
 	}
+	f, err := l.svcCtx.FileRepo.GetByID(l.ctx, in.GetFileId())
+	if err != nil {
+		l.Errorf("file lookup failed for delete: file_id=%s err=%v", in.GetFileId(), err)
+		return nil, fileLookupError(err)
+	}
+	if f.UploaderID != in.GetUserId() {
+		return nil, grpcError(ErrNotUploader)
+	}
 
-	l.Infof("file deleted: file_id=%d", in.GetFileId())
+	if err := l.svcCtx.MinIO.Delete(l.ctx, f.Key); err != nil {
+		return nil, grpcError(err)
+	}
+
+	if err := l.svcCtx.FileRepo.Delete(l.ctx, in.GetFileId()); err != nil {
+		return nil, grpcError(err)
+	}
+
+	l.Infof("file deleted: file_id=%s", in.GetFileId())
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

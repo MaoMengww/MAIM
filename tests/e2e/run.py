@@ -34,6 +34,7 @@ APPLICATIONS = {
 }
 USER_IDENTITY_APPLICATIONS = {"user-service", "realtime-service", "gateway"}
 MESSAGING_APPLICATIONS = USER_IDENTITY_APPLICATIONS | {"message-service"}
+ATTACHMENT_APPLICATIONS = MESSAGING_APPLICATIONS | {"file-service"}
 MESSAGING_SCENARIOS = {"messaging", "conversations", "conversation-unread", "broadcasts",
                        "user-sync", "same-instance-a", "same-instance-b", "cross-instance"}
 OPTIONAL = {"prometheus", "kibana", "grafana"}
@@ -86,6 +87,7 @@ class Runner:
         self.model = None
         self.applications = (USER_IDENTITY_APPLICATIONS if args.scenario == "user-identity"
                              else MESSAGING_APPLICATIONS if args.scenario in MESSAGING_SCENARIOS
+                             else ATTACHMENT_APPLICATIONS if args.scenario == "attachments"
                              else set(APPLICATIONS))
         self.builds = []
         self.built_images = []
@@ -259,11 +261,16 @@ class Runner:
             "NEO4J_dbms_memory_heap_initial__size": "256m",
             "NEO4J_dbms_memory_heap_max__size": "512m",
         })
-        if self.args.scenario == "user-identity" or self.args.scenario in MESSAGING_SCENARIOS:
+        if self.args.scenario in {"user-identity", "attachments"} or self.args.scenario in MESSAGING_SCENARIOS:
             keep = self.applications | {"realtime-b", "postgres", "redis", "kafka",
                                         "init-kafka-topics", "otel-collector", "jaeger"}
             if "message-service" in self.applications:
                 keep.add("elasticsearch")
+            if "file-service" in self.applications:
+                keep.add("minio")
+                # URLs consumed by the container acceptance client must resolve inside this network.
+                for name in self.applications:
+                    services[name].setdefault("environment", {})["MINIO_PUBLIC_ENDPOINT"] = "minio:9000"
             for name in set(services) - keep:
                 del services[name]
             for service in services.values():
@@ -274,6 +281,9 @@ class Runner:
             for name, port in (("gateway", 8080), ("realtime-service", 8081), ("realtime-b", 8081)):
                 services[name]["ports"] = [{"target": port, "published": "0",
                                             "host_ip": "127.0.0.1", "protocol": "tcp"}]
+            if "minio" in services:
+                services["minio"]["ports"] = [{"target": 9000, "published": "0",
+                                               "host_ip": "127.0.0.1", "protocol": "tcp"}]
         if self.args.database_access:
             services["postgres"]["ports"] = [{"target": 5432, "published": "0",
                                              "host_ip": "127.0.0.1", "protocol": "tcp"}]
@@ -396,6 +406,11 @@ class Runner:
                 if not address.startswith("127.0.0.1:") or "\n" in address:
                     raise LayerFailure(f"browser-access: {service} did not publish a single loopback address")
                 access[key] = f"{scheme}://{address}{path}"
+            if "minio" in self.model["services"]:
+                address = self.compose("browser-port-minio", "port", "minio", "9000", capture=True).strip()
+                if not address.startswith("127.0.0.1:") or "\n" in address:
+                    raise LayerFailure("browser-access: minio did not publish a single loopback address")
+                access["minio"] = "http://" + address
         manifest = self.directory / "environment.json"
         manifest.write_text(json.dumps(access, indent=2) + "\n")
         manifest.chmod(0o600)
@@ -530,7 +545,7 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery")
-    parser.add_argument("--scenario", choices=("all", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
+    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")

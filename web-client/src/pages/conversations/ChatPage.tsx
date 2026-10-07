@@ -28,7 +28,7 @@ import { GroupInfoDrawer } from './GroupInfoDrawer';
 import { SummaryPanel } from './components/SummaryPanel';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { MsgContentOneof, ConvMember, AudioContent, KnowledgeSource } from '@/types/model';
+import type { MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource } from '@/types/model';
 import type { SendMsgContent, SearchMessagesReq } from '@/types/api';
 import { sequence } from '@/utils/json';
 
@@ -74,7 +74,7 @@ function convTitle(c: any): string {
 
 // ─── File icon helper ───
 function getFileIcon(ext: string) {
-  const lower = ext.toLowerCase();
+  const lower = ext.replace(/^\./, '').toLowerCase();
   if (/^(jpg|jpeg|png|gif|webp|svg|bmp)$/.test(lower)) return <FileImageOutlined style={{ color: '#00a854', fontSize: 28 }} />;
   if (lower === 'pdf') return <FilePdfOutlined style={{ color: '#f40f02', fontSize: 28 }} />;
   if (/^(doc|docx)$/.test(lower)) return <FileTextOutlined style={{ color: '#2b579a', fontSize: 28 }} />;
@@ -85,7 +85,7 @@ function getFileIcon(ext: string) {
 }
 
 // ─── Audio Player for voice messages ───
-function AudioPlayer({ audio }: { audio: AudioContent }) {
+function AudioPlayer({ audio, onError }: { audio: AudioContent; onError?: () => void }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -113,8 +113,7 @@ function AudioPlayer({ audio }: { audio: AudioContent }) {
       el.pause();
       setPlaying(false);
     } else {
-      el.play().catch(() => {});
-      setPlaying(true);
+      void el.play().then(() => setPlaying(true)).catch(() => message.error('音频播放失败，请重试'));
     }
   };
 
@@ -130,14 +129,61 @@ function AudioPlayer({ audio }: { audio: AudioContent }) {
 
   return (
     <div className="chat-msg-audio">
-      <audio ref={audioRef} src={audio.url} preload="metadata" />
-      <button className="chat-msg-audio-btn" onClick={togglePlay}>
+      <audio ref={audioRef} src={audio.url} preload="metadata" onError={onError} />
+      <button className="chat-msg-audio-btn" onClick={togglePlay} aria-label={playing ? '暂停语音' : '播放语音'}>
         {playing ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
       </button>
       <div className="chat-msg-audio-track" onClick={handleTrackClick}>
         <div className="chat-msg-audio-progress" style={{ width: `${pct}%` }} />
       </div>
       <span className="chat-msg-audio-duration">{audio.duration || 0}"</span>
+    </div>
+  );
+}
+
+function useFileDownload(fileId?: string) {
+  const userId = useAuthStore((state) => state.user?.id);
+  const revision = useAuthStore((state) => state.revision);
+  return useQuery({
+    queryKey: ['file', userId, revision, fileId, 'download'],
+    queryFn: () => fileApi.getDownloadUrl(fileId!),
+    enabled: !!userId && !!fileId,
+    retry: false,
+    refetchInterval: (query) => query.state.data?.expires_at
+      ? Math.max(1000, query.state.data.expires_at * 1000 - Date.now() - 30000)
+      : false,
+  });
+}
+
+function Attachment({ kind, attachment, onPreview }: {
+  kind: 'image' | 'video' | 'audio' | 'file';
+  attachment: ImageContent | VideoContent | AudioContent | FileContent;
+  onPreview?: (file: FileContent) => void;
+}) {
+  const { data, isPending, isError, refetch } = useFileDownload(attachment.file_id);
+  const [mediaFailed, setMediaFailed] = useState(false);
+  useEffect(() => setMediaFailed(false), [data?.download_url]);
+  if (isPending) return <Spin size="small" />;
+  if (isError || !data || mediaFailed) return <Button size="small" onClick={() => { setMediaFailed(false); void refetch(); }}>附件不可用，重试</Button>;
+  const { file, download_url: url } = data;
+  const details = <Button type="link" size="small" onClick={() => onPreview?.({ ...file, url })}>附件详情</Button>;
+  if (kind === 'image') return (
+    <div className="chat-msg-image">
+      <Image src={url} alt={file.name || '图片'} style={{ maxWidth: 240, maxHeight: 240 }} preview={{ mask: '点击预览' }} onError={() => setMediaFailed(true)} />
+      {details}
+    </div>
+  );
+  if (kind === 'video') return <div><video src={url} controls preload="metadata" style={{ maxWidth: 320, maxHeight: 240 }} onError={() => setMediaFailed(true)} />{details}</div>;
+  if (kind === 'audio') return <div><AudioPlayer audio={{ ...(attachment as AudioContent), url, size: file.size, duration: file.duration || (attachment as AudioContent).duration }} onError={() => setMediaFailed(true)} />{details}</div>;
+  return (
+    <div className="chat-msg-file" role="button" tabIndex={0}
+      onClick={() => onPreview?.({ ...file, url })}
+      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onPreview?.({ ...file, url }); } }}>
+      {getFileIcon(file.ext)}
+      <div className="chat-msg-file-info">
+        <div className="chat-msg-file-name">{file.name || '文件'}</div>
+        <div className="chat-msg-file-size">{`${(file.size / 1024).toFixed(1)} KB`}</div>
+      </div>
     </div>
   );
 }
@@ -165,43 +211,14 @@ function ChatMarkdown({ children }: { children: string }) {
   );
 }
 
-function renderContent(content: MsgContentOneof, onFilePreview?: (f: any) => void) {
+function renderContent(content: MsgContentOneof, onFilePreview?: (file: FileContent) => void) {
   if ('text' in content) {
     return <ChatMarkdown>{content.text.text}</ChatMarkdown>;
   }
-  if ('image' in content) {
-    const img = content.image;
-    return (
-      <div className="chat-msg-image">
-        <Image
-          src={img.url}
-          alt="图片"
-          style={{ maxWidth: 240, maxHeight: 240 }}
-          preview={{ mask: '点击预览' }}
-          fallback="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQwIiBoZWlnaHQ9IjI0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNjMGMwYzAiIGZvbnQtc2l6ZT0iMTQiPuWbvueJueWKqOWPkeWksei0pTwvdGV4dD48L3N2Zz4="
-        />
-      </div>
-    );
-  }
-  if ('file' in content) {
-    const f = content.file;
-    const ext = f.ext || (f.name?.includes('.') ? f.name.split('.').pop() : '') || '';
-    return (
-      <div className="chat-msg-file" onClick={() => onFilePreview?.(f)}>
-        {getFileIcon(ext)}
-        <div className="chat-msg-file-info">
-          <div className="chat-msg-file-name">{f.name || '文件'}</div>
-          <div className="chat-msg-file-size">{f.size ? `${(f.size / 1024).toFixed(1)} KB` : ''}</div>
-        </div>
-      </div>
-    );
-  }
-  if ('audio' in content) {
-    return <AudioPlayer audio={content.audio} />;
-  }
-  if ('video' in content) {
-    return <span>🎬 [视频消息]</span>;
-  }
+  if ('image' in content) return <Attachment kind="image" attachment={content.image} onPreview={onFilePreview} />;
+  if ('file' in content) return <Attachment kind="file" attachment={content.file} onPreview={onFilePreview} />;
+  if ('audio' in content) return <Attachment kind="audio" attachment={content.audio} onPreview={onFilePreview} />;
+  if ('video' in content) return <Attachment kind="video" attachment={content.video} onPreview={onFilePreview} />;
   if ('system' in content) {
     return <span style={{ color: 'var(--aim-text-tertiary)', fontSize: 12, fontStyle: 'italic' }}>{content.system.detail || content.system.action}</span>;
   }
@@ -348,75 +365,89 @@ function isBotMember(m: ConvMember): boolean {
 }
 
 // ─── File Preview Modal ───
-function FilePreviewModal({ file, onClose }: { file: any; onClose: () => void }) {
+function FilePreviewModal({ file, onClose }: { file: FileContent; onClose: () => void }) {
+  const download = useFileDownload(file.file_id);
+  const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id);
+  const revision = useAuthStore((state) => state.revision);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
-
-  const ext = (file?.name?.includes('.') ? file.name.split('.').pop() : '') || '';
-  const isImage = file?.mime_type?.startsWith('image/') || /^(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(ext);
-  const isPdf = file?.mime_type === 'application/pdf' || ext.toLowerCase() === 'pdf';
+  const [downloading, setDownloading] = useState(false);
+  const [deleted, setDeleted] = useState(false);
+  const info = download.data?.file;
+  const url = !download.isError && !deleted ? download.data?.download_url : undefined;
+  const ext = info?.ext.replace(/^\./, '') || '';
+  const isImage = info?.mime_type.startsWith('image/');
+  const isVideo = info?.mime_type.startsWith('video/');
+  const isAudio = info?.mime_type.startsWith('audio/');
+  const isPdf = info?.mime_type === 'application/pdf';
   const isRenderableText = /^(md|txt|json|xml|csv|yaml|yml|log|sh|js|ts|tsx|jsx|py|go|java|rb|rs|css|scss|less|html)$/i.test(ext);
+  const deletion = useMutation({
+    mutationFn: () => fileApi.deleteFile(file.file_id),
+    onSuccess: () => {
+      setDeleted(true);
+      void queryClient.invalidateQueries({ queryKey: ['file', userId, revision, file.file_id] });
+      message.success('文件已删除');
+    },
+    onError: () => message.error('文件删除失败'),
+  });
 
   useEffect(() => {
-    if (!file || !isRenderableText) return;
-    setLoading(true);
+    setTextContent(null);
     setFetchError(false);
-    fetch(file.url)
-      .then((r) => {
-        if (!r.ok) throw new Error('fetch failed');
-        return r.text();
+    if (!url || !isRenderableText) { setLoading(false); return; }
+    const controller = new AbortController();
+    setLoading(true);
+    void fetch(url, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error('文件预览失败');
+        return response.text();
       })
-      .then(setTextContent)
-      .catch(() => { setFetchError(true); setTextContent(''); })
-      .finally(() => setLoading(false));
-  }, [file]);
+      .then((text) => { if (!controller.signal.aborted) setTextContent(text); })
+      .catch(() => { if (!controller.signal.aborted) setFetchError(true); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [url, isRenderableText]);
 
-  if (!file) return null;
-
-  const title = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      {getFileIcon(ext)}
-      <span style={{ fontSize: 14 }}>{file.name || '文件预览'}</span>
-    </div>
-  );
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const fresh = await fileApi.getDownloadUrl(file.file_id);
+      if (useAuthStore.getState().user?.id !== userId || useAuthStore.getState().revision !== revision) return;
+      const response = await fetch(fresh.download_url);
+      if (!response.ok) throw new Error('文件下载失败');
+      const blob = await response.blob();
+      if (useAuthStore.getState().user?.id !== userId || useAuthStore.getState().revision !== revision) return;
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = fresh.file.name;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch { message.error('文件下载失败'); }
+    finally { setDownloading(false); }
+  };
 
   return (
-    <AntModal
-      title={title}
-      open={!!file}
-      onCancel={onClose}
-      footer={null}
-      width={800}
+    <AntModal title={info?.name || file.name || '文件预览'} open onCancel={onClose} width={800}
       styles={{ body: { maxHeight: '80vh', overflow: 'auto' } }}
-    >
-      {loading && <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>}
-      {!loading && isImage && (
-        <div style={{ textAlign: 'center' }}>
-          <Image src={file.url} style={{ maxWidth: '100%' }} />
-        </div>
-      )}
-      {!loading && isPdf && (
-        <iframe src={file.url} style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 8 }} title="PDF 预览" />
-      )}
-      {!loading && isRenderableText && fetchError && (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--aim-text-tertiary)' }}>
-          <p>无法加载文件内容</p>
-          <Button type="primary" href={file.url} target="_blank" icon={<DownloadOutlined />}>下载文件</Button>
-        </div>
-      )}
-      {!loading && isRenderableText && !fetchError && (
-        ext.toLowerCase() === 'md'
+      footer={deleted ? null : <>
+        {info?.uploader_id === userId && <Button danger disabled={!url || downloading} loading={deletion.isPending} onClick={() => {
+          AntModal.confirm({ title: '删除文件？', content: '删除后，消息中的附件将无法访问。', okText: '删除', okButtonProps: { danger: true }, onOk: () => deletion.mutateAsync() });
+        }}>删除文件</Button>}
+        <Button type="primary" icon={<DownloadOutlined />} disabled={!url || deletion.isPending} loading={downloading} onClick={() => void handleDownload()}>下载文件</Button>
+      </>}>
+      {deleted ? <p role="status">文件已删除</p> : download.isError ? <div role="alert"><p>文件不可用或无权访问</p><Button onClick={() => void download.refetch()}>重试</Button></div> : download.isPending || loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> : url && <>
+        {isImage && <Image src={url} alt={info?.name || '图片'} style={{ maxWidth: '100%' }} onError={() => message.error('图片预览失败')} />}
+        {isVideo && <video src={url} controls style={{ maxWidth: '100%' }} onError={() => message.error('视频预览失败')} />}
+        {isAudio && <audio src={url} controls onError={() => message.error('音频预览失败')} />}
+        {isPdf && <iframe src={url} style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 8 }} title="PDF 预览" />}
+        {isRenderableText && (fetchError ? <p role="alert">无法加载文件内容</p> : ext.toLowerCase() === 'md'
           ? <div className="chat-msg-bubble" style={{ background: 'var(--aim-surface)', border: '1px solid var(--aim-border)' }}><ChatMarkdown>{textContent || ''}</ChatMarkdown></div>
-          : <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, lineHeight: 1.6, margin: 0 }}>{textContent}</pre>
-      )}
-      {!loading && !isImage && !isPdf && !isRenderableText && (
-        <div style={{ textAlign: 'center', padding: 40 }}>
-          <FileOutlined style={{ fontSize: 48, color: 'var(--aim-text-tertiary)' }} />
-          <p style={{ marginTop: 12, color: 'var(--aim-text-secondary)' }}>此文件类型暂不支持预览</p>
-          <Button type="primary" href={file.url} target="_blank" icon={<DownloadOutlined />}>下载文件</Button>
-        </div>
-      )}
+          : <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, lineHeight: 1.6, margin: 0 }}>{textContent}</pre>)}
+        {!isImage && !isVideo && !isAudio && !isPdf && !isRenderableText && <p>此文件类型暂不支持预览</p>}
+      </>}
     </AntModal>
   );
 }
@@ -543,7 +574,8 @@ export function ChatPage() {
   const [editText, setEditText] = useState('');
 
   // File preview for in-page file viewing
-  const [filePreview, setFilePreview] = useState<any>(null);
+  const [filePreview, setFilePreview] = useState<FileContent | null>(null);
+  useEffect(() => setFilePreview(null), [id, currentUserId, authRevision]);
   const [replyCandidates, setReplyCandidates] = useState<string[]>([]);
   const [translateMap, setTranslateMap] = useState<Record<string, string>>({});
   // Clear streaming state when conversation changes
@@ -1028,16 +1060,17 @@ export function ChatPage() {
         name: file.name,
         mime_type: file.type || 'application/octet-stream',
         size: file.size,
+        purpose: 1,
+        access: 3,
       });
-      await fetch(uploadData.upload_url, {
+      const uploaded = await fetch(uploadData.upload_url, {
         method: 'PUT',
         body: file,
         headers: { 'Content-Type': file.type || 'application/octet-stream' },
       });
+      if (!uploaded.ok) throw new Error('文件上传失败');
       const fileInfo = await fileApi.confirmUpload(uploadData.file_id);
-      const downloadData = await fileApi.getDownloadUrl(uploadData.file_id);
-      const fileId = fileInfo.file_id;
-      return { fileId, downloadUrl: downloadData.download_url, fileInfo };
+      return fileInfo;
     } finally {
       setUploading(false);
     }
@@ -1053,10 +1086,10 @@ export function ChatPage() {
     if (!file) return;
     e.target.value = '';
     try {
-      const { fileId, downloadUrl } = await uploadFile(file);
+      const fileInfo = await uploadFile(file);
       sendMutation.mutate({
         type: 2,
-        content: { files: [{ file_id: fileId, url: downloadUrl, file_name: file.name, mime_type: file.type, size: file.size }] },
+        content: { files: [{ file_id: fileInfo.file_id, file_name: fileInfo.name, mime_type: fileInfo.mime_type, size: fileInfo.size }] },
       });
     } catch {
       message.error('图片发送失败');
@@ -1073,10 +1106,10 @@ export function ChatPage() {
     if (!file) return;
     e.target.value = '';
     try {
-      const { fileId, downloadUrl } = await uploadFile(file);
+      const fileInfo = await uploadFile(file);
       sendMutation.mutate({
-        type: 3,
-        content: { files: [{ file_id: fileId, url: downloadUrl, file_name: file.name, mime_type: file.type, size: file.size }] },
+        type: fileInfo.mime_type.startsWith('image/') ? 2 : fileInfo.mime_type.startsWith('video/') ? 4 : fileInfo.mime_type.startsWith('audio/') ? 5 : 3,
+        content: { files: [{ file_id: fileInfo.file_id, file_name: fileInfo.name, mime_type: fileInfo.mime_type, size: fileInfo.size, duration: fileInfo.duration }] },
       });
     } catch {
       message.error('文件发送失败');
@@ -1107,10 +1140,10 @@ export function ChatPage() {
         const duration = recordingDurationRef.current;
 
         try {
-          const { fileId, downloadUrl } = await uploadFile(file);
+          const fileInfo = await uploadFile(file);
           sendMutation.mutate({
             type: 5,
-            content: { files: [{ file_id: fileId, url: downloadUrl, file_name: file.name, mime_type: file.type, size: file.size, duration }] },
+            content: { files: [{ file_id: fileInfo.file_id, file_name: fileInfo.name, mime_type: fileInfo.mime_type, size: fileInfo.size, duration }] },
           });
         } catch {
           message.error('语音发送失败');
@@ -1201,10 +1234,10 @@ export function ChatPage() {
     }
 
     try {
-      const { fileId, downloadUrl } = await uploadFile(file);
+      const fileInfo = await uploadFile(file);
       sendMutation.mutate({
         type: 2,
-        content: { files: [{ file_id: fileId, url: downloadUrl, file_name: file.name, mime_type: file.type, size: file.size }] },
+        content: { files: [{ file_id: fileInfo.file_id, file_name: fileInfo.name, mime_type: fileInfo.mime_type, size: fileInfo.size }] },
       });
     } catch {
       message.error('图片发送失败');
@@ -2084,7 +2117,7 @@ export function ChatPage() {
 
 
       {/* File Preview Modal */}
-      <FilePreviewModal file={filePreview} onClose={() => setFilePreview(null)} />
+      {filePreview && <FilePreviewModal key={filePreview.file_id} file={filePreview} onClose={() => setFilePreview(null)} />}
     </>
     );
   }

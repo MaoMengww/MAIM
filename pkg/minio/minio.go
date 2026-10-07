@@ -1,9 +1,12 @@
 package minio
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 
@@ -13,8 +16,11 @@ import (
 	"github.com/maomeng/aim/pkg/config"
 )
 
+var ErrObjectNotFound = errors.New("object not found")
+
 type Client struct {
 	client         *minio.Client
+	signer         *minio.Client
 	bucket         string
 	publicEndpoint string
 }
@@ -39,7 +45,23 @@ func NewClient(cfg config.MinIOConfig) (*Client, error) {
 		return nil, fmt.Errorf("create minio client failed: %w", err)
 	}
 
-	return &Client{client: client, bucket: cfg.Bucket, publicEndpoint: cfg.PublicEndpoint}, nil
+	signer := client
+	if cfg.PublicEndpoint != "" {
+		endpoint, err := url.Parse(withScheme(cfg.PublicEndpoint, client.EndpointURL().Scheme))
+		if err != nil || endpoint.Host == "" || endpoint.User != nil || endpoint.Path != "" || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
+			return nil, fmt.Errorf("invalid minio public endpoint")
+		}
+		// Sign the browser-visible host itself; changing it after signing invalidates SigV4.
+		signer, err = minio.New(endpoint.Host, &minio.Options{
+			Creds:  miniocred.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+			Secure: endpoint.Scheme == "https",
+			Region: cmp.Or(cfg.Region, "us-east-1"),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create minio signing client failed: %w", err)
+		}
+	}
+	return &Client{client: client, signer: signer, bucket: cfg.Bucket, publicEndpoint: cfg.PublicEndpoint}, nil
 }
 
 func (c *Client) Bucket() string {
@@ -82,6 +104,22 @@ func (c *Client) Download(ctx context.Context, objectName string) (io.ReadCloser
 	return obj, nil
 }
 
+func (c *Client) Stat(ctx context.Context, objectName string) (int64, string, error) {
+	if objectName == "" {
+		return 0, "", fmt.Errorf("object name is required")
+	}
+	info, err := c.client.StatObject(ctx, c.bucket, objectName, minio.StatObjectOptions{})
+	if err != nil {
+		switch minio.ToErrorResponse(err).Code {
+		case "NoSuchKey", "NoSuchObject", "NotFound":
+			return 0, "", fmt.Errorf("stat object: %w", ErrObjectNotFound)
+		default:
+			return 0, "", fmt.Errorf("stat object: %w", err)
+		}
+	}
+	return info.Size, info.ETag, nil
+}
+
 func (c *Client) Delete(ctx context.Context, objectName string) error {
 	if objectName == "" {
 		return fmt.Errorf("object name is required")
@@ -96,11 +134,11 @@ func (c *Client) PresignedURL(ctx context.Context, objectName string, expiry tim
 	if expiry <= 0 {
 		expiry = time.Hour
 	}
-	url, err := c.client.PresignedGetObject(ctx, c.bucket, objectName, expiry, nil)
+	url, err := c.signer.PresignedGetObject(ctx, c.bucket, objectName, expiry, nil)
 	if err != nil {
 		return "", fmt.Errorf("generate presigned url failed: %w", err)
 	}
-	return c.replaceEndpoint(url.String()), nil
+	return url.String(), nil
 }
 
 func (c *Client) PresignedPutURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
@@ -110,11 +148,11 @@ func (c *Client) PresignedPutURL(ctx context.Context, objectName string, expiry 
 	if expiry <= 0 {
 		expiry = time.Hour
 	}
-	url, err := c.client.PresignedPutObject(ctx, c.bucket, objectName, expiry)
+	url, err := c.signer.PresignedPutObject(ctx, c.bucket, objectName, expiry)
 	if err != nil {
 		return "", fmt.Errorf("generate presigned put url failed: %w", err)
 	}
-	return c.replaceEndpoint(url.String()), nil
+	return url.String(), nil
 }
 
 func (c *Client) ListObjects(ctx context.Context, prefix string, recursive bool) <-chan minio.ObjectInfo {
@@ -124,7 +162,7 @@ func (c *Client) ListObjects(ctx context.Context, prefix string, recursive bool)
 	})
 }
 
-// SetPublicBucketPolicy sets the bucket policy to allow public read access.
+// SetPublicBucketPolicy allows anonymous reads only of explicitly public objects.
 func (c *Client) SetPublicBucketPolicy(ctx context.Context) error {
 	policy := fmt.Sprintf(`{
 		"Version": "2012-10-17",
@@ -132,7 +170,7 @@ func (c *Client) SetPublicBucketPolicy(ctx context.Context) error {
 			"Effect": "Allow",
 			"Principal": {"AWS": ["*"]},
 			"Action": ["s3:GetObject"],
-			"Resource": ["arn:aws:s3:::%s/*"]
+			"Resource": ["arn:aws:s3:::%s/public/*"]
 		}]
 	}`, c.bucket)
 	return c.client.SetBucketPolicy(ctx, c.bucket, policy)

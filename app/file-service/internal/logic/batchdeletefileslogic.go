@@ -25,6 +25,12 @@ func NewBatchDeleteFilesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *
 }
 
 func (l *BatchDeleteFilesLogic) BatchDeleteFiles(in *filepb.BatchDeleteFilesReq) (*common.BaseResponse, error) {
+	if err := validateIdentities(in.GetUserId()); err != nil {
+		return nil, err
+	}
+	if err := validateIdentities(in.GetFileIds()...); err != nil {
+		return nil, err
+	}
 	ids := in.GetFileIds()
 	if len(ids) == 0 {
 		return &common.BaseResponse{Code: 0, Message: "ok"}, nil
@@ -32,22 +38,28 @@ func (l *BatchDeleteFilesLogic) BatchDeleteFiles(in *filepb.BatchDeleteFilesReq)
 
 	files, err := l.svcCtx.FileRepo.BatchGetByIDs(l.ctx, ids)
 	if err != nil {
-		return nil, err
+		return nil, grpcError(err)
 	}
 
-	var validIDs []int64
+	var validIDs []string
+	var storageErr error
 	for _, f := range files {
 		if f.UploaderID == in.GetUserId() {
-			// best-effort delete from MinIO
-			_ = l.svcCtx.MinIO.Delete(l.ctx, f.Key)
+			if err := l.svcCtx.MinIO.Delete(l.ctx, f.Key); err != nil {
+				storageErr = err
+				break
+			}
 			validIDs = append(validIDs, f.ID)
 		}
 	}
 
 	if len(validIDs) > 0 {
 		if err := l.svcCtx.FileRepo.BatchDelete(l.ctx, validIDs); err != nil {
-			return nil, err
+			return nil, grpcError(err)
 		}
+	}
+	if storageErr != nil {
+		return nil, grpcError(storageErr)
 	}
 
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil

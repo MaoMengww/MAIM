@@ -3,7 +3,7 @@ package model
 import "time"
 
 type File struct {
-	ID         int64     `gorm:"primaryKey;column:id" json:"id"`
+	ID         string    `gorm:"primaryKey;column:id;type:uuid;autoIncrement:false" json:"id"`
 	Name       string    `gorm:"column:name;size:512;not null;default:''" json:"name"`
 	Key        string    `gorm:"column:key;size:512;not null" json:"key"`
 	Size       int64     `gorm:"column:size;not null;default:0" json:"size"`
@@ -15,7 +15,7 @@ type File struct {
 	Md5        string    `gorm:"column:md5;size:64;not null;default:''" json:"md5"`
 	Purpose    int32     `gorm:"column:purpose;not null;default:0" json:"purpose"`
 	Access     int32     `gorm:"column:access;not null;default:0" json:"access"`
-	UploaderID int64     `gorm:"column:uploader_id;not null;default:0" json:"uploader_id"`
+	UploaderID string    `gorm:"column:uploader_id;type:uuid;not null" json:"uploader_id"`
 	Bucket     string    `gorm:"column:bucket;size:128;not null;default:aim" json:"bucket"`
 	CreatedAt  time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 }

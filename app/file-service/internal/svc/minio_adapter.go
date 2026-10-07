@@ -38,6 +38,10 @@ func (a *minioAdapter) Delete(ctx context.Context, objectName string) error {
 	return a.cli.Delete(ctx, objectName)
 }
 
+func (a *minioAdapter) Stat(ctx context.Context, objectName string) (int64, string, error) {
+	return a.cli.Stat(ctx, objectName)
+}
+
 func (a *minioAdapter) PresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
 	return a.cli.PresignedURL(ctx, objectName, expiry)
 }

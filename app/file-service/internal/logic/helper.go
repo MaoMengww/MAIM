@@ -2,7 +2,7 @@ package logic
 
 import (
 	"bytes"
-	"fmt"
+	"errors"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -14,11 +14,14 @@ import (
 	"github.com/maomeng/aim/app/file-service/internal/model"
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	pkg_errors "github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
+	minioclient "github.com/maomeng/aim/pkg/minio"
+	"gorm.io/gorm"
 )
 
-func formatObjectKey(fileID int64, ext string) string {
+func formatObjectKey(fileID string, ext string) string {
 	date := time.Now().Format("2006/01/02")
-	return fmt.Sprintf("files/%s/%d%s", date, fileID, ext)
+	return "files/" + date + "/" + fileID + ext
 }
 
 func extFromName(name string) string {
@@ -31,6 +34,22 @@ func extFromName(name string) string {
 
 func grpcError(err error) error {
 	return pkg_errors.ToGRPCError(err)
+}
+
+func validateIdentities(ids ...string) error {
+	for _, id := range ids {
+		if err := identity.Validate(id); err != nil {
+			return grpcError(ErrInvalidParam)
+		}
+	}
+	return nil
+}
+
+func fileLookupError(err error) error {
+	if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, minioclient.ErrObjectNotFound) {
+		return grpcError(ErrFileNotFound)
+	}
+	return grpcError(err)
 }
 
 func decodeImageDimensions(data []byte) (int32, int32) {

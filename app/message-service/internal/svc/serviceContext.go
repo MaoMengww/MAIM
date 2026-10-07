@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	"github.com/maomeng/aim/app/message-service/internal/config"
 	"github.com/maomeng/aim/app/message-service/internal/dispatcher"
 	"github.com/maomeng/aim/app/message-service/internal/es"
@@ -17,6 +18,7 @@ import (
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 	goredis "github.com/redis/go-redis/v9"
+	"github.com/zeromicro/go-zero/zrpc"
 )
 
 // ServiceContext holds the message domain: conversations and members, the
@@ -40,6 +42,8 @@ type ServiceContext struct {
 	OutboxDispatcher       *dispatcher.OutboxDispatcher
 	ConversationRepo       *repo.ConversationRepo
 	ProfileRepo            *repo.ProfileRepo
+	FileClient             filepb.FileServiceClient
+	fileConn               zrpc.Client
 
 	// SendSystemMessage emits a system message through the same in-process send
 	// path as a user message. It is injected by main so the conversation logic
@@ -120,6 +124,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		panic(fmt.Sprintf("ensure message search index failed: %v", err))
 	}
 
+	fileConn := zrpc.MustNewClient(c.FileService)
+
 	return &ServiceContext{
 		Config:                 c,
 		DB:                     db,
@@ -136,6 +142,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		OutboxRepo:             repo.NewOutboxRepo(db),
 		ConversationRepo:       repo.NewConversationRepo(db),
 		ProfileRepo:            repo.NewProfileRepo(db),
+		FileClient:             filepb.NewFileServiceClient(fileConn.Conn()),
+		fileConn:               fileConn,
 		OutboxDispatcher: dispatcher.NewOutboxDispatcher(
 			repo.NewOutboxRepo(db),
 			map[string]*kafka.Producer{
@@ -147,6 +155,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 }
 
 func (s *ServiceContext) Close() {
+	if s.fileConn != nil {
+		_ = s.fileConn.Conn().Close()
+	}
 	if s.DeliveryPublisher != nil {
 		_ = s.DeliveryPublisher.Close()
 	}

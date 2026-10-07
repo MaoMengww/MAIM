@@ -43,7 +43,6 @@ export interface SendMsgContent {
   mention_all?: boolean;
   files?: Array<{
     file_id: string;
-    url?: string;
     file_name?: string;
     size?: number;
     mime_type?: string;

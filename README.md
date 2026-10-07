@@ -222,6 +222,7 @@ docker compose up -d --build
 python3 tests/e2e/run.py --scenario all --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario user-identity --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario messaging --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --scenario attachments --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p5 --artifacts /tmp/aim-e2e-artifacts
@@ -237,6 +238,10 @@ python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifact
 `user-identity` 只启动 user、gateway、双 realtime 及其真实中间件，复用 relationships 并验证注册/登录/刷新/资料/设置、跨账号拒绝、通知持久化/跨实例 WS/离线列表、设备稳定重连和撤销后旧 token 不复活。它不证明尚未迁移的其它 domain 可用；全仓和完整栈验收由第 08 票完成。
 
 `messaging` 只启动 user、message、gateway、双 realtime 与 PostgreSQL/Redis/Kafka/Elasticsearch 等真实依赖，复用 conversation-unread、broadcasts、user-sync、同实例 A/B 和跨实例场景。覆盖丢确认后的原结果重试、并发唯一提交、异义冲突、发送者/会话隔离、权限恢复、历史序号分页、个人删除与搜索；不替换尚未迁移的 Bot、文件或知识业务。
+
+`attachments` 启动 user、message、file、gateway、双 realtime 与真实 MinIO/PostgreSQL/Redis/Kafka/Elasticsearch。验证真实 PUT/确认/下载的字节一致性、四种附件的 UUID 在确认/WS/历史/离线收件箱中一致、同键重试与换文件冲突（包括文件删除后的原提交回放）、回复与文本搜索引用、私有对象匿名访问拒绝，以及消息删除、单个/批量文件删除的对象隔离。没有 Bot 或知识 service 替身。普通聊天上传显式使用既有公开访问级别；私有附件仅上传者读取，未新增会话成员授权策略。文件实体身份与对象键、临时签名 URL 各司其职；消息 domain 分配提交结果，gateway 不拥有附件提交判定。
+
+使用 `attachments --keep-environment DIR --browser-access` 时，清单额外记录真实 MinIO 的随机回环端口。容器验收默认使用 `minio:9000`；浏览器验证前将该隔离环境 file-service 的 `MINIO_PUBLIC_ENDPOINT` 设置为清单的 MinIO 地址并重建该容器。SDK 对浏览器可见 host 本身签名，不在签名后替换 host。公开对象只允许 `public/*` 匿名读取，私有对象通过鉴权后的有效期下载 URL 访问。
 
 `user-sync` 检查空流重建、单个位点跨会话分页、消息正文与账号隔离、新设备最近历史及置顶/免打扰设置、未知位点重建和续增量；同账号两设备个人删除他人消息后同步隐藏，原发送者仍可读取，搜索/历史/回复摘要/会话预览及新设备重建不泄露正文。过期回收后不复活与并发未提交写入窗口由真实 PostgreSQL 的集成回归覆盖。
 

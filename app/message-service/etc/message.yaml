@@ -22,6 +22,10 @@ Kafka:
 Elasticsearch:
   addresses: ${ELASTICSEARCH_ADDRESSES}
 
+FileService:
+  Target: ${FILE_SERVICE_ADDR}
+  NonBlock: true
+
 Message:
   recallWindowSeconds: 120
   editWindowSeconds: 120

@@ -45,6 +45,7 @@ type storedMessage struct {
 		MessageID  entityID  `json:"message_id"`
 		SenderID   *entityID `json:"sender_id"`
 		SenderType string    `json:"sender_type"`
+		Type       int32     `json:"type"`
 		SenderName string    `json:"sender_name"`
 		Preview    string    `json:"preview"`
 		Deleted    bool      `json:"deleted"`
@@ -55,6 +56,10 @@ type storedMessage struct {
 	Bot *struct {
 		Text string `json:"text"`
 	} `json:"bot"`
+	Image *attachmentPart `json:"image"`
+	Audio *attachmentPart `json:"audio"`
+	Video *attachmentPart `json:"video"`
+	File  *attachmentPart `json:"file"`
 }
 
 // conversations exercises only real authenticated HTTP and WebSocket surfaces.

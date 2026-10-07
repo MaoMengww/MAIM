@@ -11,6 +11,7 @@ import (
 	"github.com/maomeng/aim/app/file-service/internal/model"
 	"github.com/maomeng/aim/app/file-service/internal/svc"
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
+	"github.com/maomeng/aim/pkg/identity"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -30,6 +31,9 @@ func NewUploadAvatarLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Uplo
 }
 
 func (l *UploadAvatarLogic) UploadAvatar(in *filepb.UploadAvatarReq) (*filepb.UploadAvatarResp, error) {
+	if err := validateIdentities(in.GetUserId()); err != nil {
+		return nil, err
+	}
 	data := in.GetData()
 	if len(data) == 0 {
 		return nil, grpcError(ErrInvalidParam)
@@ -43,12 +47,12 @@ func (l *UploadAvatarLogic) UploadAvatar(in *filepb.UploadAvatarReq) (*filepb.Up
 		return nil, grpcError(ErrUnsupportedType)
 	}
 
-	fileID, err := l.svcCtx.Snowflake.Generate()
+	fileID, err := identity.New()
 	if err != nil {
-		return nil, fmt.Errorf("generate file id failed: %w", err)
+		return nil, grpcError(err)
 	}
 	ext := mimeToExt(mimeType)
-	key := formatObjectKey(fileID, ext)
+	key := "public/" + formatObjectKey(fileID, ext)
 
 	info, err := l.svcCtx.MinIO.Upload(l.ctx, key, bytes.NewReader(data), int64(len(data)), mimeType)
 	if err != nil {
@@ -57,12 +61,12 @@ func (l *UploadAvatarLogic) UploadAvatar(in *filepb.UploadAvatarReq) (*filepb.Up
 
 	width, height := decodeImageDimensions(data)
 
-	thumbnailURL := l.generateThumbnail(data, fileID, ext, in)
+	thumbnailURL := l.generateThumbnail(data, fileID, in)
 
 	now := time.Now()
 	f := &model.File{
 		ID:         fileID,
-		Name:       fmt.Sprintf("avatar_%d%s", fileID, ext),
+		Name:       fmt.Sprintf("avatar_%s%s", fileID, ext),
 		Key:        key,
 		Size:       info.Size,
 		MimeType:   mimeType,
@@ -84,7 +88,7 @@ func (l *UploadAvatarLogic) UploadAvatar(in *filepb.UploadAvatarReq) (*filepb.Up
 	metrics.FileUploadTotal.Inc("avatar")
 	metrics.FileStorageBytes.Add(float64(info.Size), "avatar")
 
-	l.Infof("avatar uploaded: user_id=%d file_id=%d", in.GetUserId(), fileID)
+	l.Infof("avatar uploaded: user_id=%s file_id=%s", in.GetUserId(), fileID)
 	return &filepb.UploadAvatarResp{
 		FileId:       fileID,
 		Url:          downloadURL,
@@ -107,8 +111,8 @@ func mimeToExt(mimeType string) string {
 	}
 }
 
-func (l *UploadAvatarLogic) generateThumbnail(data []byte, fileID int64, _ string, in *filepb.UploadAvatarReq) string {
-	thumbnailKey := fmt.Sprintf("thumbnails/%s/%d_thumb.jpg", time.Now().Format("2006/01/02"), fileID)
+func (l *UploadAvatarLogic) generateThumbnail(data []byte, fileID string, in *filepb.UploadAvatarReq) string {
+	thumbnailKey := "public/thumbnails/" + time.Now().Format("2006/01/02") + "/" + fileID + "_thumb.jpg"
 
 	targetSize := int32(200)
 	if in.TargetSize != nil && in.GetTargetSize() > 0 && in.GetTargetSize() <= 512 {
@@ -117,12 +121,12 @@ func (l *UploadAvatarLogic) generateThumbnail(data []byte, fileID int64, _ strin
 
 	thumbData, err := generateThumbnail(data, targetSize, targetSize)
 	if err != nil {
-		logx.WithContext(l.ctx).Infof("thumbnail generation failed for file %d: %v", fileID, err)
+		logx.WithContext(l.ctx).Infof("thumbnail generation failed for file %s: %v", fileID, err)
 		return ""
 	}
 
 	if _, err := l.svcCtx.MinIO.Upload(l.ctx, thumbnailKey, bytes.NewReader(thumbData), int64(len(thumbData)), "image/jpeg"); err != nil {
-		logx.WithContext(l.ctx).Infof("thumbnail upload failed for file %d: %v", fileID, err)
+		logx.WithContext(l.ctx).Infof("thumbnail upload failed for file %s: %v", fileID, err)
 		return ""
 	}
 

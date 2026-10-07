@@ -24,14 +24,17 @@ func NewGetFileInfoLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetFi
 }
 
 func (l *GetFileInfoLogic) GetFileInfo(in *filepb.GetFileInfoReq) (*filepb.GetFileInfoResp, error) {
+	if err := validateIdentities(in.GetFileId(), in.GetUserId()); err != nil {
+		return nil, err
+	}
 	f, err := l.svcCtx.FileRepo.GetByID(l.ctx, in.GetFileId())
 	if err != nil {
-		return nil, ErrFileNotFound
+		return nil, fileLookupError(err)
 	}
 
 	// Check access
 	if f.Access != int32(filepb.FileAccess_FILE_ACCESS_PUBLIC) && f.UploaderID != in.GetUserId() {
-		return nil, ErrAccessDenied
+		return nil, grpcError(ErrAccessDenied)
 	}
 
 	return &filepb.GetFileInfoResp{File: toProtoFileInfo(f)}, nil

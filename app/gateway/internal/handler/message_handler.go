@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
 	msgclient "github.com/maomeng/aim/app/message-service/client/messageservice"
@@ -19,18 +18,15 @@ import (
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/maomeng/aim/pkg/sequence"
 	"github.com/zeromicro/go-zero/zrpc"
-	"google.golang.org/grpc"
 )
 
 type MessageHandler struct {
-	msgClient  msgclient.MessageService
-	fileClient filepb.FileServiceClient
+	msgClient msgclient.MessageService
 }
 
-func NewMessageHandler(msgCli zrpc.Client, fileConn grpc.ClientConnInterface) *MessageHandler {
+func NewMessageHandler(msgCli zrpc.Client) *MessageHandler {
 	return &MessageHandler{
-		msgClient:  msgclient.NewMessageService(msgCli),
-		fileClient: filepb.NewFileServiceClient(fileConn),
+		msgClient: msgclient.NewMessageService(msgCli),
 	}
 }
 
@@ -57,25 +53,77 @@ func (h *MessageHandler) SendMessage(c *gin.Context) {
 		response.GRPCError(c, err)
 		return
 	}
-	if err := identity.Validate(resp.MessageId); err != nil {
+	writeSendMessageAck(c, rawDTO, resp)
+}
+
+func writeSendMessageAck(c *gin.Context, dto *sendMessageDTO, resp *msgclient.SendMessageResp) {
+	msg := resp.GetMessage()
+	if msg == nil || identity.Validate(msg.MessageId) != nil {
 		response.InternalError(c, "invalid message identity")
 		return
 	}
-	if err := sequence.Validate(resp.Seq); err != nil {
+	if err := sequence.Validate(msg.Seq); err != nil {
 		response.InternalError(c, "invalid message sequence")
 		return
 	}
+	if msg.ConversationId != dto.ConvID || msg.GetFromUserId() != dto.UserID {
+		response.InternalError(c, "invalid message owner")
+		return
+	}
+	content := dto.Content
+	if msg.Type != msgpb.MessageType_MESSAGE_TYPE_TEXT {
+		metadata := resp.GetFileMetadata()
+		if metadata == nil || identity.Validate(metadata.FileId) != nil {
+			response.InternalError(c, "invalid attachment metadata")
+			return
+		}
+		file := map[string]any{
+			"file_id":       metadata.FileId,
+			"file_name":     metadata.Name,
+			"mime_type":     metadata.MimeType,
+			"size":          metadata.Size,
+			"ext":           metadata.Ext,
+			"format":        metadata.Ext,
+			"url":           "",
+			"thumbnail_url": "",
+			"duration":      int32(0),
+			"width":         int32(0),
+			"height":        int32(0),
+		}
+		var fileID string
+		switch msg.Type {
+		case msgpb.MessageType_MESSAGE_TYPE_IMAGE:
+			image := msg.GetImage()
+			fileID = image.GetFileId()
+			file["width"], file["height"], file["format"] = image.GetWidth(), image.GetHeight(), image.GetFormat()
+		case msgpb.MessageType_MESSAGE_TYPE_FILE:
+			fileID = msg.GetFile().GetFileId()
+		case msgpb.MessageType_MESSAGE_TYPE_VIDEO:
+			video := msg.GetVideo()
+			fileID = video.GetFileId()
+			file["width"], file["height"], file["duration"] = video.GetWidth(), video.GetHeight(), video.GetDuration()
+		case msgpb.MessageType_MESSAGE_TYPE_AUDIO:
+			audio := msg.GetAudio()
+			fileID = audio.GetFileId()
+			file["duration"] = audio.GetDuration()
+		}
+		if fileID != metadata.FileId {
+			response.InternalError(c, "invalid attachment content")
+			return
+		}
+		content = map[string]any{"files": []any{file}}
+	}
 	response.Created(c, map[string]any{
-		"id":              resp.MessageId,
-		"message_id":      resp.MessageId,
-		"conv_id":         rawDTO.ConvID,
-		"from_user_id":    rawDTO.UserID,
-		"seq":             resp.Seq,
-		"type":            protoReq.Type,
-		"created_at":      strconv.FormatInt(resp.CreatedAt, 10),
-		"client_msg_id":   rawDTO.ClientMsgID,
-		"reply_to_msg_id": rawDTO.ReplyToMsgID,
-		"content":         rawDTO.Content,
+		"id":              msg.MessageId,
+		"message_id":      msg.MessageId,
+		"conv_id":         msg.ConversationId,
+		"from_user_id":    msg.GetFromUserId(),
+		"seq":             msg.Seq,
+		"type":            msg.Type,
+		"created_at":      strconv.FormatInt(msg.CreatedAt, 10),
+		"client_msg_id":   dto.ClientMsgID,
+		"reply_to_msg_id": msg.ReplyToId,
+		"content":         content,
 	})
 }
 
@@ -256,40 +304,7 @@ func (h *MessageHandler) DeleteMessage(c *gin.Context) {
 }
 
 func (h *MessageHandler) ReplyMessage(c *gin.Context) {
-	rawDTO, protoReq, err := h.parseSendMessageRequest(c)
-	if err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-	ctx := middleware.WithGRPCMetadata(c)
-	if !requireRequestIdentities(c, protoReq) {
-		return
-	}
-	resp, err := h.msgClient.SendMessage(ctx, protoReq)
-	if err != nil {
-		response.GRPCError(c, err)
-		return
-	}
-	if err := identity.Validate(resp.MessageId); err != nil {
-		response.InternalError(c, "invalid message identity")
-		return
-	}
-	if err := sequence.Validate(resp.Seq); err != nil {
-		response.InternalError(c, "invalid message sequence")
-		return
-	}
-	response.Created(c, map[string]any{
-		"id":              resp.MessageId,
-		"message_id":      resp.MessageId,
-		"conv_id":         rawDTO.ConvID,
-		"from_user_id":    rawDTO.UserID,
-		"seq":             resp.Seq,
-		"type":            protoReq.Type,
-		"created_at":      strconv.FormatInt(resp.CreatedAt, 10),
-		"client_msg_id":   rawDTO.ClientMsgID,
-		"reply_to_msg_id": rawDTO.ReplyToMsgID,
-		"content":         rawDTO.Content,
-	})
+	h.SendMessage(c)
 }
 
 func (h *MessageHandler) parseSendMessageRequest(c *gin.Context) (*sendMessageDTO, *msgclient.SendMessageReq, error) {
@@ -352,52 +367,19 @@ func (h *MessageHandler) parseSendMessageRequest(c *gin.Context) (*sendMessageDT
 		if !ok {
 			return nil, nil, errors.New("invalid attachment")
 		}
-		mime := toString(f["mime_type"])
 		fileID, ok := f["file_id"].(string)
 		if !ok || identity.Validate(fileID) != nil {
 			return nil, nil, errors.New("invalid file identity")
 		}
 
-		url := toString(f["url"])
-		if url == "" {
-			ctx := middleware.WithGRPCMetadata(c)
-			urlResp, err := h.fileClient.GetDownloadURL(ctx, &filepb.GetDownloadURLReq{FileId: fileID, UserId: uid})
-			if err == nil && urlResp.DownloadUrl != "" {
-				url = urlResp.DownloadUrl
-				f["url"] = url
-			}
-		}
-
-		req.Type = msgTypeFromMime(mime)
-		switch req.Type {
-		case msgpb.MessageType_MESSAGE_TYPE_IMAGE:
-			req.Content = &msgpb.SendMessageReq_Image{Image: &msgpb.ImageContent{FileId: fileID, Url: url, Size: toInt64(f["size"])}}
-		case msgpb.MessageType_MESSAGE_TYPE_AUDIO:
-			req.Content = &msgpb.SendMessageReq_Audio{Audio: &msgpb.AudioContent{FileId: fileID, Url: url, Duration: toInt32(f["duration"]), Size: toInt64(f["size"])}}
-		default:
-			req.Content = &msgpb.SendMessageReq_File{File: &msgpb.FileContent{FileId: fileID, Url: url, Name: toString(f["file_name"]), Size: toInt64(f["size"]), MimeType: mime}}
+		req.Content = &msgpb.SendMessageReq_Attachment{
+			Attachment: &msgpb.AttachmentContent{FileId: fileID, Duration: toInt32(f["duration"])},
 		}
 	}
 
 	req.ReplyToId = dto.ReplyToMsgID
 
 	return &dto, (*msgclient.SendMessageReq)(req), nil
-}
-
-func msgTypeFromMime(mime string) msgpb.MessageType {
-	if mime == "" {
-		return msgpb.MessageType_MESSAGE_TYPE_FILE
-	}
-	if len(mime) >= 6 && mime[:6] == "image/" {
-		return msgpb.MessageType_MESSAGE_TYPE_IMAGE
-	}
-	if len(mime) >= 6 && mime[:6] == "video/" {
-		return msgpb.MessageType_MESSAGE_TYPE_VIDEO
-	}
-	if len(mime) >= 6 && mime[:6] == "audio/" {
-		return msgpb.MessageType_MESSAGE_TYPE_AUDIO
-	}
-	return msgpb.MessageType_MESSAGE_TYPE_FILE
 }
 
 func parseMentions(v any) ([]string, error) {

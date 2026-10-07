@@ -144,6 +144,12 @@ message AudioContent {
   int64 size = 4;
 }
 
+// Generic attachment input; the message domain resolves type and metadata.
+message AttachmentContent {
+  string file_id = 1 [(common.entity_id) = true];
+  int32 duration = 2;
+}
+
 message LocationContent {
   double latitude = 1;
   double longitude = 2;
@@ -222,6 +228,7 @@ message SendMessageReq {
     AudioContent audio = 14;
     LocationContent location = 15;
     CustomContent custom = 18;
+    AttachmentContent attachment = 19;
   }
 
   optional string reply_to_id = 20 [(common.entity_id) = true];
@@ -232,6 +239,8 @@ message SendMessageResp {
   string message_id = 1 [(common.entity_id) = true];
   int64 seq = 2 [(common.safe_sequence) = true];
   int64 created_at = 3;
+  Message message = 4;
+  FileContent file_metadata = 5;
 }
 
 // ========== Recall / Edit / Delete ==========

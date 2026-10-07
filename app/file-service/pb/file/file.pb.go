@@ -131,7 +131,7 @@ func (FileAccess) EnumDescriptor() ([]byte, []int) {
 
 type FileInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileId        string                 `protobuf:"bytes,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"` // 文件实体 UUID，由 files domain 分配
+	FileId        string                 `protobuf:"bytes,1,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"` // 文件实体 UUID，由 file domain 分配
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                   // original file name
 	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`                     // object storage key/path
 	Size          int64                  `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`                  // file size in bytes

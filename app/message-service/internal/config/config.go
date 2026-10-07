@@ -8,6 +8,7 @@ import (
 type Config struct {
 	zrpc.RpcServerConf
 	Database      config.DatabaseConfig      `json:"database"`
+	FileService   zrpc.RpcClientConf         `json:"fileService"`
 	Kafka         config.KafkaConfig         `json:"kafka"`
 	Elasticsearch config.ElasticsearchConfig `json:"elasticsearch"`
 	Message       MessageConfig              `json:"message"`

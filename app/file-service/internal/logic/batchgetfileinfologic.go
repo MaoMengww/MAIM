@@ -24,13 +24,19 @@ func NewBatchGetFileInfoLogic(ctx context.Context, svcCtx *svc.ServiceContext) *
 }
 
 func (l *BatchGetFileInfoLogic) BatchGetFileInfo(in *filepb.BatchGetFileInfoReq) (*filepb.BatchGetFileInfoResp, error) {
+	if err := validateIdentities(in.GetUserId()); err != nil {
+		return nil, err
+	}
+	if err := validateIdentities(in.GetFileIds()...); err != nil {
+		return nil, err
+	}
 	if len(in.GetFileIds()) == 0 {
 		return &filepb.BatchGetFileInfoResp{Files: []*filepb.FileInfo{}}, nil
 	}
 
 	files, err := l.svcCtx.FileRepo.BatchGetByIDs(l.ctx, in.GetFileIds())
 	if err != nil {
-		return nil, err
+		return nil, grpcError(err)
 	}
 
 	items := make([]*filepb.FileInfo, 0, len(files))
