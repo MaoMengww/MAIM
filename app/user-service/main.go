@@ -24,8 +24,19 @@ func main() {
 
 	var c config.Config
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
-	// RPC statistics serialize request bodies, which include passwords and JWTs.
-	c.Middlewares.Stat = false
+	// Keep RPC timing/metrics without serializing authentication credentials.
+	c.Middlewares.StatConf.IgnoreContentMethods = append(c.Middlewares.StatConf.IgnoreContentMethods,
+		user.UserService_Register_FullMethodName,
+		user.UserService_Login_FullMethodName,
+		user.UserService_OAuthLogin_FullMethodName,
+		user.UserService_RefreshToken_FullMethodName,
+		user.UserService_ValidateToken_FullMethodName,
+		user.UserService_Logout_FullMethodName,
+		user.UserService_UpdatePassword_FullMethodName,
+		user.UserService_UpdateProfile_FullMethodName,
+		user.UserService_BindPhone_FullMethodName,
+		user.UserService_BindEmail_FullMethodName,
+	)
 	ctx := svc.NewServiceContext(c)
 	defer ctx.Close()
 

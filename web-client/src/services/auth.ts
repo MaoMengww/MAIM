@@ -1,5 +1,6 @@
 import client, { unwrap, refreshSession } from './client';
 import { deviceCredentials } from './device';
+import { useAuthStore } from '@/stores/auth';
 import type { LoginReq, RegisterReq, UpdateUserSettingsReq } from '@/types/api';
 import type { APIResponse, LoginResp, SessionInfo, UserInfo, UserSettings } from '@/types/model';
 
@@ -11,7 +12,7 @@ export const authApi = {
     client.post<APIResponse<LoginResp>>('/auth/register', { ...data, ...deviceCredentials() }).then(unwrap),
 
   logout: () =>
-    client.post<APIResponse<null>>('/auth/logout', {}).then(unwrap),
+    client.post<APIResponse<null>>('/auth/logout', { token_id: useAuthStore.getState().token }).then(unwrap),
 
   refresh: refreshSession,
 
