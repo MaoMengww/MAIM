@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/maomeng/aim/app/bot-service/internal/graph"
 	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
@@ -55,63 +54,6 @@ func (c *MessageClient) GetRecentMessages(ctx context.Context, convID, userID st
 		}
 	}
 	return msgs, nil
-}
-
-// GetAllMessages fetches up to maxCount messages for a conversation.
-// Messages are returned in reverse chronological order (newest first).
-func (c *MessageClient) GetAllMessages(ctx context.Context, convID, userID string, maxCount int) ([]graph.Message, error) {
-	if maxCount <= 0 || maxCount > 1000 {
-		maxCount = 1000
-	}
-	var all []graph.Message
-	var cursor int64
-	for len(all) < maxCount {
-		limit := min(100, maxCount-len(all))
-		resp, err := c.cli.GetMessages(messageUserContext(ctx, userID), &msgpb.GetMessagesReq{
-			ConversationId: convID,
-			UserId:         userID,
-			Pagination: &msgpb.MessagePagination{
-				Limit:  int32(limit),
-				Cursor: cursor,
-			},
-			FilterTypes: []msgpb.MessageType{
-				msgpb.MessageType_MESSAGE_TYPE_TEXT,
-				msgpb.MessageType_MESSAGE_TYPE_IMAGE,
-				msgpb.MessageType_MESSAGE_TYPE_AUDIO,
-				msgpb.MessageType_MESSAGE_TYPE_BOT,
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
-		if len(resp.Messages) == 0 {
-			break
-		}
-		for _, m := range resp.Messages {
-			all = append(all, graph.Message{
-				MsgID:      m.MessageId,
-				SenderID:   m.FromUserId,
-				SenderName: senderName(m),
-				BotID:      messageBotID(m),
-				Content:    extractText(m),
-				MsgType:    int32(m.Type),
-				Seq:        m.Seq,
-				CreatedAt:  m.CreatedAt,
-			})
-		}
-		if resp.Pagination == nil || !resp.Pagination.HasMore {
-			break
-		}
-		next := resp.Pagination.NextCursor
-		if next <= 0 || (cursor > 0 && next >= cursor) {
-			return nil, fmt.Errorf("message history cursor did not advance")
-		}
-		cursor = next
-	}
-	if len(all) > maxCount {
-		all = all[:maxCount]
-	}
-	return all, nil
 }
 
 // extractText pulls plain text from a message's oneof content.

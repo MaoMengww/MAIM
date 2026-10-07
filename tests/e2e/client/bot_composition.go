@@ -45,7 +45,7 @@ func runtimeSourcePayload(raw string, expected []runtimeKnowledgeSource) error {
 }
 
 // A fresh WS connection per exchange ensures no earlier event satisfies a probe.
-// The fixture can answer only from AIM's dedicated knowledge/memory context,
+// The fixture can answer only from AIM's retrieved knowledge context,
 // never from previous chat text or fixture-side persistence.
 func (d *driver) runtimeCompositionExchange(caller account, address string, botID, convID entityID, text string, sources []runtimeKnowledgeSource) (string, error) {
 	conn, err := d.connect(address, caller)
@@ -157,21 +157,14 @@ func (d *driver) runtimeCompositionExchange(caller account, address string, botI
 	return "", errors.New("p7.bot.history: WS 回复 UUID 不在真实持久历史中")
 }
 
-func (d *driver) runtimeKnowledgeMemory(owner, outsider account, address string, mcpID, embeddingID entityID, suffix string) (result error) {
-	chatName, extractName := "fixture-composition-"+suffix, "fixture-memory-extract-"+suffix
+func (d *driver) runtimeKnowledgeComposition(owner, outsider account, address string, mcpID, embeddingID entityID, suffix string) (result error) {
+	chatName := "fixture-composition-" + suffix
 	chatID, err := d.fixtureModel(owner, "chat", chatName)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		result = errors.Join(result, d.request(http.MethodDelete, "/models/"+chatID.String(), owner.token, nil, nil))
-	}()
-	extractID, err := d.fixtureModel(owner, "chat", extractName)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		result = errors.Join(result, d.request(http.MethodDelete, "/models/"+extractID.String(), owner.token, nil, nil))
 	}()
 	var bots []entityID
 	defer func() {
@@ -185,12 +178,11 @@ func (d *driver) runtimeKnowledgeMemory(owner, outsider account, address string,
 			"name": "p7-identical-bot-name-" + suffix, "type": "self_deployed", "model_id": chatID, "model_name": chatName,
 			"system_prompt":     "Use fixture_echo for the exact user message before answering from supplied context.",
 			"response_triggers": []string{"always"}, "streaming_enabled": true, "enable_knowledge": true,
-			"memory_model_id": extractID, "memory_model_name": extractName, "memory_embedding_model_id": embeddingID,
 		}, &bot); err != nil {
 			return err
 		}
-		if bot.ID == "" || !hasEntityID(bot.OwnerID, owner.id) || !hasEntityID(bot.ModelID, chatID) || !hasEntityID(bot.MemoryModelID, extractID) || !hasEntityID(bot.MemoryEmbeddingModelID, embeddingID) {
-			return errors.New("p7.bot.config: 知识与记忆模型实际引用身份不匹配")
+		if bot.ID == "" || !hasEntityID(bot.OwnerID, owner.id) || !hasEntityID(bot.ModelID, chatID) {
+			return errors.New("p7.bot.config: 知识问答Bot所有权或模型引用身份不匹配")
 		}
 		bots = append(bots, bot.ID)
 		if err := d.request(http.MethodPost, "/bots/"+bot.ID.String()+"/mcp-servers", owner.token, map[string]any{"mcp_server_id": mcpID}, nil); err != nil {
@@ -203,7 +195,7 @@ func (d *driver) runtimeKnowledgeMemory(owner, outsider account, address string,
 			result = errors.Join(result, d.request(http.MethodDelete, "/convs/"+id.String(), owner.token, nil, nil))
 		}
 	}()
-	for i := range 3 {
+	for _, botID := range bots {
 		var conv struct {
 			ID entityID `json:"conversation_id"`
 		}
@@ -214,10 +206,6 @@ func (d *driver) runtimeKnowledgeMemory(owner, outsider account, address string,
 			return errors.New("p7.conv: 缺少会话 UUID")
 		}
 		convs = append(convs, conv.ID)
-		botID := bots[0]
-		if i == 2 {
-			botID = bots[1]
-		}
 		if err := d.request(http.MethodPost, "/convs/"+conv.ID.String()+"/bots", owner.token, map[string]any{"bot_id": botID}, nil); err != nil {
 			return err
 		}
@@ -325,7 +313,7 @@ func (d *driver) runtimeKnowledgeMemory(owner, outsider account, address string,
 		return err
 	}
 	isolationQuery := "P7_KNOWLEDGE_QUERY P5_KNOWN_ANCHOR " + suffix
-	isolationReply, err := d.runtimeCompositionExchange(owner, address, bots[1], convs[2], isolationQuery, nil)
+	isolationReply, err := d.runtimeCompositionExchange(owner, address, bots[1], convs[1], isolationQuery, nil)
 	if err != nil {
 		return err
 	}
@@ -360,76 +348,14 @@ func (d *driver) runtimeKnowledgeMemory(owner, outsider account, address string,
 			return errors.New("p7.binding.unbind: 正向/反向仍引用已解绑UUID")
 		}
 	}
-	// Store in one conversation and recall in another: ordinary chat history cannot
-	// masquerade as memory persistence. A second same-named Bot must remain empty.
-	value := "cobalt-" + suffix
-	storeText := "P7_MEMORY_STORE " + value
-	actual, err := d.runtimeCompositionExchange(owner, address, bots[0], convs[0], storeText, nil)
-	if err != nil {
-		return err
-	}
-	if actual != "fixture-reply:"+storeText {
-		return errors.New("p7.memory.store: Bot没有完成真实provider/tool回复")
-	}
-	memoryQuery := "P7_MEMORY_QUERY durable preference " + suffix
-	if err := d.broadcastPoll("p7.memory.restore", func(bounded *driver) (bool, error) {
-		actual, err := bounded.runtimeCompositionExchange(owner, address, bots[0], convs[1], memoryQuery, nil)
-		if err != nil {
-			return false, err
-		}
-		if actual == "fixture-reply:"+memoryQuery+"|memory:none" {
-			return false, nil
-		}
-		if actual != "fixture-reply:"+memoryQuery+"|memory:"+value {
-			return false, errors.New("p7.memory: 恢复了错误用户/Bot事实")
-		}
-		return true, nil
-	}); err != nil {
-		return err
-	}
-	if err := d.request(http.MethodPost, botPath, owner.token, map[string]any{"kb_id": kb.ID}, nil); err != nil {
-		return err
-	}
-	combinedQuery := memoryQuery + " P5_KNOWN_ANCHOR"
-	actual, err = d.runtimeCompositionExchange(owner, address, bots[0], convs[1], combinedQuery, sources)
-	if err != nil {
-		return err
-	}
-	if actual != "fixture-reply:"+combinedQuery+"|memory:"+value+"|knowledge:cobalt-47" {
-		return errors.New("p7.composition: 同一次Bot回复未同时恢复真实知识与记忆")
-	}
-	if err := d.request(http.MethodDelete, botPath+"/"+kb.ID.String(), owner.token, nil, nil); err != nil {
-		return err
-	}
-	if err := d.request(http.MethodPost, "/convs/"+convs[1].String()+"/members/invite", owner.token, map[string]any{"user_ids": []entityID{outsider.id}}, nil); err != nil {
-		return err
-	}
-	for _, probe := range []struct {
-		user      account
-		bot, conv entityID
-	}{{outsider, bots[0], convs[1]}, {owner, bots[1], convs[2]}} {
-		actual, err := d.runtimeCompositionExchange(probe.user, address, probe.bot, probe.conv, memoryQuery, nil)
-		if err != nil {
-			return err
-		}
-		if actual != "fixture-reply:"+memoryQuery+"|memory:none" {
-			return errors.New("p7.memory.isolation: 同会话另一用户/同名另一Bot泄露持久记忆")
-		}
-	}
 	observed, err := d.observeProvider()
 	if err != nil {
 		return err
 	}
-	if !slices.ContainsFunc(observed.MemoryExtractions, func(row struct {
-		Model   string   `json:"model"`
-		UserID  entityID `json:"user_id"`
-		Message string   `json:"message"`
-	}) bool {
-		return row.Model == extractName && row.UserID == owner.id && row.Message == storeText
-	}) || !slices.Contains(observed.ToolCallIDs, "fixture-call") {
-		return errors.New("p7.provider: 未观测真实目标用户抽取或专用tool-call原值")
+	if !slices.Contains(observed.ToolCallIDs, "fixture-call") {
+		return errors.New("p7.provider: 未观测真实网络tool-call原值")
 	}
-	fmt.Printf("P7 evidence: bot_id=%s user_id=%s source_conv=%s recall_conv=%s memory_message=%q; knowledge kb=%s doc=%s chunk=%s; WS/history来源与解绑、记忆恢复和跨用户/Bot隔离 PASS；Neo4j关系/Milvus实体ID回读由domain真实存储验收另证\n", bots[0], owner.id, convs[0], convs[1], storeText, kb.ID, doc.ID, chunks.Items[0].ID)
+	fmt.Printf("P7 evidence: bot_id=%s user_id=%s conv=%s; knowledge kb=%s doc=%s chunk=%s; multipart上传/检索、Bot与会话绑定、WS/SSE/history来源与解绑、同名Bot知识隔离和网络tool-call ID PASS\n", bots[0], owner.id, convs[0], kb.ID, doc.ID, chunks.Items[0].ID)
 	return nil
 }
 

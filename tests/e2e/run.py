@@ -46,7 +46,6 @@ CREDENTIALS = {
     "POSTGRES_DB": "aim",
     "MINIO_ROOT_USER": "minioadmin",
     "MINIO_ROOT_PASSWORD": "minioadmin123",
-    "NEO4J_PASSWORD": "password123",
     "JWT_SECRET": "aim-dev-secret-key",
     "AIM_ENC_KEY": "Ay+h5wU31Vfy5gITlP1P2cmNtOPkTsnqIupXHqpgutw=",
     "INGEST_EMBEDDING_TOKEN": "e2e-isolated-ingest-budget-token",
@@ -259,11 +258,6 @@ class Runner:
         # Keep real middleware, using bounded Java heaps on developer/CI machines.
         services["kafka"]["environment"]["KAFKA_HEAP_OPTS"] = "-Xmx512m -Xms256m"
         services["elasticsearch"]["environment"]["ES_JAVA_OPTS"] = "-Xms256m -Xmx256m"
-        services["neo4j"]["environment"].update({
-            "NEO4J_dbms_memory_pagecache_size": "128m",
-            "NEO4J_dbms_memory_heap_initial__size": "256m",
-            "NEO4J_dbms_memory_heap_max__size": "256m",
-        })
         services["milvus"]["environment"].update({"GOMAXPROCS": "2", "OMP_NUM_THREADS": "2"})
         if "file-service" in self.applications:
             # Signed URLs used by the acceptance client resolve inside its network.
@@ -277,9 +271,9 @@ class Runner:
             if "file-service" in self.applications:
                 keep.add("minio")
             if self.args.scenario in BOT_RUNTIME_SCENARIOS:
-                # Knowledge composition and memory use the real ingest, graph,
-                # vector and object stores; only the external provider is simulated.
-                keep.update({"e2e-provider", "neo4j", "milvus", "minio"})
+                # Knowledge composition uses the real ingest, vector and object
+                # stores; only the external provider is simulated.
+                keep.update({"e2e-provider", "milvus", "minio"})
             for name in set(services) - keep:
                 del services[name]
             for service in services.values():

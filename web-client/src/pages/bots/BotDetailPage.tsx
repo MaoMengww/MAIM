@@ -46,9 +46,6 @@ export function BotDetailPage() {
     .filter((m: any) => m.capability === 'chat')
     .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name, owner_id: m.owner_id }));
 
-  const embeddingModelOptions = (modelsData?.list ?? [])
-    .filter((m) => m.capability === 'embed')
-    .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name, owner_id: m.owner_id }));
 
   const updateMutation = useMutation({
     mutationFn: (vals: UpdateBotReq) => botApi.update(id!, vals),
@@ -111,8 +108,6 @@ export function BotDetailPage() {
     form.setFieldsValue({
       ...bot,
       model_id: bot.model_id ?? undefined,
-      memory_model_id: bot.memory_model_id ?? undefined,
-      memory_embedding_model_id: bot.memory_embedding_model_id ?? undefined,
       enable_web_search: caps.builtin_tools?.includes('web_search') ?? false,
       response_triggers: triggers.length > 0 ? triggers : ['mention'],
       keywords: keywords.join(', '),
@@ -378,23 +373,17 @@ export function BotDetailPage() {
           if (vals.temperature != null) vals.temperature = Number(vals.temperature);
           if (vals.max_context_messages != null) vals.max_context_messages = Number(vals.max_context_messages);
           if (vals.max_context_tokens != null) vals.max_context_tokens = Number(vals.max_context_tokens);
-          if (vals.memory_limit != null) vals.memory_limit = Number(vals.memory_limit);
           vals.capabilities = JSON.stringify(caps);
-          for (const field of ['model_id', 'memory_model_id', 'memory_embedding_model_id'] as const) {
-            const nameField = field.replace(/_id$/, '_name');
-            if (!changedModelFields.has(field)) {
-              delete vals[field];
-              delete vals[nameField];
-              continue;
-            }
-            if (vals[field] == null) {
-              delete vals[field];
-              delete vals[nameField];
-              vals[`clear_${field}`] = true;
-            } else {
-              const selected = modelsData?.list.find((model) => model.id === vals[field]);
-              if (selected) vals[nameField] = selected.model_name;
-            }
+          if (!changedModelFields.has('model_id')) {
+            delete vals.model_id;
+            delete vals.model_name;
+          } else if (vals.model_id == null) {
+            delete vals.model_id;
+            delete vals.model_name;
+            vals.clear_model_id = true;
+          } else {
+            const selected = modelsData?.list.find((model) => model.id === vals.model_id);
+            if (selected) vals.model_name = selected.model_name;
           }
           updateMutation.mutate(vals);
         })}
@@ -527,21 +516,6 @@ export function BotDetailPage() {
                     </Form.Item>
                   ) : null;
                 }}
-              </Form.Item>
-              <Form.Item name="memory_model_id" label="记忆模型">
-                <Select placeholder="选择记忆模型" allowClear options={modelOptions} showSearch
-                  filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())}
-
-                />
-              </Form.Item>
-              <Form.Item name="memory_embedding_model_id" label="记忆向量模型" extra="不配置则仅做全文/图检索，不启用语义向量">
-                <Select placeholder="选择 embedding 模型" allowClear options={embeddingModelOptions} showSearch
-                  filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())}
-
-                />
-              </Form.Item>
-              <Form.Item name="memory_limit" label="记忆条数">
-                <InputNumber min={0} max={50} placeholder="默认 5 条" style={{ width: '100%' }} />
               </Form.Item>
             </>
           )}

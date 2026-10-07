@@ -2298,23 +2298,6 @@ components:
         max_context_tokens:
           type: integer
           format: int32
-        memory_model_name:
-          type: string
-        memory_model_id:
-          type: string
-          format: uuid
-          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
-        memory_use_platform_model:
-          type: boolean
-        memory_limit:
-          type: integer
-          format: int32
-        memory_embedding_model_name:
-          type: string
-        memory_embedding_model_id:
-          type: string
-          format: uuid
-          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         conn_mode:
           type: string
         callback_url:
@@ -2409,25 +2392,6 @@ components:
         max_context_tokens:
           type: integer
           format: int32
-        memory_model_name:
-          type: string
-        memory_model_id:
-          type: string
-          format: uuid
-          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
-        memory_use_platform_model:
-          type: boolean
-        memory_api_key:
-          type: string
-        memory_limit:
-          type: integer
-          format: int32
-        memory_embedding_model_name:
-          type: string
-        memory_embedding_model_id:
-          type: string
-          format: uuid
-          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         conn_mode:
           type: string
         callback_url:
@@ -2490,25 +2454,6 @@ components:
         max_context_tokens:
           type: integer
           format: int32
-        memory_model_name:
-          type: string
-        memory_model_id:
-          type: string
-          format: uuid
-          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
-        memory_use_platform_model:
-          type: boolean
-        memory_api_key:
-          type: string
-        memory_limit:
-          type: integer
-          format: int32
-        memory_embedding_model_name:
-          type: string
-        memory_embedding_model_id:
-          type: string
-          format: uuid
-          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         conn_mode:
           type: string
         callback_url:
@@ -2536,27 +2481,11 @@ components:
         clear_model_id:
           type: boolean
           description: true 解除对应引用；省略引用且此值为 false 保持；同时提供引用与 true 拒绝
-        clear_memory_model_id:
-          type: boolean
-          description: true 解除对应引用；省略引用且此值为 false 保持；同时提供引用与 true 拒绝
-        clear_memory_embedding_model_id:
-          type: boolean
-          description: true 解除对应引用；省略引用且此值为 false 保持；同时提供引用与 true 拒绝
       allOf:
       - not:
           required: [clear_model_id, model_id]
           properties:
             clear_model_id:
-              enum: [true]
-      - not:
-          required: [clear_memory_model_id, memory_model_id]
-          properties:
-            clear_memory_model_id:
-              enum: [true]
-      - not:
-          required: [clear_memory_embedding_model_id, memory_embedding_model_id]
-          properties:
-            clear_memory_embedding_model_id:
               enum: [true]
 
     CreateBotResp:
@@ -2636,39 +2565,6 @@ components:
           - platform
           - user
           description: platform 不含用户 owner_id；user 必须含有效 owner_id；不改变既有管理权限
-
-    # ========== Bot Memory ==========
-    BotMemory:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        user_id:
-          type: string
-          format: uuid
-        bot_id:
-          type: string
-          format: uuid
-        content:
-          type: string
-        importance:
-          type: number
-          format: float
-        created_at:
-          type: integer
-          format: int64
-
-    ListMemoriesResp:
-      type: object
-      properties:
-        memories:
-          type: array
-          items:
-            $ref: '#/components/schemas/BotMemory'
-        total:
-          type: integer
-          format: int64
 
     # ========== MCP Server ==========
     McpServer:
@@ -3187,143 +3083,6 @@ components:
             $ref: '#/components/schemas/BillingRecord'
         total:
           type: integer
-
-    # ========== Conversation Tools ==========
-    CreateSummaryReq:
-      type: object
-      properties:
-        last_message_count:
-          type: integer
-          format: int32
-        start_time:
-          type: integer
-          format: int64
-        end_time:
-          type: integer
-          format: int64
-        all:
-          type: boolean
-
-    Summary:
-      type: object
-      properties:
-        summary_id:
-          type: string
-          format: uuid
-          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
-        summary:
-          type: string
-        todos:
-          type: array
-          items:
-            $ref: '#/components/schemas/Todo'
-        total_messages:
-          type: integer
-          format: int32
-        created_at:
-          type: string
-          pattern: ^-?[0-9]+$
-          description: protobuf int64 十进制字符串；不是业务序号
-        status:
-          type: string
-
-    GetSummariesResp:
-      type: object
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/Summary'
-        standalone_todos:
-          type: array
-          items:
-            $ref: '#/components/schemas/Todo'
-
-    CreateTodoReq:
-      type: object
-      properties:
-        summary_id:
-          type: string
-          format: uuid
-          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
-        content:
-          type: string
-
-    Todo:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        summary_id:
-          type: string
-          format: uuid
-          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
-        conv_id:
-          type: string
-          format: uuid
-        content:
-          type: string
-        done:
-          type: boolean
-        created_at:
-          type: string
-          pattern: ^-?[0-9]+$
-          description: protobuf int64 十进制字符串；不是业务序号
-        updated_at:
-          type: string
-          pattern: ^-?[0-9]+$
-          description: protobuf int64 十进制字符串；不是业务序号
-      required:
-      - id
-      - conv_id
-
-    UpdateTodoReq:
-      type: object
-      properties:
-        content:
-          type: string
-        done:
-          type: boolean
-
-    ReplyCandidate:
-      type: object
-      properties:
-        index:
-          type: integer
-        text:
-          type: string
-        tone:
-          type: string
-
-    ReplyCandidatesResp:
-      type: object
-      properties:
-        candidates:
-          type: array
-          items:
-            $ref: '#/components/schemas/ReplyCandidate'
-
-    TranslateReq:
-      type: object
-      required:
-        - target_lang
-      properties:
-        target_lang:
-          type: string
-          example: zh-CN
-
-    TranslateResp:
-      type: object
-      properties:
-        original_text:
-          type: string
-        translated_text:
-          type: string
-        source_lang:
-          type: string
-        target_lang:
-          type: string
 
     # ========== User Extras ==========
     RechargeReq:
@@ -6360,7 +6119,7 @@ paths:
                       data:
                         $ref: '#/components/schemas/IssueTokenResp'
 
-  # ==================== Bot Chat & Memory ====================
+  # ==================== Bot Chat ====================
   /bots/{id}/chat/stream:
     get:
       tags:
@@ -6397,95 +6156,6 @@ paths:
             text/event-stream:
               schema:
                 type: string
-
-  /bots/{id}/memory:
-    get:
-      tags:
-        - Bot
-      summary: 获取用户与 Bot 的记忆列表
-      operationId: botGetUserMemories
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: Bot ID
-      - name: page
-        in: query
-        schema:
-          type: integer
-      - name: page_size
-        in: query
-        schema:
-          type: integer
-      responses:
-        "200":
-          description: 记忆列表
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/Response'
-                  - properties:
-                      data:
-                        $ref: '#/components/schemas/ListMemoriesResp'
-    delete:
-      tags:
-        - Bot
-      summary: 清除用户与 Bot 的所有记忆
-      operationId: botClearUserMemories
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: Bot ID
-      responses:
-        "200":
-          description: 清除成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Response'
-
-  /bots/{id}/memory/{memory_id}:
-    delete:
-      tags:
-        - Bot
-      summary: 删除指定记忆
-      operationId: botForgetMemory
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: Bot ID
-      - name: memory_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: 记忆 ID
-      responses:
-        "200":
-          description: 删除成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Response'
 
   # ==================== Global MCP Server Management ====================
   /mcp-servers:
@@ -6913,231 +6583,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Response'
-
-  # ==================== Conversation Tools ====================
-  /convs/{id}/summarize:
-    post:
-      tags:
-        - Conversation Tools
-      summary: 生成会话消息摘要
-      operationId: convSummarize
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: 会话 ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateSummaryReq'
-      responses:
-        "200":
-          description: 摘要
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/Response'
-                  - properties:
-                      data:
-                        $ref: '#/components/schemas/Summary'
-
-  /convs/{id}/summaries:
-    get:
-      tags:
-        - Conversation Tools
-      summary: 获取会话摘要列表
-      operationId: convGetSummaries
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: 会话 ID
-      responses:
-        "200":
-          description: 摘要列表
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/Response'
-                  - properties:
-                      data:
-                        $ref: '#/components/schemas/GetSummariesResp'
-
-  /convs/{id}/todos:
-    post:
-      tags:
-        - Conversation Tools
-      summary: 创建会话待办事项
-      operationId: convCreateTodo
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: 会话 ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateTodoReq'
-      responses:
-        "201":
-          description: 创建成功
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/Response'
-                  - properties:
-                      data:
-                        $ref: '#/components/schemas/Todo'
-
-  /convs/{id}/todos/{todoId}:
-    put:
-      tags:
-        - Conversation Tools
-      summary: 更新会话待办事项
-      operationId: convUpdateTodo
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: 会话 ID
-      - name: todoId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: 待办 ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateTodoReq'
-      responses:
-        "200":
-          description: 更新成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Response'
-    delete:
-      tags:
-        - Conversation Tools
-      summary: 删除会话待办事项
-      operationId: convDeleteTodo
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: 会话 ID
-      - name: todoId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: 待办 ID
-      responses:
-        "200":
-          description: 删除成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Response'
-
-  /convs/{id}/reply-candidates:
-    post:
-      tags:
-        - Conversation Tools
-      summary: 生成回复候选
-      operationId: convReplyCandidates
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: 会话 ID
-      responses:
-        "200":
-          description: 候选回复列表
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/Response'
-                  - properties:
-                      data:
-                        $ref: '#/components/schemas/ReplyCandidatesResp'
-
-  /messages/{id}/translate:
-    post:
-      tags:
-        - Conversation Tools
-      summary: 翻译消息
-      operationId: msgTranslate
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: 消息 ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TranslateReq'
-      responses:
-        "200":
-          description: 翻译结果
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/Response'
-                  - properties:
-                      data:
-                        $ref: '#/components/schemas/TranslateResp'
 
   # ==================== Model Management ====================
   /models:

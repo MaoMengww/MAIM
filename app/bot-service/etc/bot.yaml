@@ -31,21 +31,6 @@ Bot:
   workerPoolSize: 0
   requestTimeout: 120s
 
-Milvus:
-  host: ${MILVUS_HOST}
-  port: ${MILVUS_PORT}
-  database: default
-
-Memory:
-  embeddingDim: 1536
-  vectorCollection: bot_memory_facts_uuid_v1
-  vectorTopKMult: 4
-  Neo4j:
-    uri: ${NEO4J_URI}
-    username: ${NEO4J_USER}
-    password: ${NEO4J_PASSWORD}
-    database: neo4j
-
 LlmGateway:
   Target: ${LLM_GATEWAY_ADDR}
   Timeout: 600000

@@ -6,23 +6,26 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/logic/bot"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-service/pb/bot"
+	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/consts"
+	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/interceptor"
 	common "github.com/maomeng/aim/pkg/pb/common"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type BotServer struct {
-	svcCtx            *svc.ServiceContext
-	runtime           *RuntimeServer
-	conversationTools *ConversationToolServer
+	svcCtx  *svc.ServiceContext
+	runtime *RuntimeServer
 	pb.UnimplementedBotServiceServer
 }
 
 func NewBotServer(svcCtx *svc.ServiceContext) *BotServer {
-	return &BotServer{svcCtx: svcCtx, runtime: NewRuntimeServer(svcCtx), conversationTools: NewConversationToolServer(svcCtx)}
+	return &BotServer{svcCtx: svcCtx, runtime: NewRuntimeServer(svcCtx)}
 }
 
 func (s *BotServer) CreateBot(ctx context.Context, in *pb.CreateBotReq) (*pb.Bot, error) {
@@ -214,34 +217,41 @@ func forwardRuntimeContext(ctx context.Context) context.Context {
 	return metadata.NewOutgoingContext(ctx, metadata.Join(outgoing, incoming))
 }
 
+func runtimeUserID(ctx context.Context) string {
+	if id, ok := ctx.Value(interceptor.ContextKeyUserID).(string); ok && identity.Validate(id) == nil {
+		return id
+	}
+	md, _ := metadata.FromIncomingContext(ctx)
+	ids := md.Get(consts.MetadataKeyUserID)
+	if len(ids) == 1 && identity.Validate(ids[0]) == nil {
+		return ids[0]
+	}
+	return ""
+}
+
+func userCallContext(ctx context.Context, userID string) context.Context {
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	md.Set(consts.MetadataKeyUserID, userID)
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
+func requireConversation(ctx context.Context, svcCtx *svc.ServiceContext, userID, convID string) error {
+	if identity.Validate(userID) != nil {
+		return errors.New(errors.CodeUnauthorized, "missing authenticated user")
+	}
+	if identity.Validate(convID) != nil {
+		return errors.New(errors.CodeInvalidParam, "invalid conversation identity")
+	}
+	cli := msgpb.NewMessageServiceClient(svcCtx.MessageSvcConn.Conn())
+	_, err := cli.GetMembers(userCallContext(ctx, userID), &msgpb.GetMembersReq{
+		ConversationId: convID,
+		UserId:         &userID,
+		Pagination:     &common.Pagination{Page: 1, PageSize: 1},
+	})
+	return err
+}
+
 func (s *BotServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStreamingServer[pb.StreamChatResp]) error {
 	return s.runtime.StreamChat(req, stream)
-}
-
-func (s *BotServer) SummarizeConversation(ctx context.Context, req *pb.SummarizeReq) (*pb.SummarizeResp, error) {
-	return s.conversationTools.SummarizeConversation(ctx, req)
-}
-
-func (s *BotServer) GetConvSummaries(ctx context.Context, req *pb.GetConvSummariesReq) (*pb.GetConvSummariesResp, error) {
-	return s.conversationTools.GetConvSummaries(ctx, req)
-}
-
-func (s *BotServer) CreateTodo(ctx context.Context, req *pb.CreateTodoReq) (*pb.TodoItem, error) {
-	return s.conversationTools.CreateTodo(ctx, req)
-}
-
-func (s *BotServer) UpdateTodo(ctx context.Context, req *pb.UpdateTodoReq) (*emptypb.Empty, error) {
-	return s.conversationTools.UpdateTodo(ctx, req)
-}
-
-func (s *BotServer) DeleteTodo(ctx context.Context, req *pb.DeleteTodoReq) (*emptypb.Empty, error) {
-	return s.conversationTools.DeleteTodo(ctx, req)
-}
-
-func (s *BotServer) GenerateReplyCandidates(ctx context.Context, req *pb.ReplyCandidatesReq) (*pb.ReplyCandidatesResp, error) {
-	return s.conversationTools.GenerateReplyCandidates(ctx, req)
-}
-
-func (s *BotServer) TranslateMessage(ctx context.Context, req *pb.TranslateMessageReq) (*pb.TranslateMessageResp, error) {
-	return s.conversationTools.TranslateMessage(ctx, req)
 }

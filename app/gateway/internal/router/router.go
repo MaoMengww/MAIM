@@ -45,7 +45,6 @@ func New(
 	botClient := botpb.NewBotServiceClient(clients.BotService.Conn())
 	botH := handler.NewBotHandler(botClient, clients.Message.Conn(), clients.File.Conn())
 	kbH := handler.NewKnowledgeHandler(clients.KnowledgeBase.Conn())
-	convToolH := handler.NewConversationToolHandler(botClient)
 	var modelH *handler.ModelHandler
 	if clients.LLMGateway != nil {
 		modelH = handler.NewModelHandler(clients.LLMGateway.Conn())
@@ -234,17 +233,6 @@ func New(
 	protected.POST("/convs/:id/knowledge", kbH.BindToConv)
 	protected.DELETE("/convs/:id/knowledge/:kid", kbH.UnbindFromConv)
 	protected.GET("/convs/:id/knowledge", kbH.ListConvBindings)
-
-	// Conversation Tools (summarize, todos, reply candidates)
-	convs.POST("/:id/summarize", convToolH.Summarize)
-	convs.GET("/:id/summaries", convToolH.GetSummaries)
-	convs.POST("/:id/todos", convToolH.CreateTodo)
-	convs.PUT("/:id/todos/:todoId", convToolH.UpdateTodo)
-	convs.DELETE("/:id/todos/:todoId", convToolH.DeleteTodo)
-	convs.POST("/:id/reply-candidates", convToolH.ReplyCandidates)
-
-	// Message translation
-	msgs.POST("/:id/translate", convToolH.Translate)
 
 	// Model Management
 	if modelH != nil {

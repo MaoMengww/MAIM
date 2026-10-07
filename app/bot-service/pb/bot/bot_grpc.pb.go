@@ -12,7 +12,6 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -21,36 +20,29 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	BotService_StreamChat_FullMethodName              = "/bot.BotService/StreamChat"
-	BotService_SummarizeConversation_FullMethodName   = "/bot.BotService/SummarizeConversation"
-	BotService_GetConvSummaries_FullMethodName        = "/bot.BotService/GetConvSummaries"
-	BotService_CreateTodo_FullMethodName              = "/bot.BotService/CreateTodo"
-	BotService_UpdateTodo_FullMethodName              = "/bot.BotService/UpdateTodo"
-	BotService_DeleteTodo_FullMethodName              = "/bot.BotService/DeleteTodo"
-	BotService_GenerateReplyCandidates_FullMethodName = "/bot.BotService/GenerateReplyCandidates"
-	BotService_TranslateMessage_FullMethodName        = "/bot.BotService/TranslateMessage"
-	BotService_CreateBot_FullMethodName               = "/bot.BotService/CreateBot"
-	BotService_UpdateBot_FullMethodName               = "/bot.BotService/UpdateBot"
-	BotService_DeleteBot_FullMethodName               = "/bot.BotService/DeleteBot"
-	BotService_GetBot_FullMethodName                  = "/bot.BotService/GetBot"
-	BotService_ListBots_FullMethodName                = "/bot.BotService/ListBots"
-	BotService_RotateSecret_FullMethodName            = "/bot.BotService/RotateSecret"
-	BotService_HandleIncomingWebhook_FullMethodName   = "/bot.BotService/HandleIncomingWebhook"
-	BotService_IssueBotToken_FullMethodName           = "/bot.BotService/IssueBotToken"
-	BotService_ValidateBotToken_FullMethodName        = "/bot.BotService/ValidateBotToken"
-	BotService_CreateMcpServer_FullMethodName         = "/bot.BotService/CreateMcpServer"
-	BotService_UpdateMcpServer_FullMethodName         = "/bot.BotService/UpdateMcpServer"
-	BotService_DeleteMcpServer_FullMethodName         = "/bot.BotService/DeleteMcpServer"
-	BotService_GetMcpServer_FullMethodName            = "/bot.BotService/GetMcpServer"
-	BotService_ListMcpServers_FullMethodName          = "/bot.BotService/ListMcpServers"
-	BotService_AssignMcpToBot_FullMethodName          = "/bot.BotService/AssignMcpToBot"
-	BotService_UnassignMcpFromBot_FullMethodName      = "/bot.BotService/UnassignMcpFromBot"
-	BotService_ListBotMcpServers_FullMethodName       = "/bot.BotService/ListBotMcpServers"
-	BotService_UpdateBotMcpServer_FullMethodName      = "/bot.BotService/UpdateBotMcpServer"
-	BotService_DiscoverMcpTools_FullMethodName        = "/bot.BotService/DiscoverMcpTools"
-	BotService_ListMcpTools_FullMethodName            = "/bot.BotService/ListMcpTools"
-	BotService_BatchGetBots_FullMethodName            = "/bot.BotService/BatchGetBots"
-	BotService_GetBotWebhookConfig_FullMethodName     = "/bot.BotService/GetBotWebhookConfig"
+	BotService_StreamChat_FullMethodName            = "/bot.BotService/StreamChat"
+	BotService_CreateBot_FullMethodName             = "/bot.BotService/CreateBot"
+	BotService_UpdateBot_FullMethodName             = "/bot.BotService/UpdateBot"
+	BotService_DeleteBot_FullMethodName             = "/bot.BotService/DeleteBot"
+	BotService_GetBot_FullMethodName                = "/bot.BotService/GetBot"
+	BotService_ListBots_FullMethodName              = "/bot.BotService/ListBots"
+	BotService_RotateSecret_FullMethodName          = "/bot.BotService/RotateSecret"
+	BotService_HandleIncomingWebhook_FullMethodName = "/bot.BotService/HandleIncomingWebhook"
+	BotService_IssueBotToken_FullMethodName         = "/bot.BotService/IssueBotToken"
+	BotService_ValidateBotToken_FullMethodName      = "/bot.BotService/ValidateBotToken"
+	BotService_CreateMcpServer_FullMethodName       = "/bot.BotService/CreateMcpServer"
+	BotService_UpdateMcpServer_FullMethodName       = "/bot.BotService/UpdateMcpServer"
+	BotService_DeleteMcpServer_FullMethodName       = "/bot.BotService/DeleteMcpServer"
+	BotService_GetMcpServer_FullMethodName          = "/bot.BotService/GetMcpServer"
+	BotService_ListMcpServers_FullMethodName        = "/bot.BotService/ListMcpServers"
+	BotService_AssignMcpToBot_FullMethodName        = "/bot.BotService/AssignMcpToBot"
+	BotService_UnassignMcpFromBot_FullMethodName    = "/bot.BotService/UnassignMcpFromBot"
+	BotService_ListBotMcpServers_FullMethodName     = "/bot.BotService/ListBotMcpServers"
+	BotService_UpdateBotMcpServer_FullMethodName    = "/bot.BotService/UpdateBotMcpServer"
+	BotService_DiscoverMcpTools_FullMethodName      = "/bot.BotService/DiscoverMcpTools"
+	BotService_ListMcpTools_FullMethodName          = "/bot.BotService/ListMcpTools"
+	BotService_BatchGetBots_FullMethodName          = "/bot.BotService/BatchGetBots"
+	BotService_GetBotWebhookConfig_FullMethodName   = "/bot.BotService/GetBotWebhookConfig"
 )
 
 // BotServiceClient is the client API for BotService service.
@@ -58,13 +50,6 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BotServiceClient interface {
 	StreamChat(ctx context.Context, in *StreamChatReq, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamChatResp], error)
-	SummarizeConversation(ctx context.Context, in *SummarizeReq, opts ...grpc.CallOption) (*SummarizeResp, error)
-	GetConvSummaries(ctx context.Context, in *GetConvSummariesReq, opts ...grpc.CallOption) (*GetConvSummariesResp, error)
-	CreateTodo(ctx context.Context, in *CreateTodoReq, opts ...grpc.CallOption) (*TodoItem, error)
-	UpdateTodo(ctx context.Context, in *UpdateTodoReq, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	DeleteTodo(ctx context.Context, in *DeleteTodoReq, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	GenerateReplyCandidates(ctx context.Context, in *ReplyCandidatesReq, opts ...grpc.CallOption) (*ReplyCandidatesResp, error)
-	TranslateMessage(ctx context.Context, in *TranslateMessageReq, opts ...grpc.CallOption) (*TranslateMessageResp, error)
 	// Bot CRUD
 	CreateBot(ctx context.Context, in *CreateBotReq, opts ...grpc.CallOption) (*Bot, error)
 	UpdateBot(ctx context.Context, in *UpdateBotReq, opts ...grpc.CallOption) (*Bot, error)
@@ -123,76 +108,6 @@ func (c *botServiceClient) StreamChat(ctx context.Context, in *StreamChatReq, op
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type BotService_StreamChatClient = grpc.ServerStreamingClient[StreamChatResp]
-
-func (c *botServiceClient) SummarizeConversation(ctx context.Context, in *SummarizeReq, opts ...grpc.CallOption) (*SummarizeResp, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SummarizeResp)
-	err := c.cc.Invoke(ctx, BotService_SummarizeConversation_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *botServiceClient) GetConvSummaries(ctx context.Context, in *GetConvSummariesReq, opts ...grpc.CallOption) (*GetConvSummariesResp, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetConvSummariesResp)
-	err := c.cc.Invoke(ctx, BotService_GetConvSummaries_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *botServiceClient) CreateTodo(ctx context.Context, in *CreateTodoReq, opts ...grpc.CallOption) (*TodoItem, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TodoItem)
-	err := c.cc.Invoke(ctx, BotService_CreateTodo_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *botServiceClient) UpdateTodo(ctx context.Context, in *UpdateTodoReq, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, BotService_UpdateTodo_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *botServiceClient) DeleteTodo(ctx context.Context, in *DeleteTodoReq, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, BotService_DeleteTodo_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *botServiceClient) GenerateReplyCandidates(ctx context.Context, in *ReplyCandidatesReq, opts ...grpc.CallOption) (*ReplyCandidatesResp, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ReplyCandidatesResp)
-	err := c.cc.Invoke(ctx, BotService_GenerateReplyCandidates_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *botServiceClient) TranslateMessage(ctx context.Context, in *TranslateMessageReq, opts ...grpc.CallOption) (*TranslateMessageResp, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TranslateMessageResp)
-	err := c.cc.Invoke(ctx, BotService_TranslateMessage_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
 
 func (c *botServiceClient) CreateBot(ctx context.Context, in *CreateBotReq, opts ...grpc.CallOption) (*Bot, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -419,13 +334,6 @@ func (c *botServiceClient) GetBotWebhookConfig(ctx context.Context, in *GetBotWe
 // for forward compatibility.
 type BotServiceServer interface {
 	StreamChat(*StreamChatReq, grpc.ServerStreamingServer[StreamChatResp]) error
-	SummarizeConversation(context.Context, *SummarizeReq) (*SummarizeResp, error)
-	GetConvSummaries(context.Context, *GetConvSummariesReq) (*GetConvSummariesResp, error)
-	CreateTodo(context.Context, *CreateTodoReq) (*TodoItem, error)
-	UpdateTodo(context.Context, *UpdateTodoReq) (*emptypb.Empty, error)
-	DeleteTodo(context.Context, *DeleteTodoReq) (*emptypb.Empty, error)
-	GenerateReplyCandidates(context.Context, *ReplyCandidatesReq) (*ReplyCandidatesResp, error)
-	TranslateMessage(context.Context, *TranslateMessageReq) (*TranslateMessageResp, error)
 	// Bot CRUD
 	CreateBot(context.Context, *CreateBotReq) (*Bot, error)
 	UpdateBot(context.Context, *UpdateBotReq) (*Bot, error)
@@ -468,27 +376,6 @@ type UnimplementedBotServiceServer struct{}
 
 func (UnimplementedBotServiceServer) StreamChat(*StreamChatReq, grpc.ServerStreamingServer[StreamChatResp]) error {
 	return status.Error(codes.Unimplemented, "method StreamChat not implemented")
-}
-func (UnimplementedBotServiceServer) SummarizeConversation(context.Context, *SummarizeReq) (*SummarizeResp, error) {
-	return nil, status.Error(codes.Unimplemented, "method SummarizeConversation not implemented")
-}
-func (UnimplementedBotServiceServer) GetConvSummaries(context.Context, *GetConvSummariesReq) (*GetConvSummariesResp, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetConvSummaries not implemented")
-}
-func (UnimplementedBotServiceServer) CreateTodo(context.Context, *CreateTodoReq) (*TodoItem, error) {
-	return nil, status.Error(codes.Unimplemented, "method CreateTodo not implemented")
-}
-func (UnimplementedBotServiceServer) UpdateTodo(context.Context, *UpdateTodoReq) (*emptypb.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "method UpdateTodo not implemented")
-}
-func (UnimplementedBotServiceServer) DeleteTodo(context.Context, *DeleteTodoReq) (*emptypb.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "method DeleteTodo not implemented")
-}
-func (UnimplementedBotServiceServer) GenerateReplyCandidates(context.Context, *ReplyCandidatesReq) (*ReplyCandidatesResp, error) {
-	return nil, status.Error(codes.Unimplemented, "method GenerateReplyCandidates not implemented")
-}
-func (UnimplementedBotServiceServer) TranslateMessage(context.Context, *TranslateMessageReq) (*TranslateMessageResp, error) {
-	return nil, status.Error(codes.Unimplemented, "method TranslateMessage not implemented")
 }
 func (UnimplementedBotServiceServer) CreateBot(context.Context, *CreateBotReq) (*Bot, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateBot not implemented")
@@ -587,132 +474,6 @@ func _BotService_StreamChat_Handler(srv interface{}, stream grpc.ServerStream) e
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type BotService_StreamChatServer = grpc.ServerStreamingServer[StreamChatResp]
-
-func _BotService_SummarizeConversation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SummarizeReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(BotServiceServer).SummarizeConversation(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: BotService_SummarizeConversation_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BotServiceServer).SummarizeConversation(ctx, req.(*SummarizeReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _BotService_GetConvSummaries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetConvSummariesReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(BotServiceServer).GetConvSummaries(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: BotService_GetConvSummaries_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BotServiceServer).GetConvSummaries(ctx, req.(*GetConvSummariesReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _BotService_CreateTodo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateTodoReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(BotServiceServer).CreateTodo(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: BotService_CreateTodo_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BotServiceServer).CreateTodo(ctx, req.(*CreateTodoReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _BotService_UpdateTodo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UpdateTodoReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(BotServiceServer).UpdateTodo(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: BotService_UpdateTodo_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BotServiceServer).UpdateTodo(ctx, req.(*UpdateTodoReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _BotService_DeleteTodo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteTodoReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(BotServiceServer).DeleteTodo(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: BotService_DeleteTodo_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BotServiceServer).DeleteTodo(ctx, req.(*DeleteTodoReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _BotService_GenerateReplyCandidates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReplyCandidatesReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(BotServiceServer).GenerateReplyCandidates(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: BotService_GenerateReplyCandidates_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BotServiceServer).GenerateReplyCandidates(ctx, req.(*ReplyCandidatesReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _BotService_TranslateMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TranslateMessageReq)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(BotServiceServer).TranslateMessage(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: BotService_TranslateMessage_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BotServiceServer).TranslateMessage(ctx, req.(*TranslateMessageReq))
-	}
-	return interceptor(ctx, in, info, handler)
-}
 
 func _BotService_CreateBot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateBotReq)
@@ -1117,34 +878,6 @@ var BotService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "bot.BotService",
 	HandlerType: (*BotServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "SummarizeConversation",
-			Handler:    _BotService_SummarizeConversation_Handler,
-		},
-		{
-			MethodName: "GetConvSummaries",
-			Handler:    _BotService_GetConvSummaries_Handler,
-		},
-		{
-			MethodName: "CreateTodo",
-			Handler:    _BotService_CreateTodo_Handler,
-		},
-		{
-			MethodName: "UpdateTodo",
-			Handler:    _BotService_UpdateTodo_Handler,
-		},
-		{
-			MethodName: "DeleteTodo",
-			Handler:    _BotService_DeleteTodo_Handler,
-		},
-		{
-			MethodName: "GenerateReplyCandidates",
-			Handler:    _BotService_GenerateReplyCandidates_Handler,
-		},
-		{
-			MethodName: "TranslateMessage",
-			Handler:    _BotService_TranslateMessage_Handler,
-		},
 		{
 			MethodName: "CreateBot",
 			Handler:    _BotService_CreateBot_Handler,

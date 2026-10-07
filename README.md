@@ -28,7 +28,7 @@ realtime-service ◀── Kafka delivery.requested ◀── message / bot / kn
     ├── Redis rt:node:{instance} → 持有连接的实例 → WebSocket
     └── FCM / APNs 离线提醒
 
-共享基础设施：PostgreSQL / Redis / Kafka / MinIO / Milvus / ES / Neo4j
+共享基础设施：PostgreSQL / Redis / Kafka / MinIO / Milvus / ES
 ```
 
 ### 消息流转全景
@@ -144,7 +144,7 @@ app/<service>/
 配置是「**单一 YAML 模板 + `${ENV}` 插值**」：每个服务只保留 `app/<service>/etc/` 的一份模板，入口统一通过 `conf.MustLoad(..., conf.UseEnv())` 加载；Compose 的 `x-aim-env` 与 Helm Chart 的 `environment` 提供部署环境，模板不再由启动脚本或 `sed` 改写，也没有远程配置中心（ADR-0003）。服务发现用平台原生 DNS，不使用 etcd。
 
 - 本地直接启动：参考 `.env.example` 设置环境变量，再执行 `go run ./app/<service> -f app/<service>/etc/<filename>.yaml`；文件名以各服务 `etc/` 为准。
-- Compose：准备 `.env` 中的 Postgres、MinIO、Neo4j、`JWT_SECRET`、`AIM_ENC_KEY` 与 `INGEST_EMBEDDING_TOKEN`，执行 `docker compose up -d --build`。`AIM_ENC_KEY` 必须是 base64 编码的 32 字节密钥。改变环境变量后用 `docker compose up -d --force-recreate <service>` 重建容器，不支持热更新。
+- Compose：准备 `.env` 中的 Postgres、MinIO、`JWT_SECRET`、`AIM_ENC_KEY` 与 `INGEST_EMBEDDING_TOKEN`，执行 `docker compose up -d --build`。`AIM_ENC_KEY` 必须是 base64 编码的 32 字节密钥。改变环境变量后用 `docker compose up -d --force-recreate <service>` 重建容器，不支持热更新。
 - k3s：在环境 values（`deploy/k3s/values/staging/`，每 domain 一份）中覆盖 Chart 的 `environment`，通过 Helmfile 更新；环境变量改变 Pod template 后触发滚动更新。后端 RPC Service 为 Headless，`dns:///aim-<service>:<port>` 返回各副本地址；gateway 保持普通 ClusterIP。
 - `KAFKA_BROKERS` 与 `ELASTICSEARCH_ADDRESSES` 是 YAML 列表值，例如 `[kafka:9092]`。部署示例中的凭据只用于开发，生产部署必须覆盖。
 - Milvus standalone 使用内嵌 etcd，将元数据保存在自身持久卷 `/var/lib/milvus/etcd`；没有共享 etcd 容器、初始化任务或 AIM 配置中心。它不是可以改用 DNS 替代的服务发现数据。
@@ -185,8 +185,8 @@ make proto
 重建不是 UUID 迁移自动行为。只允许对已核实属于本仓库的开发资源执行：先保存 Compose 的解析模型、容器 `com.docker.compose.project.working_dir/config_files/project` 标签、卷标签及实际挂载；仅凭 `aim-*` 名称不能证明归属。生产、外部共享资源、归属不明的匿名卷一律排除，不运行全局 `flush`、`prune` 或批量猜名删除。
 
 1. 停止 gateway 和 realtime 的新流量，再停止 Bot runtime、knowledge ingest 及所有其它应用写入角色；确认它们已退出。离线旧容器也必须移除，不能在重建后重启旧镜像。
-2. 核实所有连接目标。独占且归属已确认的 Compose 开发 project 按其原始 `--env-file`、`--project-directory`、`--project-name`、`-f` 执行 `down --volumes`，同步移除 PostgreSQL、Redis、Kafka（事件及消费位点）、Milvus（含内嵌 etcd）、Neo4j、Elasticsearch、MinIO 的项目卷与引用。共享后端不能用此整卷方法，只能对有所有权证据的 AIM schema/collection/database/index/topic/group/bucket/键空间实施同范围重建。
-3. 先启动真实中间件并等待 readiness，再执行 `init-kafka-topics`，最后启动全部 10 个工作负载。PostgreSQL 初始化与服务启动共用迁移集；Milvus 使用 `default` database 下的 `kb_chunks_uuid_v1` 和 `bot_memory_facts_uuid_v1`，不可用的已配置记忆向量后端会阻止 Bot runtime 启动。平台模板在事务锁下幂等创建，重启不重复生成。
+2. 核实所有连接目标。独占且归属已确认、且另获数据清理授权的 Compose 开发 project 按其原始 `--env-file`、`--project-directory`、`--project-name`、`-f` 执行 `down --volumes`，同步移除 PostgreSQL、Redis、Kafka（事件及消费位点）、Milvus（含内嵌 etcd）、Elasticsearch、MinIO 的项目卷与引用。共享后端不能用此整卷方法，只能对有所有权证据的 AIM schema/collection/database/index/topic/group/bucket/键空间实施同范围重建。退役的 Neo4j 卷、PVC、图数据与长期记忆向量集合不由仓库部署变更自动清理。
+3. 先启动真实中间件并等待 readiness，再执行 `init-kafka-topics`，最后启动全部 10 个工作负载。PostgreSQL 初始化与服务启动共用迁移集；Milvus 使用 `default` database 下的 `kb_chunks_uuid_v1`，Bot 不初始化或访问长期记忆集合。平台模板在事务锁下幂等创建，重启不重复生成。
 4. 运行隔离 runner `--scenario all`、真实数据库事务回归和 Web 同步回归，再在真实浏览器验收。旧 JWT、旧实体缓存命名空间不回退；当前快照中的字符串位点或数字实体引用整份作废，从 `position=0` 重建。保留 `aim_device_id`，不清空整个 localStorage。
 
 `--keep-environment` 的 `environment.json` 保存该轮隔离 project 的精确连接地址与清理 argv；运行证据需分别记录资源目标、端到端、数据库、浏览器及静态检查结果。没有真实后端或角色启动失败不能标记切换完成。
@@ -198,14 +198,14 @@ make proto
 
 ### Docker Compose（本地开发/联调）
 
-`docker-compose.yml` 同时编排基础设施与应用服务：Postgres、Redis、MinIO、Kafka（含 `init-kafka-topics` 幂等建 topic）、Milvus、Elasticsearch、Neo4j、otel-collector、Jaeger、Prometheus、Kibana、Grafana，以及 10 个工作负载（`user-service`、`message-service`、`file-service`、`llm-gateway`、`knowledge-base`、`knowledge-ingest`、`bot-service`、`bot-runtime`、`realtime-service`、`gateway`）。
+`docker-compose.yml` 同时编排基础设施与应用服务：Postgres、Redis、MinIO、Kafka（含 `init-kafka-topics` 幂等建 topic）、Milvus、Elasticsearch、otel-collector、Jaeger、Prometheus、Kibana、Grafana，以及 10 个工作负载（`user-service`、`message-service`、`file-service`、`llm-gateway`、`knowledge-base`、`knowledge-ingest`、`bot-service`、`bot-runtime`、`realtime-service`、`gateway`）。
 
 - MinIO 社区版已改为[仅发布源码](https://github.com/minio/minio#source-only-distribution)，Compose 从固定版本源码构建 `aim-minio`，不再拉取不可用的 `minio/minio:latest`；首次构建需要访问 Go module proxy。
 - 消费者服务等待 `init-kafka-topics` 成功后再启动，避免空环境首次启动时因 topic 不存在退出。
 - 应用配置全部来自 `.env` 与环境变量；变更后需要 `--force-recreate`，不支持热更新。
 
 ```bash
-cp .env.example .env   # 填写 Postgres/MinIO/Neo4j 凭据、JWT_SECRET、AIM_ENC_KEY、INGEST_EMBEDDING_TOKEN
+cp .env.example .env   # 填写 Postgres/MinIO 凭据、JWT_SECRET、AIM_ENC_KEY、INGEST_EMBEDDING_TOKEN
 docker compose up -d --build
 ```
 
@@ -262,7 +262,7 @@ python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifact
 
 `stage-p5` 在 P4 场景上追加 Bot 配置/令牌、真实网络 MCP 工具发现与调用、Kafka 回复及 WS/REST 精确内容核对，以及四个大文档并发入库期间的检索和失败隔离。OpenAI/MCP 外部协议由 `e2e-provider` 提供；AIM 内部 RPC、Kafka、PostgreSQL、Milvus 不替换。在线查询每次硬截止 5 秒；入库总截止 10 分钟，容纳默认 20 RPM 预算，不提高配额或缩小文档负载。
 
-`bot-runtime` / `bot-runtime-cross-instance` 运行真实 knowledge online/ingest、文件、Neo4j 与 Milvus：覆盖 Bot/会话绑定与解绑、反向目标列表、UUID 来源在 WS/SSE 和持久消息正文中一致、跨会话记忆恢复及跨用户/跨 Bot 隔离。外部 provider fixture 只决定模型/MCP 响应；图与向量身份往返还需在既有 memory 存储边界验证，不能由普通回复自动宣称覆盖。
+`bot-runtime` / `bot-runtime-cross-instance` 在不启动 Neo4j、不创建长期记忆集合的隔离环境中运行真实 knowledge online/ingest、文件与 Milvus：覆盖 Bot/会话绑定与解绑、反向目标列表、UUID 来源在 WS/SSE 和持久消息正文中一致、模型所有权与真实网络 MCP 调用。旧群摘要、Todo、回复候选与专用翻译接口返回 404，且不触发 provider 工作。外部 provider fixture 只决定模型/MCP 响应，不替换 AIM 的内部服务和存储。
 
 `stage-p6` 覆盖 P3/P4 主链路、跨实例 Bot 回复和流式输出、发送方其它设备回显、非成员隔离、撤回/编辑/删除与未读同步。验收通过 `presence.query` 查询设备所在实例，并真实执行强制终止、TTL 自然失效、TTL 内投递失败负反馈、重启恢复，以及 readiness 摘流量后的多连接平滑排空；故障期间遗漏的消息按用户同步位点补拉。`--artifacts` 保留检查点与服务日志。
 
@@ -401,18 +401,17 @@ agent, err := react.NewAgent(ctx, &react.AgentConfig{
         ToolCallMiddlewares: []compose.ToolMiddleware{toolMiddleware},
     },
     MessageModifier: func(c context.Context, msgs []*schema.Message) []*schema.Message {
-        // 每次推理前注入：系统提示词 + 知识上下文 + 记忆 + 历史消息
+        // 每次推理前注入：系统提示词 + 知识上下文 + 历史消息
     },
     MaxStep: bot.MaxStep,  // 限制推理循环轮数（默认5）
 })
 ```
 
-**MessageModifier** 在每次推理前注入四类上下文：
+**MessageModifier** 在每次推理前注入三类上下文：
 
 1. **系统提示词**：模板渲染 `{botname}`, `{username}`, `{user_language}`, `{message}` 等变量
 2. **知识库内容**：通过 `KnowledgeResolver` 检索绑定的知识库（RAG 模式）
-3. **用户记忆**：通过 `MemoryStore` 检索用户相关记忆
-4. **历史消息**：从 message-service 获取最近 N 条消息
+3. **历史消息**：从 message-service 获取最近 N 条消息
 
 #### 知识检索
 
@@ -420,54 +419,11 @@ agent, err := react.NewAgent(ctx, &react.AgentConfig{
 
 检索结果生成 `KnowledgeSource`（包含 type/kb_name/kb_id/doc_id/chunk_id/title/content），最终注入到 LLM 上下文中。KB、文档和 chunk UUID 原样进入 sources 流与持久消息 raw payload；页面按 KB UUID 分组，按文档/chunk UUID 跳转，失效切片不会按同名内容替代。检索权限使用触发者身份，不冒用 Bot 所有者。
 
-#### 记忆管理系统
+#### 已退役能力与数据保留
 
-记忆系统实现 AI Bot 的**长期记忆**能力，采用 **Neo4j（图谱/时序）+ Milvus（向量语义 + BM25）** 双存储。LLM 只参与事实提取和用户画像生成，在线读取阶段走确定性检索与排序。
+Bot 不再自动抽取事实、生成画像或检索跨交互长期记忆；启动不依赖 Neo4j，也不创建长期记忆向量集合。知识库及共享 Milvus 保留。Todo、群摘要、回复候选和专用翻译的 UI、HTTP/RPC、异步工作与结果订阅已完整退出；语言偏好、普通消息历史、Bot 模型/MCP 与工作状态不受影响。
 
-Fact 和 Episode 由 bot domain 应用侧生成 UUIDv7；Milvus `bot_memory_facts_uuid_v1` 的主键就是 Neo4j `HAS_FACT.id`，关系 `episodeID` 引用原始 Episode，来源会话/消息保持原 UUID。复合 Entity 与关系键保留，不新增 PostgreSQL 记忆副本；PostgreSQL 保存 Bot 配置及原消息/回复。去重丢弃的候选不写入向量，同一 fact UUID 重放不重新激活过期事实。向量检索使用强一致性，不逐事实 Flush。
-
-##### 整体流程
-
-```
-用户消息
-  │
-  ├─ 写入路径（异步，不阻塞对话）:
-  │   manager.RememberAsync()
-  │     ├── 1. 保存 Episode（原始消息，Neo4j）
-  │     ├── 2. LLM 抽取结构化事实（SPO 三元组）
-  │     ├── 3. 过滤低质事实（置信度<0.6 / 重要性<0.3 / 寒暄语）
-  │     ├── 4. 谓词路由: HAS_FACT + 可选 Entity→Entity 边
-  │     ├── 5. 向量化 → 写入 Milvus（dense vector + sparse BM25）
-  │     └── 6. 条件触发画像更新（新事实 ≥3 条 & 距上次 ≥5分钟）
-  │
-  └─ 读取路径:
-      BuildContextNode.loadMemories()
-        ├── GetProfile() → O(1) 读取用户画像缓存
-        └── Retrieve() → manager.Search()
-              ├── 1. Milvus HybridSearch
-              │      dense(HNSW/COSINE) + sparse(BM25) → RRF → fact_id
-              ├── 2. Neo4j SearchByIDs
-              │      按 fact_id 回查直接事实，应用 current / historical 时间过滤
-              ├── 3. Neo4j Entity BFS 候选
-              │      fulltext 命中 entry Entity 后，只走显式 Entity→Entity 边（最多3跳）
-              ├── 4. Rank-Based Fusion
-              └── 5. 兜底: direct+graph 都为空时，Neo4j 全文索引 → 全量质量排序
-```
-
-##### 用户画像生成
-
-画像采用**增量更新**策略，避免每次全量重建：
-
-```
-触发条件: 新事实 ≥3 条 AND 距上次更新 ≥5 分钟
-  │
-  ├─ 首次生成: 最近 20 条事实 → LLM 生成画像 (≤300字)
-  │
-  └─ 增量更新:
-        ├── 读取当前画像文本
-        ├── 获取增量新事实 + 已失效事实
-        └── LLM 融合更新（合并新事实 + 移除失效信息）
-```
+新库基线不创建记忆配置、群摘要或 Todo 结构。已有 UUID 库通过 `002_retire_bot_capabilities` 顺序迁移：旧配置保存在 `bot_retired.memory_configs`，旧群摘要和 Todo 表移入 `bot_retired`，活动 `bot` schema 的字段与表退役。应用不读取该归档；原迁移版本与时间保留，重复迁移和重启不重建旧能力。归档、图数据、向量集合、Docker volume 与集群 PVC 的实际销毁须另获明确授权。
 
 #### 流式输出
 
@@ -486,15 +442,6 @@ MCP (Model Context Protocol) 工具集成流程：
 
 内置工具：`web_search`
 
-#### 会话工具服务
-
-`ConversationToolService` 提供三个 AI 增强工具：
-
-| RPC | 功能 |
-|-----|------|
-| `SummarizeConversation` | 异步总结对话（提取要点 + 待办事项），结果通过 WebSocket 推送 |
-| `Translate` | 多语言翻译 |
-| `GenerateReplyCandidates` | 生成 3 条快捷回复建议（每条不超过 15 字） |
 
 ---
 

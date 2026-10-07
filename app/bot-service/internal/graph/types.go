@@ -42,20 +42,6 @@ type StreamChunk struct {
 	ToolName string
 }
 
-// MemoryStore is the memory retrieval interface used by BuildContext.
-type MemoryStore interface {
-	Retrieve(ctx context.Context, botID, userID string, ownerID *string, embeddingModelID *string, query string, limit int) ([]MemoryItem, error)
-	GetProfile(ctx context.Context, botID, userID string) string
-}
-
-// MemoryItem is a retrieved memory fact.
-type MemoryItem struct {
-	ID         string
-	Content    string
-	Type       string
-	Importance float64
-}
-
 // MsgClient abstracts gRPC calls to message-service.
 type MsgClient interface {
 	GetRecentMessages(ctx context.Context, convID, userID string, limit int) ([]Message, error)
@@ -100,18 +86,6 @@ type BoundKB struct {
 	KBID string
 	Mode string // "rag"
 	Name string
-}
-
-// FormatMemories formats memory items for prompt injection.
-func FormatMemories(items []MemoryItem) string {
-	if len(items) == 0 {
-		return ""
-	}
-	out := "What I know about you:\n"
-	for i, m := range items {
-		out += fmt.Sprintf("%d. %s\n", i+1, m.Content)
-	}
-	return out
 }
 
 // FormatKnowledge formats knowledge base documents for prompt injection.

@@ -15,40 +15,38 @@ import (
 
 // BuildContextNode gathers all context before LLM inference.
 type BuildContextNode struct {
-	bot         *model.Bot
-	convBot     *model.ConvBot
-	msgClient   MsgClient
-	resolver    *KnowledgeResolver
-	memoryStore MemoryStore
-	userNames   []UserNamesFunc
-	logger      logx.Logger
+	bot       *model.Bot
+	convBot   *model.ConvBot
+	msgClient MsgClient
+	resolver  *KnowledgeResolver
+	userNames []UserNamesFunc
+	logger    logx.Logger
 }
 
 // BuildContextResult is the output of building context.
 type BuildContextResult struct {
 	RenderedPrompt string            // system prompt
 	Vars           map[string]string // template variables
-	ContextMsgs    []*schema.Message // knowledge, memories, history
+	ContextMsgs    []*schema.Message // knowledge and history
 	KbSources      []KnowledgeSource
 }
 
 // NewBuildContextNode creates a new BuildContext node.
 func NewBuildContextNode(bot *model.Bot, convBot *model.ConvBot,
 	msgClient MsgClient, resolver *KnowledgeResolver,
-	memoryStore MemoryStore, logger logx.Logger,
+	logger logx.Logger,
 	userNames ...UserNamesFunc) *BuildContextNode {
 	return &BuildContextNode{
-		bot:         bot,
-		convBot:     convBot,
-		msgClient:   msgClient,
-		resolver:    resolver,
-		memoryStore: memoryStore,
-		logger:      logger,
-		userNames:   userNames,
+		bot:       bot,
+		convBot:   convBot,
+		msgClient: msgClient,
+		resolver:  resolver,
+		logger:    logger,
+		userNames: userNames,
 	}
 }
 
-// Invoke loads history, knowledge, and memory, then renders the prompt.
+// Invoke loads history and knowledge, then renders the prompt.
 func (n *BuildContextNode) Invoke(ctx context.Context, event *model.BotEvent) (*BuildContextResult, error) {
 	vars := map[string]string{
 		"botname":       n.bot.Name,
@@ -92,9 +90,6 @@ func (n *BuildContextNode) Invoke(ctx context.Context, event *model.BotEvent) (*
 	}
 	if knowledge != "" {
 		contextMsgs = append(contextMsgs, &schema.Message{Role: schema.Assistant, Content: knowledge})
-	}
-	if memories := n.loadMemories(ctx, msgText, event); memories != "" {
-		contextMsgs = append(contextMsgs, &schema.Message{Role: schema.Assistant, Content: memories})
 	}
 	if len(history) > 0 {
 		contextMsgs = append(contextMsgs, history...)
@@ -227,32 +222,4 @@ func promptLocaleInstruction(data []byte) string {
 		return ""
 	}
 	return LocalePrompt(locale)
-}
-
-func (n *BuildContextNode) loadMemories(ctx context.Context, query string, event *model.BotEvent) string {
-	memoryLimit := n.bot.MemoryLimit
-	if memoryLimit <= 0 {
-		memoryLimit = 5
-	}
-	if n.memoryStore == nil || event == nil || event.Sender == nil || event.Sender.UserID == nil || query == "" {
-		return ""
-	}
-
-	var parts []string
-
-	// 画像
-	if profile := n.memoryStore.GetProfile(ctx, n.bot.ID, *event.Sender.UserID); profile != "" {
-		parts = append(parts, fmt.Sprintf("User Profile:\n%s", profile))
-	}
-
-	// 相关事实
-	items, err := n.memoryStore.Retrieve(ctx, n.bot.ID, *event.Sender.UserID, n.bot.OwnerID, n.bot.MemoryEmbeddingModelID, query, memoryLimit)
-	if err == nil && len(items) > 0 {
-		parts = append(parts, FormatMemories(items))
-	}
-
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, "\n\n")
 }

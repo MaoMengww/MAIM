@@ -89,37 +89,31 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 	}
 
 	bot := &model.Bot{
-		ID:                       botID,
-		OwnerType:                in.OwnerType,
-		OwnerID:                  in.OwnerId,
-		Name:                     in.Name,
-		Avatar:                   in.Avatar,
-		Type:                     botType,
-		Status:                   consts.BotStatusActive,
-		UsePlatformModel:         in.UsePlatformModel,
-		ModelName:                in.ModelName,
-		ModelID:                  in.ModelId,
-		BaseURL:                  in.BaseUrl,
-		SystemPrompt:             in.SystemPrompt,
-		Persona:                  in.Persona,
-		EnableKnowledge:          in.EnableKnowledge,
-		Temperature:              in.Temperature,
-		MaxContextMessages:       int(in.MaxContextMessages),
-		MaxContextTokens:         int(in.MaxContextTokens),
-		StreamingEnabled:         in.StreamingEnabled,
-		MemoryModelName:          in.MemoryModelName,
-		MemoryModelID:            in.MemoryModelId,
-		MemoryUsePlatformModel:   in.MemoryUsePlatformModel,
-		MemoryLimit:              int(in.MemoryLimit),
-		MemoryEmbeddingModelName: in.MemoryEmbeddingModelName,
-		MemoryEmbeddingModelID:   in.MemoryEmbeddingModelId,
-		ConnMode:                 NormalizeConnMode(in.ConnMode),
-		CallbackURL:              in.CallbackUrl,
-		WebhookSecret:            webhookSecret,
-		SubType:                  subType,
-		TemplateID:               in.TemplateId,
-		BotTags:                  in.BotTags,
-		ResponseTriggers:         in.ResponseTriggers,
+		ID:                 botID,
+		OwnerType:          in.OwnerType,
+		OwnerID:            in.OwnerId,
+		Name:               in.Name,
+		Avatar:             in.Avatar,
+		Type:               botType,
+		Status:             consts.BotStatusActive,
+		UsePlatformModel:   in.UsePlatformModel,
+		ModelName:          in.ModelName,
+		ModelID:            in.ModelId,
+		BaseURL:            in.BaseUrl,
+		SystemPrompt:       in.SystemPrompt,
+		Persona:            in.Persona,
+		EnableKnowledge:    in.EnableKnowledge,
+		Temperature:        in.Temperature,
+		MaxContextMessages: int(in.MaxContextMessages),
+		MaxContextTokens:   int(in.MaxContextTokens),
+		StreamingEnabled:   in.StreamingEnabled,
+		ConnMode:           NormalizeConnMode(in.ConnMode),
+		CallbackURL:        in.CallbackUrl,
+		WebhookSecret:      webhookSecret,
+		SubType:            subType,
+		TemplateID:         in.TemplateId,
+		BotTags:            in.BotTags,
+		ResponseTriggers:   in.ResponseTriggers,
 	}
 
 	if len(bot.ResponseTriggers) == 0 {
@@ -141,23 +135,7 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 		bot.APIKeyEncrypted = encrypted
 	}
 
-	if in.MemoryApiKey != "" && len(l.svcCtx.EncryptionKey) > 0 {
-		encrypted, err := crypto.EncryptString(in.MemoryApiKey, l.svcCtx.EncryptionKey)
-		if err != nil {
-			return nil, fmt.Errorf("encrypt memory api key failed: %w", err)
-		}
-		bot.MemoryAPIKeyEncrypted = encrypted
-	}
-
 	bot.ModelID, bot.UsePlatformModel, err = selectModel(l.ctx, l.svcCtx.Repo, in.ModelId, in.ModelName, *in.OwnerId, in.UsePlatformModel)
-	if err != nil {
-		return nil, err
-	}
-	bot.MemoryModelID, bot.MemoryUsePlatformModel, err = selectModel(l.ctx, l.svcCtx.Repo, in.MemoryModelId, in.MemoryModelName, *in.OwnerId, in.MemoryUsePlatformModel)
-	if err != nil {
-		return nil, err
-	}
-	bot.MemoryEmbeddingModelID, _, err = selectModel(l.ctx, l.svcCtx.Repo, in.MemoryEmbeddingModelId, in.MemoryEmbeddingModelName, *in.OwnerId, in.MemoryUsePlatformModel)
 	if err != nil {
 		return nil, err
 	}

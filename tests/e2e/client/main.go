@@ -116,19 +116,9 @@ type sentMessage struct {
 }
 
 type event struct {
-	Type           string        `json:"type"`
-	SummaryID      *entityID     `json:"summary_id"`
-	MsgID          *entityID     `json:"msg_id"`
-	Summary        string        `json:"summary"`
-	Todos          []runtimeTodo `json:"todos"`
-	TotalMessages  int32         `json:"total_messages"`
-	CreatedAt      int64         `json:"created_at"`
-	TranslatedText string        `json:"translated_text"`
-	DetectedLang   string        `json:"detected_lang"`
-	Candidates     []string      `json:"candidates"`
-	Error          string        `json:"error"`
-	ConvID         *entityID     `json:"conv_id"`
-	Message        struct {
+	Type    string    `json:"type"`
+	ConvID  *entityID `json:"conv_id"`
+	Message struct {
 		MessageID entityID       `json:"message_id"`
 		ConvID    entityID       `json:"conv_id"`
 		SenderID  *entityID      `json:"sender_id"`
@@ -342,7 +332,7 @@ func run(args []string) error {
 		} else if scenario.name == "attachments" {
 			fmt.Println("E2E PASS: attachments 真实PUT/confirm/info/download精确bytes与UUID → 四类型ACK/跨实例WS/history/byID/离线inbox → 重试/冲突 → 回复摘要/文本search引用 → 私有权限/匿名拒绝/单删/批删/消息删除对象隔离")
 		} else if scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" {
-			fmt.Printf("E2E PASS: %s UUID模型CRUD/私有选择拒绝/引用省略保持与clear → Bot配置/token状态 → MCP稳定UUID发现/绑定解绑/真实调用 → Kafka精确回复/WS与REST → model/bot/user计费一致 → summary WS与持久化/todo CRUD/翻译WS → 删除\n", scenario.name)
+			fmt.Printf("E2E PASS: %s UUID模型CRUD/私有选择拒绝/model_id省略保持与clear → Bot配置/token状态 → MCP稳定UUID发现/绑定解绑/真实调用 → Kafka精确回复/WS与REST → model/bot/user计费一致 → 语言与AI模型设置 → 已退役生成/查询/Todo管理HTTP404且provider计数不变 → 知识multipart上传/检索/绑定/WS与SSE/history来源UUID/解绑隔离 → 删除\n", scenario.name)
 		} else if scenario.name == "knowledge-ingest" {
 			fmt.Printf("E2E PASS: knowledge-ingest multipart上传 → 异步ready → 精确内容检索 → 大文档并发入库时每次查询 <=%s → 失败入库不伤查询\n", d.queryDeadline)
 		} else if scenario.name == "conversations" || scenario.name == "conversation-unread" {

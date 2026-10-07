@@ -29,18 +29,8 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 	if err := validateCaller(l.ctx, in.UserId, in.BotId); err != nil {
 		return nil, err
 	}
-	for _, ref := range []struct {
-		id    *string
-		clear bool
-		name  string
-	}{
-		{in.ModelId, in.ClearModelId, in.ModelName},
-		{in.MemoryModelId, in.ClearMemoryModelId, in.MemoryModelName},
-		{in.MemoryEmbeddingModelId, in.ClearMemoryEmbeddingModelId, in.MemoryEmbeddingModelName},
-	} {
-		if err := validateReferenceUpdate(ref.id, ref.clear, ref.name); err != nil {
-			return nil, err
-		}
+	if err := validateReferenceUpdate(in.ModelId, in.ClearModelId, in.ModelName); err != nil {
+		return nil, err
 	}
 	for _, data := range []string{in.Capabilities, in.Settings} {
 		if data != "" && model.ValidateEntityJSON([]byte(data)) != nil {
@@ -76,15 +66,8 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 		if err := l.updateModelReference(updates, "model_id", "model_name", "use_platform_model", in.ModelId, in.ClearModelId, in.ModelName, in.UserId, in.UsePlatformModel); err != nil {
 			return nil, err
 		}
-		if err := l.updateModelReference(updates, "memory_model_id", "memory_model_name", "memory_use_platform_model", in.MemoryModelId, in.ClearMemoryModelId, in.MemoryModelName, in.UserId, in.MemoryUsePlatformModel); err != nil {
-			return nil, err
-		}
-		if err := l.updateModelReference(updates, "memory_embedding_model_id", "memory_embedding_model_name", "", in.MemoryEmbeddingModelId, in.ClearMemoryEmbeddingModelId, in.MemoryEmbeddingModelName, in.UserId, in.MemoryUsePlatformModel); err != nil {
-			return nil, err
-		}
 		updates["max_context_messages"] = in.MaxContextMessages
 		updates["max_context_tokens"] = in.MaxContextTokens
-		updates["memory_limit"] = in.MemoryLimit
 		updates["streaming_enabled"] = in.StreamingEnabled
 		if bot.Type == consts.BotTypeSelfDeployed {
 			if in.BaseUrl != "" {
@@ -164,17 +147,12 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 		}
 		updates["settings"] = data
 	}
-	for _, key := range []struct{ input, column string }{
-		{in.ApiKey, "api_key_encrypted"}, {in.MemoryApiKey, "memory_api_key_encrypted"},
-	} {
-		if key.input == "" {
-			continue
-		}
-		encrypted, err := crypto.EncryptString(key.input, l.svcCtx.EncryptionKey)
+	if in.ApiKey != "" {
+		encrypted, err := crypto.EncryptString(in.ApiKey, l.svcCtx.EncryptionKey)
 		if err != nil {
 			return nil, errors.Wrap(errors.CodeInternal, "encrypt api key failed", err)
 		}
-		updates[key.column] = encrypted
+		updates["api_key_encrypted"] = encrypted
 	}
 	if err := l.svcCtx.Repo.UpdateBot(l.ctx, in.BotId, updates); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "update bot failed", err)

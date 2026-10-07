@@ -68,12 +68,10 @@ BEGIN
             ('messaging', 'conv_read_seqs', ARRAY['id', 'conv_id', 'user_id']),
             ('messaging', 'conv_settings', ARRAY['id', 'conv_id', 'user_id']),
             ('messaging', 'conv_bots', ARRAY['id', 'conv_id', 'bot_id', 'added_by']),
-            ('bot', 'bots', ARRAY['id', 'owner_id', 'model_id', 'memory_model_id', 'memory_embedding_model_id']),
+            ('bot', 'bots', ARRAY['id', 'owner_id', 'model_id']),
             ('bot', 'mcp_servers', ARRAY['id', 'owner_id', 'created_by']),
             ('bot', 'bot_mcp_servers', ARRAY['id', 'bot_id', 'mcp_server_id']),
             ('bot', 'mcp_tools', ARRAY['id', 'mcp_server_id']),
-            ('bot', 'conv_summaries', ARRAY['id', 'conv_id', 'user_id']),
-            ('bot', 'summary_todos', ARRAY['id', 'summary_id', 'conv_id']),
             ('file', 'files', ARRAY['id', 'uploader_id']),
             ('knowledge', 'knowledge_bases', ARRAY['id', 'owner_id', 'embedding_model_id']),
             ('knowledge', 'documents', ARRAY['id', 'kb_id']),
@@ -324,9 +322,6 @@ CREATE TABLE IF NOT EXISTS bot.bots (
     max_context_messages     INTEGER DEFAULT 10 NOT NULL,
     max_context_tokens       INTEGER DEFAULT 0 NOT NULL,
     streaming_enabled        BOOLEAN DEFAULT TRUE NOT NULL,
-    memory_model_name        TEXT,
-    memory_use_platform_model BOOLEAN DEFAULT TRUE NOT NULL,
-    memory_api_key_encrypted TEXT,
     conn_mode                TEXT,
     webhook_secret           TEXT,
     callback_url             TEXT,
@@ -338,10 +333,6 @@ CREATE TABLE IF NOT EXISTS bot.bots (
     updated_at               TIMESTAMPTZ,
     template_id              TEXT,
     sub_type                 TEXT,
-    memory_model_id          UUID CHECK (memory_model_id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    memory_limit             INTEGER DEFAULT 0 NOT NULL,
-    memory_embedding_model_name TEXT,
-    memory_embedding_model_id UUID CHECK (memory_embedding_model_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     response_triggers        JSONB,
     max_step INTEGER NOT NULL DEFAULT 5,
     owner_type TEXT NOT NULL CHECK (owner_type IN ('platform', 'user')),
@@ -392,27 +383,6 @@ CREATE TABLE IF NOT EXISTS bot.mcp_tools (
     updated_at    TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS bot.conv_summaries (
-    id            UUID PRIMARY KEY CHECK (id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    conv_id       UUID NOT NULL CHECK (conv_id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    user_id       UUID NOT NULL CHECK (user_id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    range_type    VARCHAR(20) NOT NULL,
-    range_start   BIGINT,
-    range_end     BIGINT,
-    message_count INTEGER DEFAULT 0 NOT NULL,
-    summary       TEXT NOT NULL,
-    created_at    TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS bot.summary_todos (
-    id          UUID PRIMARY KEY CHECK (id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    summary_id  UUID REFERENCES bot.conv_summaries(id) ON DELETE CASCADE CHECK (summary_id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    conv_id     UUID NOT NULL CHECK (conv_id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    content     TEXT NOT NULL,
-    done        BOOLEAN DEFAULT FALSE NOT NULL,
-    created_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-    updated_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
 
 CREATE INDEX IF NOT EXISTS idx_bots_owner ON bot.bots(owner_id);
 CREATE INDEX IF NOT EXISTS idx_bots_status ON bot.bots(status);
@@ -423,9 +393,6 @@ CREATE INDEX IF NOT EXISTS idx_bot_mcp_servers_bot ON bot.bot_mcp_servers(bot_id
 CREATE INDEX IF NOT EXISTS idx_bot_mcp_servers_mcp ON bot.bot_mcp_servers(mcp_server_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_mcp_servers_pair ON bot.bot_mcp_servers(bot_id, mcp_server_id);
 CREATE INDEX IF NOT EXISTS idx_mcp_tools_mcp_server_id ON bot.mcp_tools(mcp_server_id);
-CREATE INDEX IF NOT EXISTS idx_conv_summaries_conv ON bot.conv_summaries(conv_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_summary_todos_conv ON bot.summary_todos(conv_id);
-CREATE INDEX IF NOT EXISTS idx_summary_todos_summary ON bot.summary_todos(summary_id);
 
 
 -- =========== user domain (relationships) ===========

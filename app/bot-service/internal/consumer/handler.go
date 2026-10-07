@@ -16,7 +16,6 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/client"
 	"github.com/maomeng/aim/app/bot-service/internal/component"
 	"github.com/maomeng/aim/app/bot-service/internal/graph"
-	"github.com/maomeng/aim/app/bot-service/internal/memory"
 	"github.com/maomeng/aim/app/bot-service/internal/metrics"
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
@@ -26,16 +25,14 @@ import (
 )
 
 type Handler struct {
-	logger        logx.Logger
-	botRepo       *repo.BotRepo
-	convBotRepo   *repo.ConvBotRepo
-	llmClient     *client.LlmGatewayClient
-	retriever     component.Retriever
-	memoryStore   graph.MemoryStore
-	memoryManager *memory.Manager
-	msgClient     graph.MsgClient
-	kbClient      graph.KbClient
-	convClient    interface {
+	logger      logx.Logger
+	botRepo     *repo.BotRepo
+	convBotRepo *repo.ConvBotRepo
+	llmClient   *client.LlmGatewayClient
+	retriever   component.Retriever
+	msgClient   graph.MsgClient
+	kbClient    graph.KbClient
+	convClient  interface {
 		GetConversationMembers(ctx context.Context, convID string) ([]string, error)
 	}
 	dedup          *Dedup
@@ -49,8 +46,6 @@ func NewHandler(
 	convBotRepo *repo.ConvBotRepo,
 	llmClient *client.LlmGatewayClient,
 	retriever component.Retriever,
-	memoryStore graph.MemoryStore,
-	memoryManager *memory.Manager,
 	msgClient graph.MsgClient,
 	kbClient graph.KbClient,
 	convClient interface {
@@ -70,8 +65,6 @@ func NewHandler(
 		convBotRepo:    convBotRepo,
 		llmClient:      llmClient,
 		retriever:      retriever,
-		memoryStore:    memoryStore,
-		memoryManager:  memoryManager,
 		msgClient:      msgClient,
 		kbClient:       kbClient,
 		convClient:     convClient,
@@ -176,7 +169,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 
 	// ---- context building ----
 	resolver := graph.NewKnowledgeResolver(h.kbClient)
-	ctxNode := graph.NewBuildContextNode(bot, convBot, h.msgClient, resolver, h.memoryStore, h.logger, h.userNames)
+	ctxNode := graph.NewBuildContextNode(bot, convBot, h.msgClient, resolver, h.logger, h.userNames)
 	ctxResult, err := ctxNode.Invoke(ctx, event)
 	if err != nil {
 		return fmt.Errorf("load conversation context: %w", err)
@@ -333,9 +326,6 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 
 		h.logger.WithContext(ctx).Infof("stream reply sent: event_id=%s bot_id=%s conv_id=%s msg_id=%s", eventID, event.BotID, event.ConvID, respMsgID)
 		metrics.BotReplyMessagesTotal.Inc(botIDStr)
-		if event.Message != nil && event.Sender != nil && event.Sender.UserID != nil {
-			h.triggerMemoryExtraction(ctx, bot, event, fullText)
-		}
 		return nil
 	}
 
@@ -388,9 +378,6 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 
 	h.logger.WithContext(ctx).Infof("reply sent: event_id=%s bot_id=%s conv_id=%s", eventID, event.BotID, event.ConvID)
 	metrics.BotReplyMessagesTotal.Inc(botIDStr)
-	if event.Message != nil && event.Sender != nil && event.Sender.UserID != nil {
-		h.triggerMemoryExtraction(ctx, bot, event, finalText)
-	}
 	return nil
 }
 
@@ -411,32 +398,6 @@ func (h *Handler) tryDirectGenerate(ctx context.Context, bot *model.Bot, ctxResu
 		return ""
 	}
 	return result.Content
-}
-func (h *Handler) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, event *model.BotEvent, botResponse string) {
-	if h.memoryManager == nil || h.llmClient == nil || event == nil || event.Message == nil || event.Sender == nil || event.Sender.UserID == nil || event.Message.Text == "" || botResponse == "" {
-		return
-	}
-	if bot.MemoryModelID == nil {
-		return
-	}
-	sentAt := time.Now()
-	if event.Message.CreatedAt > 0 {
-		sentAt = time.Unix(event.Message.CreatedAt, 0)
-	}
-	einoChatModel := h.llmClient.NewEinoChatModel(*bot.MemoryModelID, bot.MemoryModelName, bot.OwnerID, bot.ID)
-	extractor := memory.NewExtractor(einoChatModel, memory.ExtractorConfig{Temperature: 0.3})
-	h.memoryManager.WithExtractor(extractor).RememberAsync(ctx, memory.ExtractInput{
-		BotID:            bot.ID,
-		UserID:           *event.Sender.UserID,
-		ConvID:           &event.ConvID,
-		MsgID:            &event.Message.MsgID,
-		Message:          event.Message.Text,
-		SentAt:           sentAt,
-		OwnerID:          bot.OwnerID,
-		EmbeddingModelID: bot.MemoryEmbeddingModelID,
-		MemoryModelID:    bot.MemoryModelID,
-		MemoryModelName:  bot.MemoryModelName,
-	})
 }
 
 // parseEvent parses a Kafka message.created event, handling both nested (BotEvent)

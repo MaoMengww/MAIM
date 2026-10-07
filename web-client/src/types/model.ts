@@ -304,12 +304,6 @@ export interface Bot {
   max_context_messages: number;
   max_context_tokens: number;
   streaming_enabled: boolean;
-  memory_model_name: string;
-  memory_model_id?: string | null;
-  memory_use_platform_model: boolean;
-  memory_limit: number;
-  memory_embedding_model_name: string;
-  memory_embedding_model_id?: string | null;
   conn_mode: string;
   callback_url: string;
   has_webhook_secret: boolean;

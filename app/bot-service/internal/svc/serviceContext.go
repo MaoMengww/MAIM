@@ -4,10 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/cloudwego/eino/schema"
-	"github.com/maomeng/aim/app/bot-service/internal/client"
 	"github.com/maomeng/aim/app/bot-service/internal/config"
-	"github.com/maomeng/aim/app/bot-service/internal/memory"
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
@@ -22,7 +19,6 @@ import (
 	"github.com/maomeng/aim/pkg/logx"
 
 	"github.com/maomeng/aim/pkg/interceptor"
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"
@@ -40,11 +36,6 @@ type ServiceContext struct {
 	Redis             *goredis.Client
 	Logger            logx.Logger
 	KafkaProducer     *kafka.Producer
-	Neo4jDriver       neo4j.DriverWithContext
-	MemoryStore       *memory.Neo4jStore
-	MemoryManager     *memory.Manager
-	MemoryVector      *memory.MemoryVectorStore
-	MemoryEmbedder    memory.Embedder
 	LlmGatewayConn    zrpc.Client
 	MessageSvcConn    zrpc.Client
 	KnowledgeConn     zrpc.Client
@@ -110,45 +101,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		panic(fmt.Sprintf("llm-gateway client failed: %v", err))
 	}
 
-	neo4jDriver, err := neo4j.NewDriverWithContext(c.Memory.Neo4j.URI, neo4j.BasicAuth(c.Memory.Neo4j.Username, c.Memory.Neo4j.Password, ""))
-	if err != nil {
-		panic(fmt.Sprintf("neo4j driver init failed: %v", err))
-	}
-	if err := neo4jDriver.VerifyConnectivity(context.Background()); err != nil {
-		panic(fmt.Sprintf("neo4j connectivity failed: %v", err))
-	}
-	memoryStore := memory.NewNeo4jStore(neo4jDriver, c.Memory.Neo4j.Database, logger)
-	if err := memoryStore.InitSchema(context.Background()); err != nil {
-		panic(fmt.Sprintf("neo4j memory schema init failed: %v", err))
-	}
-
-	memoryEmbedder := memory.NewGatewayEmbedder(llmGatewayConn)
-
-	var memoryVector *memory.MemoryVectorStore
-	if c.Milvus.Host != "" {
-		vecStore, vecErr := memory.NewMemoryVectorStore(c.Milvus, c.Memory.VectorCollection, c.Memory.EmbeddingDim)
-		if vecErr != nil {
-			panic(fmt.Sprintf("memory vector store init failed: %v", vecErr))
-		}
-		if err := vecStore.EnsureCollection(context.Background()); err != nil {
-			panic(fmt.Sprintf("memory vector collection ensure failed: %v", err))
-		}
-		memoryVector = vecStore
-	}
-
-	memoryManager := memory.NewManager(logger, memoryStore, nil, memoryEmbedder, memoryVector)
-	memoryManager.SetVectorTopK(c.Memory.VectorTopKMult)
-	memoryManager.SetProfileChat(func(ctx context.Context, modelID string, modelName string, ownerID *string, botID string, prompt string) (string, error) {
-		llmClient := client.NewLlmGatewayClient(llmGatewayConn)
-		chatModel := llmClient.NewEinoChatModel(modelID, modelName, ownerID, botID)
-		msgs := []*schema.Message{{Role: schema.User, Content: prompt}}
-		resp, err := chatModel.Generate(ctx, msgs)
-		if err != nil {
-			return "", err
-		}
-		return resp.Content, nil
-	})
-
 	messageSvcConn, err := zrpc.NewClient(c.MessageService, reqIDClientOpt, reqIDStreamOpt)
 	if err != nil {
 		panic(fmt.Sprintf("message-service client failed: %v", err))
@@ -163,11 +115,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 
 	base.Redis = rdb
-	base.Neo4jDriver = neo4jDriver
-	base.MemoryStore = memoryStore
-	base.MemoryManager = memoryManager
-	base.MemoryVector = memoryVector
-	base.MemoryEmbedder = memoryEmbedder
 	base.LlmGatewayConn = llmGatewayConn
 	base.MessageSvcConn = messageSvcConn
 	base.KnowledgeConn = knowledgeConn

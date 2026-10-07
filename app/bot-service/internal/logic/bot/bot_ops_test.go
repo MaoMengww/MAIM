@@ -71,10 +71,6 @@ func (m *enhancedMockRepo) UpdateBot(ctx context.Context, botID string, updates 
 			bot.ModelName = value.(string)
 		case "model_id":
 			bot.ModelID, _ = value.(*string)
-		case "memory_model_id":
-			bot.MemoryModelID, _ = value.(*string)
-		case "memory_embedding_model_id":
-			bot.MemoryEmbeddingModelID, _ = value.(*string)
 		case "status":
 			bot.Status = value.(string)
 		case "webhook_secret":
@@ -224,7 +220,7 @@ func TestValidateBotToken_Normal(t *testing.T) {
 }
 func TestUpdateBot_Normal_SelfDeployed(t *testing.T) {
 	r := newEnhancedMockRepo()
-	r.bots[testBotID] = &model.Bot{ID: testBotID, OwnerType: "user", OwnerID: stringPtr(testOwnerID), Type: "self_deployed", ModelID: stringPtr(testModelID), MemoryModelID: stringPtr(testModelID), MemoryEmbeddingModelID: stringPtr(testModelID)}
+	r.bots[testBotID] = &model.Bot{ID: testBotID, OwnerType: "user", OwnerID: stringPtr(testOwnerID), Type: "self_deployed", ModelID: stringPtr(testModelID)}
 	logic := NewUpdateBotLogic(testCaller(t), &svc.ServiceContext{Repo: r})
 	kept, err := logic.UpdateBot(&pb.UpdateBotReq{BotId: testBotID, UserId: testOwnerID, Name: "renamed"})
 	require.NoError(t, err)
@@ -232,17 +228,13 @@ func TestUpdateBot_Normal_SelfDeployed(t *testing.T) {
 	cleared, err := logic.UpdateBot(&pb.UpdateBotReq{BotId: testBotID, UserId: testOwnerID, ClearModelId: true})
 	require.NoError(t, err)
 	assert.Nil(t, cleared.ModelId)
-	assert.Equal(t, testModelID, cleared.GetMemoryModelId())
-	assert.Equal(t, testModelID, cleared.GetMemoryEmbeddingModelId())
 	_, err = logic.UpdateBot(&pb.UpdateBotReq{BotId: testBotID, UserId: testOwnerID, ModelId: stringPtr(testModelID), ClearModelId: true})
 	assert.ErrorIs(t, err, ErrBotInvalid)
 	_, err = logic.UpdateBot(&pb.UpdateBotReq{BotId: testBotID, UserId: testOwnerID, ModelId: stringPtr(testPrivateModelID)})
 	assert.ErrorIs(t, err, ErrBotForbidden)
-	replaced, err := logic.UpdateBot(&pb.UpdateBotReq{BotId: testBotID, UserId: testOwnerID, ModelId: stringPtr(testModelID), ClearMemoryModelId: true, ClearMemoryEmbeddingModelId: true})
+	replaced, err := logic.UpdateBot(&pb.UpdateBotReq{BotId: testBotID, UserId: testOwnerID, ModelId: stringPtr(testModelID)})
 	require.NoError(t, err)
 	assert.Equal(t, testModelID, replaced.GetModelId())
-	assert.Nil(t, replaced.MemoryModelId)
-	assert.Nil(t, replaced.MemoryEmbeddingModelId)
 }
 func TestUpdateBot_Normal_ThirdParty(t *testing.T) {
 	r := newEnhancedMockRepo()

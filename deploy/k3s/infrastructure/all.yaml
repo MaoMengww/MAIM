@@ -142,46 +142,6 @@ spec:
     - port: 9000
       nodePort: 30900
 
-# Neo4j
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata: {name: neo4j-pvc}
-spec:
-  accessModes: [ReadWriteOnce]
-  storageClassName: local-path
-  resources: {requests: {storage: 5Gi}}
----
-apiVersion: apps/v1
-kind: Deployment
-metadata: {name: aim-neo4j}
-spec:
-  replicas: 1
-  selector: {matchLabels: {app: aim-neo4j}}
-  template:
-    metadata: {labels: {app: aim-neo4j}}
-    spec:
-      containers:
-        - name: neo4j
-          image: neo4j:5-community
-          ports:
-            - {containerPort: 7474}
-            - {containerPort: 7687}
-          env:
-            - {name: NEO4J_AUTH, value: "neo4j/password123"}
-            - {name: NEO4J_ACCEPT_LICENSE_AGREEMENT, value: "yes"}
-          volumeMounts: [{name: data, mountPath: /data}]
-      volumes: [{name: data, persistentVolumeClaim: {claimName: neo4j-pvc}}]
----
-apiVersion: v1
-kind: Service
-metadata: {name: aim-neo4j}
-spec:
-  selector: {app: aim-neo4j}
-  ports:
-    - {name: http, port: 7474}
-    - {name: bolt, port: 7687}
-
 # Milvus (standalone)
 ---
 apiVersion: v1

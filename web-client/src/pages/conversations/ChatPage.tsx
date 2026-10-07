@@ -21,13 +21,10 @@ import { createPendingSend, retryPendingSend, loadPendingSends, type PendingSend
 import { SearchHighlight } from '@/components/common/SearchHighlight';
 import { wsOn, wsSend } from '@/services/ws';
 import { useAuthStore } from '@/stores/auth';
-import { convToolApi } from '@/services/conversation-tool';
-import { authApi } from '@/services/auth';
 import { SearchFilterBar } from '@/components/common/SearchFilterBar';
 import { useMessages } from '@/hooks/useMessages';
 import { Avatar } from '@/components/common/Avatar';
 import { GroupInfoDrawer } from './GroupInfoDrawer';
-import { SummaryPanel } from './components/SummaryPanel';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource } from '@/types/model';
@@ -557,8 +554,6 @@ export function ChatPage() {
   // Group info drawer state
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
 
-  // ─── Summary panel ───
-  const [summaryOpen, setSummaryOpen] = useState(false);
 
   // ─── In-conversation search ───
   const [convSearchOpen, setConvSearchOpen] = useState(false);
@@ -591,8 +586,6 @@ export function ChatPage() {
   // File preview for in-page file viewing
   const [filePreview, setFilePreview] = useState<FileContent | null>(null);
   useEffect(() => setFilePreview(null), [id, currentUserId, authRevision]);
-  const [replyCandidates, setReplyCandidates] = useState<string[]>([]);
-  const [translateMap, setTranslateMap] = useState<Record<string, string>>({});
   // Clear streaming state when conversation changes
   useEffect(() => {
     return () => {
@@ -820,30 +813,7 @@ export function ChatPage() {
       });
     });
 
-    // Async reply candidates result
-    const unsubReplyCandidatesDone = wsOn('conv.reply_candidates.done', (payload: any) => {
-      if (payload.conv_id == null || payload.conv_id !== id) return;
-      setReplyCandidates(payload.candidates || []);
-    });
-    const unsubReplyCandidatesFailed = wsOn('conv.reply_candidates.failed', (payload: any) => {
-      if (payload.conv_id == null || payload.conv_id !== id) return;
-      message.error(payload.error || '生成回复建议失败');
-    });
-
-    // Async translate result (payload includes msg_id from original request)
-    const unsubTranslateDone = wsOn('conv.translate.done', (payload: any) => {
-      if (payload.msg_id) {
-        setTranslateMap((prev: Record<string, string>) => ({ ...prev, [payload.msg_id]: payload.translated_text }));
-      }
-    });
-    const unsubTranslateFailed = wsOn('conv.translate.failed', (payload: any) => {
-      if (payload.msg_id) {
-        setTranslateMap((prev: Record<string, string>) => ({ ...prev, [payload.msg_id]: '' }));
-      }
-      message.error(payload.error || '翻译失败');
-    });
-
-    return () => { unsubRead(); unsubReadReceipt(); unsubStreamChunk(); unsubStreamTool(); unsubStreamSources(); unsubStreamDone(); unsubReplyCandidatesDone(); unsubReplyCandidatesFailed(); unsubTranslateDone(); unsubTranslateFailed(); };
+    return () => { unsubRead(); unsubReadReceipt(); unsubStreamChunk(); unsubStreamTool(); unsubStreamSources(); unsubStreamToolUsed(); unsubStreamDone(); };
   }, [id, queryClient]);
 
   // Reset scroll state when conversation changes
@@ -1465,13 +1435,9 @@ export function ChatPage() {
               <InfoCircleOutlined />
             </button>
           )}
-          <button className="chat-header-info-btn" onClick={() => setSummaryOpen(!summaryOpen)} title="会话工具">
-            <FileTextOutlined />
-          </button>
         </div>
       </div>
 
-      <div className="chat-body">
         <div className="chat-main">
 
       {convSearchOpen && (
@@ -1795,19 +1761,6 @@ export function ChatPage() {
                 <div className={`chat-msg-bubble-wrapper${isMediaMsg ? ' chat-msg-bubble-wrapper-media' : ''}`}>
                   <div className={`chat-msg-bubble${isMediaMsg ? ' chat-msg-bubble-media' : ''} ${msg.status === 2 ? 'recalled' : ''}`}>
                     {msg.status === 2 ? <span style={{ fontStyle: 'italic', opacity: 0.6 }}>消息已撤回</span> : renderContent(msg.content || {}, setFilePreview)}
-                  {translateMap[msg.message_id] && (
-                    <div
-                      className="chat-msg-translate"
-                      onClick={() => setTranslateMap((prev) => {
-                        const next = { ...prev };
-                        delete next[msg.message_id];
-                        return next;
-                      })}
-                    >
-                      🌐 {translateMap[msg.message_id]}
-                      <span className="chat-msg-translate-hide">收起</span>
-                    </div>
-                  )}
                   </div>
                   <button className="chat-msg-actions-btn" onClick={(e) => showMsgActions(e, msg)}>
                     <MoreOutlined />
@@ -1903,28 +1856,6 @@ export function ChatPage() {
         </div>
       )}
 
-      {replyCandidates.length > 0 && (
-        <div className="chat-reply-candidates">
-          <span className="chat-reply-candidates-label">💡 回复建议</span>
-          <div className="chat-reply-candidates-list">
-            {replyCandidates.map((text, i) => (
-              <button
-                key={i}
-                className="chat-reply-candidate-btn"
-                onClick={async () => {
-                  setReplyCandidates([]);
-                  sendMutation.mutate({
-                    type: 1,
-                    content: { text, mentions: [] as string[], mention_all: false },
-                  });
-                }}
-              >
-                {text}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div
         className={`chat-input-area${dragOver ? ' drag-over' : ''}`}
@@ -2011,8 +1942,6 @@ export function ChatPage() {
         </div>
       </div>
         </div>
-        <SummaryPanel convId={id!} open={summaryOpen} onClose={() => setSummaryOpen(false)} />
-      </div>
     </div>
 
       {/* Message action menu */}
@@ -2036,50 +1965,6 @@ export function ChatPage() {
             }}>
               @提及
             </div>
-            {(msgActions.msg.type === 1 || msgActions.msg.type === 9) && (
-              <>
-                <div className="chat-msg-action-item" onClick={async () => {
-                  const msgId = msgActions.msg.message_id;
-                  const convId = id;
-                  setMsgActions(null);
-                  if (!convId) return;
-                  try {
-                    const resp = await convToolApi.replyCandidates(convId, msgId);
-                    if (resp?.status === 'processing') {
-                      message.info('正在生成回复建议...');
-                      // Result will arrive via WS conv.reply_candidates.done
-                    } else {
-                      setReplyCandidates(resp?.candidates || []);
-                    }
-                  } catch {
-                    message.error('生成回复失败');
-                  }
-                }}>
-                  💬 生成回复
-                </div>
-                <div className="chat-msg-action-item" onClick={async () => {
-                  const text = extractTextPreview(msgActions.msg.content);
-                  const msgId = msgActions.msg.message_id;
-                  setMsgActions(null);
-                  if (!text) { message.info('无法翻译此消息'); return; }
-                  try {
-                    const settings = await authApi.getSettings();
-                    const userLang = settings.language || 'zh-CN';
-                    const resp = await convToolApi.translate(msgId, text, userLang);
-                    if (resp?.status === 'processing') {
-                      message.info('正在翻译...');
-                      // Result will arrive via WS conv.translate.done
-                    } else {
-                      setTranslateMap((prev: Record<string, string>) => ({ ...prev, [msgId]: resp.translated_text }));
-                    }
-                  } catch {
-                    message.error('翻译失败');
-                  }
-                }}>
-                  🌐 翻译
-                </div>
-              </>
-            )}
             {msgActions.msg.from_user_id === currentUserId && msgActions.msg.type === 1 && (
               <div className="chat-msg-action-item" onClick={() => { setEditingMsgId(msgActions.msg.message_id); setEditText(extractTextPreview(msgActions.msg.content)); setMsgActions(null); }}>
                 编辑

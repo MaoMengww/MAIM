@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -14,7 +13,6 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/client"
 	"github.com/maomeng/aim/app/bot-service/internal/component"
 	"github.com/maomeng/aim/app/bot-service/internal/graph"
-	"github.com/maomeng/aim/app/bot-service/internal/memory"
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
@@ -75,7 +73,7 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 			}
 		}
 	}
-	if err := NewConversationToolServer(s.svcCtx).requireConversation(ctx, userID, req.ConvId); err != nil {
+	if err := requireConversation(ctx, s.svcCtx, userID, req.ConvId); err != nil {
 		return err
 	}
 	logger := s.svcCtx.Logger.WithContext(ctx)
@@ -97,7 +95,7 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 	msgClient := client.NewMessageClient(s.svcCtx.MessageSvcConn)
 	einoChatModel := llmClient.NewEinoChatModel(*bot.ModelID, bot.ModelName, bot.OwnerID, bot.ID)
 	resolver := graph.NewKnowledgeResolver(client.NewKnowledgeClient(s.svcCtx.KnowledgeConn))
-	ctxNode := graph.NewBuildContextNode(bot, convBot, msgClient, resolver, memory.NewGraphStoreAdapter(s.svcCtx.MemoryManager), s.svcCtx.Logger)
+	ctxNode := graph.NewBuildContextNode(bot, convBot, msgClient, resolver, s.svcCtx.Logger)
 	ctxResult, err := ctxNode.Invoke(ctx, &model.BotEvent{
 		BotID:   req.BotId,
 		ConvID:  req.ConvId,
@@ -201,7 +199,6 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 			}
 			messageID = &id
 		}
-		s.triggerMemoryExtraction(ctx, bot, userID, req.ConvId, req.Message, fullText)
 		return stream.Send(&pb.StreamChatResp{Type: "done", Content: fullText, ConvId: req.ConvId, MessageId: messageID})
 	}
 
@@ -224,7 +221,6 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 		}
 		messageID = &id
 	}
-	s.triggerMemoryExtraction(ctx, bot, userID, req.ConvId, req.Message, msg.Content)
 	return stream.Send(&pb.StreamChatResp{Type: "done", Content: msg.Content, ConvId: req.ConvId, MessageId: messageID})
 }
 
@@ -249,27 +245,4 @@ func loadBotMcpServers(ctx context.Context, botRepo *repo.BotRepo, botID string)
 		})
 	}
 	return configs
-}
-
-func (s *RuntimeServer) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, userID, convID, userMsg, botResponse string) {
-	if s.svcCtx.MemoryManager == nil || userMsg == "" || botResponse == "" {
-		return
-	}
-	if bot.MemoryModelID == nil {
-		return
-	}
-	llmClient := client.NewLlmGatewayClient(s.svcCtx.LlmGatewayConn)
-	einoChatModel := llmClient.NewEinoChatModel(*bot.MemoryModelID, bot.MemoryModelName, bot.OwnerID, bot.ID)
-	extractor := memory.NewExtractor(einoChatModel, memory.ExtractorConfig{Temperature: 0.3})
-	s.svcCtx.MemoryManager.WithExtractor(extractor).RememberAsync(ctx, memory.ExtractInput{
-		BotID:            bot.ID,
-		UserID:           userID,
-		ConvID:           &convID,
-		Message:          userMsg,
-		SentAt:           time.Now(),
-		OwnerID:          bot.OwnerID,
-		EmbeddingModelID: bot.MemoryEmbeddingModelID,
-		MemoryModelID:    bot.MemoryModelID,
-		MemoryModelName:  bot.MemoryModelName,
-	})
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/config"
 	"github.com/maomeng/aim/app/bot-service/internal/consumer"
 	"github.com/maomeng/aim/app/bot-service/internal/graph"
-	"github.com/maomeng/aim/app/bot-service/internal/memory"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/app/bot-service/internal/server"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
@@ -124,16 +123,12 @@ func main() {
 
 		deliveryClient := client.NewDeliveryClient(msgClient, ctx.DeliveryPublisher)
 
-		memStore := memory.NewGraphStoreAdapter(ctx.MemoryManager)
-
 		handler := consumer.NewHandler(
 			logger,
 			ctx.BotRepo,
 			repo.NewConvBotRepo(ctx.DB),
 			llmClient,
-			nil,      // retriever
-			memStore, // memoryStore
-			ctx.MemoryManager,
+			nil, // retriever
 			msgClient,
 			kbClient,
 			nil, // convClient
@@ -170,9 +165,6 @@ func main() {
 		}
 		if thirdPartyConsumer != nil {
 			_ = thirdPartyConsumer.Close()
-		}
-		if ctx.Neo4jDriver != nil {
-			_ = ctx.Neo4jDriver.Close(context.Background())
 		}
 		s.Stop()
 	}()

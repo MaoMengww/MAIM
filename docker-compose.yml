@@ -9,9 +9,6 @@ x-aim-env: &aim-env
   MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   MILVUS_HOST: milvus
   MILVUS_PORT: '19530'
-  NEO4J_URI: bolt://neo4j:7687
-  NEO4J_USER: neo4j
-  NEO4J_PASSWORD: ${NEO4J_PASSWORD}
   OTEL_ENDPOINT: otel-collector:4317
   MINERU_URL: ${MINERU_URL:-http://host.docker.internal:30000}
   JWT_SECRET: ${JWT_SECRET:-aim-dev-secret-key}
@@ -262,26 +259,6 @@ services:
 
 
 
-  neo4j:
-    image: neo4j:5-community
-    container_name: aim-neo4j
-    environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
-      NEO4J_dbms_memory_pagecache_size: 512m
-      NEO4J_dbms_memory_heap_initial__size: 512m
-      NEO4J_dbms_memory_heap_max__size: 1g
-    ports:
-      - "7687:7687"
-      - "7474:7474"
-    volumes:
-      - neo4j_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD} 'RETURN 1'"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-    restart: unless-stopped
 
 
 
@@ -391,8 +368,6 @@ services:
       minio:
         condition: service_healthy
       milvus:
-        condition: service_healthy
-      neo4j:
         condition: service_healthy
       kafka:
         condition: service_healthy
@@ -530,4 +505,3 @@ volumes:
   kafka_data:
   milvus_data:
   mineru_models:
-  neo4j_data:

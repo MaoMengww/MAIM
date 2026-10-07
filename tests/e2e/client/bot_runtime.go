@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,6 @@ import (
 	"math"
 	"net/http"
 	"slices"
-	"strconv"
 	"time"
 
 	llmpb "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
@@ -21,18 +21,13 @@ import (
 )
 
 type providerObservations struct {
-	MCPLists          int      `json:"mcp_lists"`
-	ToolTexts         []string `json:"tool_texts"`
-	ChatModels        []string `json:"chat_models"`
-	EmbedModels       []string `json:"embed_models"`
-	RerankModels      []string `json:"rerank_models"`
-	ActiveIngest      int      `json:"active_ingest"`
-	MemoryExtractions []struct {
-		Model   string   `json:"model"`
-		UserID  entityID `json:"user_id"`
-		Message string   `json:"message"`
-	} `json:"memory_extractions"`
-	ToolCallIDs []string `json:"tool_call_ids"`
+	MCPLists     int      `json:"mcp_lists"`
+	ToolTexts    []string `json:"tool_texts"`
+	ChatModels   []string `json:"chat_models"`
+	EmbedModels  []string `json:"embed_models"`
+	RerankModels []string `json:"rerank_models"`
+	ActiveIngest int      `json:"active_ingest"`
+	ToolCallIDs  []string `json:"tool_call_ids"`
 }
 
 func (d *driver) observeProvider() (providerObservations, error) {
@@ -80,20 +75,18 @@ func (d *driver) fixtureModel(owner account, capability, name string) (entityID,
 }
 
 type botView struct {
-	OwnerType              string    `json:"owner_type"`
-	ID                     entityID  `json:"id"`
-	OwnerID                *entityID `json:"owner_id"`
-	Name                   string    `json:"name"`
-	ModelID                *entityID `json:"model_id"`
-	Prompt                 string    `json:"system_prompt"`
-	Callback               string    `json:"callback_url"`
-	Triggers               []string  `json:"response_triggers"`
-	MemoryModelID          *entityID `json:"memory_model_id"`
-	MemoryEmbeddingModelID *entityID `json:"memory_embedding_model_id"`
-	Streaming              bool      `json:"streaming_enabled"`
-	Status                 string    `json:"status"`
-	Temperature            float64   `json:"temperature"`
-	MaxContext             int32     `json:"max_context_messages"`
+	OwnerType   string    `json:"owner_type"`
+	ID          entityID  `json:"id"`
+	OwnerID     *entityID `json:"owner_id"`
+	Name        string    `json:"name"`
+	ModelID     *entityID `json:"model_id"`
+	Prompt      string    `json:"system_prompt"`
+	Callback    string    `json:"callback_url"`
+	Triggers    []string  `json:"response_triggers"`
+	Streaming   bool      `json:"streaming_enabled"`
+	Status      string    `json:"status"`
+	Temperature float64   `json:"temperature"`
+	MaxContext  int32     `json:"max_context_messages"`
 }
 
 func (d *driver) botRuntime(address, secondAddress string) (result error) {
@@ -121,13 +114,6 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	if err := d.runtimeModelCRUD(owner, outsider, modelID, modelName); err != nil {
 		return err
 	}
-	toolsModelID, err := d.fixtureModel(owner, "chat", "fixture-tools-"+suffix)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		result = errors.Join(result, d.request(http.MethodDelete, "/models/"+toolsModelID.String(), owner.token, nil, nil))
-	}()
 	embeddingID, err := d.fixtureModel(owner, "embed", "fixture-embed-"+suffix)
 	if err != nil {
 		return err
@@ -185,7 +171,7 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	if !fetched.Streaming && crossInstance || fetched.Streaming && !crossInstance || fetched.Temperature != 0.2 || fetched.MaxContext != 4 {
 		return errors.New("bot.config: 数字配置或streaming没有持久化")
 	}
-	if err := d.runtimeModelReferences(owner, outsider, path, bot.ID, modelID, toolsModelID, embeddingID, foreignID, crossInstance); err != nil {
+	if err := d.runtimeModelReferences(owner, outsider, path, bot.ID, modelID, foreignID, crossInstance); err != nil {
 		return err
 	}
 	var listed struct {
@@ -402,10 +388,10 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	if err := d.runtimeBilling(owner, outsider, bot.ID, modelID, modelName, 2); err != nil {
 		return err
 	}
-	if err := d.runtimeConversationTools(owner, outsider, address, secondAddress, conv.ID, sent, toolsModelID); err != nil {
+	if err := d.runtimeConversationContracts(owner, outsider, conv.ID, sent, modelID); err != nil {
 		return err
 	}
-	if err := d.runtimeKnowledgeMemory(owner, outsider, address, mcp.ID, embeddingID, suffix); err != nil {
+	if err := d.runtimeKnowledgeComposition(owner, outsider, address, mcp.ID, embeddingID, suffix); err != nil {
 		return err
 	}
 	if err := d.runtimePrivateBotConversation(owner, outsider, secondAddress, bot.ID, suffix); err != nil {
@@ -539,24 +525,22 @@ func (d *driver) runtimeModelCRUD(owner, outsider account, id entityID, name str
 	return nil
 }
 
-func (d *driver) runtimeModelReferences(owner, outsider account, path string, botID, chatID, memoryID, embedID, foreignID entityID, streaming bool) error {
+func (d *driver) runtimeModelReferences(owner, outsider account, path string, botID, chatID, foreignID entityID, streaming bool) error {
 	if err := d.runtimeReject(http.MethodPut, path, outsider, map[string]string{"name": "stolen"}, http.StatusForbidden); err != nil {
 		return err
 	}
-	for _, field := range []string{"model_id", "memory_model_id", "memory_embedding_model_id"} {
-		for _, invalid := range []any{0, "", "platform"} {
-			if err := d.runtimeReject(http.MethodPut, path, owner, map[string]any{field: invalid}, http.StatusBadRequest); err != nil {
-				return err
-			}
-		}
-		if err := d.runtimeReject(http.MethodPut, path, owner, map[string]any{field: foreignID}, http.StatusForbidden); err != nil {
+	for _, invalid := range []any{0, "", "platform"} {
+		if err := d.runtimeReject(http.MethodPut, path, owner, map[string]any{"model_id": invalid}, http.StatusBadRequest); err != nil {
 			return err
 		}
+	}
+	if err := d.runtimeReject(http.MethodPut, path, owner, map[string]any{"model_id": foreignID}, http.StatusForbidden); err != nil {
+		return err
 	}
 	if err := d.runtimeReject(http.MethodPost, "/bots", owner, map[string]any{"name": "forbidden-model", "type": "self_deployed", "model_id": foreignID}, http.StatusForbidden); err != nil {
 		return err
 	}
-	if err := d.request(http.MethodPut, path, owner.token, map[string]any{"model_id": chatID, "memory_model_id": memoryID, "memory_embedding_model_id": embedID}, nil); err != nil {
+	if err := d.request(http.MethodPut, path, owner.token, map[string]any{"model_id": chatID}, nil); err != nil {
 		return err
 	}
 	if err := d.request(http.MethodPut, path, owner.token, map[string]string{"persona": "UUID reference preservation"}, nil); err != nil {
@@ -566,32 +550,20 @@ func (d *driver) runtimeModelReferences(owner, outsider account, path string, bo
 	if err := d.request(http.MethodGet, path, owner.token, nil, &preserved); err != nil {
 		return err
 	}
-	if preserved.ID != botID || !hasEntityID(preserved.ModelID, chatID) || !hasEntityID(preserved.MemoryModelID, memoryID) || !hasEntityID(preserved.MemoryEmbeddingModelID, embedID) {
-		return errors.New("bot.references: 省略引用必须保持三个UUID")
+	if preserved.ID != botID || !hasEntityID(preserved.ModelID, chatID) {
+		return errors.New("bot.references: 省略model_id必须保持模型UUID")
 	}
-	for field, id := range map[string]entityID{"model_id": chatID, "memory_model_id": memoryID, "memory_embedding_model_id": embedID} {
-		if err := d.runtimeReject(http.MethodPut, path, owner, map[string]any{field: id, "clear_" + field: true}, http.StatusBadRequest); err != nil {
-			return err
-		}
-	}
-	if err := d.request(http.MethodPut, path, owner.token, map[string]bool{"clear_memory_model_id": true}, nil); err != nil {
+	if err := d.runtimeReject(http.MethodPut, path, owner, map[string]any{"model_id": chatID, "clear_model_id": true}, http.StatusBadRequest); err != nil {
 		return err
 	}
-	var partial botView
-	if err := d.request(http.MethodGet, path, owner.token, nil, &partial); err != nil {
-		return err
-	}
-	if !hasEntityID(partial.ModelID, chatID) || partial.MemoryModelID != nil || !hasEntityID(partial.MemoryEmbeddingModelID, embedID) {
-		return errors.New("bot.references: 单引用clear不得改变其它引用")
-	}
-	if err := d.request(http.MethodPut, path, owner.token, map[string]bool{"clear_model_id": true, "clear_memory_embedding_model_id": true}, nil); err != nil {
+	if err := d.request(http.MethodPut, path, owner.token, map[string]bool{"clear_model_id": true}, nil); err != nil {
 		return err
 	}
 	var cleared botView
 	if err := d.request(http.MethodGet, path, owner.token, nil, &cleared); err != nil {
 		return err
 	}
-	if cleared.ModelID != nil || cleared.MemoryModelID != nil || cleared.MemoryEmbeddingModelID != nil {
+	if cleared.ID != botID || cleared.ModelID != nil {
 		return errors.New("bot.references: clear未移除nullable模型引用")
 	}
 	if err := d.request(http.MethodPut, path, owner.token, map[string]any{
@@ -842,65 +814,23 @@ func (d *driver) runtimeBilling(owner, outsider account, botID, modelID entityID
 	return nil
 }
 
-// Only timestamps/quantities accept the protobuf int64 text representation or
-// numeric async-event representation. Entity identities still use entityID only.
-type protocolInteger int64
-
-func (value *protocolInteger) UnmarshalJSON(raw []byte) error {
-	text := string(raw)
-	if len(raw) > 0 && raw[0] == '"' {
-		if err := json.Unmarshal(raw, &text); err != nil {
-			return err
-		}
-	}
-	number, err := strconv.ParseInt(text, 10, 64)
-	if err != nil {
-		return errors.New("timestamp/quantity必须是整数，不是实体身份")
-	}
-	*value = protocolInteger(number)
-	return nil
-}
-
-type runtimeTodo struct {
-	ID        entityID        `json:"id"`
-	SummaryID *entityID       `json:"summary_id"`
-	ConvID    entityID        `json:"conv_id"`
-	Content   string          `json:"content"`
-	Done      bool            `json:"done"`
-	CreatedAt protocolInteger `json:"created_at"`
-	UpdatedAt protocolInteger `json:"updated_at"`
-}
-
-type runtimeSummary struct {
-	ID            *entityID       `json:"summary_id"`
-	Summary       string          `json:"summary"`
-	Todos         []runtimeTodo   `json:"todos"`
-	TotalMessages int32           `json:"total_messages"`
-	CreatedAt     protocolInteger `json:"created_at"`
-	Status        string          `json:"status"`
-}
-
-type runtimeSummaryList struct {
-	Items      []runtimeSummary `json:"items"`
-	Standalone []runtimeTodo    `json:"standalone_todos"`
-}
-
-func (d *driver) runtimeConversationTools(owner, outsider account, address, secondAddress string, convID entityID, sent sentMessage, modelID entityID) error {
+func (d *driver) runtimeConversationContracts(owner, outsider account, convID entityID, sent sentMessage, modelID entityID) error {
 	settingsPath := "/users/me/settings"
-	if err := d.request(http.MethodPut, settingsPath, owner.token, map[string]any{"ai_model_id": modelID}, nil); err != nil {
+	if err := d.request(http.MethodPut, settingsPath, owner.token, map[string]any{"ai_model_id": modelID, "language": "en-US"}, nil); err != nil {
 		return err
 	}
 	if err := d.request(http.MethodPut, settingsPath, owner.token, map[string]string{"theme": "dark"}, nil); err != nil {
 		return err
 	}
 	var settings struct {
-		ModelID *entityID `json:"ai_model_id"`
+		ModelID  *entityID `json:"ai_model_id"`
+		Language string    `json:"language"`
 	}
 	if err := d.request(http.MethodGet, settingsPath, owner.token, nil, &settings); err != nil {
 		return err
 	}
-	if !hasEntityID(settings.ModelID, modelID) {
-		return errors.New("tools.settings: 省略AI模型引用必须保持UUID")
+	if !hasEntityID(settings.ModelID, modelID) || settings.Language != "en-US" {
+		return errors.New("bot.settings: 省略AI模型与语言必须保持UUID和语言")
 	}
 	if err := d.runtimeReject(http.MethodPut, settingsPath, owner, map[string]any{"ai_model_id": modelID, "clear_ai_model_id": true}, http.StatusBadRequest); err != nil {
 		return err
@@ -912,203 +842,80 @@ func (d *driver) runtimeConversationTools(owner, outsider account, address, seco
 	if err := d.request(http.MethodGet, settingsPath, owner.token, nil, &settings); err != nil {
 		return err
 	}
-	if settings.ModelID != nil {
-		return errors.New("tools.settings: clear没有移除AI模型引用")
+	if settings.ModelID != nil || settings.Language != "en-US" {
+		return errors.New("bot.settings: clear必须移除AI模型引用但保留语言")
 	}
 	if err := d.request(http.MethodPut, settingsPath, owner.token, map[string]any{"ai_model_id": modelID}, nil); err != nil {
 		return err
 	}
-	deviceA, err := d.inboxLoginDevice(owner, "tools_a")
+	settings.ModelID = nil
+	if err := d.request(http.MethodGet, settingsPath, owner.token, nil, &settings); err != nil {
+		return err
+	}
+	if !hasEntityID(settings.ModelID, modelID) || settings.Language != "en-US" {
+		return errors.New("bot.settings: AI模型引用恢复未保持模型UUID与语言")
+	}
+	before, err := d.observeProvider()
 	if err != nil {
 		return err
 	}
-	deviceB, err := d.inboxLoginDevice(owner, "tools_b")
-	if err != nil {
-		return err
-	}
-	primary, err := d.p6Connect(address, deviceA)
-	if err != nil {
-		return err
-	}
-	defer primary.close()
-	secondary, err := d.p6Connect(secondAddress, deviceB)
-	if err != nil {
-		return err
-	}
-	defer secondary.close()
-	observer, err := d.p6Connect(secondAddress, outsider)
-	if err != nil {
-		return err
-	}
-	defer observer.close()
 	path := "/convs/" + convID.String()
-	read := func() (runtimeSummaryList, error) {
-		var summaries runtimeSummaryList
-		err := d.request(http.MethodGet, path+"/summaries", owner.token, nil, &summaries)
-		return summaries, err
-	}
+	// A removed route may return plain text, not the gateway JSON envelope.
+	// Use real conversation/message UUIDs and valid bodies so retained handlers
+	// cannot pass these probes by rejecting malformed identities or requests.
 	for _, operation := range []struct {
 		method, endpoint string
 		body             any
 	}{
 		{http.MethodPost, path + "/summarize", map[string]bool{"all": true}},
 		{http.MethodGet, path + "/summaries", nil},
-		{http.MethodPost, path + "/todos", map[string]string{"content": "forbidden"}},
-		{http.MethodPost, path + "/reply-candidates", map[string]any{}},
+		{http.MethodPost, path + "/todos", map[string]string{"content": "retired acceptance probe"}},
+		{http.MethodPut, path + "/todos/" + sent.MessageID.String(), map[string]bool{"done": true}},
+		{http.MethodDelete, path + "/todos/" + sent.MessageID.String(), nil},
+		{http.MethodPost, path + "/reply-candidates", map[string]any{"reply_to_msg_id": sent.MessageID}},
 		{http.MethodPost, "/messages/" + sent.MessageID.String() + "/translate", map[string]string{"text": sent.Content.Text, "target_lang": "en-US"}},
+		// Unknown Todo UUIDs can also yield 404 from a surviving handler. Invalid
+		// identities must still be 404, rather than reaching its 400 validation.
+		{http.MethodPut, path + "/todos/not-an-identity", map[string]bool{"done": true}},
+		{http.MethodDelete, path + "/todos/not-an-identity", nil},
 	} {
-		if err := d.runtimeReject(operation.method, operation.endpoint, outsider, operation.body, http.StatusForbidden); err != nil {
-			return err
+		for _, caller := range []account{owner, outsider} {
+			var body io.Reader
+			if operation.body != nil {
+				raw, err := json.Marshal(operation.body)
+				if err != nil {
+					return err
+				}
+				body = bytes.NewReader(raw)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
+			req, err := http.NewRequestWithContext(ctx, operation.method, d.gateway+"/api/v1"+operation.endpoint, body)
+			if err != nil {
+				cancel()
+				return err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+caller.token)
+			resp, err := d.client.Do(req)
+			if err != nil {
+				cancel()
+				return fmt.Errorf("bot.retired-route %s %s: %s", operation.method, operation.endpoint, transportFailure(err))
+			}
+			resp.Body.Close()
+			cancel()
+			if resp.StatusCode != http.StatusNotFound {
+				return fmt.Errorf("bot.retired-route %s %s: 期望HTTP404，实际%d", operation.method, operation.endpoint, resp.StatusCode)
+			}
 		}
 	}
-	var processing runtimeSummary
-	if err := d.request(http.MethodPost, path+"/summarize", owner.token, map[string]bool{"all": true}, &processing); err != nil {
-		return err
-	}
-	if processing.Status != "processing" || processing.ID != nil {
-		return errors.New("tools.summary: processing必须省略尚未持久化的summary_id")
-	}
-	var completed event
-	for _, socket := range []*p6Socket{primary, secondary} {
-		evt, err := d.p6Wait(socket, 0, "summary.done", func(e p6Event) bool {
-			return hasEntityID(e.ConvID, convID) && (e.Type == "conv.summarize.done" || e.Type == "conv.summarize.failed")
-		})
-		if err != nil {
-			return err
-		}
-		if evt.Type != "conv.summarize.done" || evt.SummaryID == nil || evt.Summary == "" || evt.TotalMessages != 2 || len(evt.Todos) != 1 || evt.Todos[0].Content != "fixture-todo: verify UUID references" || !hasEntityID(evt.Todos[0].SummaryID, *evt.SummaryID) || evt.Todos[0].ConvID != convID || evt.Todos[0].ID == "" || evt.Todos[0].Done || evt.CreatedAt <= 0 {
-			return errors.New("tools.summary: WS没有返回精确provider摘要/todo及有效UUID关联")
-		}
-		if completed.SummaryID != nil && (*completed.SummaryID != *evt.SummaryID || completed.Summary != evt.Summary || completed.Todos[0].ID != evt.Todos[0].ID || completed.TotalMessages != evt.TotalMessages) {
-			return errors.New("tools.summary: 同账号设备WS结果身份或内容不一致")
-		}
-		completed = evt.event
-	}
-	summaries, err := read()
+	after, err := d.observeProvider()
 	if err != nil {
 		return err
 	}
-	if len(summaries.Items) != 1 || !hasEntityID(summaries.Items[0].ID, *completed.SummaryID) || summaries.Items[0].Summary != completed.Summary || summaries.Items[0].Status != "completed" || summaries.Items[0].TotalMessages != completed.TotalMessages || len(summaries.Items[0].Todos) != 1 || summaries.Items[0].Todos[0].ID != completed.Todos[0].ID {
-		return errors.New("tools.summary: REST持久化读取与两个设备WS结果不一致")
+	if after.MCPLists != before.MCPLists || after.ActiveIngest != before.ActiveIngest || len(after.ChatModels) != len(before.ChatModels) || len(after.EmbedModels) != len(before.EmbedModels) || len(after.RerankModels) != len(before.RerankModels) || len(after.ToolTexts) != len(before.ToolTexts) || len(after.ToolCallIDs) != len(before.ToolCallIDs) {
+		return errors.New("bot.retired-route: 已退役公开请求仍触发provider或网络工具工作")
 	}
-	for _, summaryID := range []*entityID{nil, completed.SummaryID} {
-		input := map[string]any{"content": "fixture-manual-todo"}
-		if summaryID != nil {
-			input["summary_id"] = *summaryID
-		}
-		var created runtimeTodo
-		if err := d.request(http.MethodPost, path+"/todos", owner.token, input, &created); err != nil {
-			return err
-		}
-		if created.ID == "" || created.ConvID != convID || created.Content != "fixture-manual-todo" || created.Done || created.CreatedAt <= 0 || (summaryID == nil) != (created.SummaryID == nil) || summaryID != nil && !hasEntityID(created.SummaryID, *summaryID) {
-			return errors.New("tools.todo.create: nullable summary关联或UUID/content契约不匹配")
-		}
-		todoPath := path + "/todos/" + created.ID.String()
-		for _, method := range []string{http.MethodPut, http.MethodDelete} {
-			if err := d.runtimeReject(method, todoPath, outsider, map[string]string{"content": "forbidden"}, http.StatusForbidden); err != nil {
-				return err
-			}
-		}
-		check := func(content string, done, present bool) error {
-			listed, err := read()
-			if err != nil {
-				return err
-			}
-			todos := listed.Standalone
-			if summaryID != nil {
-				index := slices.IndexFunc(listed.Items, func(s runtimeSummary) bool { return hasEntityID(s.ID, *summaryID) })
-				if index < 0 {
-					return errors.New("tools.todo: summary持久化读取丢失")
-				}
-				todos = listed.Items[index].Todos
-			}
-			index := slices.IndexFunc(todos, func(t runtimeTodo) bool { return t.ID == created.ID })
-			if !present {
-				if index >= 0 {
-					return errors.New("tools.todo.delete: 删除后刷新仍存在")
-				}
-				return nil
-			}
-			if index < 0 || todos[index].Content != content || todos[index].Done != done || todos[index].ConvID != convID || (todos[index].SummaryID == nil) != (summaryID == nil) || summaryID != nil && !hasEntityID(todos[index].SummaryID, *summaryID) {
-				return errors.New("tools.todo: 真实DB刷新未保持content/done/nullable UUID关联")
-			}
-			return nil
-		}
-		if err := check(created.Content, false, true); err != nil {
-			return err
-		}
-		for _, update := range []struct {
-			body    any
-			content string
-			done    bool
-		}{
-			{map[string]bool{"done": true}, created.Content, true},
-			{map[string]string{"content": "fixture-edited-todo"}, "fixture-edited-todo", true},
-			{map[string]bool{"done": false}, "fixture-edited-todo", false},
-		} {
-			if err := d.request(http.MethodPut, todoPath, owner.token, update.body, nil); err != nil {
-				return err
-			}
-			if err := check(update.content, update.done, true); err != nil {
-				return err
-			}
-		}
-		if err := d.request(http.MethodDelete, todoPath, owner.token, nil, nil); err != nil {
-			return err
-		}
-		if err := check("", false, false); err != nil {
-			return err
-		}
-	}
-	var translating struct {
-		Status string `json:"status"`
-	}
-	if err := d.request(http.MethodPost, "/messages/"+sent.MessageID.String()+"/translate", owner.token, map[string]string{"text": sent.Content.Text, "target_lang": "en-US"}, &translating); err != nil {
-		return err
-	}
-	if translating.Status != "processing" {
-		return errors.New("tools.translate: REST未返回processing")
-	}
-	for _, socket := range []*p6Socket{primary, secondary} {
-		evt, err := d.p6Wait(socket, 0, "translate.done", func(e p6Event) bool {
-			return hasEntityID(e.MsgID, sent.MessageID) && (e.Type == "conv.translate.done" || e.Type == "conv.translate.failed")
-		})
-		if err != nil {
-			return err
-		}
-		if evt.Type != "conv.translate.done" || evt.TranslatedText != "fixture-translation:"+sent.Content.Text || evt.DetectedLang != "en-US" {
-			return errors.New("tools.translate: WS的消息UUID、翻译或语言与请求不一致")
-		}
-	}
-	var candidates struct {
-		Status string `json:"status"`
-	}
-	if err := d.request(http.MethodPost, path+"/reply-candidates", owner.token, map[string]any{"reply_to_msg_id": sent.MessageID}, &candidates); err != nil {
-		return err
-	}
-	if candidates.Status != "processing" {
-		return errors.New("tools.reply-candidates: REST未返回processing")
-	}
-	for _, socket := range []*p6Socket{primary, secondary} {
-		evt, err := d.p6Wait(socket, 0, "reply-candidates.done", func(e p6Event) bool {
-			return hasEntityID(e.ConvID, convID) && (e.Type == "conv.reply_candidates.done" || e.Type == "conv.reply_candidates.failed")
-		})
-		if err != nil {
-			return err
-		}
-		if evt.Type != "conv.reply_candidates.done" || !slices.Equal(evt.Candidates, []string{"收到", "继续执行", "核对结果"}) {
-			return errors.New("tools.reply-candidates: WS未返回实际provider候选回复")
-		}
-	}
-	if err := d.p6NoConversation(observer, convID, 0); err != nil {
-		return err
-	}
-	observer.mu.Lock()
-	leaked := slices.ContainsFunc(observer.events, func(e p6Event) bool { return hasEntityID(e.MsgID, sent.MessageID) })
-	observer.mu.Unlock()
-	if leaked {
-		return errors.New("tools.permission: 非成员收到私有翻译事件")
-	}
+	fmt.Println("Bot retirement evidence: 摘要生成/历史、Todo POST/PUT/DELETE、回复候选与专用翻译在成员和非成员身份均HTTP404；provider/MCP观测计数不变；语言与AI模型设置保留")
 	return nil
 }
 

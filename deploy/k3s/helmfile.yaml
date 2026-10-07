@@ -8,8 +8,6 @@ repositories:
     url: https://jaegertracing.github.io/helm-charts
   - name: prometheus
     url: https://prometheus-community.github.io/helm-charts
-  - name: neo4j
-    url: https://helm.neo4j.com
   - name: milvus
     url: https://zilliztech.github.io/milvus-helm
 
@@ -47,11 +45,6 @@ releases:
     chart: bitnami/elasticsearch
     values:
       - infrastructure/elasticsearch-values.yaml
-
-  - name: neo4j
-    chart: neo4j/neo4j
-    values:
-      - infrastructure/neo4j-values.yaml
 
   - name: milvus
     chart: milvus/milvus

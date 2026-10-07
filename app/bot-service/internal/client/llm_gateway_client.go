@@ -89,20 +89,6 @@ func (c *LlmGatewayClient) ChatStream(ctx context.Context, modelID string, model
 	return reader, nil
 }
 
-// Embed calls llm-gateway Embed.
-func (c *LlmGatewayClient) Embed(ctx context.Context, modelID string, texts []string, ownerID *string, botID ...string) ([][]float32, error) {
-	req := &llmgateway.EmbedReq{ModelId: modelID, Input: texts, OwnerId: ownerID, BotId: callBotID(botID)}
-	resp, err := c.cli.Embed(serviceCallContext(ctx), req)
-	if err != nil {
-		return nil, err
-	}
-	result := make([][]float32, len(resp.Data))
-	for i, d := range resp.Data {
-		result[i] = d.Embedding
-	}
-	return result, nil
-}
-
 // --- helpers ---
 
 func schemaMsgToProto(m *schema.Message) *llmgateway.Message {

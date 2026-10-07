@@ -67,9 +67,8 @@ func validateEntityJSONValue(value any) error {
 			case "user_id", "userId", "owner_id", "ownerId", "bot_id", "botId", "sender_id", "senderId",
 				"conversation_id", "conversationId", "conv_id", "convId", "message_id", "messageId",
 				"msg_id", "msgId", "reply_to_id", "replyToId", "reply_to_msg_id", "replyToMsgId",
-				"model_id", "modelId", "memory_model_id", "memoryModelId",
-				"memory_embedding_model_id", "memoryEmbeddingModelId", "mcp_server_id", "mcpServerId",
-				"mcp_tool_id", "mcpToolId", "summary_id", "summaryId", "todo_id", "todoId",
+				"model_id", "modelId", "mcp_server_id", "mcpServerId",
+				"mcp_tool_id", "mcpToolId",
 				"official_template_id", "officialTemplateId", "knowledge_base_id", "knowledgeBaseId", "kb_id", "kbId",
 				"doc_id", "docId", "chunk_id", "chunkId":
 				if child != nil {
