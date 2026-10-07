@@ -7,8 +7,11 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
+	"google.golang.org/grpc/metadata"
 )
 
 type GetMembersLogic struct {
@@ -23,11 +26,28 @@ func NewGetMembersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetMem
 
 func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversation.GetMembersResp, error) {
 
-	if err := validateRequest(l.ctx, in.UserId, in.ConversationId); err != nil {
-		return nil, err
+	if in == nil || identity.Validate(in.ConversationId) != nil || (in.UserId == nil) == (in.BotId == nil) {
+		return nil, ErrInvalidParam
 	}
-	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, in.UserId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
-		return nil, err
+	if in.BotId != nil {
+		md, _ := metadata.FromIncomingContext(l.ctx)
+		caller, _ := l.ctx.Value(interceptor.ContextKeyUserID).(string)
+		if len(md.Get("user-id")) != 0 || caller != "" {
+			return nil, ErrInsufficientPerm
+		}
+		if identity.Validate(*in.BotId) != nil {
+			return nil, ErrInvalidParam
+		}
+		if _, err := l.svcCtx.ConversationRepo.GetBotMember(l.ctx, in.ConversationId, *in.BotId); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := validateRequest(l.ctx, *in.UserId, in.ConversationId); err != nil {
+			return nil, err
+		}
+		if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, *in.UserId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
+			return nil, err
+		}
 	}
 	page := 1
 	pageSize := 50

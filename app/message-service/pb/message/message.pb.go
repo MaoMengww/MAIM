@@ -3600,6 +3600,7 @@ type CreateConversationReq struct {
 	Type          ConversationType       `protobuf:"varint,1,opt,name=type,proto3,enum=message.ConversationType" json:"type,omitempty"`
 	CreatorId     string                 `protobuf:"bytes,2,opt,name=creator_id,json=creatorId,proto3" json:"creator_id,omitempty"`
 	PeerUserId    *string                `protobuf:"bytes,10,opt,name=peer_user_id,json=peerUserId,proto3,oneof" json:"peer_user_id,omitempty"`
+	BotId         *string                `protobuf:"bytes,11,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
 	Name          *string                `protobuf:"bytes,20,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	Avatar        *string                `protobuf:"bytes,21,opt,name=avatar,proto3,oneof" json:"avatar,omitempty"`
 	MemberIds     []string               `protobuf:"bytes,22,rep,name=member_ids,json=memberIds,proto3" json:"member_ids,omitempty"`
@@ -3654,6 +3655,13 @@ func (x *CreateConversationReq) GetCreatorId() string {
 func (x *CreateConversationReq) GetPeerUserId() string {
 	if x != nil && x.PeerUserId != nil {
 		return *x.PeerUserId
+	}
+	return ""
+}
+
+func (x *CreateConversationReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
 	}
 	return ""
 }
@@ -4250,8 +4258,9 @@ func (x *RemoveMembersReq) GetUserIds() []string {
 type GetMembersReq struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
-	UserId         string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId         *string                `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
 	Pagination     *common.Pagination     `protobuf:"bytes,3,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	BotId          *string                `protobuf:"bytes,4,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -4294,8 +4303,8 @@ func (x *GetMembersReq) GetConversationId() string {
 }
 
 func (x *GetMembersReq) GetUserId() string {
-	if x != nil {
-		return x.UserId
+	if x != nil && x.UserId != nil {
+		return *x.UserId
 	}
 	return ""
 }
@@ -4305,6 +4314,13 @@ func (x *GetMembersReq) GetPagination() *common.Pagination {
 		return x.Pagination
 	}
 	return nil
+}
+
+func (x *GetMembersReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
+	}
+	return ""
 }
 
 type GetMembersResp struct {
@@ -6068,19 +6084,21 @@ const file_message_service_message_proto_rawDesc = "" +
 	"bot_avatar\x18\r \x01(\tR\tbotAvatarB\n" +
 	"\n" +
 	"\b_user_idB\t\n" +
-	"\a_bot_id\"\x9e\x02\n" +
+	"\a_bot_id\"\xcd\x02\n" +
 	"\x15CreateConversationReq\x12-\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x19.message.ConversationTypeR\x04type\x12%\n" +
 	"\n" +
 	"creator_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tcreatorId\x12-\n" +
 	"\fpeer_user_id\x18\n" +
 	" \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\n" +
-	"peerUserId\x88\x01\x01\x12\x17\n" +
-	"\x04name\x18\x14 \x01(\tH\x01R\x04name\x88\x01\x01\x12\x1b\n" +
-	"\x06avatar\x18\x15 \x01(\tH\x02R\x06avatar\x88\x01\x01\x12%\n" +
+	"peerUserId\x88\x01\x01\x12\"\n" +
+	"\x06bot_id\x18\v \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x05botId\x88\x01\x01\x12\x17\n" +
+	"\x04name\x18\x14 \x01(\tH\x02R\x04name\x88\x01\x01\x12\x1b\n" +
+	"\x06avatar\x18\x15 \x01(\tH\x03R\x06avatar\x88\x01\x01\x12%\n" +
 	"\n" +
 	"member_ids\x18\x16 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tmemberIdsB\x0f\n" +
-	"\r_peer_user_idB\a\n" +
+	"\r_peer_user_idB\t\n" +
+	"\a_bot_idB\a\n" +
 	"\x05_nameB\t\n" +
 	"\a_avatar\"\x84\x01\n" +
 	"\x16CreateConversationResp\x12/\n" +
@@ -6131,13 +6149,17 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\x0fconversation_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12'\n" +
 	"\voperator_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\n" +
 	"operatorId\x12!\n" +
-	"\buser_ids\x18\x03 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\auserIds\"\x95\x01\n" +
+	"\buser_ids\x18\x03 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\auserIds\"\xd5\x01\n" +
 	"\rGetMembersReq\x12/\n" +
-	"\x0fconversation_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12\x1f\n" +
-	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x122\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12$\n" +
+	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x06userId\x88\x01\x01\x122\n" +
 	"\n" +
 	"pagination\x18\x03 \x01(\v2\x12.common.PaginationR\n" +
-	"pagination\"\x7f\n" +
+	"pagination\x12\"\n" +
+	"\x06bot_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x05botId\x88\x01\x01B\n" +
+	"\n" +
+	"\b_user_idB\t\n" +
+	"\a_bot_id\"\x7f\n" +
 	"\x0eGetMembersResp\x125\n" +
 	"\amembers\x18\x01 \x03(\v2\x1b.message.ConversationMemberR\amembers\x126\n" +
 	"\n" +
@@ -6620,6 +6642,7 @@ func file_message_service_message_proto_init() {
 	file_message_service_message_proto_msgTypes[40].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[44].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[46].OneofWrappers = []any{}
+	file_message_service_message_proto_msgTypes[51].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[53].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[63].OneofWrappers = []any{}
 	type x struct{}

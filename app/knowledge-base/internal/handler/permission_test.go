@@ -8,31 +8,34 @@ import (
 )
 
 func TestGetCallerID_UserID(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("user-id", "67890"))
-	if got := getCallerID(ctx); got != 67890 {
-		t.Fatalf("expected 67890, got %d", got)
+	const callerID = "01902ee3-8b7e-7fa1-96fd-ec908c0ace21"
+	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("user-id", callerID))
+	if got := getCallerID(ctx); got != callerID {
+		t.Fatalf("expected %s, got %s", callerID, got)
 	}
 }
 
 func TestGetCallerID_XUserID(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-user-id", "99999"))
-	if got := getCallerID(ctx); got != 99999 {
-		t.Fatalf("expected 99999, got %d", got)
+	const callerID = "01902ee3-8b7e-7fa1-96fd-ec908c0ace21"
+	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-user-id", callerID))
+	if got := getCallerID(ctx); got != callerID {
+		t.Fatalf("expected %s, got %s", callerID, got)
 	}
 }
 
 func TestGetCallerID_XUserIDWins(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(),
-		metadata.Pairs("x-user-id", "11111", "user-id", "22222"))
-	if got := getCallerID(ctx); got != 11111 {
-		t.Fatalf("expected 11111 (x-user-id priority), got %d", got)
+	const callerID = "01902ee3-8b7e-7fa1-96fd-ec908c0ace21"
+	ctx := metadata.NewIncomingContext(t.Context(),
+		metadata.Pairs("x-user-id", callerID, "user-id", "01902ee3-8b7e-7fa1-96fd-ec908c0ace22"))
+	if got := getCallerID(ctx); got != callerID {
+		t.Fatalf("expected %s (x-user-id priority), got %s", callerID, got)
 	}
 }
 
 func TestGetCallerID_InvalidID(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-user-id", "not-a-number"))
-	if got := getCallerID(ctx); got != 0 {
-		t.Fatalf("expected 0 for invalid number, got %d", got)
+	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-user-id", "12345"))
+	if got := getCallerID(ctx); got != "" {
+		t.Fatalf("expected no caller id for a numeric identity, got %s", got)
 	}
 }
 

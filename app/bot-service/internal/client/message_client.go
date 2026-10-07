@@ -2,11 +2,12 @@ package client
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/maomeng/aim/app/bot-service/internal/graph"
 	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/zrpc"
+	"google.golang.org/grpc/metadata"
 )
 
 // MessageClient wraps message-service gRPC client as a graph.MsgClient.
@@ -22,11 +23,11 @@ func NewMessageClient(c zrpc.Client) *MessageClient {
 }
 
 // GetRecentMessages fetches recent messages from a conversation.
-func (c *MessageClient) GetRecentMessages(ctx context.Context, convID, userID int64, limit int) ([]graph.Message, error) {
-	resp, err := c.cli.GetMessages(ctx, &msgpb.GetMessagesReq{
+func (c *MessageClient) GetRecentMessages(ctx context.Context, convID, userID string, limit int) ([]graph.Message, error) {
+	resp, err := c.cli.GetMessages(messageUserContext(ctx, userID), &msgpb.GetMessagesReq{
 		ConversationId: convID,
 		UserId:         userID,
-		Pagination: &common.CursorPagination{
+		Pagination: &msgpb.MessagePagination{
 			Limit: int32(limit),
 		},
 		FilterTypes: []msgpb.MessageType{
@@ -46,6 +47,7 @@ func (c *MessageClient) GetRecentMessages(ctx context.Context, convID, userID in
 			MsgID:      m.MessageId,
 			SenderID:   m.FromUserId,
 			SenderName: senderName(m),
+			BotID:      messageBotID(m),
 			Content:    content,
 			MsgType:    int32(m.Type),
 			Seq:        m.Seq,
@@ -57,22 +59,20 @@ func (c *MessageClient) GetRecentMessages(ctx context.Context, convID, userID in
 
 // GetAllMessages fetches up to maxCount messages for a conversation.
 // Messages are returned in reverse chronological order (newest first).
-func (c *MessageClient) GetAllMessages(ctx context.Context, convID, userID int64, maxCount int) ([]graph.Message, error) {
+func (c *MessageClient) GetAllMessages(ctx context.Context, convID, userID string, maxCount int) ([]graph.Message, error) {
 	if maxCount <= 0 || maxCount > 1000 {
 		maxCount = 1000
 	}
 	var all []graph.Message
-	limit := 100
+	var cursor int64
 	for len(all) < maxCount {
-		remaining := maxCount - len(all)
-		if limit > remaining {
-			limit = remaining
-		}
-		resp, err := c.cli.GetMessages(ctx, &msgpb.GetMessagesReq{
+		limit := min(100, maxCount-len(all))
+		resp, err := c.cli.GetMessages(messageUserContext(ctx, userID), &msgpb.GetMessagesReq{
 			ConversationId: convID,
 			UserId:         userID,
-			Pagination: &common.CursorPagination{
-				Limit: int32(limit),
+			Pagination: &msgpb.MessagePagination{
+				Limit:  int32(limit),
+				Cursor: cursor,
 			},
 			FilterTypes: []msgpb.MessageType{
 				msgpb.MessageType_MESSAGE_TYPE_TEXT,
@@ -87,30 +87,26 @@ func (c *MessageClient) GetAllMessages(ctx context.Context, convID, userID int64
 		if len(resp.Messages) == 0 {
 			break
 		}
-		// Deduplicate by MsgID
-		existing := make(map[int64]bool)
-		for _, m := range all {
-			existing[m.MsgID] = true
-		}
 		for _, m := range resp.Messages {
-			msgID := m.MessageId
-			if !existing[msgID] {
-				all = append(all, graph.Message{
-					MsgID:      m.MessageId,
-					SenderID:   m.FromUserId,
-					SenderName: senderName(m),
-					Content:    extractText(m),
-					MsgType:    int32(m.Type),
-					Seq:        m.Seq,
-					CreatedAt:  m.CreatedAt,
-				})
-				existing[msgID] = true
-			}
+			all = append(all, graph.Message{
+				MsgID:      m.MessageId,
+				SenderID:   m.FromUserId,
+				SenderName: senderName(m),
+				BotID:      messageBotID(m),
+				Content:    extractText(m),
+				MsgType:    int32(m.Type),
+				Seq:        m.Seq,
+				CreatedAt:  m.CreatedAt,
+			})
 		}
-		// If we got fewer messages than requested, we've reached the end
-		if len(resp.Messages) < limit {
+		if resp.Pagination == nil || !resp.Pagination.HasMore {
 			break
 		}
+		next := resp.Pagination.NextCursor
+		if next <= 0 || (cursor > 0 && next >= cursor) {
+			return nil, fmt.Errorf("message history cursor did not advance")
+		}
+		cursor = next
 	}
 	if len(all) > maxCount {
 		all = all[:maxCount]
@@ -125,6 +121,13 @@ func senderName(m *msgpb.Message) string {
 	}
 	if c := m.GetBot(); c != nil {
 		return c.GetBotName()
+	}
+	return ""
+}
+
+func messageBotID(m *msgpb.Message) string {
+	if bot := m.GetBot(); bot != nil {
+		return bot.BotId
 	}
 	return ""
 }
@@ -147,20 +150,27 @@ func extractText(m *msgpb.Message) string {
 }
 
 // SendBotReply sends a bot reply message.
-func (c *MessageClient) SendBotReply(ctx context.Context, botID, convID int64, text string, replyTo int64, rawPayload ...string) (int64, error) {
+func (c *MessageClient) SendBotReply(ctx context.Context, botID, convID string, text string, replyTo *string, rawPayload ...string) (string, error) {
 	rp := ""
 	if len(rawPayload) > 0 {
 		rp = rawPayload[0]
 	}
-	resp, err := c.cli.SendBotReply(ctx, &msgpb.SendBotReplyReq{
+	resp, err := c.cli.SendBotReply(serviceCallContext(ctx), &msgpb.SendBotReplyReq{
 		BotId:          botID,
 		ConversationId: convID,
 		Text:           text,
-		ReplyToId:      &replyTo,
+		ReplyToId:      replyTo,
 		RawPayload:     rp,
 	})
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	return resp.MessageId, nil
+}
+
+func messageUserContext(ctx context.Context, userID string) context.Context {
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	md.Set("user-id", userID)
+	return metadata.NewOutgoingContext(ctx, md)
 }

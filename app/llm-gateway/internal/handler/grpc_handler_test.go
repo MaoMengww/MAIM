@@ -13,6 +13,7 @@ import (
 	"github.com/maomeng/aim/app/llm-gateway/internal/svc"
 	pb "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/logx"
 )
 
@@ -21,18 +22,17 @@ import (
 type mockModelRepo struct {
 	mu     sync.RWMutex
 	byName map[string]*domain.ModelEntry
-	byID   map[int64]*domain.ModelEntry
-	nextID int64
+	byID   map[string]*domain.ModelEntry
 }
 
 func newMockModelRepo() *mockModelRepo {
 	return &mockModelRepo{
 		byName: make(map[string]*domain.ModelEntry),
-		byID:   make(map[int64]*domain.ModelEntry),
+		byID:   make(map[string]*domain.ModelEntry),
 	}
 }
 
-func (m *mockModelRepo) FindByID(id int64) (*domain.ModelEntry, error) {
+func (m *mockModelRepo) FindByID(id string) (*domain.ModelEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.byID[id], nil
@@ -44,7 +44,7 @@ func (m *mockModelRepo) FindByName(name string) (*domain.ModelEntry, error) {
 	return m.byName[name], nil
 }
 
-func (m *mockModelRepo) FindByCapability(_ string) ([]*domain.ModelEntry, error) {
+func (m *mockModelRepo) FindByCapability(_ string, _ *string) ([]*domain.ModelEntry, error) {
 	return nil, nil
 }
 
@@ -52,17 +52,20 @@ func (m *mockModelRepo) ListAll() []*domain.ModelEntry { return nil }
 func (m *mockModelRepo) Refresh() error                { return nil }
 func (m *mockModelRepo) Close()                        {}
 
-func (m *mockModelRepo) add(name, provider, capability, status, apiKey, baseURL string, inputPrice, outputPrice float64) {
+func (m *mockModelRepo) add(t *testing.T, name, provider, capability, status, apiKey, baseURL string, inputPrice, outputPrice float64) string {
+	t.Helper()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	id := m.nextID
-	m.nextID++
+	id, err := identity.New()
+	require.NoError(t, err)
 	entry := &domain.ModelEntry{
 		ID: id, ModelName: name, Provider: provider, Capability: capability, Status: status,
 		APIKey: apiKey, BaseURL: baseURL, InputPricePerMTok: inputPrice, OutputPricePerMTok: outputPrice,
+		OwnerType: "platform",
 	}
 	m.byID[id] = entry
 	m.byName[name] = entry
+	return id
 }
 
 type mockRateLimiter struct {
@@ -100,23 +103,32 @@ func newMockServiceContext() *svc.ServiceContext {
 
 func TestChat_ModelNotFound(t *testing.T) {
 	h := NewLLMGatewayHandler(newMockServiceContext())
-	_, err := h.Chat(context.Background(), &pb.ChatReq{ModelId: 999})
-	require.Error(t, err)
+	id, err := identity.New()
+	require.NoError(t, err)
+	_, err = h.Chat(t.Context(), &pb.ChatReq{ModelId: id})
+	assertErrorCode(t, err, errors.CodeNotFound)
 }
 
 func TestChat_ModelDisabled(t *testing.T) {
 	svcCtx := newMockServiceContext()
-	svcCtx.ModelRepo.(*mockModelRepo).add("gpt-4o", "openai", "chat", "disabled", "sk-test", "https://api.openai.com", 2.5, 10)
+	id := svcCtx.ModelRepo.(*mockModelRepo).add(t, "gpt-4o", "openai", "chat", "disabled", "sk-test", "https://api.openai.com", 2.5, 10)
 	h := NewLLMGatewayHandler(svcCtx)
-	_, err := h.Chat(context.Background(), &pb.ChatReq{ModelId: 0})
-	require.Error(t, err)
+	_, err := h.Chat(t.Context(), &pb.ChatReq{ModelId: id})
+	assertErrorCode(t, err, errors.CodeForbidden)
 }
 
 func TestChat_RateLimited(t *testing.T) {
 	svcCtx := newMockServiceContext()
-	svcCtx.ModelRepo.(*mockModelRepo).add("gpt-4o", "openai", "chat", "active", "sk-test", "https://api.openai.com", 2.5, 10)
+	id := svcCtx.ModelRepo.(*mockModelRepo).add(t, "gpt-4o", "openai", "chat", "active", "sk-test", "https://api.openai.com", 2.5, 10)
 	svcCtx.RateLimiter = &mockRateLimiter{allowErr: errors.New(errors.CodeTooManyRequests, "rate limited")}
 	h := NewLLMGatewayHandler(svcCtx)
-	_, err := h.Chat(context.Background(), &pb.ChatReq{ModelId: 0})
-	require.Error(t, err)
+	_, err := h.Chat(t.Context(), &pb.ChatReq{ModelId: id})
+	assertErrorCode(t, err, errors.CodeTooManyRequests)
+}
+
+func assertErrorCode(t *testing.T, err error, code int) {
+	t.Helper()
+	bizErr, ok := errors.IsBizError(err)
+	require.True(t, ok, "expected business error, got %v", err)
+	require.Equal(t, code, bizErr.Code)
 }

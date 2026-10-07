@@ -1,14 +1,22 @@
 package domain
 
-import "time"
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/maomeng/aim/pkg/identity"
+)
 
 type KnowledgeBase struct {
 	ID                int64          `json:"id" gorm:"primaryKey"`
-	OwnerID           int64          `json:"owner_id"`
+	OwnerType         string         `json:"owner_type" gorm:"not null"`
+	OwnerID           *string        `json:"owner_id,omitempty" gorm:"type:uuid"`
 	Name              string         `json:"name"`
 	Description       string         `json:"description"`
 	EmbeddingModel    string         `json:"embedding_model"`
-	EmbeddingModelID  int64          `json:"embedding_model_id"`
+	EmbeddingModelID  *string        `json:"embedding_model_id,omitempty" gorm:"type:uuid"`
 	Mode              string         `json:"mode" gorm:"type:varchar(16);not null;default:'rag'"`
 	PipelineConfig    PipelineConfig `json:"pipeline_config" gorm:"type:jsonb;serializer:json"`
 	DocCount          int            `json:"doc_count"`
@@ -21,6 +29,39 @@ type KnowledgeBase struct {
 
 func (KnowledgeBase) TableName() string {
 	return "knowledge_bases"
+}
+
+func (kb KnowledgeBase) ValidateOwner() error {
+	switch kb.OwnerType {
+	case "platform":
+		if kb.OwnerID != nil {
+			return fmt.Errorf("platform knowledge base must not have an owner_id")
+		}
+	case "user":
+		if kb.OwnerID == nil {
+			return fmt.Errorf("user knowledge base requires owner_id")
+		}
+		return identity.Validate(*kb.OwnerID)
+	default:
+		return fmt.Errorf("owner_type must be platform or user")
+	}
+	return nil
+}
+
+func (kb KnowledgeBase) ResolveEmbeddingModelID(ctx context.Context, repo KBRepo) (string, error) {
+	if err := kb.ValidateOwner(); err != nil {
+		return "", err
+	}
+	if kb.EmbeddingModelID != nil {
+		if err := identity.Validate(*kb.EmbeddingModelID); err != nil {
+			return "", err
+		}
+		return *kb.EmbeddingModelID, nil
+	}
+	if kb.EmbeddingModel == "" {
+		return "", fmt.Errorf("embedding model is not configured")
+	}
+	return repo.ResolveModelID(ctx, kb.EmbeddingModel)
 }
 
 type DocStatus string
@@ -112,12 +153,12 @@ type MinerUConfig struct {
 }
 
 type VLMConfig struct {
-	ModelID  int64  `json:"model_id,omitempty"`
-	Enabled  bool   `json:"enabled"`
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	APIKey   string `json:"api_key"`
-	BaseURL  string `json:"base_url"`
+	ModelID  *string `json:"model_id,omitempty"`
+	Enabled  bool    `json:"enabled"`
+	Provider string  `json:"provider"`
+	Model    string  `json:"model"`
+	APIKey   string  `json:"api_key"`
+	BaseURL  string  `json:"base_url"`
 }
 
 type ChunkingConfig struct {
@@ -144,9 +185,46 @@ type RetrievalConfig struct {
 }
 
 type RerankConfig struct {
-	Enabled bool  `json:"enabled"`
-	ModelID int64 `json:"model_id"`
-	TopN    int   `json:"top_n"`
+	Enabled bool    `json:"enabled"`
+	ModelID *string `json:"model_id,omitempty"`
+	TopN    int     `json:"top_n"`
+}
+
+func (cfg PipelineConfig) ValidateModelReferences() error {
+	var vlmID *string
+	if cfg.Parsing.VLM != nil {
+		vlmID = cfg.Parsing.VLM.ModelID
+	}
+	for _, id := range []*string{vlmID, cfg.Retrieval.Rerank.ModelID} {
+		if id != nil {
+			if err := identity.Validate(*id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (cfg PipelineConfig) MarshalJSON() ([]byte, error) {
+	if err := cfg.ValidateModelReferences(); err != nil {
+		return nil, err
+	}
+	type payload PipelineConfig
+	return json.Marshal(payload(cfg))
+}
+
+func (cfg *PipelineConfig) UnmarshalJSON(raw []byte) error {
+	type payload PipelineConfig
+	var decoded payload
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	next := PipelineConfig(decoded)
+	if err := next.ValidateModelReferences(); err != nil {
+		return err
+	}
+	*cfg = next
+	return nil
 }
 
 type Stage struct {

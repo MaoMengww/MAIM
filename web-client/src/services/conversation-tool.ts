@@ -2,14 +2,15 @@ import client, { unwrap } from './client';
 import type { APIResponse } from '@/types/model';
 
 export interface TodoItem {
-  id: number;
-  summary_id: number;
+  id: string;
+  summary_id?: string | null;
+  conv_id: string;
   content: string;
   done: boolean;
 }
 
 export interface SummaryItem {
-  summary_id: number;
+  summary_id: string;
   summary: string;
   todos: TodoItem[];
   total_messages: number;
@@ -18,6 +19,7 @@ export interface SummaryItem {
 
 export interface SummariesResponse {
   items: SummaryItem[];
+  standalone_todos: TodoItem[];
 }
 
 export interface AsyncResult {
@@ -26,18 +28,18 @@ export interface AsyncResult {
 
 export const convToolApi = {
   summarize: (convId: string, range: { last_message_count?: number; all?: boolean }) =>
-    client.post<APIResponse<{ summary_id: number; status: string }>>(`/convs/${convId}/summarize`, range).then(unwrap),
+    client.post<APIResponse<{ summary_id?: string; status: string }>>(`/convs/${convId}/summarize`, range).then(unwrap),
 
   getSummaries: (convId: string, limit?: number) =>
     client.get<APIResponse<SummariesResponse>>(`/convs/${convId}/summaries`, { params: { limit } }).then(unwrap),
 
-  createTodo: (convId: string, data: { summary_id: number; content: string }) =>
+  createTodo: (convId: string, data: { summary_id?: string; content: string }) =>
     client.post<APIResponse<TodoItem>>(`/convs/${convId}/todos`, data).then(unwrap),
 
-  updateTodo: (convId: string, todoId: number, data: { content?: string; done?: boolean }) =>
-    client.put<APIResponse<TodoItem>>(`/convs/${convId}/todos/${todoId}`, data).then(unwrap),
+  updateTodo: (convId: string, todoId: string, data: { content?: string; done?: boolean }) =>
+    client.put<APIResponse<null>>(`/convs/${convId}/todos/${todoId}`, data).then(unwrap),
 
-  deleteTodo: (convId: string, todoId: number) =>
+  deleteTodo: (convId: string, todoId: string) =>
     client.delete<APIResponse<null>>(`/convs/${convId}/todos/${todoId}`).then(unwrap),
 
   replyCandidates: (convId: string, replyToMsgId?: string) =>

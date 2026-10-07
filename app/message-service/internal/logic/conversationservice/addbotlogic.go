@@ -33,10 +33,13 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 	if err := validateRequest(l.ctx, in.OperatorId, in.ConversationId, in.BotId); err != nil {
 		return nil, err
 	}
-	_, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, in.BotId)
+	bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, in.BotId)
 	if err != nil {
 		l.Errorf("get bot failed: bot_id=%s, err=%v", in.BotId, err)
 		return nil, ErrMemberAddFailed
+	}
+	if bot.Status != "active" || (bot.OwnerType != "platform" && (bot.OwnerId == nil || *bot.OwnerId != in.OperatorId)) {
+		return nil, ErrInsufficientPerm
 	}
 
 	cbID, err := identity.New()

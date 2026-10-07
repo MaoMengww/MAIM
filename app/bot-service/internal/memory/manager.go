@@ -18,7 +18,7 @@ type IDGenerator interface {
 
 // ProfileChatFunc sends a prompt to an LLM and returns the generated text.
 // The caller binds the model selection logic (modelID, modelName, ownerID).
-type ProfileChatFunc func(ctx context.Context, modelID int64, modelName string, ownerID int64, prompt string) (string, error)
+type ProfileChatFunc func(ctx context.Context, modelID string, modelName string, ownerID *string, botID string, prompt string) (string, error)
 
 // Manager is the memory system facade.
 type Manager struct {
@@ -66,13 +66,14 @@ func (m *Manager) WithExtractor(extractor *Extractor) *Manager {
 		return nil
 	}
 	return &Manager{
-		logger:     m.logger,
-		store:      m.store,
-		extractor:  extractor,
-		idGen:      m.idGen,
-		embedder:   m.embedder,
-		vector:     m.vector,
-		vectorTopK: m.vectorTopK,
+		logger:      m.logger,
+		store:       m.store,
+		extractor:   extractor,
+		idGen:       m.idGen,
+		embedder:    m.embedder,
+		vector:      m.vector,
+		vectorTopK:  m.vectorTopK,
+		profileChat: m.profileChat,
 	}
 }
 
@@ -91,7 +92,7 @@ func (m *Manager) RememberAsync(extractCtx context.Context, input ExtractInput) 
 		}
 		episodeID, err := m.nextID()
 		if err != nil {
-			m.withLogger(extractCtx).Errorf("memory episode id failed: bot_id=%d user_id=%d error=%v", input.BotID, input.UserID, err)
+			m.withLogger(extractCtx).Errorf("memory episode id failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, err)
 			return
 		}
 		episode := &Episode{
@@ -105,12 +106,12 @@ func (m *Manager) RememberAsync(extractCtx context.Context, input ExtractInput) 
 			CreatedAt: input.SentAt,
 		}
 		if err := m.store.SaveEpisode(extractCtx, episode); err != nil {
-			m.withLogger(extractCtx).Errorf("memory episode save failed: bot_id=%d user_id=%d error=%v", input.BotID, input.UserID, err)
+			m.withLogger(extractCtx).Errorf("memory episode save failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, err)
 		}
 
 		result, err := m.extractor.Extract(extractCtx, input)
 		if err != nil {
-			m.withLogger(extractCtx).Errorf("memory extraction failed: bot_id=%d user_id=%d error=%v", input.BotID, input.UserID, err)
+			m.withLogger(extractCtx).Errorf("memory extraction failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, err)
 			return
 		}
 		if len(result.Facts) == 0 {
@@ -122,7 +123,7 @@ func (m *Manager) RememberAsync(extractCtx context.Context, input ExtractInput) 
 		for _, extracted := range result.Facts {
 			factID, err := m.nextID()
 			if err != nil {
-				m.withLogger(extractCtx).Errorf("memory fact id failed: bot_id=%d user_id=%d error=%v", input.BotID, input.UserID, err)
+				m.withLogger(extractCtx).Errorf("memory fact id failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, err)
 				continue
 			}
 			validAt, invalidAt := resolveTemporal(input.SentAt, extracted.TemporalHint)
@@ -153,31 +154,31 @@ func (m *Manager) RememberAsync(extractCtx context.Context, input ExtractInput) 
 			return
 		}
 		if err := m.store.AddFacts(extractCtx, facts); err != nil {
-			m.withLogger(extractCtx).Errorf("memory facts save failed: bot_id=%d user_id=%d error=%v", input.BotID, input.UserID, err)
+			m.withLogger(extractCtx).Errorf("memory facts save failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, err)
 			return
 		}
 
 		// Optional: index facts in vector store.
-		if m.embedder != nil && m.vector != nil {
+		if m.embedder != nil && m.vector != nil && input.EmbeddingModelID != nil {
 			texts := make([]string, len(facts))
 			for i, f := range facts {
 				texts[i] = f.Content
 			}
-			vectors, vecErr := m.embedder.Embed(extractCtx, texts, input.EmbeddingModelID, input.OwnerID)
+			vectors, vecErr := m.embedder.Embed(extractCtx, texts, *input.EmbeddingModelID, input.OwnerID, input.BotID)
 			if vecErr != nil {
-				m.withLogger(extractCtx).Errorf("memory embed failed: bot_id=%d user_id=%d error=%v", input.BotID, input.UserID, vecErr)
+				m.withLogger(extractCtx).Errorf("memory embed failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, vecErr)
 				return
 			}
 			if err := m.vector.UpsertFacts(extractCtx, facts, vectors); err != nil {
-				m.withLogger(extractCtx).Errorf("memory vector upsert failed: bot_id=%d user_id=%d error=%v", input.BotID, input.UserID, err)
+				m.withLogger(extractCtx).Errorf("memory vector upsert failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, err)
 			}
 		}
 
 		// Trigger profile refresh if enough incremental facts have accumulated.
-		if m.profileChat != nil && input.MemoryModelID > 0 {
+		if m.profileChat != nil && input.MemoryModelID != nil {
 			if text, updatedAt, err := m.store.GetProfileData(extractCtx, input.BotID, input.UserID); err == nil && m.shouldRefresh(text, updatedAt, input.BotID, input.UserID) {
 				bgCtx := context.WithoutCancel(extractCtx)
-				go m.GenerateProfile(bgCtx, input.BotID, input.UserID, input.MemoryModelID, input.MemoryModelName, input.OwnerID)
+				go m.GenerateProfile(bgCtx, input.BotID, input.UserID, *input.MemoryModelID, input.MemoryModelName, input.OwnerID)
 			}
 		}
 	}()
@@ -198,8 +199,8 @@ func (m *Manager) Search(ctx context.Context, query MemoryQuery) ([]Memory, erro
 	scoreMap := make(map[int64]float64)
 
 	// Step 1: hybrid vector search for direct facts.
-	if m.embedder != nil && m.vector != nil && query.EmbeddingModelID > 0 {
-		vecs, err := m.embedder.Embed(ctx, []string{query.Query}, query.EmbeddingModelID, query.OwnerID)
+	if m.embedder != nil && m.vector != nil && query.EmbeddingModelID != nil {
+		vecs, err := m.embedder.Embed(ctx, []string{query.Query}, *query.EmbeddingModelID, query.OwnerID, query.BotID)
 		if err != nil {
 			m.withLogger(ctx).Errorf("memory query embed failed: error=%v", err)
 		} else if len(vecs) > 0 && len(vecs[0]) > 0 {
@@ -256,7 +257,7 @@ func (m *Manager) Search(ctx context.Context, query MemoryQuery) ([]Memory, erro
 }
 
 // GetProfile returns the cached profile text. O(1) Neo4j read, no LLM call.
-func (m *Manager) GetProfile(ctx context.Context, botID, userID int64) string {
+func (m *Manager) GetProfile(ctx context.Context, botID, userID string) string {
 	if m == nil || m.store == nil {
 		return ""
 	}
@@ -269,14 +270,14 @@ func (m *Manager) GetProfile(ctx context.Context, botID, userID int64) string {
 
 // GenerateProfile generates or refreshes the user profile from incremental facts.
 // Called asynchronously; requires a profileChat function to be set.
-func (m *Manager) GenerateProfile(ctx context.Context, botID, userID int64, modelID int64, modelName string, ownerID int64) {
-	if m == nil || m.store == nil || m.profileChat == nil || modelID <= 0 {
+func (m *Manager) GenerateProfile(ctx context.Context, botID, userID string, modelID string, modelName string, ownerID *string) {
+	if m == nil || m.store == nil || m.profileChat == nil || modelID == "" {
 		return
 	}
 
 	text, updatedAt, err := m.store.GetProfileData(ctx, botID, userID)
 	if err != nil {
-		m.withLogger(ctx).Errorf("profile get failed: bot_id=%d user_id=%d error=%v", botID, userID, err)
+		m.withLogger(ctx).Errorf("profile get failed: bot_id=%s user_id=%s error=%v", botID, userID, err)
 		return
 	}
 
@@ -295,9 +296,9 @@ func (m *Manager) GenerateProfile(ctx context.Context, botID, userID int64, mode
 		prompt = buildIncrementalProfilePrompt(text, newFacts, expiredFacts)
 	}
 
-	resp, chatErr := m.profileChat(ctx, modelID, modelName, ownerID, prompt)
+	resp, chatErr := m.profileChat(ctx, modelID, modelName, ownerID, botID, prompt)
 	if chatErr != nil {
-		m.withLogger(ctx).Errorf("profile chat failed: bot_id=%d user_id=%d error=%v", botID, userID, chatErr)
+		m.withLogger(ctx).Errorf("profile chat failed: bot_id=%s user_id=%s error=%v", botID, userID, chatErr)
 		return
 	}
 	if resp == "" {
@@ -305,7 +306,7 @@ func (m *Manager) GenerateProfile(ctx context.Context, botID, userID int64, mode
 	}
 
 	if err := m.store.UpdateProfile(ctx, botID, userID, resp, time.Now()); err != nil {
-		m.withLogger(ctx).Errorf("profile update failed: bot_id=%d user_id=%d error=%v", botID, userID, err)
+		m.withLogger(ctx).Errorf("profile update failed: bot_id=%s user_id=%s error=%v", botID, userID, err)
 	}
 }
 
@@ -436,7 +437,7 @@ func (m *Manager) logSearchResults(ctx context.Context, query MemoryQuery, direc
 		parts = append(parts, fmt.Sprintf("{id:%d source:%s rank:%d source_score:%.4f hops:%d rank_score:%.4f final:%.4f quality:%.4f content:%q}",
 			item.ID, item.Source, item.Rank, item.SourceScore, item.Hops, item.RankScore, item.FinalScore, memoryQuality(item), previewMemoryContent(item.Content, 80)))
 	}
-	m.withLogger(ctx).Infof("memory search finished: bot_id=%d user_id=%d limit=%d query=%q direct_count=%d graph_count=%d fallback_used=%t result_count=%d results=[%s]",
+	m.withLogger(ctx).Infof("memory search finished: bot_id=%s user_id=%s limit=%d query=%q direct_count=%d graph_count=%d fallback_used=%t result_count=%d results=[%s]",
 		query.BotID, query.UserID, query.Limit, previewMemoryContent(query.Query, 120), directCount, graphCount, fallbackUsed, len(results), strings.Join(parts, ", "))
 }
 
@@ -447,7 +448,7 @@ func previewMemoryContent(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-func (m *Manager) shouldRefresh(profileText string, updatedAt time.Time, botID, userID int64) bool {
+func (m *Manager) shouldRefresh(profileText string, updatedAt time.Time, botID, userID string) bool {
 	if profileText == "" {
 		return true
 	}

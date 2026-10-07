@@ -3,12 +3,13 @@ package bot
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/interceptor"
 	common "github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -25,9 +26,20 @@ func NewListBotsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListBots
 }
 
 func (l *ListBotsLogic) ListBots(in *pb.ListBotsReq) (*pb.ListBotsResp, error) {
-	if in.OwnerId > 0 {
-		if err := l.ensureOfficialInstances(in.OwnerId); err != nil {
+	if err := validateOwnership(in.OwnerType, in.OwnerId); err != nil {
+		return nil, err
+	}
+	if in.OwnerType == "user" {
+		if err := validateCaller(l.ctx, *in.OwnerId); err != nil {
 			return nil, err
+		}
+		if err := l.ensureOfficialInstances(*in.OwnerId); err != nil {
+			return nil, err
+		}
+	} else {
+		caller, _ := l.ctx.Value(interceptor.ContextKeyUserID).(string)
+		if err := validateIDs(caller); err != nil {
+			return nil, ErrBotForbidden
 		}
 	}
 
@@ -48,7 +60,7 @@ func (l *ListBotsLogic) ListBots(in *pb.ListBotsReq) (*pb.ListBotsResp, error) {
 	offset := int((page - 1) * pageSize)
 	limit := int(pageSize)
 
-	bots, total, err := l.svcCtx.Repo.ListBotsByOwner(l.ctx, in.OwnerId, in.Status, offset, limit)
+	bots, total, err := l.svcCtx.Repo.ListBotsByOwner(l.ctx, in.OwnerType, in.OwnerId, in.Status, offset, limit)
 	if err != nil {
 		l.Errorf("list bots failed: %v", err)
 		return nil, errors.Wrap(errors.CodeDBError, "list bots failed", err)
@@ -64,7 +76,7 @@ func (l *ListBotsLogic) ListBots(in *pb.ListBotsReq) (*pb.ListBotsResp, error) {
 		totalPages = int32((total + int64(pageSize) - 1) / int64(pageSize))
 	}
 
-	l.Infof("bots listed: creator=%d count=%d", in.OwnerId, len(pbBots))
+	l.Infof("bots listed: owner_type=%s count=%d", in.OwnerType, len(pbBots))
 	return &pb.ListBotsResp{
 		Bots: pbBots,
 		Pagination: &common.PaginationResp{
@@ -76,7 +88,7 @@ func (l *ListBotsLogic) ListBots(in *pb.ListBotsReq) (*pb.ListBotsResp, error) {
 	}, nil
 }
 
-func (l *ListBotsLogic) ensureOfficialInstances(ownerID int64) error {
+func (l *ListBotsLogic) ensureOfficialInstances(ownerID string) error {
 	templates, err := l.svcCtx.Repo.ListOfficialTemplates(l.ctx)
 	if err != nil {
 		return errors.Wrap(errors.CodeDBError, "list official bot templates failed", err)
@@ -95,14 +107,14 @@ func (l *ListBotsLogic) ensureOfficialInstances(ownerID int64) error {
 	return nil
 }
 
-func (l *ListBotsLogic) createOfficialInstance(ownerID int64, tpl *model.Bot) error {
-	id, err := l.svcCtx.Repo.NextID(l.ctx)
+func (l *ListBotsLogic) createOfficialInstance(ownerID string, tpl *model.Bot) error {
+	id, err := identity.New()
 	if err != nil {
 		return errors.Wrap(errors.CodeInternal, "generate id failed", err)
 	}
 	settings := cloneJSONMap(tpl.Settings)
 	settings["official_instance"] = true
-	settings["official_template_id"] = strconv.FormatInt(tpl.ID, 10)
+	settings["official_template_id"] = tpl.ID
 	if _, ok := settings["prompt_locale"]; !ok {
 		settings["prompt_locale"] = "zh-CN"
 	}
@@ -112,28 +124,33 @@ func (l *ListBotsLogic) createOfficialInstance(ownerID int64, tpl *model.Bot) er
 	}
 
 	bot := &model.Bot{
-		ID:                     id,
-		OwnerID:                ownerID,
-		Name:                   tpl.Name,
-		Avatar:                 tpl.Avatar,
-		Type:                   tpl.Type,
-		TemplateID:             tpl.TemplateID,
-		Status:                 tpl.Status,
-		UsePlatformModel:       tpl.UsePlatformModel,
-		ModelName:              tpl.ModelName,
-		BaseURL:                tpl.BaseURL,
-		SystemPrompt:           tpl.SystemPrompt,
-		Persona:                tpl.Persona,
-		EnableKnowledge:        tpl.EnableKnowledge,
-		Temperature:            tpl.Temperature,
-		MaxContextMessages:     tpl.MaxContextMessages,
-		StreamingEnabled:       tpl.StreamingEnabled,
-		MemoryModelName:        tpl.MemoryModelName,
-		MemoryUsePlatformModel: tpl.MemoryUsePlatformModel,
-		ConnMode:               tpl.ConnMode,
-		CallbackURL:            tpl.CallbackURL,
-		BotTags:                append([]string{}, tpl.BotTags...),
-		Settings:               settingsJSON,
+		ID:                       id,
+		OwnerType:                "user",
+		OwnerID:                  &ownerID,
+		Name:                     tpl.Name,
+		Avatar:                   tpl.Avatar,
+		Type:                     tpl.Type,
+		TemplateID:               tpl.TemplateID,
+		Status:                   tpl.Status,
+		UsePlatformModel:         tpl.UsePlatformModel,
+		ModelName:                tpl.ModelName,
+		ModelID:                  tpl.ModelID,
+		BaseURL:                  tpl.BaseURL,
+		SystemPrompt:             tpl.SystemPrompt,
+		Persona:                  tpl.Persona,
+		EnableKnowledge:          tpl.EnableKnowledge,
+		Temperature:              tpl.Temperature,
+		MaxContextMessages:       tpl.MaxContextMessages,
+		StreamingEnabled:         tpl.StreamingEnabled,
+		MemoryModelName:          tpl.MemoryModelName,
+		MemoryModelID:            tpl.MemoryModelID,
+		MemoryEmbeddingModelName: tpl.MemoryEmbeddingModelName,
+		MemoryEmbeddingModelID:   tpl.MemoryEmbeddingModelID,
+		MemoryUsePlatformModel:   tpl.MemoryUsePlatformModel,
+		ConnMode:                 tpl.ConnMode,
+		CallbackURL:              tpl.CallbackURL,
+		BotTags:                  append([]string{}, tpl.BotTags...),
+		Settings:                 settingsJSON,
 	}
 	if len(tpl.Capabilities) > 0 {
 		bot.Capabilities = append([]byte{}, tpl.Capabilities...)

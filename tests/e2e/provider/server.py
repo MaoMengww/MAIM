@@ -54,6 +54,29 @@ def rpc_result(body):
     return {"jsonrpc": "2.0", "id": body.get("id"), "result": result}
 
 
+def conversation_tool_reply(model, messages):
+    # Only this explicit fixture model handles conversation tools. Ordinary chat
+    # still requires a real MCP round trip and refuses a provider-side fallback.
+    if not model.startswith("fixture-tools-"):
+        return None
+    prompt = "\n".join(str(item.get("content", "")) for item in messages)
+    if "You are a conversation summarizer." in prompt:
+        if "P5_BOT_REQUEST_" not in prompt or "fixture-reply:" not in prompt:
+            raise ValueError("summary must include the persisted user and bot messages")
+        return json.dumps({"key_points": ["fixture-summary: persisted user and bot conversation"],
+                           "action_items": ["fixture-todo: verify UUID references"]})
+    if "generate 3 short reply suggestions" in prompt:
+        if "P5_BOT_REQUEST_" not in prompt:
+            raise ValueError("reply candidates must include the persisted conversation")
+        return "收到\n继续执行\n核对结果"
+    if prompt.startswith("Translate the following text into English."):
+        _, separator, source = prompt.partition("\n\n")
+        if not separator or not source.startswith("P5_BOT_REQUEST_"):
+            raise ValueError("translation must identify the real conversation message")
+        return "fixture-translation:" + source
+    raise ValueError("unknown conversation tool prompt")
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -126,8 +149,26 @@ class Handler(BaseHTTPRequestHandler):
             model = body.get("model", "")
             with LOCK:
                 OBSERVATIONS["chat_models"].append(model)
+            if model.startswith("fixture-vlm-"):
+                parts = next((item.get("content") for item in messages if item.get("role") == "user"), [])
+                if not isinstance(parts, list) or not any(item.get("type") == "image_url" and item.get("image_url", {}).get("url", "").startswith("data:image/png;base64,") for item in parts):
+                    self._json(400, {"error": {"message": "vision request must contain a real image payload"}})
+                    return
+                vision_text = next((item.get("text", "") for item in parts if item.get("type") == "text"), "")
+                self._json(200, {"id": "fixture-vision-1", "object": "chat.completion", "created": 1, "model": model,
+                                 "choices": [{"index": 0, "message": {"role": "assistant", "content": "fixture-vision:" + vision_text}, "finish_reason": "stop"}],
+                                 "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+                return
             tool_messages = [item for item in messages if item.get("role") == "tool"]
-            if not tool_messages:
+            try:
+                tool_reply = conversation_tool_reply(model, messages)
+            except ValueError as exc:
+                self._json(400, {"error": {"message": str(exc), "type": "invalid_request_error"}})
+                return
+            if tool_reply is not None:
+                message = {"role": "assistant", "content": tool_reply}
+                reason = "stop"
+            elif not tool_messages:
                 tools = body.get("tools") or []
                 echo = next((item["function"]["name"] for item in tools if "fixture_echo" in item.get("function", {}).get("name", "")), "")
                 if not echo:
@@ -156,6 +197,8 @@ class Handler(BaseHTTPRequestHandler):
                 for delta in deltas + [{}]:
                     chunk = {"id": "fixture-chat-1", "object": "chat.completion.chunk", "created": 1, "model": model,
                              "choices": [{"index": 0, "delta": delta, "finish_reason": reason if not delta else None}]}
+                    if not delta:
+                        chunk["usage"] = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
                     self.wfile.write(("data: " + json.dumps(chunk) + "\n\n").encode())
                     self.wfile.flush()
                     time.sleep(.05)
@@ -166,6 +209,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"id": "fixture-chat-1", "object": "chat.completion", "created": 1, "model": model,
                                  "choices": [{"index": 0, "message": message, "finish_reason": reason}],
                                  "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+        elif path == "/v1/reranks":
+            documents = body.get("documents") or []
+            query = body.get("query", "")
+            if not documents or query not in documents:
+                self._json(400, {"error": {"message": "rerank fixture requires an exact query document"}})
+                return
+            index = documents.index(query)
+            with LOCK:
+                OBSERVATIONS.setdefault("rerank_models", []).append(body.get("model", ""))
+            self._json(200, {"output": {"results": [{"index": index, "relevance_score": 0.95}]},
+                             "usage": {"total_tokens": 2}})
         elif path == "/v1/embeddings":
             inputs = body.get("input", [])
             if isinstance(inputs, str):

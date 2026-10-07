@@ -25,19 +25,19 @@ func (m *mockStore) SearchByIDs(_ context.Context, _ Scope, _ []int64, _ bool) (
 func (m *mockStore) SearchWithTraversal(_ context.Context, _ Scope, _ string, _ int, _ int) ([]Memory, error) {
 	return nil, nil
 }
-func (m *mockStore) GetProfileData(_ context.Context, _, _ int64) (string, time.Time, error) {
+func (m *mockStore) GetProfileData(_ context.Context, _, _ string) (string, time.Time, error) {
 	return m.profileText, m.profileAt, nil
 }
-func (m *mockStore) CountNewFactsSince(_ context.Context, _, _ int64, _ time.Time) (int, error) {
+func (m *mockStore) CountNewFactsSince(_ context.Context, _, _ string, _ time.Time) (int, error) {
 	return m.newFactCount, nil
 }
-func (m *mockStore) GetIncrementalFacts(_ context.Context, _, _ int64, _ time.Time) ([]ProfileFact, []ProfileFact, error) {
+func (m *mockStore) GetIncrementalFacts(_ context.Context, _, _ string, _ time.Time) ([]ProfileFact, []ProfileFact, error) {
 	return nil, nil, nil
 }
-func (m *mockStore) GetInitialProfileFacts(_ context.Context, _, _ int64, _ int) ([]ProfileFact, error) {
+func (m *mockStore) GetInitialProfileFacts(_ context.Context, _, _ string, _ int) ([]ProfileFact, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateProfile(_ context.Context, _, _ int64, _ string, _ time.Time) error {
+func (m *mockStore) UpdateProfile(_ context.Context, _, _ string, _ string, _ time.Time) error {
 	return nil
 }
 
@@ -53,7 +53,7 @@ func newTestManager(store *mockStore) *Manager {
 func TestShouldRefresh_NoProfile(t *testing.T) {
 	store := &mockStore{profileText: ""}
 	m := newTestManager(store)
-	if !m.shouldRefresh("", time.Time{}, 1, 1) {
+	if !m.shouldRefresh("", time.Time{}, "01960000-0000-7000-8000-000000000001", "01960000-0000-7000-8000-000000000002") {
 		t.Error("empty profile should trigger refresh")
 	}
 }
@@ -61,7 +61,7 @@ func TestShouldRefresh_NoProfile(t *testing.T) {
 func TestShouldRefresh_Cooling(t *testing.T) {
 	store := &mockStore{profileText: "exists"}
 	m := newTestManager(store)
-	if m.shouldRefresh("exists", time.Now(), 1, 1) {
+	if m.shouldRefresh("exists", time.Now(), "01960000-0000-7000-8000-000000000001", "01960000-0000-7000-8000-000000000002") {
 		t.Error("should not refresh within cooling period")
 	}
 }
@@ -69,7 +69,7 @@ func TestShouldRefresh_Cooling(t *testing.T) {
 func TestShouldRefresh_EnoughFacts(t *testing.T) {
 	store := &mockStore{profileText: "exists", profileAt: time.Now().Add(-10 * time.Minute), newFactCount: 5}
 	m := newTestManager(store)
-	if !m.shouldRefresh("exists", store.profileAt, 1, 1) {
+	if !m.shouldRefresh("exists", store.profileAt, "01960000-0000-7000-8000-000000000001", "01960000-0000-7000-8000-000000000002") {
 		t.Error(">=3 facts after cooling should trigger refresh")
 	}
 }
@@ -77,7 +77,7 @@ func TestShouldRefresh_EnoughFacts(t *testing.T) {
 func TestShouldRefresh_NotEnoughFacts(t *testing.T) {
 	store := &mockStore{profileText: "exists", profileAt: time.Now().Add(-10 * time.Minute), newFactCount: 2}
 	m := newTestManager(store)
-	if m.shouldRefresh("exists", store.profileAt, 1, 1) {
+	if m.shouldRefresh("exists", store.profileAt, "01960000-0000-7000-8000-000000000001", "01960000-0000-7000-8000-000000000002") {
 		t.Error("<3 facts should not trigger refresh")
 	}
 }

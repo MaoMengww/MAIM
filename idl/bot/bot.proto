@@ -509,7 +509,7 @@ message TimeRange {
 }
 
 message SummarizeResp {
-  string summary_id = 1 [(common.entity_id) = true];
+  optional string summary_id = 1 [(common.entity_id) = true];
   string summary = 2;
   repeated TodoItem todos = 3;
   int32 total_messages = 4;
@@ -524,6 +524,7 @@ message GetConvSummariesReq {
 
 message GetConvSummariesResp {
   repeated SummarizeResp items = 1;
+  repeated TodoItem standalone_todos = 2;
 }
 
 message CreateTodoReq {
@@ -544,12 +545,14 @@ message TodoItem {
 
 message UpdateTodoReq {
   string todo_id = 1 [(common.entity_id) = true];
-  string content = 2;
-  bool done = 3;
+  optional string content = 2;
+  optional bool done = 3;
+  string conv_id = 4 [(common.entity_id) = true];
 }
 
 message DeleteTodoReq {
   string todo_id = 1 [(common.entity_id) = true];
+  string conv_id = 2 [(common.entity_id) = true];
 }
 
 message ReplyCandidatesReq {

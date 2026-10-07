@@ -37,7 +37,7 @@ func assertConversationMembers(t *testing.T, svcCtx *svc.ServiceContext, convID,
 	t.Helper()
 	members, err := conversationservice.NewGetMembersLogic(conversationContext(t, ownerID), svcCtx).GetMembers(&convpb.GetMembersReq{
 		ConversationId: convID,
-		UserId:         ownerID,
+		UserId:         &ownerID,
 	})
 	require.NoError(t, err)
 	ids := make([]string, len(members.Members))

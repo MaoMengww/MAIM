@@ -7,7 +7,9 @@ import (
 )
 
 type McpServer struct {
-	ID             int64              `gorm:"primaryKey;column:id"`
+	ID             string             `gorm:"primaryKey;column:id;type:uuid"`
+	OwnerType      string             `gorm:"column:owner_type;not null"`
+	OwnerID        *string            `gorm:"column:owner_id;type:uuid"`
 	Name           string             `gorm:"column:name"`
 	Description    string             `gorm:"column:description"`
 	Transport      string             `gorm:"column:transport;default:sse"`
@@ -17,8 +19,8 @@ type McpServer struct {
 	Env            []byte             `gorm:"column:env;type:jsonb"`
 	AuthConfig     *MCPAuthConfig     `gorm:"column:auth_config;type:jsonb"`
 	AdvancedConfig *MCPAdvancedConfig `gorm:"column:advanced_config;type:jsonb"`
-	Enabled        bool               `gorm:"column:enabled;default:true"`
-	CreatedBy      int64              `gorm:"column:created_by;default:0"`
+	Enabled        bool               `gorm:"column:enabled"`
+	CreatedBy      *string            `gorm:"column:created_by;type:uuid"`
 	CreatedAt      time.Time          `gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt      time.Time          `gorm:"column:updated_at;autoUpdateTime"`
 }
@@ -44,7 +46,7 @@ func (c *MCPAuthConfig) Value() (driver.Value, error) {
 	return json.Marshal(c)
 }
 
-func (c *MCPAuthConfig) Scan(value interface{}) error {
+func (c *MCPAuthConfig) Scan(value any) error {
 	if value == nil {
 		return nil
 	}
@@ -63,7 +65,7 @@ func (c *MCPAdvancedConfig) Value() (driver.Value, error) {
 	return json.Marshal(c)
 }
 
-func (c *MCPAdvancedConfig) Scan(value interface{}) error {
+func (c *MCPAdvancedConfig) Scan(value any) error {
 	if value == nil {
 		return nil
 	}
@@ -75,9 +77,9 @@ func (c *MCPAdvancedConfig) Scan(value interface{}) error {
 }
 
 type BotMcpServer struct {
-	ID             int64     `gorm:"primaryKey;column:id"`
-	BotID          int64     `gorm:"column:bot_id"`
-	McpServerID    int64     `gorm:"column:mcp_server_id"`
+	ID             string    `gorm:"primaryKey;column:id;type:uuid"`
+	BotID          string    `gorm:"column:bot_id;type:uuid"`
+	McpServerID    string    `gorm:"column:mcp_server_id;type:uuid"`
 	Enabled        bool      `gorm:"column:enabled;default:true"`
 	ConfigOverride []byte    `gorm:"column:config_override;type:jsonb"`
 	CreatedAt      time.Time `gorm:"column:created_at;autoCreateTime"`

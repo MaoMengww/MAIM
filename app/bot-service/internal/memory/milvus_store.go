@@ -27,8 +27,8 @@ type VectorHit struct {
 
 // MemoryVectorFilter scopes vector search.
 type MemoryVectorFilter struct {
-	BotID   int64
-	UserID  int64
+	BotID   string
+	UserID  string
 	Expired *bool
 }
 
@@ -80,8 +80,8 @@ func (s *MemoryVectorStore) EnsureCollection(ctx context.Context) error {
 		AutoID:         false,
 		Fields: []*entity.Field{
 			entity.NewField().WithName("id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(64).WithIsPrimaryKey(true),
-			entity.NewField().WithName("bot_id").WithDataType(entity.FieldTypeInt64),
-			entity.NewField().WithName("user_id").WithDataType(entity.FieldTypeInt64),
+			entity.NewField().WithName("bot_id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36),
+			entity.NewField().WithName("user_id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36),
 			entity.NewField().WithName("content").WithDataType(entity.FieldTypeVarChar).WithMaxLength(65535).WithEnableAnalyzer(true).WithEnableMatch(true),
 			entity.NewField().WithName("predicate").WithDataType(entity.FieldTypeVarChar).WithMaxLength(128),
 			entity.NewField().WithName("category").WithDataType(entity.FieldTypeVarChar).WithMaxLength(64),
@@ -170,8 +170,8 @@ func (s *MemoryVectorStore) UpsertFacts(ctx context.Context, facts []Fact, vecto
 
 	n := min(len(facts), len(vectors))
 	ids := make([]string, n)
-	botIDs := make([]int64, n)
-	userIDs := make([]int64, n)
+	botIDs := make([]string, n)
+	userIDs := make([]string, n)
 	contents := make([]string, n)
 	predicates := make([]string, n)
 	categories := make([]string, n)
@@ -198,8 +198,8 @@ func (s *MemoryVectorStore) UpsertFacts(ctx context.Context, facts []Fact, vecto
 
 	opt := client.NewColumnBasedInsertOption(s.collection).
 		WithVarcharColumn("id", ids).
-		WithInt64Column("bot_id", botIDs).
-		WithInt64Column("user_id", userIDs).
+		WithVarcharColumn("bot_id", botIDs).
+		WithVarcharColumn("user_id", userIDs).
 		WithVarcharColumn("content", contents).
 		WithVarcharColumn("predicate", predicates).
 		WithVarcharColumn("category", categories).
@@ -269,15 +269,15 @@ func (s *MemoryVectorStore) Close(ctx context.Context) error {
 }
 
 func buildMemoryFilterExpr(filter MemoryVectorFilter) string {
-	if filter.BotID <= 0 && filter.UserID <= 0 {
+	if filter.BotID == "" && filter.UserID == "" {
 		return ""
 	}
 	var parts []string
-	if filter.BotID > 0 {
-		parts = append(parts, fmt.Sprintf("bot_id == %d", filter.BotID))
+	if filter.BotID != "" {
+		parts = append(parts, fmt.Sprintf("bot_id == %q", filter.BotID))
 	}
-	if filter.UserID > 0 {
-		parts = append(parts, fmt.Sprintf("user_id == %d", filter.UserID))
+	if filter.UserID != "" {
+		parts = append(parts, fmt.Sprintf("user_id == %q", filter.UserID))
 	}
 	expr := ""
 	for i, p := range parts {

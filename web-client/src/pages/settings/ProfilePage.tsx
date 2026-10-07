@@ -148,7 +148,7 @@ export function ProfilePage() {
       if (modelSelectionChanged && values.ai_model_id) {
         const selected = models.find((m) => m.id === values.ai_model_id);
         settingsPayload.ai_model_id = values.ai_model_id;
-        settingsPayload.ai_model_name = selected?.model_name || settings?.ai_model_name || '';
+        settingsPayload.ai_model_name = selected?.model_name || '';
       } else if (modelSelectionChanged) {
         settingsPayload.clear_ai_model_id = true;
       }

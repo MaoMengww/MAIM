@@ -20,21 +20,21 @@ func NewDeliveryClient(messages *MessageClient, publisher *delivery.Publisher) *
 	return &DeliveryClient{messages: messages, publisher: publisher}
 }
 
-func (c *DeliveryClient) PublishToConversation(ctx context.Context, convID, botID int64, raw []byte) error {
-	var users []int64
+func (c *DeliveryClient) PublishToConversation(ctx context.Context, convID, botID string, raw []byte) error {
+	var users []string
 	botMember := false
 	for page := int32(1); ; page++ {
-		resp, err := c.messages.cli.GetMembers(ctx, &message.GetMembersReq{ConversationId: convID, UserId: botID, Pagination: &common.Pagination{Page: page, PageSize: 100}})
+		resp, err := c.messages.cli.GetMembers(serviceCallContext(ctx), &message.GetMembersReq{ConversationId: convID, BotId: &botID, Pagination: &common.Pagination{Page: page, PageSize: 100}})
 		if err != nil {
 			return err
 		}
 		for _, member := range resp.Members {
 			if member.MemberType == message.MemberType_MEMBER_TYPE_BOT {
-				if member.BotId == botID {
+				if member.GetBotId() == botID {
 					botMember = true
 				}
 			} else {
-				users = append(users, member.UserId)
+				users = append(users, member.GetUserId())
 			}
 		}
 		if len(resp.Members) < 100 {
@@ -42,7 +42,7 @@ func (c *DeliveryClient) PublishToConversation(ctx context.Context, convID, botI
 		}
 	}
 	if !botMember {
-		return fmt.Errorf("bot %d is not a member of conversation %d", botID, convID)
+		return fmt.Errorf("bot %s is not a member of conversation %s", botID, convID)
 	}
 	if len(users) == 0 {
 		return nil

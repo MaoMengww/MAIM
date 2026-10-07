@@ -34,10 +34,10 @@ function BotBindButton({ kbId }: { kbId: number }) {
   });
 
   const bots = botsData?.list ?? [];
-  const [selectedBotId, setSelectedBotId] = useState<number | undefined>();
+  const [selectedBotId, setSelectedBotId] = useState<string | undefined>();
 
   const bindMutation = useMutation({
-    mutationFn: (botId: number) => kbApi.bindToBot(botId, kbId),
+    mutationFn: (botId: string) => kbApi.bindToBot(botId, kbId),
     onSuccess: () => {
       message.success('绑定成功');
       queryClient.invalidateQueries({ queryKey: ['kb-bindings', kbId] });
@@ -47,7 +47,7 @@ function BotBindButton({ kbId }: { kbId: number }) {
   });
 
   const unbindMutation = useMutation({
-    mutationFn: (botId: number) => kbApi.unbindFromBot(botId, kbId),
+    mutationFn: (botId: string) => kbApi.unbindFromBot(botId, kbId),
     onSuccess: () => {
       message.success('已解绑');
       queryClient.invalidateQueries({ queryKey: ['kb-bindings', kbId] });
@@ -271,6 +271,7 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm] = Form.useForm();
+  const [changedModelFields, setChangedModelFields] = useState<Set<string>>(new Set());
 
   const editMutation = useMutation({
     mutationFn: (vals: Record<string, unknown>) => kbApi.update(kb.id, vals),
@@ -314,11 +315,14 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
             const cc = pc.chunking || {};
             const rc = pc.retrieval || {};
             const vlm = pc.parsing?.vlm || {};
+            editForm.resetFields();
+            setChangedModelFields(new Set());
             editForm.setFieldsValue({
               name: kb.name,
               description: kb.description,
+              embedding_model_id: kb.embedding_model_id ?? undefined,
               engines: pc.parsing?.engines,
-              vlm_model_id: vlm.model_id,
+              vlm_model_id: vlm.model_id ?? undefined,
               parent_child_enabled: cc.parent_child?.enabled || false,
               chunk_size: cc.chunk_size,
               overlap: cc.overlap,
@@ -332,7 +336,7 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
               dense_weight: rc.dense_weight,
               sparse_weight: rc.sparse_weight,
               rerank_enabled: rc.rerank?.enabled || false,
-              rerank_model_id: rc.rerank?.model_id,
+              rerank_model_id: rc.rerank?.model_id ?? undefined,
               rerank_top_n: rc.rerank?.top_n,
             });
             setEditOpen(true);
@@ -451,10 +455,12 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
           const pipelineConfig: Record<string, any> = {};
           pipelineConfig.parsing = {
             engines: vals.engines?.length ? vals.engines : undefined,
-            vlm: vals.vlm_model_id ? {
-              model_id: vals.vlm_model_id,
-              enabled: true,
-            } : undefined,
+            vlm: {
+              enabled: !!vals.vlm_model_id,
+              ...(changedModelFields.has('vlm_model_id')
+                ? vals.vlm_model_id != null ? { model_id: vals.vlm_model_id } : { clear_model_id: true }
+                : {}),
+            },
           };
           pipelineConfig.chunking = {
             chunk_size: vals.parent_child_enabled ? undefined : (vals.chunk_size != null ? Number(vals.chunk_size) : undefined),
@@ -473,21 +479,36 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
             score_threshold: vals.score_threshold != null ? Number(vals.score_threshold) : undefined,
             dense_weight: vals.dense_weight != null ? Number(vals.dense_weight) : undefined,
             sparse_weight: vals.sparse_weight != null ? Number(vals.sparse_weight) : undefined,
-            rerank: vals.rerank_enabled ? {
-              enabled: true,
-              model_id: vals.rerank_model_id != null ? Number(vals.rerank_model_id) : undefined,
+            rerank: {
+              enabled: !!vals.rerank_enabled,
+              ...(changedModelFields.has('rerank_model_id')
+                ? vals.rerank_model_id != null ? { model_id: vals.rerank_model_id } : { clear_model_id: true }
+                : {}),
               top_n: vals.rerank_top_n != null ? Number(vals.rerank_top_n) : undefined,
-            } : undefined,
+            },
           };
           payload.pipeline_config = pipelineConfig;
+          if (changedModelFields.has('embedding_model_id')) {
+            if (vals.embedding_model_id == null) {
+              payload.clear_embedding_model_id = true;
+            } else {
+              payload.embedding_model_id = vals.embedding_model_id;
+              payload.embedding_model = modelsData?.list.find((model) => model.id === vals.embedding_model_id)?.model_name;
+            }
+          }
           editMutation.mutate(payload);
         })}
         onCancel={() => setEditOpen(false)} confirmLoading={editMutation.isPending}
         okText="保存" cancelText="取消" width={640}
       >
-        <Form form={editForm} layout="vertical" style={{ paddingTop: 16 }}>
+        <Form form={editForm} layout="vertical" style={{ paddingTop: 16 }} onValuesChange={(changed: Record<string, unknown>) => {
+          setChangedModelFields((previous) => new Set([...previous, ...Object.keys(changed)]));
+        }}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]} style={{ marginBottom: 12 }}><Input /></Form.Item>
           <Form.Item name="description" label="描述" style={{ marginBottom: 12 }}><Input.TextArea rows={2} /></Form.Item>
+          <Form.Item name="embedding_model_id" label="Embedding 模型" style={{ marginBottom: 12 }}>
+            <Select allowClear placeholder="未配置" options={(modelsData?.list ?? []).filter((model) => model.capability === 'embed').map((model) => ({ value: model.id, label: modelOptionLabel(model) }))} />
+          </Form.Item>
           <Form.Item name="preset" label="处理预设" style={{ marginBottom: 12 }}>
             <Select allowClear placeholder="选择预设" options={[
               { value: 'general', label: '通用' },
@@ -581,8 +602,8 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.rerank_enabled !== cur.rerank_enabled}>
             {({ getFieldValue }) => getFieldValue('rerank_enabled') ? (
               <div style={{ display: 'flex', gap: 16 }}>
-                <Form.Item name="rerank_model_id" label="Rerank 模型 ID" style={{ flex: 1, marginBottom: 12 }}>
-                  <InputNumber min={1} style={{ width: '100%' }} />
+                <Form.Item name="rerank_model_id" label="Rerank 模型" style={{ flex: 1, marginBottom: 12 }}>
+                  <Select allowClear placeholder="未配置" options={(modelsData?.list ?? []).filter((model) => model.capability === 'rerank').map((model) => ({ value: model.id, label: modelOptionLabel(model) }))} />
                 </Form.Item>
                 <Form.Item name="rerank_top_n" label="重排数量" style={{ flex: 1, marginBottom: 12 }}>
                   <InputNumber min={1} max={50} style={{ width: '100%' }} />

@@ -10,7 +10,6 @@ import (
 type Config struct {
 	zrpc.RpcServerConf
 	Role           string                 `json:"-"`
-	Snowflake      SnowflakeConfig        `json:"snowflake"`
 	JWT            config.JWTConfig       `json:"jwt,optional"`
 	EncryptionKey  string                 `json:"encryptionKey,optional"`
 	Database       config.DatabaseConfig  `json:"database"`
@@ -51,8 +50,4 @@ type Neo4jConfig struct {
 	Username string `json:"username,default=neo4j"`
 	Password string `json:"password"`
 	Database string `json:"database,default=neo4j"`
-}
-
-type SnowflakeConfig struct {
-	WorkerID int64 `json:"workerId,default=6"`
 }

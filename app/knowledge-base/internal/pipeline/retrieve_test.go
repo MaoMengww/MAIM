@@ -46,7 +46,7 @@ type mockEmbedder struct {
 	err     error
 }
 
-func (m *mockEmbedder) Embed(ctx context.Context, texts []string, model string) ([][]float32, error) {
+func (m *mockEmbedder) Embed(ctx context.Context, texts []string, modelID string, ownerID *string) ([][]float32, error) {
 	return m.vectors, m.err
 }
 func (m *mockEmbedder) Dimensions(model string) int { return 1536 }
@@ -69,8 +69,11 @@ func (m *mockKBRepo) Get(ctx context.Context, kbID int64) (*domain.KnowledgeBase
 func (m *mockKBRepo) ListByMode(ctx context.Context, mode string, offset, limit int) ([]domain.KnowledgeBase, error) {
 	return nil, m.err
 }
-func (m *mockKBRepo) ListByOwner(ctx context.Context, ownerID int64, offset, limit int) ([]domain.KnowledgeBase, int64, error) {
+func (m *mockKBRepo) ListByOwner(ctx context.Context, ownerID string, offset, limit int) ([]domain.KnowledgeBase, int64, error) {
 	return nil, 0, m.err
+}
+func (m *mockKBRepo) ResolveModelID(ctx context.Context, modelName string) (string, error) {
+	return "01902ee3-8b7e-7fa1-96fd-ec908c0ace20", m.err
 }
 func (m *mockKBRepo) Bind(ctx context.Context, binding *domain.KnowledgeBinding) error { return m.err }
 func (m *mockKBRepo) Unbind(ctx context.Context, kbID int64, targetType string, targetID int64) error {

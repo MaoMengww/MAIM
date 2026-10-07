@@ -5,10 +5,12 @@ import { CrownOutlined, EditOutlined } from '@ant-design/icons';
 import { modelApi } from '@/services/model';
 import type { ModelResp } from '@/types/model';
 import { displayProvider, providerOptions } from '@/utils/provider';
+import { useAuthStore } from '@/stores/auth';
+import type { CreateModelReq } from '@/types/api';
 
 const CAPABILITY_OPTIONS = [
   { value: 'chat', label: 'Chat' },
-  { value: 'embedding', label: 'Embedding' },
+  { value: 'embed', label: 'Embedding' },
   { value: 'rerank', label: 'Rerank' },
   { value: 'vlm', label: 'VLM' },
   { value: 'tts', label: 'TTS' },
@@ -16,6 +18,7 @@ const CAPABILITY_OPTIONS = [
 
 export function ModelManagePage() {
   const queryClient = useQueryClient();
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<ModelResp | null>(null);
@@ -30,7 +33,10 @@ export function ModelManagePage() {
   const models = data?.list ?? [];
 
   const createMutation = useMutation({
-    mutationFn: (vals: any) => modelApi.create(vals),
+    mutationFn: (vals: Omit<CreateModelReq, 'owner_type' | 'owner_id'>) => {
+      if (!currentUserId) throw new Error('请先登录');
+      return modelApi.create({ ...vals, owner_type: 'user', owner_id: currentUserId });
+    },
     onSuccess: () => {
       message.success('模型添加成功');
       setCreateOpen(false);
@@ -114,7 +120,7 @@ export function ModelManagePage() {
     },
     {
       title: '操作', key: 'actions', width: 120,
-      render: (_: any, r: ModelResp) => r.owner_type === 'user' ? (
+      render: (_: unknown, r: ModelResp) => r.owner_type === 'user' && r.owner_id === currentUserId ? (
         <span style={{ display: 'inline-flex', gap: 4 }}>
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(r)}>编辑</Button>
           <Button type="link" danger onClick={() => deleteMutation.mutate(r.id)}>删除</Button>

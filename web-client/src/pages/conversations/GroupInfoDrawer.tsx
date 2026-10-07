@@ -225,9 +225,9 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
     mutationFn: (botId: string) => botApi.removeFromConv(convId!, botId),
     onSuccess: (_data, botId) => {
       message.success('已移除机器人');
-      queryClient.setQueryData(['conv-bots', convId], (old: any[]) => {
+      queryClient.setQueryData(['conv-bots', convId], (old: BotInConv[] | undefined) => {
         if (!old) return old;
-        return old.filter((b: any) => String(b.id) !== botId && b.bot_id !== botId);
+        return old.filter((b) => b.bot_id !== botId);
       });
       queryClient.invalidateQueries({ queryKey: ['conv-bots', convId] });
     },

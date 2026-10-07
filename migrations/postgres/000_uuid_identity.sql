@@ -68,7 +68,7 @@ BEGIN
             ('messaging', 'conv_read_seqs', ARRAY['id', 'conv_id', 'user_id']),
             ('messaging', 'conv_settings', ARRAY['id', 'conv_id', 'user_id']),
             ('messaging', 'conv_bots', ARRAY['id', 'conv_id', 'bot_id', 'added_by']),
-            ('bot', 'bots', ARRAY['id', 'owner_id', 'pseudo_user_id', 'model_id', 'memory_model_id', 'memory_embedding_model_id']),
+            ('bot', 'bots', ARRAY['id', 'owner_id', 'model_id', 'memory_model_id', 'memory_embedding_model_id']),
             ('bot', 'mcp_servers', ARRAY['id', 'owner_id', 'created_by']),
             ('bot', 'bot_mcp_servers', ARRAY['id', 'bot_id', 'mcp_server_id']),
             ('bot', 'mcp_tools', ARRAY['id', 'mcp_server_id']),
@@ -311,7 +311,6 @@ CREATE TABLE IF NOT EXISTS bot.bots (
     name                     TEXT,
     avatar                   TEXT,
     type                     TEXT,
-    pseudo_user_id           UUID CHECK (pseudo_user_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     status                   TEXT DEFAULT 'active',
     use_platform_model       BOOLEAN DEFAULT TRUE NOT NULL,
     model_name               TEXT,
@@ -419,8 +418,6 @@ CREATE INDEX IF NOT EXISTS idx_bots_owner ON bot.bots(owner_id);
 CREATE INDEX IF NOT EXISTS idx_bots_status ON bot.bots(status);
 CREATE INDEX IF NOT EXISTS idx_bots_type ON bot.bots(type);
 CREATE INDEX IF NOT EXISTS idx_bots_model_id ON bot.bots(model_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_bots_pseudo_user ON bot.bots(pseudo_user_id);
-CREATE UNIQUE INDEX IF NOT EXISTS uni_bots_pseudo_user_id ON bot.bots(pseudo_user_id);
 CREATE INDEX IF NOT EXISTS idx_mcp_servers_status ON bot.mcp_servers(status);
 CREATE INDEX IF NOT EXISTS idx_bot_mcp_servers_bot ON bot.bot_mcp_servers(bot_id);
 CREATE INDEX IF NOT EXISTS idx_bot_mcp_servers_mcp ON bot.bot_mcp_servers(mcp_server_id);

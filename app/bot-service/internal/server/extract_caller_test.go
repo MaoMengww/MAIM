@@ -9,10 +9,10 @@ import (
 
 func TestExtractChatCaller_HappyPath(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(),
-		metadata.Pairs("x-user-id", "42", "x-username", "alice", "x-user-language", "zh-CN"))
+		metadata.Pairs("user-id", "01960000-0000-7000-8000-000000000001", "x-username", "alice", "x-user-language", "zh-CN"))
 	uid, name, lang := extractChatCaller(ctx)
-	if uid != 42 {
-		t.Fatalf("expected uid 42, got %d", uid)
+	if uid != "01960000-0000-7000-8000-000000000001" {
+		t.Fatalf("unexpected uid %s", uid)
 	}
 	if name != "alice" {
 		t.Fatalf("expected username alice, got %s", name)
@@ -24,8 +24,8 @@ func TestExtractChatCaller_HappyPath(t *testing.T) {
 
 func TestExtractChatCaller_MissingMetadata(t *testing.T) {
 	uid, name, lang := extractChatCaller(context.Background())
-	if uid != 0 {
-		t.Fatalf("expected uid 0, got %d", uid)
+	if uid != "" {
+		t.Fatalf("expected no user identity, got %s", uid)
 	}
 	if name != "" {
 		t.Fatalf("expected empty name, got %s", name)
@@ -37,10 +37,10 @@ func TestExtractChatCaller_MissingMetadata(t *testing.T) {
 
 func TestExtractChatCaller_PartialMetadata(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(),
-		metadata.Pairs("x-user-id", "99"))
+		metadata.Pairs("user-id", "01960000-0000-7000-8000-000000000002"))
 	uid, name, lang := extractChatCaller(ctx)
-	if uid != 99 {
-		t.Fatalf("expected uid 99, got %d", uid)
+	if uid != "01960000-0000-7000-8000-000000000002" {
+		t.Fatalf("unexpected uid %s", uid)
 	}
 	if name != "" {
 		t.Fatalf("expected empty name, got %s", name)

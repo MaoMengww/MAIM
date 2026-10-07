@@ -7,27 +7,27 @@ import (
 
 // Scope identifies a bot-user memory space with optional vector lookup info.
 type Scope struct {
-	BotID            int64
-	UserID           int64
-	ConvID           int64
-	OwnerID          int64
-	EmbeddingModelID int64
+	BotID            string
+	UserID           string
+	ConvID           *string
+	OwnerID          *string
+	EmbeddingModelID *string
 }
 
 // MemoryQuery carries the full context needed for retrieval.
 type MemoryQuery struct {
-	BotID            int64
-	UserID           int64
-	OwnerID          int64
-	EmbeddingModelID int64
+	BotID            string
+	UserID           string
+	OwnerID          *string
+	EmbeddingModelID *string
 	Query            string
 	Limit            int
 }
 
 // Entity is a Neo4j Entity node representing a named thing (person, org, tool, etc.).
 type Entity struct {
-	BotID          int64
-	UserID         int64
+	BotID          string
+	UserID         string
 	Name           string
 	NormalizedName string
 	EntityType     string
@@ -39,10 +39,10 @@ type Entity struct {
 // Episode stores the original user message that memory facts are extracted from.
 type Episode struct {
 	ID        int64
-	BotID     int64
-	UserID    int64
-	ConvID    int64
-	MsgID     int64
+	BotID     string
+	UserID    string
+	ConvID    *string
+	MsgID     *string
 	Actor     string
 	Content   string
 	CreatedAt time.Time
@@ -51,10 +51,10 @@ type Episode struct {
 // Fact is a temporal memory fact extracted from an episode.
 type Fact struct {
 	ID           int64
-	BotID        int64
-	UserID       int64
-	ConvID       int64
-	MsgID        int64
+	BotID        string
+	UserID       string
+	ConvID       *string
+	MsgID        *string
 	Subject      string
 	Predicate    string
 	Object       string
@@ -101,11 +101,11 @@ type Store interface {
 	Search(ctx context.Context, scope Scope, query string, limit int) ([]Memory, error)
 	SearchByIDs(ctx context.Context, scope Scope, ids []int64, historical bool) ([]Memory, error)
 	SearchWithTraversal(ctx context.Context, scope Scope, query string, limit int, maxHops int) ([]Memory, error)
-	GetProfileData(ctx context.Context, botID, userID int64) (profileText string, updatedAt time.Time, err error)
-	CountNewFactsSince(ctx context.Context, botID, userID int64, since time.Time) (int, error)
-	GetIncrementalFacts(ctx context.Context, botID, userID int64, since time.Time) (newFacts []ProfileFact, expiredFacts []ProfileFact, err error)
-	GetInitialProfileFacts(ctx context.Context, botID, userID int64, limit int) ([]ProfileFact, error)
-	UpdateProfile(ctx context.Context, botID, userID int64, profileText string, updatedAt time.Time) error
+	GetProfileData(ctx context.Context, botID, userID string) (profileText string, updatedAt time.Time, err error)
+	CountNewFactsSince(ctx context.Context, botID, userID string, since time.Time) (int, error)
+	GetIncrementalFacts(ctx context.Context, botID, userID string, since time.Time) (newFacts []ProfileFact, expiredFacts []ProfileFact, err error)
+	GetInitialProfileFacts(ctx context.Context, botID, userID string, limit int) ([]ProfileFact, error)
+	UpdateProfile(ctx context.Context, botID, userID string, profileText string, updatedAt time.Time) error
 }
 
 // ProfileFact is a lightweight fact used for profile generation.

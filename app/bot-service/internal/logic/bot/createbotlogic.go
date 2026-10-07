@@ -9,6 +9,7 @@ import (
 	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/crypto"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -38,8 +39,13 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 		return nil, fmt.Errorf("invalid bot type: %s", in.Type)
 	}
 
-	if botType == consts.BotTypeSelfDeployed && in.OwnerId == 0 {
-		return nil, fmt.Errorf("owner_id is required for user bot")
+	if err := validateUserOwnership(l.ctx, in.OwnerType, in.OwnerId); err != nil {
+		return nil, err
+	}
+	for _, data := range []string{in.Capabilities, in.Settings} {
+		if data != "" && model.ValidateEntityJSON([]byte(data)) != nil {
+			return nil, ErrBotInvalid
+		}
 	}
 
 	// capture normalized subType for third-party bot construction below
@@ -47,7 +53,7 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 	if botType == consts.BotTypeThirdParty {
 		subType = in.SubType
 		if subType == "" {
-			// fall back to conn_mode for backwards compatibility
+			// Derive subtype from the configured transport when not provided.
 			subType = NormalizeConnMode(in.ConnMode)
 		}
 		if subType != SubTypeWS && subType != SubTypeWebhook {
@@ -68,7 +74,7 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 		}
 	}
 
-	botID, err := l.svcCtx.Repo.NextID(l.ctx)
+	botID, err := identity.New()
 	if err != nil {
 		return nil, fmt.Errorf("generate bot id failed: %w", err)
 	}
@@ -84,6 +90,7 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 
 	bot := &model.Bot{
 		ID:                       botID,
+		OwnerType:                in.OwnerType,
 		OwnerID:                  in.OwnerId,
 		Name:                     in.Name,
 		Avatar:                   in.Avatar,
@@ -142,46 +149,23 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 		bot.MemoryAPIKeyEncrypted = encrypted
 	}
 
-	if bot.ModelID <= 0 && bot.ModelName != "" {
-		resolvedID, err := l.svcCtx.Repo.ResolveModelID(l.ctx, bot.ModelName)
-		if err == nil && resolvedID > 0 {
-			bot.ModelID = resolvedID
-		}
+	bot.ModelID, bot.UsePlatformModel, err = selectModel(l.ctx, l.svcCtx.Repo, in.ModelId, in.ModelName, *in.OwnerId, in.UsePlatformModel)
+	if err != nil {
+		return nil, err
 	}
-
-	if bot.MemoryModelID <= 0 && bot.MemoryModelName != "" {
-		resolvedID, err := l.svcCtx.Repo.ResolveModelID(l.ctx, bot.MemoryModelName)
-		if err == nil && resolvedID > 0 {
-			bot.MemoryModelID = resolvedID
-		}
+	bot.MemoryModelID, bot.MemoryUsePlatformModel, err = selectModel(l.ctx, l.svcCtx.Repo, in.MemoryModelId, in.MemoryModelName, *in.OwnerId, in.MemoryUsePlatformModel)
+	if err != nil {
+		return nil, err
 	}
-	if bot.MemoryEmbeddingModelID <= 0 && bot.MemoryEmbeddingModelName != "" {
-		resolvedID, err := l.svcCtx.Repo.ResolveModelID(l.ctx, bot.MemoryEmbeddingModelName)
-		if err == nil && resolvedID > 0 {
-			bot.MemoryEmbeddingModelID = resolvedID
-		}
-	}
-
-	// Auto-determine use_platform_model from model owner
-	if bot.ModelID > 0 {
-		if ownerID, err := l.svcCtx.Repo.GetModelOwner(l.ctx, bot.ModelID); err == nil {
-			bot.UsePlatformModel = (ownerID == 0)
-		}
-	} else {
-		bot.UsePlatformModel = false
-	}
-	if bot.MemoryModelID > 0 {
-		if ownerID, err := l.svcCtx.Repo.GetModelOwner(l.ctx, bot.MemoryModelID); err == nil {
-			bot.MemoryUsePlatformModel = (ownerID == 0)
-		}
-	} else {
-		bot.MemoryUsePlatformModel = false
+	bot.MemoryEmbeddingModelID, _, err = selectModel(l.ctx, l.svcCtx.Repo, in.MemoryEmbeddingModelId, in.MemoryEmbeddingModelName, *in.OwnerId, in.MemoryUsePlatformModel)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := l.svcCtx.Repo.CreateBot(l.ctx, bot); err != nil {
 		return nil, fmt.Errorf("create bot failed: %w", err)
 	}
 
-	l.Infof("bot created: bot_id=%d name=%s", botID, in.Name)
+	l.Infof("bot created: bot_id=%s name=%s", botID, in.Name)
 	return modelBotToProto(bot), nil
 }

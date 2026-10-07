@@ -27,6 +27,9 @@ func (l *DiscoverMcpToolsLogic) DiscoverMcpTools(in *pb.DiscoverMcpToolsReq) (*p
 	if l.svcCtx.Repo == nil {
 		return nil, errors.New(errors.CodeInternal, "repo not initialized")
 	}
+	if err := validateCaller(l.ctx, in.UserId, in.McpServerId); err != nil {
+		return nil, err
+	}
 
 	srv, err := l.svcCtx.Repo.GetMcpServer(l.ctx, in.McpServerId)
 	if err != nil {
@@ -44,7 +47,7 @@ func (l *DiscoverMcpToolsLogic) DiscoverMcpTools(in *pb.DiscoverMcpToolsReq) (*p
 
 	toolDefs, err := client.ListTools(ctx)
 	if err != nil {
-		l.Errorf("discover tools from mcp server %d (%s) failed: %v", in.McpServerId, srv.URL, err)
+		l.Errorf("discover tools from mcp server %s (%s) failed: %v", in.McpServerId, srv.URL, err)
 		return nil, errors.Wrap(errors.CodeInternal, "discover tools failed, please check if the MCP server is reachable", err)
 	}
 
@@ -64,11 +67,11 @@ func (l *DiscoverMcpToolsLogic) DiscoverMcpTools(in *pb.DiscoverMcpToolsReq) (*p
 	}
 
 	if err := l.svcCtx.Repo.UpsertMcpTools(l.ctx, in.McpServerId, tools); err != nil {
-		l.Errorf("save discovered tools for mcp server %d failed: %v", in.McpServerId, err)
+		l.Errorf("save discovered tools for mcp server %s failed: %v", in.McpServerId, err)
 		return nil, errors.Wrap(errors.CodeDBError, "save discovered tools failed", err)
 	}
 
-	l.Infof("mcp tools discovered: server_id=%d count=%d", in.McpServerId, len(tools))
+	l.Infof("mcp tools discovered: server_id=%s count=%d", in.McpServerId, len(tools))
 
 	items := make([]*pb.McpToolInfo, 0, len(tools))
 	for _, t := range tools {
@@ -99,6 +102,9 @@ func (l *ListMcpToolsLogic) ListMcpTools(in *pb.ListMcpToolsReq) (*pb.ListMcpToo
 	if l.svcCtx.Repo == nil {
 		return nil, errors.New(errors.CodeInternal, "repo not initialized")
 	}
+	if err := validateCaller(l.ctx, in.UserId, in.McpServerId); err != nil {
+		return nil, err
+	}
 
 	srv, err := l.svcCtx.Repo.GetMcpServer(l.ctx, in.McpServerId)
 	if err != nil {
@@ -111,7 +117,7 @@ func (l *ListMcpToolsLogic) ListMcpTools(in *pb.ListMcpToolsReq) (*pb.ListMcpToo
 
 	tools, err := l.svcCtx.Repo.ListMcpTools(l.ctx, in.McpServerId)
 	if err != nil {
-		l.Errorf("list mcp tools for server %d failed: %v", in.McpServerId, err)
+		l.Errorf("list mcp tools for server %s failed: %v", in.McpServerId, err)
 		return nil, errors.Wrap(errors.CodeDBError, "list mcp tools failed", err)
 	}
 
@@ -132,7 +138,7 @@ func (l *ListMcpToolsLogic) ListMcpTools(in *pb.ListMcpToolsReq) (*pb.ListMcpToo
 
 // AutoDiscoverMcpTools connects to an MCP server and stores the discovered tools.
 // Used internally after Create/Update to auto-discover tools. Best-effort, silent on failure.
-func AutoDiscoverMcpTools(ctx context.Context, srvCtx *svc.ServiceContext, serverID int64, srv *model.McpServer) {
+func AutoDiscoverMcpTools(ctx context.Context, srvCtx *svc.ServiceContext, serverID string, srv *model.McpServer) {
 	if srv.URL == "" || (srv.Transport != "" && srv.Transport != "sse" && srv.Transport != "http-streamable") {
 		return
 	}

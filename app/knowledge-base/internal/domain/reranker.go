@@ -3,8 +3,8 @@ package domain
 import "context"
 
 type RerankRequest struct {
-	ModelID    int64
-	OwnerID    int64
+	ModelID    string
+	OwnerID    *string
 	Query      string
 	Candidates []RerankCandidate
 	TopK       int

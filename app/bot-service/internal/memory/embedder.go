@@ -6,11 +6,12 @@ import (
 
 	llmgateway "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/zeromicro/go-zero/zrpc"
+	"google.golang.org/grpc/metadata"
 )
 
 // Embedder turns text into vectors using llm-gateway.
 type Embedder interface {
-	Embed(ctx context.Context, texts []string, modelID int64, ownerID int64) ([][]float32, error)
+	Embed(ctx context.Context, texts []string, modelID string, ownerID *string, botID string) ([][]float32, error)
 }
 
 // GatewayEmbedder calls llm-gateway's Embed RPC.
@@ -23,11 +24,11 @@ func NewGatewayEmbedder(client zrpc.Client) Embedder {
 	return &GatewayEmbedder{client: client}
 }
 
-func (e *GatewayEmbedder) Embed(ctx context.Context, texts []string, modelID int64, ownerID int64) ([][]float32, error) {
+func (e *GatewayEmbedder) Embed(ctx context.Context, texts []string, modelID string, ownerID *string, botID string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
-	if modelID <= 0 {
+	if modelID == "" {
 		return nil, fmt.Errorf("embedding model_id is required")
 	}
 
@@ -41,9 +42,14 @@ func (e *GatewayEmbedder) Embed(ctx context.Context, texts []string, modelID int
 		ModelId: modelID,
 		Input:   texts,
 		OwnerId: ownerID,
+		BotId:   &botID,
 	}
 
-	resp, err := cli.Embed(ctx, req)
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	md.Delete("user-id")
+	md.Delete("x-user-id")
+	resp, err := cli.Embed(metadata.NewOutgoingContext(ctx, md), req)
 	if err != nil {
 		return nil, fmt.Errorf("embedding request failed: %w", err)
 	}

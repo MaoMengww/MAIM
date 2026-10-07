@@ -1,21 +1,21 @@
 package handler
 
 import (
-	"context"
 	"testing"
 
 	"google.golang.org/grpc/metadata"
 )
 
 func TestGetCallerIDFromMetadata(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-user-id", "12345"))
-	if got := getCallerID(ctx); got != 12345 {
-		t.Fatalf("expected caller id 12345, got %d", got)
+	const callerID = "01902ee3-8b7e-7fa1-96fd-ec908c0ace21"
+	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-user-id", callerID))
+	if got := getCallerID(ctx); got != callerID {
+		t.Fatalf("expected caller id %s, got %s", callerID, got)
 	}
 }
 
 func TestGetCallerIDMissingMetadata(t *testing.T) {
-	if got := getCallerID(context.Background()); got != 0 {
-		t.Fatalf("expected caller id 0, got %d", got)
+	if got := getCallerID(t.Context()); got != "" {
+		t.Fatalf("expected no caller id, got %s", got)
 	}
 }

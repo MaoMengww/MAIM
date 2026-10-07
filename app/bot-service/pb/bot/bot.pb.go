@@ -3670,7 +3670,7 @@ func (x *TimeRange) GetEndTime() int64 {
 
 type SummarizeResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SummaryId     string                 `protobuf:"bytes,1,opt,name=summary_id,json=summaryId,proto3" json:"summary_id,omitempty"`
+	SummaryId     *string                `protobuf:"bytes,1,opt,name=summary_id,json=summaryId,proto3,oneof" json:"summary_id,omitempty"`
 	Summary       string                 `protobuf:"bytes,2,opt,name=summary,proto3" json:"summary,omitempty"`
 	Todos         []*TodoItem            `protobuf:"bytes,3,rep,name=todos,proto3" json:"todos,omitempty"`
 	TotalMessages int32                  `protobuf:"varint,4,opt,name=total_messages,json=totalMessages,proto3" json:"total_messages,omitempty"`
@@ -3711,8 +3711,8 @@ func (*SummarizeResp) Descriptor() ([]byte, []int) {
 }
 
 func (x *SummarizeResp) GetSummaryId() string {
-	if x != nil {
-		return x.SummaryId
+	if x != nil && x.SummaryId != nil {
+		return *x.SummaryId
 	}
 	return ""
 }
@@ -3805,10 +3805,11 @@ func (x *GetConvSummariesReq) GetLimit() int32 {
 }
 
 type GetConvSummariesResp struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         []*SummarizeResp       `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Items           []*SummarizeResp       `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	StandaloneTodos []*TodoItem            `protobuf:"bytes,2,rep,name=standalone_todos,json=standaloneTodos,proto3" json:"standalone_todos,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetConvSummariesResp) Reset() {
@@ -3844,6 +3845,13 @@ func (*GetConvSummariesResp) Descriptor() ([]byte, []int) {
 func (x *GetConvSummariesResp) GetItems() []*SummarizeResp {
 	if x != nil {
 		return x.Items
+	}
+	return nil
+}
+
+func (x *GetConvSummariesResp) GetStandaloneTodos() []*TodoItem {
+	if x != nil {
+		return x.StandaloneTodos
 	}
 	return nil
 }
@@ -4003,8 +4011,9 @@ func (x *TodoItem) GetUpdatedAt() int64 {
 type UpdateTodoReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TodoId        string                 `protobuf:"bytes,1,opt,name=todo_id,json=todoId,proto3" json:"todo_id,omitempty"`
-	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
-	Done          bool                   `protobuf:"varint,3,opt,name=done,proto3" json:"done,omitempty"`
+	Content       *string                `protobuf:"bytes,2,opt,name=content,proto3,oneof" json:"content,omitempty"`
+	Done          *bool                  `protobuf:"varint,3,opt,name=done,proto3,oneof" json:"done,omitempty"`
+	ConvId        string                 `protobuf:"bytes,4,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4047,22 +4056,30 @@ func (x *UpdateTodoReq) GetTodoId() string {
 }
 
 func (x *UpdateTodoReq) GetContent() string {
-	if x != nil {
-		return x.Content
+	if x != nil && x.Content != nil {
+		return *x.Content
 	}
 	return ""
 }
 
 func (x *UpdateTodoReq) GetDone() bool {
-	if x != nil {
-		return x.Done
+	if x != nil && x.Done != nil {
+		return *x.Done
 	}
 	return false
+}
+
+func (x *UpdateTodoReq) GetConvId() string {
+	if x != nil {
+		return x.ConvId
+	}
+	return ""
 }
 
 type DeleteTodoReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TodoId        string                 `protobuf:"bytes,1,opt,name=todo_id,json=todoId,proto3" json:"todo_id,omitempty"`
+	ConvId        string                 `protobuf:"bytes,2,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4100,6 +4117,13 @@ func (*DeleteTodoReq) Descriptor() ([]byte, []int) {
 func (x *DeleteTodoReq) GetTodoId() string {
 	if x != nil {
 		return x.TodoId
+	}
+	return ""
+}
+
+func (x *DeleteTodoReq) GetConvId() string {
+	if x != nil {
+		return x.ConvId
 	}
 	return ""
 }
@@ -4696,21 +4720,23 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\tTimeRange\x12\x1d\n" +
 	"\n" +
 	"start_time\x18\x01 \x01(\x03R\tstartTime\x12\x19\n" +
-	"\bend_time\x18\x02 \x01(\x03R\aendTime\"\xd3\x01\n" +
-	"\rSummarizeResp\x12%\n" +
+	"\bend_time\x18\x02 \x01(\x03R\aendTime\"\xe7\x01\n" +
+	"\rSummarizeResp\x12*\n" +
 	"\n" +
-	"summary_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tsummaryId\x12\x18\n" +
+	"summary_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\tsummaryId\x88\x01\x01\x12\x18\n" +
 	"\asummary\x18\x02 \x01(\tR\asummary\x12#\n" +
 	"\x05todos\x18\x03 \x03(\v2\r.bot.TodoItemR\x05todos\x12%\n" +
 	"\x0etotal_messages\x18\x04 \x01(\x05R\rtotalMessages\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\"L\n" +
+	"\x06status\x18\x06 \x01(\tR\x06statusB\r\n" +
+	"\v_summary_id\"L\n" +
 	"\x13GetConvSummariesReq\x12\x1f\n" +
 	"\aconv_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\x05R\x05limit\"@\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"z\n" +
 	"\x14GetConvSummariesResp\x12(\n" +
-	"\x05items\x18\x01 \x03(\v2\x12.bot.SummarizeRespR\x05items\"\x85\x01\n" +
+	"\x05items\x18\x01 \x03(\v2\x12.bot.SummarizeRespR\x05items\x128\n" +
+	"\x10standalone_todos\x18\x02 \x03(\v2\r.bot.TodoItemR\x0fstandaloneTodos\"\x85\x01\n" +
 	"\rCreateTodoReq\x12\x1f\n" +
 	"\aconv_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12*\n" +
 	"\n" +
@@ -4728,13 +4754,18 @@ const file_bot_bot_proto_rawDesc = "" +
 	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
 	"updated_at\x18\a \x01(\x03R\tupdatedAtB\r\n" +
-	"\v_summary_id\"^\n" +
+	"\v_summary_id\"\x9e\x01\n" +
 	"\rUpdateTodoReq\x12\x1f\n" +
-	"\atodo_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06todoId\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\x12\x12\n" +
-	"\x04done\x18\x03 \x01(\bR\x04done\"0\n" +
+	"\atodo_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06todoId\x12\x1d\n" +
+	"\acontent\x18\x02 \x01(\tH\x00R\acontent\x88\x01\x01\x12\x17\n" +
+	"\x04done\x18\x03 \x01(\bH\x01R\x04done\x88\x01\x01\x12\x1f\n" +
+	"\aconv_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convIdB\n" +
+	"\n" +
+	"\b_contentB\a\n" +
+	"\x05_done\"Q\n" +
 	"\rDeleteTodoReq\x12\x1f\n" +
-	"\atodo_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06todoId\"\x9e\x01\n" +
+	"\atodo_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06todoId\x12\x1f\n" +
+	"\aconv_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\"\x9e\x01\n" +
 	"\x12ReplyCandidatesReq\x12\x1f\n" +
 	"\aconv_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12\x1f\n" +
 	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x122\n" +
@@ -4894,71 +4925,72 @@ var file_bot_bot_proto_depIdxs = []int32{
 	43, // 10: bot.SummarizeReq.time_range:type_name -> bot.TimeRange
 	48, // 11: bot.SummarizeResp.todos:type_name -> bot.TodoItem
 	44, // 12: bot.GetConvSummariesResp.items:type_name -> bot.SummarizeResp
-	40, // 13: bot.BotService.StreamChat:input_type -> bot.StreamChatReq
-	42, // 14: bot.BotService.SummarizeConversation:input_type -> bot.SummarizeReq
-	45, // 15: bot.BotService.GetConvSummaries:input_type -> bot.GetConvSummariesReq
-	47, // 16: bot.BotService.CreateTodo:input_type -> bot.CreateTodoReq
-	49, // 17: bot.BotService.UpdateTodo:input_type -> bot.UpdateTodoReq
-	50, // 18: bot.BotService.DeleteTodo:input_type -> bot.DeleteTodoReq
-	51, // 19: bot.BotService.GenerateReplyCandidates:input_type -> bot.ReplyCandidatesReq
-	53, // 20: bot.BotService.TranslateMessage:input_type -> bot.TranslateMessageReq
-	4,  // 21: bot.BotService.CreateBot:input_type -> bot.CreateBotReq
-	5,  // 22: bot.BotService.UpdateBot:input_type -> bot.UpdateBotReq
-	6,  // 23: bot.BotService.DeleteBot:input_type -> bot.DeleteBotReq
-	7,  // 24: bot.BotService.GetBot:input_type -> bot.GetBotReq
-	8,  // 25: bot.BotService.ListBots:input_type -> bot.ListBotsReq
-	10, // 26: bot.BotService.RotateSecret:input_type -> bot.RotateSecretReq
-	12, // 27: bot.BotService.HandleIncomingWebhook:input_type -> bot.WebhookReq
-	14, // 28: bot.BotService.IssueBotToken:input_type -> bot.IssueBotTokenReq
-	16, // 29: bot.BotService.ValidateBotToken:input_type -> bot.ValidateBotTokenReq
-	19, // 30: bot.BotService.CreateMcpServer:input_type -> bot.CreateMcpServerReq
-	20, // 31: bot.BotService.UpdateMcpServer:input_type -> bot.UpdateMcpServerReq
-	21, // 32: bot.BotService.DeleteMcpServer:input_type -> bot.DeleteMcpServerReq
-	22, // 33: bot.BotService.GetMcpServer:input_type -> bot.GetMcpServerReq
-	23, // 34: bot.BotService.ListMcpServers:input_type -> bot.ListMcpServersReq
-	25, // 35: bot.BotService.AssignMcpToBot:input_type -> bot.AssignMcpToBotReq
-	26, // 36: bot.BotService.UnassignMcpFromBot:input_type -> bot.UnassignMcpFromBotReq
-	27, // 37: bot.BotService.ListBotMcpServers:input_type -> bot.ListBotMcpServersReq
-	30, // 38: bot.BotService.UpdateBotMcpServer:input_type -> bot.UpdateBotMcpServerReq
-	32, // 39: bot.BotService.DiscoverMcpTools:input_type -> bot.DiscoverMcpToolsReq
-	34, // 40: bot.BotService.ListMcpTools:input_type -> bot.ListMcpToolsReq
-	36, // 41: bot.BotService.BatchGetBots:input_type -> bot.BatchGetBotsReq
-	38, // 42: bot.BotService.GetBotWebhookConfig:input_type -> bot.GetBotWebhookConfigReq
-	41, // 43: bot.BotService.StreamChat:output_type -> bot.StreamChatResp
-	44, // 44: bot.BotService.SummarizeConversation:output_type -> bot.SummarizeResp
-	46, // 45: bot.BotService.GetConvSummaries:output_type -> bot.GetConvSummariesResp
-	48, // 46: bot.BotService.CreateTodo:output_type -> bot.TodoItem
-	57, // 47: bot.BotService.UpdateTodo:output_type -> google.protobuf.Empty
-	57, // 48: bot.BotService.DeleteTodo:output_type -> google.protobuf.Empty
-	52, // 49: bot.BotService.GenerateReplyCandidates:output_type -> bot.ReplyCandidatesResp
-	54, // 50: bot.BotService.TranslateMessage:output_type -> bot.TranslateMessageResp
-	3,  // 51: bot.BotService.CreateBot:output_type -> bot.Bot
-	3,  // 52: bot.BotService.UpdateBot:output_type -> bot.Bot
-	58, // 53: bot.BotService.DeleteBot:output_type -> common.BaseResponse
-	3,  // 54: bot.BotService.GetBot:output_type -> bot.Bot
-	9,  // 55: bot.BotService.ListBots:output_type -> bot.ListBotsResp
-	11, // 56: bot.BotService.RotateSecret:output_type -> bot.RotateSecretResp
-	13, // 57: bot.BotService.HandleIncomingWebhook:output_type -> bot.WebhookResp
-	15, // 58: bot.BotService.IssueBotToken:output_type -> bot.IssueBotTokenResp
-	17, // 59: bot.BotService.ValidateBotToken:output_type -> bot.ValidateBotTokenResp
-	18, // 60: bot.BotService.CreateMcpServer:output_type -> bot.McpServerInfo
-	18, // 61: bot.BotService.UpdateMcpServer:output_type -> bot.McpServerInfo
-	58, // 62: bot.BotService.DeleteMcpServer:output_type -> common.BaseResponse
-	18, // 63: bot.BotService.GetMcpServer:output_type -> bot.McpServerInfo
-	24, // 64: bot.BotService.ListMcpServers:output_type -> bot.ListMcpServersResp
-	58, // 65: bot.BotService.AssignMcpToBot:output_type -> common.BaseResponse
-	58, // 66: bot.BotService.UnassignMcpFromBot:output_type -> common.BaseResponse
-	29, // 67: bot.BotService.ListBotMcpServers:output_type -> bot.ListBotMcpServersResp
-	58, // 68: bot.BotService.UpdateBotMcpServer:output_type -> common.BaseResponse
-	33, // 69: bot.BotService.DiscoverMcpTools:output_type -> bot.DiscoverMcpToolsResp
-	35, // 70: bot.BotService.ListMcpTools:output_type -> bot.ListMcpToolsResp
-	37, // 71: bot.BotService.BatchGetBots:output_type -> bot.BatchGetBotsResp
-	39, // 72: bot.BotService.GetBotWebhookConfig:output_type -> bot.GetBotWebhookConfigResp
-	43, // [43:73] is the sub-list for method output_type
-	13, // [13:43] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	48, // 13: bot.GetConvSummariesResp.standalone_todos:type_name -> bot.TodoItem
+	40, // 14: bot.BotService.StreamChat:input_type -> bot.StreamChatReq
+	42, // 15: bot.BotService.SummarizeConversation:input_type -> bot.SummarizeReq
+	45, // 16: bot.BotService.GetConvSummaries:input_type -> bot.GetConvSummariesReq
+	47, // 17: bot.BotService.CreateTodo:input_type -> bot.CreateTodoReq
+	49, // 18: bot.BotService.UpdateTodo:input_type -> bot.UpdateTodoReq
+	50, // 19: bot.BotService.DeleteTodo:input_type -> bot.DeleteTodoReq
+	51, // 20: bot.BotService.GenerateReplyCandidates:input_type -> bot.ReplyCandidatesReq
+	53, // 21: bot.BotService.TranslateMessage:input_type -> bot.TranslateMessageReq
+	4,  // 22: bot.BotService.CreateBot:input_type -> bot.CreateBotReq
+	5,  // 23: bot.BotService.UpdateBot:input_type -> bot.UpdateBotReq
+	6,  // 24: bot.BotService.DeleteBot:input_type -> bot.DeleteBotReq
+	7,  // 25: bot.BotService.GetBot:input_type -> bot.GetBotReq
+	8,  // 26: bot.BotService.ListBots:input_type -> bot.ListBotsReq
+	10, // 27: bot.BotService.RotateSecret:input_type -> bot.RotateSecretReq
+	12, // 28: bot.BotService.HandleIncomingWebhook:input_type -> bot.WebhookReq
+	14, // 29: bot.BotService.IssueBotToken:input_type -> bot.IssueBotTokenReq
+	16, // 30: bot.BotService.ValidateBotToken:input_type -> bot.ValidateBotTokenReq
+	19, // 31: bot.BotService.CreateMcpServer:input_type -> bot.CreateMcpServerReq
+	20, // 32: bot.BotService.UpdateMcpServer:input_type -> bot.UpdateMcpServerReq
+	21, // 33: bot.BotService.DeleteMcpServer:input_type -> bot.DeleteMcpServerReq
+	22, // 34: bot.BotService.GetMcpServer:input_type -> bot.GetMcpServerReq
+	23, // 35: bot.BotService.ListMcpServers:input_type -> bot.ListMcpServersReq
+	25, // 36: bot.BotService.AssignMcpToBot:input_type -> bot.AssignMcpToBotReq
+	26, // 37: bot.BotService.UnassignMcpFromBot:input_type -> bot.UnassignMcpFromBotReq
+	27, // 38: bot.BotService.ListBotMcpServers:input_type -> bot.ListBotMcpServersReq
+	30, // 39: bot.BotService.UpdateBotMcpServer:input_type -> bot.UpdateBotMcpServerReq
+	32, // 40: bot.BotService.DiscoverMcpTools:input_type -> bot.DiscoverMcpToolsReq
+	34, // 41: bot.BotService.ListMcpTools:input_type -> bot.ListMcpToolsReq
+	36, // 42: bot.BotService.BatchGetBots:input_type -> bot.BatchGetBotsReq
+	38, // 43: bot.BotService.GetBotWebhookConfig:input_type -> bot.GetBotWebhookConfigReq
+	41, // 44: bot.BotService.StreamChat:output_type -> bot.StreamChatResp
+	44, // 45: bot.BotService.SummarizeConversation:output_type -> bot.SummarizeResp
+	46, // 46: bot.BotService.GetConvSummaries:output_type -> bot.GetConvSummariesResp
+	48, // 47: bot.BotService.CreateTodo:output_type -> bot.TodoItem
+	57, // 48: bot.BotService.UpdateTodo:output_type -> google.protobuf.Empty
+	57, // 49: bot.BotService.DeleteTodo:output_type -> google.protobuf.Empty
+	52, // 50: bot.BotService.GenerateReplyCandidates:output_type -> bot.ReplyCandidatesResp
+	54, // 51: bot.BotService.TranslateMessage:output_type -> bot.TranslateMessageResp
+	3,  // 52: bot.BotService.CreateBot:output_type -> bot.Bot
+	3,  // 53: bot.BotService.UpdateBot:output_type -> bot.Bot
+	58, // 54: bot.BotService.DeleteBot:output_type -> common.BaseResponse
+	3,  // 55: bot.BotService.GetBot:output_type -> bot.Bot
+	9,  // 56: bot.BotService.ListBots:output_type -> bot.ListBotsResp
+	11, // 57: bot.BotService.RotateSecret:output_type -> bot.RotateSecretResp
+	13, // 58: bot.BotService.HandleIncomingWebhook:output_type -> bot.WebhookResp
+	15, // 59: bot.BotService.IssueBotToken:output_type -> bot.IssueBotTokenResp
+	17, // 60: bot.BotService.ValidateBotToken:output_type -> bot.ValidateBotTokenResp
+	18, // 61: bot.BotService.CreateMcpServer:output_type -> bot.McpServerInfo
+	18, // 62: bot.BotService.UpdateMcpServer:output_type -> bot.McpServerInfo
+	58, // 63: bot.BotService.DeleteMcpServer:output_type -> common.BaseResponse
+	18, // 64: bot.BotService.GetMcpServer:output_type -> bot.McpServerInfo
+	24, // 65: bot.BotService.ListMcpServers:output_type -> bot.ListMcpServersResp
+	58, // 66: bot.BotService.AssignMcpToBot:output_type -> common.BaseResponse
+	58, // 67: bot.BotService.UnassignMcpFromBot:output_type -> common.BaseResponse
+	29, // 68: bot.BotService.ListBotMcpServers:output_type -> bot.ListBotMcpServersResp
+	58, // 69: bot.BotService.UpdateBotMcpServer:output_type -> common.BaseResponse
+	33, // 70: bot.BotService.DiscoverMcpTools:output_type -> bot.DiscoverMcpToolsResp
+	35, // 71: bot.BotService.ListMcpTools:output_type -> bot.ListMcpToolsResp
+	37, // 72: bot.BotService.BatchGetBots:output_type -> bot.BatchGetBotsResp
+	39, // 73: bot.BotService.GetBotWebhookConfig:output_type -> bot.GetBotWebhookConfigResp
+	44, // [44:74] is the sub-list for method output_type
+	14, // [14:44] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_bot_bot_proto_init() }
@@ -4982,8 +5014,10 @@ func file_bot_bot_proto_init() {
 		(*SummarizeReq_TimeRange)(nil),
 		(*SummarizeReq_All)(nil),
 	}
+	file_bot_bot_proto_msgTypes[41].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[44].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[45].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[46].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[48].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[50].OneofWrappers = []any{}
 	type x struct{}

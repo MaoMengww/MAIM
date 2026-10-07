@@ -62,13 +62,13 @@ export const kbApi = {
       params: { target_type: targetType },
     }).then((r) => r.data.data.items ?? []),
 
-  bindToBot: (botId: number, kbId: number) =>
+  bindToBot: (botId: string, kbId: number) =>
     client.post<APIResponse<null>>(`/bots/${botId}/knowledge`, { kb_id: kbId }).then(unwrap),
 
-  unbindFromBot: (botId: number, kbId: number) =>
+  unbindFromBot: (botId: string, kbId: number) =>
     client.delete<APIResponse<null>>(`/bots/${botId}/knowledge/${kbId}`).then(unwrap),
 
-  listBotBindings: (botId: number) =>
+  listBotBindings: (botId: string) =>
     client.get<APIResponse<{ items: any[] }>>(`/bots/${botId}/knowledge`)
       .then((r) => r.data.data.items ?? []),
 

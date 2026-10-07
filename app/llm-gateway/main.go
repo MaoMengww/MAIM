@@ -34,7 +34,8 @@ func main() {
 			reflection.Register(grpcServer)
 		}
 	})
-	s.AddUnaryInterceptors(interceptor.UnaryRequestIDInterceptor(), interceptor.UnaryErrorInterceptor())
+	s.AddUnaryInterceptors(interceptor.UnaryRequestIDInterceptor(), interceptor.UnaryUserIDInterceptor(), interceptor.UnaryErrorInterceptor())
+	s.AddStreamInterceptors(interceptor.StreamErrorInterceptor())
 	defer s.Stop()
 
 	fmt.Printf("Starting llm-gateway rpc server at %s...\n", c.ListenOn)

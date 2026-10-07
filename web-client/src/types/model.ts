@@ -283,7 +283,8 @@ export interface FriendGroup {
 // ─── Bot ───
 export interface Bot {
   id: string;
-  owner_id: string;
+  owner_type: 'user' | 'platform';
+  owner_id?: string | null;
   name: string;
   avatar: string;
   type: string;
@@ -292,7 +293,7 @@ export interface Bot {
   sub_type?: string;
   use_platform_model: boolean;
   model_name: string;
-  model_id: number;
+  model_id?: string | null;
   base_url: string;
   system_prompt: string;
   persona: string;
@@ -302,11 +303,11 @@ export interface Bot {
   max_context_tokens: number;
   streaming_enabled: boolean;
   memory_model_name: string;
-  memory_model_id: number;
+  memory_model_id?: string | null;
   memory_use_platform_model: boolean;
   memory_limit: number;
   memory_embedding_model_name: string;
-  memory_embedding_model_id: number;
+  memory_embedding_model_id?: string | null;
   conn_mode: string;
   callback_url: string;
   has_webhook_secret: boolean;
@@ -321,8 +322,8 @@ export interface Bot {
 
 // ─── MCP Tool Info ───
 export interface McpToolInfo {
-  id: number;
-  mcp_server_id: number;
+  id: string;
+  mcp_server_id: string;
   name: string;
   description: string;
   input_schema: string;
@@ -331,7 +332,9 @@ export interface McpToolInfo {
 
 // ─── MCP Server ───
 export interface McpServerInfo {
-  id: number;
+  id: string;
+  owner_type: 'user' | 'platform';
+  owner_id?: string | null;
   name: string;
   description: string;
   transport: string;
@@ -341,11 +344,25 @@ export interface McpServerInfo {
   env: string;
   timeout_ms: number;
   status: string;
-  created_by: number;
+  created_by?: string | null;
   created_at: number;
   updated_at: number;
   auth_config: string;
   advanced_config: string;
+  enabled: boolean;
+}
+
+export interface BotMcpServerInfo {
+  id: string;
+  mcp_server_id: string;
+  name: string;
+  description: string;
+  transport: string;
+  url: string;
+  discovery: string;
+  tools: string[];
+  timeout_ms: number;
+  status: string;
   enabled: boolean;
 }
 
@@ -356,7 +373,7 @@ export interface KBRsp {
   name: string;
   description: string;
   embedding_model: string;
-  embedding_model_id: number;
+  embedding_model_id?: string | null;
   pipeline_config: PipelineConfig;
   doc_count: number;
   total_chunks: number;
@@ -387,6 +404,7 @@ export interface MinerUConfig {
 
 export interface VLMConfig {
   enabled: boolean;
+  model_id?: string | null;
   provider: string;
   model: string;
   api_key: string;
@@ -419,7 +437,7 @@ export interface RetrievalConfig {
 
 export interface RerankConfig {
   enabled: boolean;
-  model_id: number;
+  model_id?: string | null;
   top_n: number;
 }
 
@@ -489,8 +507,12 @@ export interface BillingModelStat {
 }
 
 export interface BillingRecordItem {
-  id: number;
-  bot_id: number;
+  id: string;
+  owner_type: 'user' | 'platform';
+  owner_id?: string | null;
+  bot_id?: string | null;
+  user_id?: string | null;
+  model_id: string;
   model_name: string;
   capability: string;
   input_tokens: number;

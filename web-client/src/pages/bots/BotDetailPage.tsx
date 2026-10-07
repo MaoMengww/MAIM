@@ -9,6 +9,9 @@ import { kbApi } from '@/services/knowledge';
 import { modelApi } from '@/services/model';
 import { Avatar } from '@/components/common/Avatar';
 import { modelOptionLabel } from '@/utils/provider';
+import { useAuthStore } from '@/stores/auth';
+import type { Bot } from '@/types/model';
+import type { UpdateBotReq } from '@/types/api';
 
 function botTypeLabel(type: string): string {
   switch (type) {
@@ -23,12 +26,14 @@ export function BotDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const [editOpen, setEditOpen] = useState(false);
+  const [changedModelFields, setChangedModelFields] = useState<Set<string>>(new Set());
   const [form] = Form.useForm();
 
   const { data: bot, isLoading } = useQuery({
     queryKey: ['bot', id],
-    queryFn: () => botApi.get(id as any),
+    queryFn: () => botApi.get(id!),
     enabled: !!id,
   });
 
@@ -42,29 +47,33 @@ export function BotDetailPage() {
     .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name, owner_id: m.owner_id }));
 
   const embeddingModelOptions = (modelsData?.list ?? [])
-    .filter((m: any) => m.capability === 'embedding')
+    .filter((m) => m.capability === 'embed')
     .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name, owner_id: m.owner_id }));
 
   const updateMutation = useMutation({
-    mutationFn: (vals: any) => botApi.update(id as any, vals),
+    mutationFn: (vals: UpdateBotReq) => botApi.update(id!, vals),
     onSuccess: () => {
       message.success('Bot 已更新');
       setEditOpen(false);
       queryClient.invalidateQueries({ queryKey: ['bot', id] });
+      queryClient.invalidateQueries({ queryKey: ['user-bots'] });
       queryClient.invalidateQueries({ queryKey: ['bots'] });
     },
     onError: (err: any) => message.error(err?.response?.data?.message || '更新失败'),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => botApi.delete(id as any),
+    mutationFn: () => botApi.delete(id!),
     onSuccess: () => {
       message.success('Bot 已删除');
-      queryClient.setQueryData(['bots'], (old: any) => {
+      queryClient.setQueryData(['bots'], (old: { list: Bot[]; total: number } | undefined) => {
         if (!old?.list) return old;
-        return { ...old, list: old.list.filter((b: any) => b.id !== Number(id)) };
+        return { ...old, list: old.list.filter((b) => b.id !== id) };
       });
+      queryClient.removeQueries({ queryKey: ['bot', id] });
+      queryClient.removeQueries({ queryKey: ['bot-mcp-servers', id] });
       queryClient.invalidateQueries({ queryKey: ['bots'] });
+      queryClient.invalidateQueries({ queryKey: ['user-bots'] });
       navigate('/bots');
     },
     onError: (err: any) => message.error(err?.response?.data?.message || '删除失败'),
@@ -97,8 +106,13 @@ export function BotDetailPage() {
         triggers.push(t);
       }
     }
+    form.resetFields();
+    setChangedModelFields(new Set());
     form.setFieldsValue({
       ...bot,
+      model_id: bot.model_id ?? undefined,
+      memory_model_id: bot.memory_model_id ?? undefined,
+      memory_embedding_model_id: bot.memory_embedding_model_id ?? undefined,
       enable_web_search: caps.builtin_tools?.includes('web_search') ?? false,
       response_triggers: triggers.length > 0 ? triggers : ['mention'],
       keywords: keywords.join(', '),
@@ -121,7 +135,7 @@ export function BotDetailPage() {
 
   const { data: boundKbs, isLoading: boundKbsLoading } = useQuery({
     queryKey: ['bot-kb-bindings', id],
-    queryFn: () => kbApi.listBotBindings(id as any),
+    queryFn: () => kbApi.listBotBindings(id!),
     enabled: !!id,
   });
 
@@ -137,7 +151,7 @@ export function BotDetailPage() {
   const availableKbs = allKbs.filter((kb: any) => !boundKbIds.has(kb.id));
 
   const bindKbMutation = useMutation({
-    mutationFn: (kbId: number) => kbApi.bindToBot(id as any, kbId),
+    mutationFn: (kbId: number) => kbApi.bindToBot(id!, kbId),
     onSuccess: () => {
       message.success('绑定成功');
       queryClient.invalidateQueries({ queryKey: ['bot-kb-bindings', id] });
@@ -147,7 +161,7 @@ export function BotDetailPage() {
   });
 
   const unbindKbMutation = useMutation({
-    mutationFn: (kbId: number) => kbApi.unbindFromBot(id as any, kbId),
+    mutationFn: (kbId: number) => kbApi.unbindFromBot(id!, kbId),
     onSuccess: () => {
       message.success('已解绑');
       queryClient.invalidateQueries({ queryKey: ['bot-kb-bindings', id] });
@@ -168,6 +182,7 @@ export function BotDetailPage() {
     );
   }
 
+  const canManage = bot.owner_type === 'user' && bot.owner_id === currentUserId;
   return (
     <div style={{ padding: 32, width: '100%', overflowY: 'auto' }}>
       <Space style={{ marginBottom: 24 }}>
@@ -185,8 +200,8 @@ export function BotDetailPage() {
           </div>
           {bot.persona && <p style={{ color: 'var(--aim-text-secondary)', margin: '4px 0 0', fontSize: 13 }}>{bot.persona}</p>}
         </div>
-        <Button icon={<EditOutlined />} onClick={handleEdit}>编辑</Button>
-        <Button danger loading={deleteMutation.isPending} onClick={handleDelete}>删除</Button>
+        {canManage && <Button icon={<EditOutlined />} onClick={handleEdit}>编辑</Button>}
+        {canManage && <Button danger loading={deleteMutation.isPending} onClick={handleDelete}>删除</Button>}
         <Button type="primary" onClick={handleStartChat}>发消息</Button>
       </div>
 
@@ -219,9 +234,9 @@ export function BotDetailPage() {
           <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--aim-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <BookOutlined /> 知识库
           </span>
-          <Button size="small" icon={<BookOutlined />} onClick={() => setKbBindOpen(true)}>
+          {canManage && <Button size="small" icon={<BookOutlined />} onClick={() => setKbBindOpen(true)}>
             管理绑定
-          </Button>
+          </Button>}
         </div>
         {bot.enable_knowledge ? (
           boundKbs && boundKbs.length > 0 ? (
@@ -295,7 +310,7 @@ export function BotDetailPage() {
       </Modal>
 
       {/* ── MCP Tool Bindings ── */}
-      <BotMcpSection botId={id as string} />
+      <BotMcpSection botId={bot.id} canManage={canManage} />
 
       {bot.system_prompt && (
         <>
@@ -365,6 +380,22 @@ export function BotDetailPage() {
           if (vals.max_context_tokens != null) vals.max_context_tokens = Number(vals.max_context_tokens);
           if (vals.memory_limit != null) vals.memory_limit = Number(vals.memory_limit);
           vals.capabilities = JSON.stringify(caps);
+          for (const field of ['model_id', 'memory_model_id', 'memory_embedding_model_id'] as const) {
+            const nameField = field.replace(/_id$/, '_name');
+            if (!changedModelFields.has(field)) {
+              delete vals[field];
+              delete vals[nameField];
+              continue;
+            }
+            if (vals[field] == null) {
+              delete vals[field];
+              delete vals[nameField];
+              vals[`clear_${field}`] = true;
+            } else {
+              const selected = modelsData?.list.find((model) => model.id === vals[field]);
+              if (selected) vals[nameField] = selected.model_name;
+            }
+          }
           updateMutation.mutate(vals);
         })}
         onCancel={() => setEditOpen(false)}
@@ -372,7 +403,9 @@ export function BotDetailPage() {
         okText="保存"
         cancelText="取消"
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }} onValuesChange={(changed: Record<string, unknown>) => {
+          setChangedModelFields((previous) => new Set([...previous, ...Object.keys(changed)]));
+        }}>
           <Form.Item name="name" label="名称">
             <Input />
           </Form.Item>
@@ -427,7 +460,7 @@ export function BotDetailPage() {
                 <Select mode="multiple" placeholder="选择触发方式" maxCount={3}>
                   <Select.Option value="mention">@提及时回复</Select.Option>
                   <Select.Option value="keyword">关键词匹配回复</Select.Option>
-                  <Select.Option value="all">自动回复全部消息</Select.Option>
+                  <Select.Option value="always">自动回复全部消息</Select.Option>
                 </Select>
               </Form.Item>
               <Form.Item noStyle shouldUpdate={(prev, cur) => prev.response_triggers !== cur.response_triggers}>
@@ -482,7 +515,7 @@ export function BotDetailPage() {
                 <Select mode="multiple" placeholder="选择触发方式" maxCount={3}>
                   <Select.Option value="mention">@提及时回复</Select.Option>
                   <Select.Option value="keyword">关键词匹配回复</Select.Option>
-                  <Select.Option value="all">自动回复全部消息</Select.Option>
+                  <Select.Option value="always">自动回复全部消息</Select.Option>
                 </Select>
               </Form.Item>
               <Form.Item noStyle shouldUpdate={(prev, cur) => prev.response_triggers !== cur.response_triggers}>
@@ -541,10 +574,10 @@ export function BotDetailPage() {
                       通过已建立的 WebSocket 连接直接发送，无需额外认证：
                     </div>
                     <div className="bot-guide-code" style={{ marginTop: 6 }}>
-                      <pre style={{ fontSize: 11, margin: 0 }}>{`{"type":"message.send","conv_id":"...","text":"回复内容","reply_to_id":"..."}`}</pre>
+                      <pre style={{ fontSize: 11, margin: 0 }}>{`{"type":"message.send","conv_id":"0198abcd-0000-7000-8000-000000000001","text":"回复内容","reply_to_id":"0198abcd-0000-7000-8000-000000000003"}`}</pre>
                     </div>
                     <div className="bot-guide-note" style={{ marginTop: 6, fontSize: 11 }}>
-                      AIM 回复：{`{"type":"message.sent","message_id":"...","seq":...,"created_at":...}`}
+                      AIM 回复：{`{"type":"message.sent","message_id":"0198abcd-0000-7000-8000-000000000004","seq":43,"created_at":1717370000}`}
                     </div>
                   </>
                 ) : (
@@ -558,7 +591,7 @@ export function BotDetailPage() {
                       Headers: <code>X-AIM-Signature</code>（HMAC-SHA256(body, webhook_secret)）、<code>X-AIM-Timestamp</code>（Unix秒）
                     </div>
                     <div className="bot-guide-note" style={{ marginTop: 6, fontSize: 11 }}>
-                      消息体：{`{"type":"message.send","conversation_id":"...","text":"...","reply_to_id":"..."}`} — Bot 身份由签名自动解析
+                      消息体：{`{"type":"message.send","conversation_id":"0198abcd-0000-7000-8000-000000000001","text":"回复内容","reply_to_id":"0198abcd-0000-7000-8000-000000000003"}`} — Bot 身份由签名自动解析
                     </div>
                   </>
                 )}
@@ -575,7 +608,7 @@ export function BotDetailPage() {
                     </div>
                     <Button size="small" onClick={async () => {
                       try {
-                        const r = await botApi.rotateSecret(id as any);
+                        const r = await botApi.rotateSecret(id!);
                         message.success('Webhook Secret 已轮换，新值：' + r?.webhook_secret);
                         queryClient.invalidateQueries({ queryKey: ['bot', id] });
                       } catch (e: any) {
@@ -595,7 +628,7 @@ export function BotDetailPage() {
                     </div>
                     <Button size="small" onClick={async () => {
                       try {
-                        const r = await botApi.issueToken(id as any);
+                        const r = await botApi.issueToken(id!);
                         message.success('Token 已生成：' + r?.token);
                       } catch (e: any) {
                         message.error('生成失败');
@@ -613,7 +646,7 @@ export function BotDetailPage() {
                   </div>
                   <Button size="small" onClick={async () => {
                     try {
-                      const r = await botApi.rotateSecret(id as any);
+                      const r = await botApi.rotateSecret(id!);
                       message.success('App Secret 已轮换');
                       queryClient.invalidateQueries({ queryKey: ['bot', id] });
                     } catch (e: any) {
@@ -644,10 +677,10 @@ export function BotDetailPage() {
 }
 
 // ─── MCP Tool Binding Section ───
-function BotMcpSection({ botId }: { botId: string }) {
+function BotMcpSection({ botId, canManage }: { botId: string; canManage: boolean }) {
   const queryClient = useQueryClient();
   const [mcpOpen, setMcpOpen] = useState(false);
-  const [selectedMcpId, setSelectedMcpId] = useState<number | undefined>();
+  const [selectedMcpId, setSelectedMcpId] = useState<string | undefined>();
 
   const { data: boundServers = [], isLoading } = useQuery({
     queryKey: ['bot-mcp-servers', botId],
@@ -665,7 +698,7 @@ function BotMcpSection({ botId }: { botId: string }) {
   const availableServers = allServers.filter((s: any) => !boundMcpIds.has(s.id));
 
   const assignMutation = useMutation({
-    mutationFn: (mcpId: number) => mcpApi.assignToBot(botId, mcpId),
+    mutationFn: (mcpId: string) => mcpApi.assignToBot(botId, mcpId),
     onSuccess: () => {
       message.success('绑定成功');
       queryClient.invalidateQueries({ queryKey: ['bot-mcp-servers', botId] });
@@ -675,7 +708,7 @@ function BotMcpSection({ botId }: { botId: string }) {
   });
 
   const unassignMutation = useMutation({
-    mutationFn: (mcpId: number) => mcpApi.unassignFromBot(botId, mcpId),
+    mutationFn: (mcpId: string) => mcpApi.unassignFromBot(botId, mcpId),
     onSuccess: () => {
       message.success('已解绑');
       queryClient.invalidateQueries({ queryKey: ['bot-mcp-servers', botId] });
@@ -684,7 +717,7 @@ function BotMcpSection({ botId }: { botId: string }) {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: ({ mcpId, enabled }: { mcpId: number; enabled: boolean }) =>
+    mutationFn: ({ mcpId, enabled }: { mcpId: string; enabled: boolean }) =>
       mcpApi.updateBotMcpServer(botId, mcpId, enabled),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bot-mcp-servers', botId] });
@@ -698,9 +731,9 @@ function BotMcpSection({ botId }: { botId: string }) {
         <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--aim-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <ApiOutlined /> MCP 工具
         </span>
-        <Button size="small" icon={<ApiOutlined />} onClick={() => setMcpOpen(true)}>
+        {canManage && <Button size="small" icon={<ApiOutlined />} onClick={() => setMcpOpen(true)}>
           管理绑定
-        </Button>
+        </Button>}
       </div>
 
       {isLoading ? (
@@ -746,6 +779,7 @@ function BotMcpSection({ botId }: { botId: string }) {
               <Switch
                 size="small"
                 checked={s.enabled}
+                disabled={!canManage}
                 loading={toggleMutation.isPending}
                 onChange={(checked) => toggleMutation.mutate({ mcpId: s.mcp_server_id, enabled: checked })}
               />
@@ -792,6 +826,7 @@ function BotMcpSection({ botId }: { botId: string }) {
                         <Switch
                           size="small"
                           checked={s.enabled}
+                          disabled={!canManage}
                           loading={toggleMutation.isPending}
                           onChange={(checked) => toggleMutation.mutate({ mcpId: s.mcp_server_id, enabled: checked })}
                         />

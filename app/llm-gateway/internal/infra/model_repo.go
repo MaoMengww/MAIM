@@ -16,7 +16,7 @@ type ModelRepo struct {
 	encKey       []byte
 	mu           sync.RWMutex
 	cache        map[string]*domain.ModelEntry
-	byID         map[int64]*domain.ModelEntry
+	byID         map[string]*domain.ModelEntry
 	byCapability map[string][]*domain.ModelEntry
 	interval     time.Duration
 	stopCh       chan struct{}
@@ -27,7 +27,7 @@ func NewModelRepo(db *database.DB, encKey []byte, interval time.Duration) *Model
 		db:           db,
 		encKey:       encKey,
 		cache:        make(map[string]*domain.ModelEntry),
-		byID:         make(map[int64]*domain.ModelEntry),
+		byID:         make(map[string]*domain.ModelEntry),
 		byCapability: make(map[string][]*domain.ModelEntry),
 		interval:     interval,
 		stopCh:       make(chan struct{}),
@@ -62,7 +62,7 @@ func (r *ModelRepo) Refresh() error {
 	}
 
 	newCache := make(map[string]*domain.ModelEntry, len(records))
-	newByID := make(map[int64]*domain.ModelEntry, len(records))
+	newByID := make(map[string]*domain.ModelEntry, len(records))
 	newByCap := make(map[string][]*domain.ModelEntry)
 
 	for _, rec := range records {
@@ -86,11 +86,16 @@ func (r *ModelRepo) Refresh() error {
 			MaxOutputTokens:    rec.MaxOutputTokens,
 			InputPricePerMTok:  rec.InputPricePerMTok,
 			OutputPricePerMTok: rec.OutputPricePerMTok,
+			OwnerType:          rec.OwnerType,
 			OwnerID:            rec.OwnerID,
 			Status:             rec.Status,
 			Metadata:           rec.Metadata,
 		}
-		newCache[rec.ModelName] = entry
+		// Names are external semantic keys; only platform entries participate
+		// in name fallback. User entries are selected by their registry UUID.
+		if rec.OwnerType == "platform" && rec.OwnerID == nil {
+			newCache[rec.ModelName] = entry
+		}
 		newByID[rec.ID] = entry
 		newByCap[rec.Capability] = append(newByCap[rec.Capability], entry)
 	}
@@ -103,7 +108,7 @@ func (r *ModelRepo) Refresh() error {
 	return nil
 }
 
-func (r *ModelRepo) FindByID(modelID int64) (*domain.ModelEntry, error) {
+func (r *ModelRepo) FindByID(modelID string) (*domain.ModelEntry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	entry, ok := r.byID[modelID]
@@ -123,10 +128,17 @@ func (r *ModelRepo) FindByName(modelName string) (*domain.ModelEntry, error) {
 	return entry, nil
 }
 
-func (r *ModelRepo) FindByCapability(capability string) ([]*domain.ModelEntry, error) {
+func (r *ModelRepo) FindByCapability(capability string, ownerID *string) ([]*domain.ModelEntry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.byCapability[capability], nil
+	var result []*domain.ModelEntry
+	for _, entry := range r.byCapability[capability] {
+		if (entry.OwnerType == "platform" && entry.OwnerID == nil) ||
+			(entry.OwnerType == "user" && entry.OwnerID != nil && ownerID != nil && *entry.OwnerID == *ownerID) {
+			result = append(result, entry)
+		}
+	}
+	return result, nil
 }
 
 func (r *ModelRepo) ListAll() []*domain.ModelEntry {

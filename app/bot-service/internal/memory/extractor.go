@@ -14,7 +14,7 @@ import (
 
 // ExtractorConfig configures the memory extractor.
 type ExtractorConfig struct {
-	ModelID     int64
+	ModelID     string
 	Temperature float64
 	ModelName   string
 }
@@ -35,16 +35,16 @@ func NewExtractor(chatModel einoModel.BaseChatModel, config ExtractorConfig) *Ex
 
 // ExtractInput is the source message for memory extraction.
 type ExtractInput struct {
-	BotID            int64
-	UserID           int64
-	ConvID           int64
-	MsgID            int64
+	BotID            string
+	UserID           string
+	ConvID           *string
+	MsgID            *string
 	Username         string
 	Message          string
 	SentAt           time.Time
-	OwnerID          int64
-	EmbeddingModelID int64
-	MemoryModelID    int64
+	OwnerID          *string
+	EmbeddingModelID *string
+	MemoryModelID    *string
 	MemoryModelName  string
 }
 
@@ -147,7 +147,7 @@ func buildExtractionPrompt(input ExtractInput) string {
 	categories := availableCategories()
 	return fmt.Sprintf(`Extract long-term user memories from one user message.
 
-Target user_id: %d
+Target user_id: %s
 Target username: %s
 Message time: %s
 

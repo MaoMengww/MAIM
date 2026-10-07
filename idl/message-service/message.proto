@@ -490,6 +490,7 @@ message CreateConversationReq {
   ConversationType type = 1;
   string creator_id = 2 [(common.entity_id) = true];
   optional string peer_user_id = 10 [(common.entity_id) = true];
+  optional string bot_id = 11 [(common.entity_id) = true];
   optional string name = 20;
   optional string avatar = 21;
   repeated string member_ids = 22 [(common.entity_id) = true];
@@ -567,8 +568,9 @@ message RemoveMembersReq {
 
 message GetMembersReq {
   string conversation_id = 1 [(common.entity_id) = true];
-  string user_id = 2 [(common.entity_id) = true];
+  optional string user_id = 2 [(common.entity_id) = true];
   common.Pagination pagination = 3;
+  optional string bot_id = 4 [(common.entity_id) = true];
 }
 
 message GetMembersResp {

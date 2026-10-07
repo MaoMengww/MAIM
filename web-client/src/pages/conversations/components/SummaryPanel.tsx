@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { convToolApi } from '@/services/conversation-tool';
 import { wsOn } from '@/services/ws';
-import type { TodoItem, SummaryItem, SummariesResponse } from '@/services/conversation-tool';
+import type { TodoItem, SummariesResponse } from '@/services/conversation-tool';
 
 interface SummaryPanelProps {
   convId: string;
@@ -18,11 +18,22 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
   const queryClient = useQueryClient();
   const [summarizing, setSummarizing] = useState(false);
   const [range, setRange] = useState<number>(100);
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const [addingTodo, setAddingTodo] = useState<Record<number, boolean>>({});
-  const [newTodoText, setNewTodoText] = useState<Record<number, string>>({});
-  const [editingTodo, setEditingTodo] = useState<{ id: number; summaryId: number; content: string } | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [addingTodo, setAddingTodo] = useState<Record<string, boolean>>({});
+  const [newTodoText, setNewTodoText] = useState<Record<string, string>>({});
+  const [editingTodo, setEditingTodo] = useState<TodoItem | null>(null);
   const [editText, setEditText] = useState('');
+  const [standaloneTodoText, setStandaloneTodoText] = useState('');
+  const [addingStandaloneTodo, setAddingStandaloneTodo] = useState(false);
+
+  useEffect(() => {
+    setExpandedIds(new Set());
+    setAddingTodo({});
+    setNewTodoText({});
+    setEditingTodo(null);
+    setEditText('');
+    setStandaloneTodoText('');
+  }, [convId]);
 
   const { data: summaries, isLoading } = useQuery<SummariesResponse>({
     queryKey: ['conv-summaries', convId],
@@ -35,14 +46,14 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
     if (!open) return;
 
     const unsubDone = wsOn('conv.summarize.done', (payload: any) => {
-      if (payload.conv_id == null || payload.conv_id !== String(convId)) return;
+      if (payload.conv_id == null || payload.conv_id !== convId) return;
       setSummarizing(false);
       message.success('总结完成');
       queryClient.invalidateQueries({ queryKey: ['conv-summaries', convId] });
     });
 
     const unsubFailed = wsOn('conv.summarize.failed', (payload: any) => {
-      if (payload.conv_id == null || payload.conv_id !== String(convId)) return;
+      if (payload.conv_id == null || payload.conv_id !== convId) return;
       setSummarizing(false);
       message.error(payload.error || '总结失败');
     });
@@ -69,7 +80,7 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
     }
   };
 
-  const toggleExpand = (id: number) => {
+  const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -87,7 +98,7 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
     }
   };
 
-  const handleDeleteTodo = async (id: number) => {
+  const handleDeleteTodo = async (id: string) => {
     try {
       await convToolApi.deleteTodo(convId, id);
       queryClient.invalidateQueries({ queryKey: ['conv-summaries', convId] });
@@ -96,7 +107,7 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
     }
   };
 
-  const handleAddTodo = async (summaryId: number) => {
+  const handleAddTodo = async (summaryId: string) => {
     const text = (newTodoText[summaryId] || '').trim();
     if (!text) return;
     try {
@@ -106,6 +117,21 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
       queryClient.invalidateQueries({ queryKey: ['conv-summaries', convId] });
     } catch {
       message.error('添加失败');
+    }
+  };
+
+  const handleAddStandaloneTodo = async () => {
+    const text = standaloneTodoText.trim();
+    if (!text || addingStandaloneTodo) return;
+    setAddingStandaloneTodo(true);
+    try {
+      await convToolApi.createTodo(convId, { content: text });
+      setStandaloneTodoText('');
+      queryClient.invalidateQueries({ queryKey: ['conv-summaries', convId] });
+    } catch {
+      message.error('添加失败');
+    } finally {
+      setAddingStandaloneTodo(false);
     }
   };
 
@@ -120,8 +146,38 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
     }
   };
 
+  const renderTodo = (todo: TodoItem) => (
+    <div key={todo.id} className="summary-panel-todo-item">
+      {editingTodo?.id === todo.id ? (
+        <div className="summary-panel-todo-edit">
+          <Input
+            size="small"
+            aria-label="待办内容"
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            onPressEnter={() => handleEditTodo(todo)}
+            style={{ flex: 1 }}
+          />
+          <Button type="text" size="small" aria-label="保存待办" icon={<CheckOutlined />} onClick={() => handleEditTodo(todo)} />
+          <Button type="text" size="small" aria-label="取消编辑" icon={<CloseOutlined />} onClick={() => setEditingTodo(null)} />
+        </div>
+      ) : (
+        <>
+          <Checkbox checked={todo.done} aria-label={`完成待办：${todo.content}`} onChange={() => toggleTodo(todo)} />
+          <span style={{ flex: 1, textDecoration: todo.done ? 'line-through' : 'none', color: todo.done ? 'var(--aim-text-tertiary)' : 'var(--aim-text)', fontSize: 13 }}>
+            {todo.content}
+          </span>
+          <Button type="text" size="small" aria-label="编辑待办" icon={<EditOutlined />} onClick={() => { setEditingTodo(todo); setEditText(todo.content); }} />
+          <Popconfirm title="删除待办？" onConfirm={() => handleDeleteTodo(todo.id)} okText="确认" cancelText="取消">
+            <Button type="text" size="small" aria-label="删除待办" icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </>
+      )}
+    </div>
+  );
+
   const items = summaries?.items || [];
-  const allExpanded = items.length > 0 && items.every((s) => expandedIds.has(s.summary_id));
+  const standaloneTodos = summaries?.standalone_todos ?? [];
 
   if (!open) return null;
 
@@ -158,6 +214,26 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
       <div className="summary-panel-list">
         {isLoading && <div style={{ textAlign: 'center', padding: 24 }}><Spin size="small" /></div>}
 
+        <div className="summary-panel-item">
+          <div className="summary-panel-item-body">
+            <div className="summary-panel-todos-title">会话待办</div>
+            {standaloneTodos.map(renderTodo)}
+            <div className="summary-panel-todo-add">
+              <Input
+                size="small"
+                aria-label="新会话待办"
+                placeholder="输入待办内容"
+                value={standaloneTodoText}
+                onChange={(e) => setStandaloneTodoText(e.target.value)}
+                onPressEnter={handleAddStandaloneTodo}
+                disabled={addingStandaloneTodo}
+                style={{ flex: 1 }}
+              />
+              <Button size="small" type="primary" loading={addingStandaloneTodo} disabled={!standaloneTodoText.trim()} onClick={handleAddStandaloneTodo}>添加</Button>
+            </div>
+          </div>
+        </div>
+
         {!isLoading && items.length === 0 && (
           <Empty description="暂无总结" style={{ padding: 24 }} />
         )}
@@ -192,40 +268,7 @@ export function SummaryPanel({ convId, open }: SummaryPanelProps) {
                   {s.todos?.length > 0 && (
                     <div className="summary-panel-todos">
                       <div className="summary-panel-todos-title">✅ 待办事项</div>
-                      {s.todos.map((todo) => (
-                        <div key={todo.id} className="summary-panel-todo-item">
-                          {editingTodo?.id === todo.id ? (
-                            <div className="summary-panel-todo-edit">
-                              <Input
-                                size="small"
-                                value={editText}
-                                onChange={(e) => setEditText(e.target.value)}
-                                onPressEnter={() => handleEditTodo(todo)}
-                                style={{ flex: 1 }}
-                              />
-                              <CheckOutlined onClick={() => handleEditTodo(todo)} style={{ cursor: 'pointer', color: '#52c41a' }} />
-                              <CloseOutlined onClick={() => setEditingTodo(null)} style={{ cursor: 'pointer', color: '#999' }} />
-                            </div>
-                          ) : (
-                            <>
-                              <Checkbox
-                                checked={todo.done}
-                                onChange={() => toggleTodo(todo)}
-                              />
-                              <span style={{ flex: 1, textDecoration: todo.done ? 'line-through' : 'none', color: todo.done ? 'var(--aim-text-tertiary)' : 'var(--aim-text)', fontSize: 13 }}>
-                                {todo.content}
-                              </span>
-                              <EditOutlined
-                                onClick={() => { setEditingTodo({ id: todo.id, summaryId: s.summary_id, content: todo.content }); setEditText(todo.content); }}
-                                style={{ cursor: 'pointer', color: '#999', fontSize: 12, marginRight: 4 }}
-                              />
-                              <Popconfirm title="删除待办？" onConfirm={() => handleDeleteTodo(todo.id)} okText="确认" cancelText="取消">
-                                <DeleteOutlined style={{ cursor: 'pointer', color: '#999', fontSize: 12 }} />
-                              </Popconfirm>
-                            </>
-                          )}
-                        </div>
-                      ))}
+                      {s.todos.map(renderTodo)}
                     </div>
                   )}
 

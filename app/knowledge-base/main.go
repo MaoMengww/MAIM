@@ -86,11 +86,15 @@ func main() {
 					logger.Errorf("progress owner lookup failed: doc_id=%d err=%v", doc.ID, err)
 					return
 				}
-				evt.UserID, evt.DocID, evt.KBID = kb.OwnerID, doc.ID, doc.KBID
+				if kb.OwnerType != "user" || kb.OwnerID == nil {
+					return
+				}
+				evt.UserID = kb.OwnerID
+				evt.DocID, evt.KBID = doc.ID, doc.KBID
 				evt.Source, evt.CreatedAt = "knowledge-base", time.Now().Unix()
 				raw, err := event.MarshalRealtimeEvent(evt)
 				if err == nil {
-					err = resources.DeliveryPublisher.Publish(ctx, kb.OwnerID, delivery.Intent{UserIDs: []int64{kb.OwnerID}, Payload: raw})
+					err = resources.DeliveryPublisher.Publish(ctx, *kb.OwnerID, delivery.Intent{UserIDs: []string{*kb.OwnerID}, Payload: raw})
 				}
 				if err != nil {
 					logger.Errorf("progress publish failed: doc_id=%d err=%v", doc.ID, err)
@@ -110,9 +114,8 @@ func main() {
 		RetrievePipe: &pipeline.RetrievePipeline{
 			KBRepo: resources.KBRepo, Embedder: embed, VectorStore: vecStore,
 			Reranker: reranker.NewLLMGatewayReranker(resources.LLMGatewayClient), Logger: logger,
-			EmbeddingModelID: 15,
 		},
-		Snowflake: resources.Snowflake, Logger: logger, LLMGateway: resources.LLMGatewayClient,
+		Snowflake: resources.Snowflake, Logger: logger,
 	}
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
 		pb.RegisterKnowledgeBaseServer(grpcServer, h)

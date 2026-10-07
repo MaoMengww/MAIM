@@ -9,10 +9,10 @@ type Retriever interface {
 
 // RetrieveOptions configures a retrieval request.
 type RetrieveOptions struct {
-	BotID  int64
-	ConvID int64
+	BotID  string
+	ConvID string
 	TopK   int
-	KbIDs  []int64
+	KbIDs  []string
 }
 
 // Document is a retrieved knowledge document.

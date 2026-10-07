@@ -22,15 +22,14 @@ import (
 // Each claim processes messages synchronously. Shared slots bound all partitions,
 // and the Kafka session waits for in-flight work before committing offsets.
 type DocumentUploadedHandler struct {
-	DocRepo            domain.DocumentRepo
-	KBRepo             domain.KBRepo
-	IngestPipe         *pipeline.IngestPipeline
-	Logger             logx.Logger
-	DefaultEmbeddingID int64
-	Ready              atomic.Bool
-	slots              chan struct{}
-	limiter            *rate.Limiter
-	embeddingToken     string
+	DocRepo        domain.DocumentRepo
+	KBRepo         domain.KBRepo
+	IngestPipe     *pipeline.IngestPipeline
+	Logger         logx.Logger
+	Ready          atomic.Bool
+	slots          chan struct{}
+	limiter        *rate.Limiter
+	embeddingToken string
 }
 
 type DocumentUploadedEvent struct {
@@ -39,7 +38,7 @@ type DocumentUploadedEvent struct {
 
 func NewDocumentUploadedHandler(docs domain.DocumentRepo, kbs domain.KBRepo, pipe *pipeline.IngestPipeline, logger logx.Logger, cfg config.IngestConfig) *DocumentUploadedHandler {
 	return &DocumentUploadedHandler{
-		DocRepo: docs, KBRepo: kbs, IngestPipe: pipe, Logger: logger, DefaultEmbeddingID: 15,
+		DocRepo: docs, KBRepo: kbs, IngestPipe: pipe, Logger: logger,
 		slots: make(chan struct{}, cfg.Concurrency), limiter: rate.NewLimiter(rate.Limit(cfg.RequestsPerSecond), 1),
 		embeddingToken: cfg.EmbeddingToken,
 	}
@@ -128,9 +127,11 @@ func (h *DocumentUploadedHandler) Handle(ctx context.Context, key, value []byte)
 		metrics.KbIngestTotal.Inc("failed")
 		return nil
 	}
-	embedID := kb.EmbeddingModelID
-	if embedID <= 0 {
-		embedID = h.DefaultEmbeddingID
+	embedID, err := kb.ResolveEmbeddingModelID(pipeCtx, h.KBRepo)
+	if err != nil {
+		statusCtx, statusCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer statusCancel()
+		return h.DocRepo.UpdateStatus(statusCtx, doc.ID, domain.DocStatusFailed, "embedding model unavailable: "+err.Error())
 	}
 	cfg := kb.PipelineConfig
 	if doc.PipelineOverride != nil {

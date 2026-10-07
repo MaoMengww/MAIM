@@ -4,22 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/maomeng/aim/app/bot-service/internal/client"
 	"github.com/maomeng/aim/app/bot-service/internal/convtool"
+	"github.com/maomeng/aim/app/bot-service/internal/graph"
+	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
+	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/consts"
+	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/interceptor"
 	commonpb "github.com/maomeng/aim/pkg/pb/common"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"gorm.io/gorm"
 )
 
 type ConversationToolServer struct {
@@ -30,69 +34,105 @@ func NewConversationToolServer(svcCtx *svc.ServiceContext) *ConversationToolServ
 	return &ConversationToolServer{svcCtx: svcCtx}
 }
 
-func (s *ConversationToolServer) getUserID(ctx context.Context) int64 {
-	if v, ok := ctx.Value(interceptor.ContextKeyUserID).(int64); ok {
-		return v
+func runtimeUserID(ctx context.Context) string {
+	if id, ok := ctx.Value(interceptor.ContextKeyUserID).(string); ok && identity.Validate(id) == nil {
+		return id
 	}
-	return 0
+	md, _ := metadata.FromIncomingContext(ctx)
+	ids := md.Get(consts.MetadataKeyUserID)
+	if len(ids) == 1 && identity.Validate(ids[0]) == nil {
+		return ids[0]
+	}
+	return ""
 }
 
-func (s *ConversationToolServer) getLLMInput(ctx context.Context, userID, convID int64) (*convtool.Input, error) {
-	userCtx := metadata.AppendToOutgoingContext(ctx, consts.MetadataKeyUserID, strconv.FormatInt(userID, 10))
+func userCallContext(ctx context.Context, userID string) context.Context {
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	md.Set(consts.MetadataKeyUserID, userID)
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
+func (s *ConversationToolServer) requireConversation(ctx context.Context, userID, convID string) error {
+	if identity.Validate(userID) != nil {
+		return errors.New(errors.CodeUnauthorized, "missing authenticated user")
+	}
+	if identity.Validate(convID) != nil {
+		return errors.New(errors.CodeInvalidParam, "invalid conversation identity")
+	}
+	cli := msgpb.NewMessageServiceClient(s.svcCtx.MessageSvcConn.Conn())
+	_, err := cli.GetMembers(userCallContext(ctx, userID), &msgpb.GetMembersReq{
+		ConversationId: convID,
+		UserId:         &userID,
+		Pagination:     &commonpb.Pagination{Page: 1, PageSize: 1},
+	})
+	return err
+}
+
+func (s *ConversationToolServer) getLLMInput(ctx context.Context, userID, convID string) (*convtool.Input, error) {
+	caller := runtimeUserID(ctx)
+	if caller == "" {
+		return nil, errors.New(errors.CodeUnauthorized, "missing authenticated user")
+	}
+	if caller != userID {
+		return nil, errors.New(errors.CodeForbidden, "cannot operate as another user")
+	}
+	if convID != "" {
+		if err := s.requireConversation(ctx, caller, convID); err != nil {
+			return nil, err
+		}
+	}
 	userClient := userpb.NewUserServiceClient(s.svcCtx.UserServiceConn.Conn())
-	settingsResp, err := userClient.GetSettings(userCtx, &commonpb.Empty{})
+	settings, err := userClient.GetSettings(userCallContext(ctx, caller), &commonpb.Empty{})
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "获取用户设置失败", err)
 	}
-	if settingsResp.AiModelId == 0 {
+	if settings.AiModelId == nil {
 		return nil, errors.New(errors.CodeInvalidParam, "请先在设置-个人资料中配置AI助手模型")
 	}
-
-	llmClient := client.NewLlmGatewayClient(s.svcCtx.LlmGatewayConn)
-	chatModel := llmClient.NewEinoChatModel(settingsResp.AiModelId, settingsResp.AiModelName, userID)
-
+	llm := client.NewLlmGatewayClient(s.svcCtx.LlmGatewayConn)
 	return &convtool.Input{
-		LLMClient: llmClient,
-		ChatModel: chatModel,
-		UserID:    userID,
+		LLMClient: llm,
+		ChatModel: llm.NewEinoChatModel(*settings.AiModelId, settings.AiModelName, &caller),
+		UserID:    caller,
 		ConvID:    convID,
 	}, nil
 }
 
-// pushAsyncResult publishes an async operation result to all of the user's devices.
-func (s *ConversationToolServer) pushAsyncResult(userID int64, eventType string, data map[string]any) {
-	msg := map[string]any{
-		"type": eventType,
+// Async results are account-scoped; membership is checked again after model work.
+func (s *ConversationToolServer) pushAsyncResult(userID, convID, eventType string, data map[string]any) {
+	ctx := context.Background()
+	if convID != "" {
+		if err := s.requireConversation(ctx, userID, convID); err != nil {
+			s.svcCtx.Logger.Errorf("async result permission denied: conv=%s user=%s err=%v", convID, userID, err)
+			return
+		}
 	}
+	msg := map[string]any{"type": eventType}
 	for k, v := range data {
 		msg[k] = v
 	}
 	b, err := json.Marshal(msg)
+	if err == nil {
+		err = model.ValidateEntityJSON(b)
+	}
 	if err != nil {
-		s.svcCtx.Logger.Errorf("pushAsyncResult marshal failed: type=%s err=%v", eventType, err)
+		s.svcCtx.Logger.Errorf("async result encode failed: type=%s err=%v", eventType, err)
 		return
 	}
-	if err := s.svcCtx.DeliveryPublisher.Publish(context.Background(), userID, delivery.Intent{UserIDs: []int64{userID}, Payload: b}); err != nil {
-		s.svcCtx.Logger.Errorf("pushAsyncResult push failed: type=%s user=%d err=%v", eventType, userID, err)
+	if err := s.svcCtx.DeliveryPublisher.Publish(ctx, userID, delivery.Intent{UserIDs: []string{userID}, Payload: b}); err != nil {
+		s.svcCtx.Logger.Errorf("async result push failed: type=%s user=%s err=%v", eventType, userID, err)
 	}
 }
 
-// SummarizeConversation summarizes a conversation asynchronously.
-// It validates the request and returns immediately with status "processing".
-// The actual LLM call and persistence run in a background goroutine.
-// When done, the result is pushed to the user via WebSocket (type: conv.summarize.done).
 func (s *ConversationToolServer) SummarizeConversation(ctx context.Context, req *botpb.SummarizeReq) (*botpb.SummarizeResp, error) {
 	if s.svcCtx.RuntimeClient != nil {
 		return s.svcCtx.RuntimeClient.SummarizeConversation(forwardRuntimeContext(ctx), req)
 	}
-	// Fast validation
 	input, err := s.getLLMInput(ctx, req.UserId, req.ConvId)
 	if err != nil {
 		return nil, err
 	}
-
-	msgClient := client.NewMessageClient(s.svcCtx.MessageSvcConn)
-
 	maxCount := 100
 	switch r := req.Range.(type) {
 	case *botpb.SummarizeReq_LastMessageCount:
@@ -100,166 +140,148 @@ func (s *ConversationToolServer) SummarizeConversation(ctx context.Context, req 
 	case *botpb.SummarizeReq_All:
 		maxCount = 1000
 	}
-
-	allMsgs, err := msgClient.GetAllMessages(ctx, req.ConvId, req.UserId, maxCount)
+	allMsgs, err := client.NewMessageClient(s.svcCtx.MessageSvcConn).GetAllMessages(ctx, req.ConvId, req.UserId, maxCount)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "获取消息失败", err)
 	}
 	if len(allMsgs) == 0 {
 		return nil, errors.New(errors.CodeInvalidParam, "没有可总结的消息")
 	}
-
-	// Build messages in chronological order (reversed from GetAllMessages)
 	msgs := make([]convtool.Message, len(allMsgs))
 	for i, m := range allMsgs {
-		msgs[len(allMsgs)-1-i] = convtool.Message{
-			MsgID:    m.MsgID,
-			SenderID: m.SenderID,
-			Content:  m.Content,
-			MsgType:  int32(m.MsgType),
-			Seq:      m.Seq,
-		}
+		msgs[len(allMsgs)-1-i] = convtool.Message{MsgID: m.MsgID, SenderID: m.SenderID, SenderName: m.SenderName, Content: m.Content, MsgType: m.MsgType, Seq: m.Seq}
 	}
-
 	messageText := convtool.BuildMessageText(msgs)
-	totalCount := len(msgs)
-
-	// Spawn async processing
 	go func() {
 		bgCtx := context.Background()
-		result, llmErr := convtool.Summarize(bgCtx, input, messageText, totalCount)
-		if llmErr != nil {
-			s.svcCtx.Logger.Errorf("async summarize failed: conv=%d user=%d err=%v", req.ConvId, req.UserId, llmErr)
-			s.pushAsyncResult(req.UserId, "conv.summarize.failed", map[string]any{
-				"conv_id": strconv.FormatInt(req.ConvId, 10),
-				"error":   llmErr.Error(),
-			})
+		fail := func(err error) {
+			s.svcCtx.Logger.Errorf("async summarize failed: conv=%s user=%s err=%v", req.ConvId, req.UserId, err)
+			s.pushAsyncResult(req.UserId, req.ConvId, "conv.summarize.failed", map[string]any{"conv_id": req.ConvId, "error": err.Error()})
+		}
+		result, err := convtool.Summarize(bgCtx, input, messageText, len(msgs))
+		if err != nil {
+			fail(err)
 			return
 		}
-
-		// Persist summary
-		summaryRepo := repo.NewConvSummaryRepo(s.svcCtx.DB)
-		summary := &repo.ConvSummary{
-			ConvID:       req.ConvId,
-			UserID:       req.UserId,
-			RangeType:    fmt.Sprintf("count_%d", maxCount),
-			MessageCount: result.TotalMessages,
-			Summary:      result.Summary,
+		if err := s.requireConversation(bgCtx, req.UserId, req.ConvId); err != nil {
+			return
 		}
-		if err := summaryRepo.Create(bgCtx, summary); err != nil {
-			s.svcCtx.Logger.Errorf("async save summary failed: %v", err)
-		}
-
-		// Persist todos
-		todoRepo := repo.NewSummaryTodoRepo(s.svcCtx.DB)
-		var pbTodos []map[string]any
-		for _, todoText := range result.Todos {
-			t := &repo.SummaryTodo{
-				SummaryID: summary.ID,
-				ConvID:    req.ConvId,
-				Content:   todoText,
+		summary := &repo.ConvSummary{ConvID: req.ConvId, UserID: req.UserId, RangeType: fmt.Sprintf("count_%d", maxCount), MessageCount: result.TotalMessages, Summary: result.Summary}
+		var todos []map[string]any
+		err = s.svcCtx.DB.WithContext(bgCtx).Transaction(func(tx *gorm.DB) error {
+			db := &database.DB{DB: tx}
+			if err := repo.NewConvSummaryRepo(db).Create(bgCtx, summary); err != nil {
+				return err
 			}
-			if err := todoRepo.Create(bgCtx, t); err != nil {
-				s.svcCtx.Logger.Errorf("async save todo failed: %v", err)
-				continue
+			todoRepo := repo.NewSummaryTodoRepo(db)
+			for _, text := range result.Todos {
+				t := &repo.SummaryTodo{SummaryID: &summary.ID, ConvID: req.ConvId, Content: text}
+				if err := todoRepo.Create(bgCtx, t); err != nil {
+					return err
+				}
+				todos = append(todos, map[string]any{"id": t.ID, "summary_id": t.SummaryID, "conv_id": t.ConvID, "content": t.Content, "done": t.Done, "created_at": t.CreatedAt.Unix()})
 			}
-			pbTodos = append(pbTodos, map[string]any{
-				"id":         strconv.FormatInt(t.ID, 10),
-				"summary_id": strconv.FormatInt(t.SummaryID, 10),
-				"conv_id":    strconv.FormatInt(t.ConvID, 10),
-				"content":    t.Content,
-				"done":       t.Done,
-				"created_at": t.CreatedAt.Unix(),
-			})
-		}
-
-		// Push result via WebSocket
-		s.pushAsyncResult(req.UserId, "conv.summarize.done", map[string]any{
-			"conv_id":        strconv.FormatInt(req.ConvId, 10),
-			"summary_id":     strconv.FormatInt(summary.ID, 10),
-			"summary":        result.Summary,
-			"todos":          pbTodos,
-			"total_messages": result.TotalMessages,
-			"created_at":     summary.CreatedAt.Unix(),
+			return nil
 		})
-
-		s.svcCtx.Logger.Infof("async summarize done: conv=%d user=%d summary_id=%d todos=%d",
-			req.ConvId, req.UserId, summary.ID, len(pbTodos))
+		if err != nil {
+			fail(err)
+			return
+		}
+		s.pushAsyncResult(req.UserId, req.ConvId, "conv.summarize.done", map[string]any{"conv_id": req.ConvId, "summary_id": summary.ID, "summary": summary.Summary, "todos": todos, "total_messages": result.TotalMessages, "created_at": summary.CreatedAt.Unix()})
 	}()
-
-	return &botpb.SummarizeResp{
-		Status: "processing",
-	}, nil
+	return &botpb.SummarizeResp{Status: "processing"}, nil
 }
 
 func (s *ConversationToolServer) GetConvSummaries(ctx context.Context, req *botpb.GetConvSummariesReq) (*botpb.GetConvSummariesResp, error) {
 	if s.svcCtx.RuntimeClient != nil {
 		return s.svcCtx.RuntimeClient.GetConvSummaries(forwardRuntimeContext(ctx), req)
 	}
-	summaryRepo := repo.NewConvSummaryRepo(s.svcCtx.DB)
-	summaries, err := summaryRepo.FindByConv(ctx, req.ConvId, int(req.Limit))
+	if err := s.requireConversation(ctx, runtimeUserID(ctx), req.ConvId); err != nil {
+		return nil, err
+	}
+	summaries, err := repo.NewConvSummaryRepo(s.svcCtx.DB).FindByConv(ctx, req.ConvId, int(req.Limit))
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "查询总结记录失败", err)
 	}
-
 	todoRepo := repo.NewSummaryTodoRepo(s.svcCtx.DB)
 	items := make([]*botpb.SummarizeResp, 0, len(summaries))
-	for _, s := range summaries {
-		todos, _ := todoRepo.FindBySummary(ctx, s.ID)
-		pbTodos := make([]*botpb.TodoItem, len(todos))
-		for i, t := range todos {
-			pbTodos[i] = &botpb.TodoItem{
-				Id:        t.ID,
-				SummaryId: t.SummaryID,
-				ConvId:    t.ConvID,
-				Content:   t.Content,
-				Done:      t.Done,
-				CreatedAt: t.CreatedAt.Unix(),
-				UpdatedAt: t.UpdatedAt.Unix(),
-			}
+	for _, summary := range summaries {
+		todos, err := todoRepo.FindBySummary(ctx, summary.ID)
+		if err != nil {
+			return nil, errors.Wrap(errors.CodeDBError, "查询待办失败", err)
 		}
-		items = append(items, &botpb.SummarizeResp{
-			SummaryId:     s.ID,
-			Summary:       s.Summary,
-			Todos:         pbTodos,
-			TotalMessages: int32(s.MessageCount),
-			CreatedAt:     s.CreatedAt.Unix(),
-			Status:        "completed",
-		})
+		pbTodos := make([]*botpb.TodoItem, len(todos))
+		for i := range todos {
+			pbTodos[i] = todoToProto(&todos[i])
+		}
+		items = append(items, &botpb.SummarizeResp{SummaryId: &summary.ID, Summary: summary.Summary, Todos: pbTodos, TotalMessages: int32(summary.MessageCount), CreatedAt: summary.CreatedAt.Unix(), Status: "completed"})
 	}
-	return &botpb.GetConvSummariesResp{Items: items}, nil
+	standalone, err := todoRepo.FindStandaloneByConv(ctx, req.ConvId)
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "查询待办失败", err)
+	}
+	pbStandalone := make([]*botpb.TodoItem, len(standalone))
+	for i := range standalone {
+		pbStandalone[i] = todoToProto(&standalone[i])
+	}
+	return &botpb.GetConvSummariesResp{Items: items, StandaloneTodos: pbStandalone}, nil
+}
+
+func todoToProto(t *repo.SummaryTodo) *botpb.TodoItem {
+	return &botpb.TodoItem{Id: t.ID, SummaryId: t.SummaryID, ConvId: t.ConvID, Content: t.Content, Done: t.Done, CreatedAt: t.CreatedAt.Unix(), UpdatedAt: t.UpdatedAt.Unix()}
 }
 
 func (s *ConversationToolServer) CreateTodo(ctx context.Context, req *botpb.CreateTodoReq) (*botpb.TodoItem, error) {
 	if s.svcCtx.RuntimeClient != nil {
 		return s.svcCtx.RuntimeClient.CreateTodo(forwardRuntimeContext(ctx), req)
 	}
-	todoRepo := repo.NewSummaryTodoRepo(s.svcCtx.DB)
-	t := &repo.SummaryTodo{
-		SummaryID: req.SummaryId,
-		ConvID:    req.ConvId,
-		Content:   req.Content,
+	if err := s.requireConversation(ctx, runtimeUserID(ctx), req.ConvId); err != nil {
+		return nil, err
 	}
-	if err := todoRepo.Create(ctx, t); err != nil {
+	if req.SummaryId != nil {
+		if identity.Validate(*req.SummaryId) != nil {
+			return nil, errors.New(errors.CodeInvalidParam, "invalid summary identity")
+		}
+		summary, err := repo.NewConvSummaryRepo(s.svcCtx.DB).Get(ctx, *req.SummaryId)
+		if err != nil {
+			return nil, errors.Wrap(errors.CodeNotFound, "summary not found", err)
+		}
+		if summary.ConvID != req.ConvId {
+			return nil, errors.New(errors.CodeForbidden, "summary belongs to another conversation")
+		}
+	}
+	t := &repo.SummaryTodo{SummaryID: req.SummaryId, ConvID: req.ConvId, Content: req.Content}
+	if err := repo.NewSummaryTodoRepo(s.svcCtx.DB).Create(ctx, t); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "创建待办失败", err)
 	}
-	return &botpb.TodoItem{
-		Id:        t.ID,
-		SummaryId: t.SummaryID,
-		ConvId:    t.ConvID,
-		Content:   t.Content,
-		Done:      t.Done,
-		CreatedAt: t.CreatedAt.Unix(),
-		UpdatedAt: t.UpdatedAt.Unix(),
-	}, nil
+	return todoToProto(t), nil
+}
+
+func (s *ConversationToolServer) requireTodo(ctx context.Context, todoID, convID string) error {
+	if identity.Validate(todoID) != nil {
+		return errors.New(errors.CodeInvalidParam, "invalid todo identity")
+	}
+	if err := s.requireConversation(ctx, runtimeUserID(ctx), convID); err != nil {
+		return err
+	}
+	todo, err := repo.NewSummaryTodoRepo(s.svcCtx.DB).Get(ctx, todoID)
+	if err != nil {
+		return errors.Wrap(errors.CodeNotFound, "todo not found", err)
+	}
+	if todo.ConvID != convID {
+		return errors.New(errors.CodeForbidden, "todo belongs to another conversation")
+	}
+	return nil
 }
 
 func (s *ConversationToolServer) UpdateTodo(ctx context.Context, req *botpb.UpdateTodoReq) (*emptypb.Empty, error) {
 	if s.svcCtx.RuntimeClient != nil {
 		return s.svcCtx.RuntimeClient.UpdateTodo(forwardRuntimeContext(ctx), req)
 	}
-	todoRepo := repo.NewSummaryTodoRepo(s.svcCtx.DB)
-	if err := todoRepo.Update(ctx, req.TodoId, req.Content, req.Done); err != nil {
+	if err := s.requireTodo(ctx, req.TodoId, req.ConvId); err != nil {
+		return nil, err
+	}
+	if err := repo.NewSummaryTodoRepo(s.svcCtx.DB).Update(ctx, req.TodoId, req.ConvId, req.Content, req.Done); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "更新待办失败", err)
 	}
 	return &emptypb.Empty{}, nil
@@ -269,16 +291,15 @@ func (s *ConversationToolServer) DeleteTodo(ctx context.Context, req *botpb.Dele
 	if s.svcCtx.RuntimeClient != nil {
 		return s.svcCtx.RuntimeClient.DeleteTodo(forwardRuntimeContext(ctx), req)
 	}
-	todoRepo := repo.NewSummaryTodoRepo(s.svcCtx.DB)
-	if err := todoRepo.Delete(ctx, req.TodoId); err != nil {
+	if err := s.requireTodo(ctx, req.TodoId, req.ConvId); err != nil {
+		return nil, err
+	}
+	if err := repo.NewSummaryTodoRepo(s.svcCtx.DB).Delete(ctx, req.TodoId, req.ConvId); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "删除待办失败", err)
 	}
 	return &emptypb.Empty{}, nil
 }
 
-// GenerateReplyCandidates generates reply suggestions asynchronously.
-// The LLM call runs in a background goroutine and pushes the complete result
-// via WebSocket (type: conv.reply_candidates.done).
 func (s *ConversationToolServer) GenerateReplyCandidates(ctx context.Context, req *botpb.ReplyCandidatesReq) (*botpb.ReplyCandidatesResp, error) {
 	if s.svcCtx.RuntimeClient != nil {
 		return s.svcCtx.RuntimeClient.GenerateReplyCandidates(forwardRuntimeContext(ctx), req)
@@ -287,85 +308,57 @@ func (s *ConversationToolServer) GenerateReplyCandidates(ctx context.Context, re
 	if err != nil {
 		return nil, err
 	}
-
-	msgClient := client.NewMessageClient(s.svcCtx.MessageSvcConn)
-	msgs, err := msgClient.GetRecentMessages(ctx, req.ConvId, req.UserId, 15)
+	msgs, err := client.NewMessageClient(s.svcCtx.MessageSvcConn).GetRecentMessages(ctx, req.ConvId, req.UserId, 15)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "获取上下文消息失败", err)
 	}
-
-	var b strings.Builder
-	for _, m := range msgs {
-		b.WriteString(fmt.Sprintf("[user_%d]: %s\n", m.SenderID, m.Content))
-	}
-	contextText := b.String()
-
+	contextText := graph.FormatHistory(msgs)
 	go func() {
-		bgCtx := context.Background()
-		candidates, llmErr := convtool.GenerateReplyCandidates(bgCtx, input, contextText)
-		if llmErr != nil {
-			s.svcCtx.Logger.Errorf("async reply candidates failed: conv=%d user=%d err=%v", req.ConvId, req.UserId, llmErr)
-			s.pushAsyncResult(req.UserId, "conv.reply_candidates.failed", map[string]any{
-				"conv_id": strconv.FormatInt(req.ConvId, 10),
-				"error":   llmErr.Error(),
-			})
+		candidates, err := convtool.GenerateReplyCandidates(context.Background(), input, contextText)
+		if err != nil {
+			s.pushAsyncResult(req.UserId, req.ConvId, "conv.reply_candidates.failed", map[string]any{"conv_id": req.ConvId, "error": err.Error()})
 			return
 		}
-
-		s.pushAsyncResult(req.UserId, "conv.reply_candidates.done", map[string]any{
-			"conv_id":    strconv.FormatInt(req.ConvId, 10),
-			"candidates": candidates,
-		})
-
-		s.svcCtx.Logger.Infof("async reply candidates done: conv=%d user=%d count=%d",
-			req.ConvId, req.UserId, len(candidates))
+		s.pushAsyncResult(req.UserId, req.ConvId, "conv.reply_candidates.done", map[string]any{"conv_id": req.ConvId, "candidates": candidates})
 	}()
-
-	return &botpb.ReplyCandidatesResp{
-		Status: "processing",
-	}, nil
+	return &botpb.ReplyCandidatesResp{Status: "processing"}, nil
 }
 
-// TranslateMessage translates text asynchronously.
-// It returns immediately with status "processing". The actual LLM call runs in a
-// background goroutine and pushes the result via WebSocket (type: conv.translate.done).
 func (s *ConversationToolServer) TranslateMessage(ctx context.Context, req *botpb.TranslateMessageReq) (*botpb.TranslateMessageResp, error) {
 	if s.svcCtx.RuntimeClient != nil {
 		return s.svcCtx.RuntimeClient.TranslateMessage(forwardRuntimeContext(ctx), req)
 	}
-	userID := s.getUserID(ctx)
-	input, err := s.getLLMInput(ctx, userID, 0)
+	userID := runtimeUserID(ctx)
+	convID := ""
+	if req.MsgId != nil {
+		if identity.Validate(*req.MsgId) != nil {
+			return nil, errors.New(errors.CodeInvalidParam, "invalid message identity")
+		}
+		cli := msgpb.NewMessageServiceClient(s.svcCtx.MessageSvcConn.Conn())
+		resp, err := cli.GetMessageByID(userCallContext(ctx, userID), &msgpb.GetMessageByIDReq{MessageId: *req.MsgId})
+		if err != nil {
+			return nil, err
+		}
+		convID = resp.Message.ConversationId
+	}
+	input, err := s.getLLMInput(ctx, userID, convID)
 	if err != nil {
 		return nil, err
 	}
-
-	text := req.Text
-	targetLang := req.TargetLang
-	msgID := req.MsgId
-
-	// Spawn async processing
 	go func() {
-		bgCtx := context.Background()
-		result, llmErr := convtool.Translate(bgCtx, input, text, targetLang)
-		if llmErr != nil {
-			s.svcCtx.Logger.Errorf("async translate failed: user=%d msg=%d err=%v", userID, msgID, llmErr)
-			s.pushAsyncResult(userID, "conv.translate.failed", map[string]any{
-				"msg_id": strconv.FormatInt(msgID, 10),
-				"error":  llmErr.Error(),
-			})
+		result, err := convtool.Translate(context.Background(), input, req.Text, req.TargetLang)
+		data := map[string]any{}
+		if req.MsgId != nil {
+			data["msg_id"] = *req.MsgId
+		}
+		if err != nil {
+			data["error"] = err.Error()
+			s.pushAsyncResult(userID, convID, "conv.translate.failed", data)
 			return
 		}
-
-		s.pushAsyncResult(userID, "conv.translate.done", map[string]any{
-			"msg_id":          strconv.FormatInt(msgID, 10),
-			"translated_text": result.TranslatedText,
-			"detected_lang":   result.DetectedLang,
-		})
-
-		s.svcCtx.Logger.Infof("async translate done: user=%d msg=%d target=%s", userID, msgID, targetLang)
+		data["translated_text"] = result.TranslatedText
+		data["detected_lang"] = result.DetectedLang
+		s.pushAsyncResult(userID, convID, "conv.translate.done", data)
 	}()
-
-	return &botpb.TranslateMessageResp{
-		Status: "processing",
-	}, nil
+	return &botpb.TranslateMessageResp{Status: "processing"}, nil
 }

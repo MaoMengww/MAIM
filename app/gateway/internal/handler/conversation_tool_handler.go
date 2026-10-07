@@ -68,13 +68,11 @@ func (h *ConversationToolHandler) GetSummaries(c *gin.Context) {
 		return
 	}
 	convID := c.Param("id")
-	userID := c.GetString(middleware.CtxKeyUserID)
 
 	req := &botpb.GetConvSummariesReq{
 		ConvId: convID,
 		Limit:  int32(parseInt64(c.DefaultQuery("limit", "20"))),
 	}
-	_, _ = userID, req // userID available for future auth
 
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, req) {
@@ -124,8 +122,8 @@ func (h *ConversationToolHandler) UpdateTodo(c *gin.Context) {
 	}
 	todoID := c.Param("todoId")
 	var body struct {
-		Content string `json:"content"`
-		Done    bool   `json:"done"`
+		Content *string `json:"content"`
+		Done    *bool   `json:"done"`
 	}
 	if err := bindJSON(c, &body); err != nil {
 		response.BadRequest(c, err.Error())
@@ -134,6 +132,7 @@ func (h *ConversationToolHandler) UpdateTodo(c *gin.Context) {
 	ctx := middleware.WithGRPCMetadata(c)
 	_, err := h.botClient.UpdateTodo(ctx, &botpb.UpdateTodoReq{
 		TodoId:  todoID,
+		ConvId:  c.Param("id"),
 		Content: body.Content,
 		Done:    body.Done,
 	})
@@ -150,7 +149,7 @@ func (h *ConversationToolHandler) DeleteTodo(c *gin.Context) {
 	}
 	todoID := c.Param("todoId")
 	ctx := middleware.WithGRPCMetadata(c)
-	_, err := h.botClient.DeleteTodo(ctx, &botpb.DeleteTodoReq{TodoId: todoID})
+	_, err := h.botClient.DeleteTodo(ctx, &botpb.DeleteTodoReq{TodoId: todoID, ConvId: c.Param("id")})
 	if err != nil {
 		response.GRPCError(c, err)
 		return

@@ -817,12 +817,12 @@ export function ChatPage() {
     // Async translate result (payload includes msg_id from original request)
     const unsubTranslateDone = wsOn('conv.translate.done', (payload: any) => {
       if (payload.msg_id) {
-        setTranslateMap((prev: Record<string, string>) => ({ ...prev, [String(payload.msg_id)]: payload.translated_text }));
+        setTranslateMap((prev: Record<string, string>) => ({ ...prev, [payload.msg_id]: payload.translated_text }));
       }
     });
     const unsubTranslateFailed = wsOn('conv.translate.failed', (payload: any) => {
       if (payload.msg_id) {
-        setTranslateMap((prev: Record<string, string>) => ({ ...prev, [String(payload.msg_id)]: '' }));
+        setTranslateMap((prev: Record<string, string>) => ({ ...prev, [payload.msg_id]: '' }));
       }
       message.error(payload.error || '翻译失败');
     });
@@ -2026,8 +2026,9 @@ export function ChatPage() {
                   const msgId = msgActions.msg.message_id;
                   const convId = id;
                   setMsgActions(null);
+                  if (!convId) return;
                   try {
-                    const resp: any = await convToolApi.replyCandidates(convId as any, msgId);
+                    const resp = await convToolApi.replyCandidates(convId, msgId);
                     if (resp?.status === 'processing') {
                       message.info('正在生成回复建议...');
                       // Result will arrive via WS conv.reply_candidates.done
@@ -2046,8 +2047,9 @@ export function ChatPage() {
                   setMsgActions(null);
                   if (!text) { message.info('无法翻译此消息'); return; }
                   try {
-                    const userLang = (useAuthStore.getState().user as any)?.settings?.language || 'zh-CN';
-                    const resp: any = await convToolApi.translate(msgId, text, userLang);
+                    const configuredLang = useAuthStore.getState().user?.settings?.language;
+                    const userLang = typeof configuredLang === 'string' ? configuredLang : 'zh-CN';
+                    const resp = await convToolApi.translate(msgId, text, userLang);
                     if (resp?.status === 'processing') {
                       message.info('正在翻译...');
                       // Result will arrive via WS conv.translate.done

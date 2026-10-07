@@ -68,7 +68,7 @@ func Summarize(ctx context.Context, input *Input, messageText string, totalCount
 	var parsed llmResponse
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
 		// Fallback: treat the whole response as summary, no todos
-		logx.DefaultLogger().WithContext(ctx).Errorf("summarize json parse failed, fallback to raw: conv=%d err=%v", input.ConvID, err)
+		logx.DefaultLogger().WithContext(ctx).Errorf("summarize json parse failed, fallback to raw: conv=%s err=%v", input.ConvID, err)
 		return &SummarizeResult{
 			Summary:       result.Content,
 			Todos:         nil,
@@ -87,7 +87,7 @@ func Summarize(ctx context.Context, input *Input, messageText string, totalCount
 		summary = b.String()
 	}
 
-	logx.DefaultLogger().WithContext(ctx).Infof("summarize done: conv=%d messages=%d key_points=%d todos=%d",
+	logx.DefaultLogger().WithContext(ctx).Infof("summarize done: conv=%s messages=%d key_points=%d todos=%d",
 		input.ConvID, totalCount, len(parsed.KeyPoints), len(parsed.ActionItems))
 
 	return &SummarizeResult{
@@ -100,7 +100,14 @@ func Summarize(ctx context.Context, input *Input, messageText string, totalCount
 func BuildMessageText(msgs []Message) string {
 	var b strings.Builder
 	for _, m := range msgs {
-		fmt.Fprintf(&b, "[user_%d]: %s\n", m.SenderID, m.Content)
+		name := m.SenderName
+		if name == "" && m.SenderID != nil {
+			name = "user_" + *m.SenderID
+		}
+		if name == "" {
+			name = "system"
+		}
+		fmt.Fprintf(&b, "[%s]: %s\n", name, m.Content)
 	}
 	return b.String()
 }

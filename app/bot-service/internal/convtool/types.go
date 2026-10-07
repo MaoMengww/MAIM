@@ -11,18 +11,19 @@ type Input struct {
 	LLMClient *client.LlmGatewayClient
 	ChatModel einoModel.BaseChatModel
 	MsgClient MsgClient
-	UserID    int64
-	ConvID    int64
+	UserID    string
+	ConvID    string
 }
 
 type MsgClient interface {
-	GetRecentMessages(ctx context.Context, convID, userID int64, limit int) ([]Message, error)
+	GetRecentMessages(ctx context.Context, convID, userID string, limit int) ([]Message, error)
 }
 
 type Message struct {
-	MsgID    int64
-	SenderID int64
-	Content  string
-	MsgType  int32
-	Seq      int64
+	MsgID      string
+	SenderID   *string
+	SenderName string
+	Content    string
+	MsgType    int32
+	Seq        int64
 }

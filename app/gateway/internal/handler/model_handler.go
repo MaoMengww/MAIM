@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
+	"github.com/maomeng/aim/app/gateway/internal/response"
 	llmgateway "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/protocol"
@@ -42,7 +43,7 @@ func (h *ModelHandler) ListModels(c *gin.Context) {
 		OwnerId:    &ownerID,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
+		response.GRPCError(c, err)
 		return
 	}
 	writeProtoJSON(c, resp)
@@ -63,7 +64,7 @@ func (h *ModelHandler) CreateModel(c *gin.Context) {
 	}
 	resp, err := h.cli.CreateModel(ctx, &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
+		response.GRPCError(c, err)
 		return
 	}
 	writeProtoJSON(c, resp)
@@ -84,7 +85,7 @@ func (h *ModelHandler) UpdateModel(c *gin.Context) {
 		return
 	}
 	if _, err := h.cli.UpdateModel(ctx, &req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
+		response.GRPCError(c, err)
 		return
 	}
 	writeProtoJSON(c, gin.H{"id": req.ModelId})
@@ -99,7 +100,7 @@ func (h *ModelHandler) DeleteModel(c *gin.Context) {
 		ModelId: c.Param("id"),
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
+		response.GRPCError(c, err)
 		return
 	}
 	writeProtoJSON(c, resp)
@@ -115,7 +116,7 @@ func (h *ModelHandler) ListBillingRecords(c *gin.Context) {
 		PageSize: int32(pageSize),
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
+		response.GRPCError(c, err)
 		return
 	}
 	writeProtoJSON(c, resp)
@@ -137,7 +138,7 @@ func (h *ModelHandler) GetBillingStats(c *gin.Context) {
 	}
 	resp, err := h.cli.GetBillingStats(ctx, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "msg": err.Error()})
+		response.GRPCError(c, err)
 		return
 	}
 	writeProtoJSON(c, resp)

@@ -26,14 +26,22 @@ func (l *ValidateBotTokenLogic) ValidateBotToken(in *pb.ValidateBotTokenReq) (*p
 	}
 
 	bot, err := l.svcCtx.Repo.GetBot(l.ctx, claims.BotID)
-	if err != nil || bot.Status != "active" {
+	if err != nil || bot.Status != "active" || bot.OwnerType != claims.OwnerType || bot.Type != claims.Type || !sameOwner(bot.OwnerID, claims.OwnerID) {
 		return &pb.ValidateBotTokenResp{Valid: false}, nil
 	}
 
 	return &pb.ValidateBotTokenResp{
-		Valid:   true,
-		BotId:   claims.BotID,
-		OwnerId: claims.OwnerID,
-		Type:    claims.Type,
+		Valid:     true,
+		BotId:     &claims.BotID,
+		OwnerId:   claims.OwnerID,
+		Type:      claims.Type,
+		OwnerType: &claims.OwnerType,
 	}, nil
+}
+
+func sameOwner(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }

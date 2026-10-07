@@ -6,6 +6,7 @@ import (
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	llmgateway "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
@@ -17,12 +18,17 @@ func NewLLMGatewayEmbedder(client zrpc.Client) domain.Embedder {
 	return &LLMGatewayEmbedder{client: client}
 }
 
-func (e *LLMGatewayEmbedder) Embed(ctx context.Context, texts []string, modelID int64, ownerID int64) ([][]float32, error) {
+func (e *LLMGatewayEmbedder) Embed(ctx context.Context, texts []string, modelID string, ownerID *string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
-	if modelID <= 0 {
-		return nil, errors.New(errors.CodeRPCError, "model_id is required for embedding")
+	if err := identity.Validate(modelID); err != nil {
+		return nil, errors.Wrap(errors.CodeInvalidParam, "invalid embedding model_id", err)
+	}
+	if ownerID != nil {
+		if err := identity.Validate(*ownerID); err != nil {
+			return nil, errors.Wrap(errors.CodeInvalidParam, "invalid embedding owner_id", err)
+		}
 	}
 
 	conn := e.client.Conn()
@@ -51,6 +57,6 @@ func (e *LLMGatewayEmbedder) Embed(ctx context.Context, texts []string, modelID 
 	return results, nil
 }
 
-func (e *LLMGatewayEmbedder) Dimensions(modelID int64) int {
+func (e *LLMGatewayEmbedder) Dimensions(modelID string) int {
 	return 1536
 }

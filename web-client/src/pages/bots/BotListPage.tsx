@@ -8,6 +8,7 @@ import { modelOptionLabel } from '@/utils/provider';
 import { UploadOutlined } from '@ant-design/icons';
 import { Avatar } from '@/components/common/Avatar';
 import type { CreateBotReq } from '@/types/api';
+import { useAuthStore } from '@/stores/auth';
 
 import './BotPage.css';
 
@@ -19,6 +20,7 @@ const BOT_TYPE_OPTIONS = [
 
 export function BotListPage() {
   const navigate = useNavigate();
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [step, setStep] = useState<'type' | 'form'>('type');
@@ -44,7 +46,7 @@ export function BotListPage() {
     .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name, owner_id: m.owner_id }));
 
   const embeddingModelOptions = models
-    .filter((m: any) => m.capability === 'embedding')
+    .filter((m) => m.capability === 'embed')
     .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name, owner_id: m.owner_id }));
 
   const modelMap = Object.fromEntries((models as any[])
@@ -52,7 +54,7 @@ export function BotListPage() {
     .map((m: any) => [m.id, m.model_name]));
 
   const embeddingModelMap = Object.fromEntries((models as any[])
-    .filter((m: any) => m.capability === 'embedding')
+    .filter((m) => m.capability === 'embed')
     .map((m: any) => [m.id, m.model_name]));
 
   const bots = data?.list ?? [];
@@ -69,11 +71,14 @@ export function BotListPage() {
   const handleCreate = async () => {
     try {
       const vals = await form.validateFields();
+      if (!currentUserId) throw new Error('请先登录');
       setCreating(true);
 
       const basePayload: Record<string, any> = {
         name: vals.name,
         type: selectedType,
+        owner_type: 'user',
+        owner_id: currentUserId,
       };
 
       // Build capabilities from switches
@@ -329,7 +334,7 @@ export function BotListPage() {
                   <Select mode="multiple" placeholder="选择触发方式" maxCount={3}>
                     <Select.Option value="mention">@提及时回复</Select.Option>
                     <Select.Option value="keyword">关键词匹配回复</Select.Option>
-                    <Select.Option value="all">自动回复全部消息</Select.Option>
+                    <Select.Option value="always">自动回复全部消息</Select.Option>
                   </Select>
                 </Form.Item>
                 {triggersValue?.includes('keyword') && (
@@ -377,7 +382,7 @@ export function BotListPage() {
                   <Select mode="multiple" placeholder="选择触发方式" maxCount={3}>
                     <Select.Option value="mention">@提及时回复</Select.Option>
                     <Select.Option value="keyword">关键词匹配回复</Select.Option>
-                    <Select.Option value="all">自动回复全部消息</Select.Option>
+                    <Select.Option value="always">自动回复全部消息</Select.Option>
                   </Select>
                 </Form.Item>
                 {triggersValue?.includes('keyword') && (
@@ -461,20 +466,19 @@ export function BotListPage() {
                       {/* AIM → Bot 消息格式（两种模式一致） */}
                       <div className="bot-guide-mode">
                         <div className="bot-guide-mode-title">📥 AIM 推送给你的事件格式</div>
-                        <p className="bot-guide-mode-desc">无论 WebSocket 还是 Webhook，你收到的事件格式相同。所有 ID 字段已转为 string 以避免 JS 精度丢失。</p>
+                        <p className="bot-guide-mode-desc">无论 WebSocket 还是 Webhook，你收到的事件格式相同。实体 ID 使用标准 UUID 字符串，seq 保持安全整数。</p>
                         <div className="bot-guide-code">
                           <pre>{`{
   "type": "message.created",
-  "conv_id": "123456789",
-  "bot_id": "987654321",
+  "conv_id": "0198abcd-0000-7000-8000-000000000001",
+  "bot_id": "0198abcd-0000-7000-8000-000000000002",
   "event": { "ts": 1717370000, "version": "1.0" },
   "message": {
-    "message_id": "...",
+    "message_id": "0198abcd-0000-7000-8000-000000000003",
     "msg_type": 1,
     "content": { "text": "你好" },
-    "seq": "42",
-    "reply_to_msg_id": "...",
-    "created_at": "1717370000000"
+    "seq": 42,
+    "created_at": 1717370000
   }
 }`}</pre>
                         </div>
@@ -489,14 +493,14 @@ export function BotListPage() {
                           <div className="bot-guide-code-title">WS 发送</div>
                           <pre>{`{
   "type": "message.send",
-  "conv_id": "123456789",
+  "conv_id": "0198abcd-0000-7000-8000-000000000001",
   "text": "你好，我收到了你的消息！",
-  "reply_to_id": "..."
+  "reply_to_id": "0198abcd-0000-7000-8000-000000000003"
 }`}</pre>
                         </div>
                         <div className="bot-guide-code" style={{ marginTop: 8 }}>
                           <div className="bot-guide-code-title">AIM 回复</div>
-                          <pre>{`{"type":"message.sent","message_id":"789","seq":10,"created_at":1717500000}`}</pre>
+                          <pre>{`{"type":"message.sent","message_id":"0198abcd-0000-7000-8000-000000000004","seq":10,"created_at":1717500000}`}</pre>
                         </div>
                       </div>
 
@@ -514,9 +518,9 @@ Content-Type: application/json`}</pre>
                           <div className="bot-guide-code-title">Request Body</div>
                           <pre>{`{
   "type": "message.send",
-  "conversation_id": "123456789",
+  "conversation_id": "0198abcd-0000-7000-8000-000000000001",
   "text": "你好，我收到了你的消息！",
-  "reply_to_id": "..."
+  "reply_to_id": "0198abcd-0000-7000-8000-000000000003"
 }`}</pre>
                         </div>
                       </div>

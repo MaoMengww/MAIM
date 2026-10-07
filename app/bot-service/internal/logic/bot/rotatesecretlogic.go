@@ -19,11 +19,14 @@ func NewRotateSecretLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Rota
 }
 
 func (l *RotateSecretLogic) RotateSecret(in *pb.RotateSecretReq) (*pb.RotateSecretResp, error) {
+	if err := validateCaller(l.ctx, in.UserId, in.BotId); err != nil {
+		return nil, err
+	}
 	bot, err := l.svcCtx.Repo.GetBot(l.ctx, in.BotId)
 	if err != nil {
 		return nil, ErrBotNotFound
 	}
-	if in.UserId != 0 && bot.OwnerID != 0 && in.UserId != bot.OwnerID {
+	if !canWrite(bot, in.UserId) {
 		return nil, ErrBotForbidden
 	}
 
@@ -44,7 +47,7 @@ func (l *RotateSecretLogic) RotateSecret(in *pb.RotateSecretReq) (*pb.RotateSecr
 		return nil, err
 	}
 
-	l.Infof("bot secret rotated: bot_id=%d", in.BotId)
+	l.Infof("bot secret rotated: bot_id=%s", in.BotId)
 	return &pb.RotateSecretResp{
 		WebhookSecret: webhookSecret,
 		AppSecret:     appSecret,

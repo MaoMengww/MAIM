@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/maomeng/aim/app/bot-service/internal/graph"
 	knowledgebase "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase"
@@ -22,11 +21,11 @@ func NewKnowledgeClient(c zrpc.Client) *KnowledgeClient {
 }
 
 // Retrieve fetches relevant knowledge chunks for a query.
-func (c *KnowledgeClient) Retrieve(ctx context.Context, query string, botID, convID int64, topK int, kbIDs []int64) ([]graph.KbDocument, error) {
+func (c *KnowledgeClient) Retrieve(ctx context.Context, query string, botID, convID string, topK int, kbIDs []string) ([]graph.KbDocument, error) {
 	resp, err := c.cli.Retrieve(ctx, &knowledgebase.RetrieveReq{
 		Query:  query,
-		BotId:  botID,
-		ConvId: convID,
+		BotId:  optionalID(botID),
+		ConvId: optionalID(convID),
 		KbIds:  kbIDs,
 	})
 	if err != nil {
@@ -36,7 +35,7 @@ func (c *KnowledgeClient) Retrieve(ctx context.Context, query string, botID, con
 	docs := make([]graph.KbDocument, 0, len(resp.Items))
 	for _, item := range resp.Items {
 		docs = append(docs, graph.KbDocument{
-			DocID:          strconv.FormatInt(item.DocId, 10),
+			DocID:          item.DocId,
 			Title:          item.DocTitle,
 			Content:        item.Content,
 			MatchedContent: item.MatchedContent,
@@ -49,12 +48,12 @@ func (c *KnowledgeClient) Retrieve(ctx context.Context, query string, botID, con
 }
 
 // ListBoundKBs returns all KBs bound to a bot or conversation, with mode info.
-func (c *KnowledgeClient) ListBoundKBs(ctx context.Context, botID, convID int64) ([]graph.BoundKB, error) {
-	var seen = make(map[int64]bool)
+func (c *KnowledgeClient) ListBoundKBs(ctx context.Context, botID, convID string) ([]graph.BoundKB, error) {
+	var seen = make(map[string]bool)
 	var result []graph.BoundKB
 
-	addBindings := func(targetType string, targetID int64) {
-		if targetID <= 0 {
+	addBindings := func(targetType string, targetID string) {
+		if targetID == "" {
 			return
 		}
 		resp, err := c.cli.ListBindings(ctx, &knowledgebase.ListBindingsReq{

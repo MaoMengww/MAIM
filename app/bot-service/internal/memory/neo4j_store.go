@@ -101,7 +101,7 @@ func (s *Neo4jStore) AddFacts(ctx context.Context, facts []Fact) error {
 }
 
 func (s *Neo4jStore) addFact(ctx context.Context, tx neo4j.ManagedTransaction, fact Fact) error {
-	if fact.ID == 0 || fact.BotID == 0 || fact.UserID == 0 || fact.Object == "" || fact.Predicate == "" {
+	if fact.ID == 0 || fact.BotID == "" || fact.UserID == "" || fact.Object == "" || fact.Predicate == "" {
 		return nil
 	}
 	now := time.Now()
@@ -351,7 +351,7 @@ func (s *Neo4jStore) addAlias(ctx context.Context, scope Scope, normalizedName, 
 	return err
 }
 
-func recordToEntity(record *neo4j.Record, botID, userID int64) *Entity {
+func recordToEntity(record *neo4j.Record, botID, userID string) *Entity {
 	aliases := getStringSlice(record, "aliases")
 	return &Entity{
 		BotID:          botID,
@@ -587,7 +587,7 @@ func (s *Neo4jStore) SearchWithTraversal(ctx context.Context, scope Scope, query
 }
 
 // GetProfileData returns the current profile text and last update time for a user.
-func (s *Neo4jStore) GetProfileData(ctx context.Context, botID, userID int64) (string, time.Time, error) {
+func (s *Neo4jStore) GetProfileData(ctx context.Context, botID, userID string) (string, time.Time, error) {
 	value, err := s.read(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
 		result, err := tx.Run(ctx, `
 	MATCH (u:UserProfile {botID: $botID, userID: $userID})
@@ -613,7 +613,7 @@ func (s *Neo4jStore) GetProfileData(ctx context.Context, botID, userID int64) (s
 }
 
 // CountNewFactsSince returns how many active facts were created since the given time.
-func (s *Neo4jStore) CountNewFactsSince(ctx context.Context, botID, userID int64, since time.Time) (int, error) {
+func (s *Neo4jStore) CountNewFactsSince(ctx context.Context, botID, userID string, since time.Time) (int, error) {
 	value, err := s.read(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
 		result, err := tx.Run(ctx, `
 	MATCH (u:UserProfile {botID: $botID, userID: $userID})-[r:HAS_FACT]->(:Entity)
@@ -639,7 +639,7 @@ func (s *Neo4jStore) CountNewFactsSince(ctx context.Context, botID, userID int64
 }
 
 // GetIncrementalFacts returns new active facts and recently-expired facts since the given time.
-func (s *Neo4jStore) GetIncrementalFacts(ctx context.Context, botID, userID int64, since time.Time) ([]ProfileFact, []ProfileFact, error) {
+func (s *Neo4jStore) GetIncrementalFacts(ctx context.Context, botID, userID string, since time.Time) ([]ProfileFact, []ProfileFact, error) {
 	// New active facts.
 	newValue, err := s.read(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
 		result, err := tx.Run(ctx, `
@@ -702,7 +702,7 @@ func (s *Neo4jStore) GetIncrementalFacts(ctx context.Context, botID, userID int6
 }
 
 // GetInitialProfileFacts returns top N active facts by importance for first-time profile generation.
-func (s *Neo4jStore) GetInitialProfileFacts(ctx context.Context, botID, userID int64, limit int) ([]ProfileFact, error) {
+func (s *Neo4jStore) GetInitialProfileFacts(ctx context.Context, botID, userID string, limit int) ([]ProfileFact, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -739,7 +739,7 @@ func (s *Neo4jStore) GetInitialProfileFacts(ctx context.Context, botID, userID i
 }
 
 // UpdateProfile sets the profile text and updatedAt on the UserProfile node.
-func (s *Neo4jStore) UpdateProfile(ctx context.Context, botID, userID int64, profileText string, updatedAt time.Time) error {
+func (s *Neo4jStore) UpdateProfile(ctx context.Context, botID, userID string, profileText string, updatedAt time.Time) error {
 	if updatedAt.IsZero() {
 		updatedAt = time.Now()
 	}

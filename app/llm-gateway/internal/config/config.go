@@ -13,13 +13,8 @@ type Config struct {
 	ModelConf      ModelConf             `json:"modelConf"`
 	RateLimit      RateLimitConf         `json:"rateLimit"`
 	EncKey         string                `json:"encKey,optional"`
-	Snowflake      SnowflakeConfig       `json:"snowflake"`
 	UserService    zrpc.RpcClientConf    `json:"userService"`
 	EmbeddingQuota EmbeddingQuotaConfig  `json:"embeddingQuota"`
-}
-
-type SnowflakeConfig struct {
-	WorkerID int64 `json:"workerId,default=1"`
 }
 
 type ModelConf struct {

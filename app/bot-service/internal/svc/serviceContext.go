@@ -13,13 +13,14 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/migrations/postgres"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/delivery"
+	"github.com/maomeng/aim/pkg/identity"
 	pkgjwt "github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
-	"github.com/maomeng/aim/pkg/snowflake"
 
 	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
@@ -59,12 +60,11 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		panic(fmt.Sprintf("database init failed: %v", err))
 	}
-
-	sf, err := snowflake.NewNode(c.Snowflake.WorkerID)
-	if err != nil {
-		panic(fmt.Sprintf("snowflake init failed: %v", err))
+	if err := database.RunMigrations(db.DB, postgres.FS); err != nil {
+		panic(fmt.Sprintf("run migrations failed: %v", err))
 	}
-	r := repo.NewBotRepo(db, sf)
+
+	r := repo.NewBotRepo(db)
 	base := &ServiceContext{Config: c, DB: db, Logger: logger, Repo: r, BotRepo: r,
 		EncryptionKey: []byte(c.EncryptionKey), BotJWT: pkgjwt.NewManager(c.JWT.Secret, c.JWT.ExpireSec, c.JWT.RefreshSec)}
 	base.DeliveryPublisher, err = delivery.NewPublisher(c.Kafka, logger)
@@ -72,9 +72,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		panic(fmt.Sprintf("delivery publisher init failed: %v", err))
 	}
 	if c.Role != "runtime" {
-		if err := db.AutoMigrate(&model.Bot{}, &model.McpServer{}, &model.BotMcpServer{}, &model.McpTool{}); err != nil {
-			panic(fmt.Sprintf("auto migrate failed: %v", err))
-		}
 		ensureSeedTemplates(context.Background(), r, logger)
 		base.MessageClient = msgpb.NewMessageServiceClient(zrpc.MustNewClient(c.MessageService).Conn())
 	}
@@ -137,9 +134,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 	memoryManager := memory.NewManager(logger, memoryStore, nil, memoryIDGen, memoryEmbedder, memoryVector)
 	memoryManager.SetVectorTopK(c.Memory.VectorTopKMult)
-	memoryManager.SetProfileChat(func(ctx context.Context, modelID int64, modelName string, ownerID int64, prompt string) (string, error) {
+	memoryManager.SetProfileChat(func(ctx context.Context, modelID string, modelName string, ownerID *string, botID string, prompt string) (string, error) {
 		llmClient := client.NewLlmGatewayClient(llmGatewayConn)
-		chatModel := llmClient.NewEinoChatModel(modelID, modelName, ownerID)
+		chatModel := llmClient.NewEinoChatModel(modelID, modelName, ownerID, botID)
 		msgs := []*schema.Message{{Role: schema.User, Content: prompt}}
 		resp, err := chatModel.Generate(ctx, msgs)
 		if err != nil {
@@ -214,9 +211,9 @@ func ensureSeedTemplates(ctx context.Context, r repo.BotRepoInterface, log logx.
 }
 
 func createTemplateBot(ctx context.Context, r repo.BotRepoInterface, log logx.Logger, templateID, name, systemPrompt string, temperature float64, maxContextMessages int, enableKnowledge bool) {
-	id, err := r.NextID(ctx)
+	id, err := identity.New()
 	if err != nil {
-		log.Errorf("create template bot %s: next id failed: %v", templateID, err)
+		log.Errorf("create template bot %s: generate identity failed: %v", templateID, err)
 		return
 	}
 	settings, _ := json.Marshal(map[string]any{
@@ -225,7 +222,7 @@ func createTemplateBot(ctx context.Context, r repo.BotRepoInterface, log logx.Lo
 
 	bot := &model.Bot{
 		ID:                 id,
-		OwnerID:            0,
+		OwnerType:          "platform",
 		Name:               name,
 		Type:               consts.BotTypeOfficial,
 		TemplateID:         templateID,

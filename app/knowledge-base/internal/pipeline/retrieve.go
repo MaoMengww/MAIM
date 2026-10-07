@@ -10,15 +10,14 @@ import (
 )
 
 type RetrievePipeline struct {
-	KBRepo           domain.KBRepo
-	Embedder         domain.Embedder
-	VectorStore      domain.VectorStore
-	Reranker         domain.Reranker
-	Logger           logx.Logger
-	EmbeddingModelID int64
+	KBRepo      domain.KBRepo
+	Embedder    domain.Embedder
+	VectorStore domain.VectorStore
+	Reranker    domain.Reranker
+	Logger      logx.Logger
 }
 
-func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []int64, query string, retrievalCfg domain.RetrievalConfig, embeddingModelID, ownerID int64) ([]domain.RetrieveItem, error) {
+func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []int64, query string, retrievalCfg domain.RetrievalConfig, embeddingModelID string, ownerID *string) ([]domain.RetrieveItem, error) {
 	logger := p.Logger.WithContext(ctx)
 	if len(kbIDs) == 0 {
 		return nil, nil
@@ -73,12 +72,15 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []int64, query st
 
 	// 4. Optional Rerank
 	if retrievalCfg.Rerank.Enabled && p.Reranker != nil && len(results) > retrievalCfg.TopK {
+		if retrievalCfg.Rerank.ModelID == nil {
+			return nil, errors.New(errors.CodeInvalidParam, "rerank model is not configured")
+		}
 		candidates := make([]domain.RerankCandidate, len(results))
 		for i, r := range results {
 			candidates[i] = domain.RerankCandidate{Index: i, Content: r.Content}
 		}
 		reranked, err := p.Reranker.Rerank(ctx, &domain.RerankRequest{
-			ModelID:    retrievalCfg.Rerank.ModelID,
+			ModelID:    *retrievalCfg.Rerank.ModelID,
 			OwnerID:    ownerID,
 			Query:      query,
 			Candidates: candidates,

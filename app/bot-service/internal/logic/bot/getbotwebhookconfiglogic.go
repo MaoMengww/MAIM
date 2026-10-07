@@ -19,6 +19,9 @@ func NewGetBotWebhookConfigLogic(ctx context.Context, svcCtx *svc.ServiceContext
 }
 
 func (l *GetBotWebhookConfigLogic) GetBotWebhookConfig(in *pb.GetBotWebhookConfigReq) (*pb.GetBotWebhookConfigResp, error) {
+	if err := validateIDs(in.BotId); err != nil {
+		return nil, err
+	}
 	bot, err := l.svcCtx.Repo.GetBot(l.ctx, in.BotId)
 	if err != nil {
 		return nil, err

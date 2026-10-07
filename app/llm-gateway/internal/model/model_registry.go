@@ -3,7 +3,7 @@ package model
 import "time"
 
 type ModelRegistry struct {
-	ID                 int64          `gorm:"primaryKey;column:id" json:"id"`
+	ID                 string         `gorm:"primaryKey;column:id;type:uuid" json:"id"`
 	ModelName          string         `gorm:"column:model_name" json:"model_name"`
 	Provider           string         `gorm:"column:provider" json:"provider"`
 	Capability         string         `gorm:"column:capability" json:"capability"`
@@ -14,7 +14,8 @@ type ModelRegistry struct {
 	InputPricePerMTok  float64        `gorm:"column:input_price_per_mtok;type:double precision" json:"input_price_per_mtok"`
 	OutputPricePerMTok float64        `gorm:"column:output_price_per_mtok;type:double precision" json:"output_price_per_mtok"`
 	Status             string         `gorm:"column:status" json:"status"`
-	OwnerID            int64          `gorm:"column:owner_id" json:"owner_id"`
+	OwnerType          string         `gorm:"column:owner_type;not null" json:"owner_type"`
+	OwnerID            *string        `gorm:"column:owner_id;type:uuid" json:"owner_id"`
 	Metadata           map[string]any `gorm:"column:metadata;serializer:json" json:"metadata"`
 	CreatedAt          time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt          time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`

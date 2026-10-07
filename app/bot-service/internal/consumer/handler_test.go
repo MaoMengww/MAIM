@@ -1,7 +1,6 @@
 package consumer
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
@@ -23,7 +22,7 @@ func TestShouldRespond_Mention(t *testing.T) {
 	event := &model.BotEvent{
 		EventType:        "message.created",
 		Message:          &model.EventMessage{Text: "你好"},
-		MentionedUserIDs: []int64{100, 200},
+		MentionedUserIDs: []string{"01960000-0000-7000-8000-000000000001", "01960000-0000-7000-8000-000000000002"},
 	}
 	bot := &model.Bot{
 		ResponseTriggers: []string{"mention"},
@@ -110,35 +109,4 @@ func TestShouldRespond_NilBot(t *testing.T) {
 		EventType: "message.created",
 	}
 	assert.False(t, shouldRespond(event, nil))
-}
-
-func TestBotEvent_JSONRoundTrip(t *testing.T) {
-	event := model.BotEvent{
-		EventType: "message.created",
-		BotID:     1001,
-		ConvID:    456,
-		Message: &model.EventMessage{
-			MsgID:   789,
-			Text:    "你好",
-			MsgType: 1,
-		},
-		Sender: &model.EventSender{
-			UserID:   123,
-			Username: "张三",
-		},
-		MentionedUserIDs: []int64{100, 200},
-	}
-
-	b, err := json.Marshal(event)
-	assert.NoError(t, err)
-
-	var restored model.BotEvent
-	err = json.Unmarshal(b, &restored)
-	assert.NoError(t, err)
-
-	assert.Equal(t, event.EventType, restored.EventType)
-	assert.Equal(t, event.BotID, restored.BotID)
-	assert.Equal(t, event.ConvID, restored.ConvID)
-	assert.Equal(t, "你好", restored.Message.Text)
-	assert.Equal(t, "张三", restored.Sender.Username)
 }

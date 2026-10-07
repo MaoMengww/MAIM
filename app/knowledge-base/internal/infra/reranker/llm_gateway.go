@@ -1,12 +1,14 @@
 package reranker
 
 import (
+	"cmp"
 	"context"
-	"sort"
+	"slices"
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	pb "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
@@ -19,6 +21,14 @@ func NewLLMGatewayReranker(client zrpc.Client) domain.Reranker {
 }
 
 func (r *LLMGatewayReranker) Rerank(ctx context.Context, req *domain.RerankRequest) ([]domain.RerankResult, error) {
+	if err := identity.Validate(req.ModelID); err != nil {
+		return nil, errors.Wrap(errors.CodeInvalidParam, "invalid rerank model_id", err)
+	}
+	if req.OwnerID != nil {
+		if err := identity.Validate(*req.OwnerID); err != nil {
+			return nil, errors.Wrap(errors.CodeInvalidParam, "invalid rerank owner_id", err)
+		}
+	}
 	texts := make([]string, len(req.Candidates))
 	for i, c := range req.Candidates {
 		texts[i] = c.Content
@@ -55,8 +65,8 @@ func (r *LLMGatewayReranker) Rerank(ctx context.Context, req *domain.RerankReque
 		}
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
+	slices.SortFunc(results, func(a, b domain.RerankResult) int {
+		return cmp.Compare(b.Score, a.Score)
 	})
 
 	return results, nil

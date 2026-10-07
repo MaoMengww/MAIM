@@ -31,6 +31,7 @@ type VlmChatReq struct {
 	Temperature   float64                `protobuf:"fixed64,5,opt,name=temperature,proto3" json:"temperature,omitempty"`
 	MaxTokens     int32                  `protobuf:"varint,6,opt,name=max_tokens,json=maxTokens,proto3" json:"max_tokens,omitempty"`
 	OwnerId       *string                `protobuf:"bytes,7,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
+	BotId         *string                `protobuf:"bytes,8,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -110,6 +111,13 @@ func (x *VlmChatReq) GetMaxTokens() int32 {
 func (x *VlmChatReq) GetOwnerId() string {
 	if x != nil && x.OwnerId != nil {
 		return *x.OwnerId
+	}
+	return ""
+}
+
+func (x *VlmChatReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
 	}
 	return ""
 }
@@ -1687,6 +1695,9 @@ type BillingRecordItem struct {
 	TotalCost     float64                `protobuf:"fixed64,9,opt,name=total_cost,json=totalCost,proto3" json:"total_cost,omitempty"`
 	Provider      string                 `protobuf:"bytes,10,opt,name=provider,proto3" json:"provider,omitempty"`
 	CreatedAt     string                 `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ModelId       string                 `protobuf:"bytes,12,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	OwnerId       *string                `protobuf:"bytes,13,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
+	OwnerType     string                 `protobuf:"bytes,14,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1794,6 +1805,27 @@ func (x *BillingRecordItem) GetProvider() string {
 func (x *BillingRecordItem) GetCreatedAt() string {
 	if x != nil {
 		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *BillingRecordItem) GetModelId() string {
+	if x != nil {
+		return x.ModelId
+	}
+	return ""
+}
+
+func (x *BillingRecordItem) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
+	}
+	return ""
+}
+
+func (x *BillingRecordItem) GetOwnerType() string {
+	if x != nil {
+		return x.OwnerType
 	}
 	return ""
 }
@@ -2139,7 +2171,7 @@ var File_llm_gateway_llm_gateway_proto protoreflect.FileDescriptor
 const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\n" +
 	"\x1dllm-gateway/llm-gateway.proto\x12\n" +
-	"llmgateway\x1a\x13common/common.proto\"\x8a\x02\n" +
+	"llmgateway\x1a\x13common/common.proto\"\xb9\x02\n" +
 	"\n" +
 	"VlmChatReq\x12!\n" +
 	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12#\n" +
@@ -2151,8 +2183,10 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\vtemperature\x18\x05 \x01(\x01R\vtemperature\x12\x1d\n" +
 	"\n" +
 	"max_tokens\x18\x06 \x01(\x05R\tmaxTokens\x12&\n" +
-	"\bowner_id\x18\a \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01B\v\n" +
-	"\t_owner_id\"_\n" +
+	"\bowner_id\x18\a \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\"\n" +
+	"\x06bot_id\x18\b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x05botId\x88\x01\x01B\v\n" +
+	"\t_owner_idB\t\n" +
+	"\a_bot_id\"_\n" +
 	"\aToolDef\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x1e\n" +
@@ -2324,7 +2358,7 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\x15ListBillingRecordsReq\x12!\n" +
 	"\bowner_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\aownerId\x12\x12\n" +
 	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"\xfb\x02\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"\xf2\x03\n" +
 	"\x11BillingRecordItem\x12\x16\n" +
 	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\"\n" +
 	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12\x1d\n" +
@@ -2344,8 +2378,13 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\bprovider\x18\n" +
 	" \x01(\tR\bprovider\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\v \x01(\tR\tcreatedAtB\t\n" +
-	"\a_bot_id\"c\n" +
+	"created_at\x18\v \x01(\tR\tcreatedAt\x12!\n" +
+	"\bmodel_id\x18\f \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12&\n" +
+	"\bowner_id\x18\r \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"owner_type\x18\x0e \x01(\tR\townerTypeB\t\n" +
+	"\a_bot_idB\v\n" +
+	"\t_owner_id\"c\n" +
 	"\x16ListBillingRecordsResp\x123\n" +
 	"\x05items\x18\x01 \x03(\v2\x1d.llmgateway.BillingRecordItemR\x05items\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total2\xe5\x05\n" +

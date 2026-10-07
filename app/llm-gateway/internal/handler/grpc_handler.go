@@ -23,6 +23,8 @@ import (
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/crypto"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/interceptor"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -39,10 +41,13 @@ func NewLLMGatewayHandler(svcCtx *svc.ServiceContext) *LLMGatewayHandler {
 	}
 }
 
-// resolveModel looks up a model by its registry ID and returns its info.
-func (h *LLMGatewayHandler) resolveModel(modelID int64) (*modelEntryInfo, error) {
-	if modelID <= 0 {
-		return nil, errors.New(errors.CodeInvalidParam, "model_id is required")
+// resolveModel applies the same visibility contract as model selection to every call.
+func (h *LLMGatewayHandler) resolveModel(ctx context.Context, modelID string, botID, ownerID *string, capability string) (*modelEntryInfo, error) {
+	if identity.Validate(modelID) != nil {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid model_id")
+	}
+	if err := validateInvocation(ctx, botID, ownerID); err != nil {
+		return nil, err
 	}
 	entry, err := h.svcCtx.ModelRepo.FindByID(modelID)
 	if err != nil {
@@ -51,19 +56,65 @@ func (h *LLMGatewayHandler) resolveModel(modelID int64) (*modelEntryInfo, error)
 	if entry == nil {
 		return nil, errors.New(errors.CodeNotFound, "model not found")
 	}
-	if entry.Status != "active" {
+	if entry.Status != "active" || !modelVisible(entry.OwnerType, entry.OwnerID, ownerID) {
 		return nil, errors.New(errors.CodeForbidden, "model unavailable")
 	}
-	return &modelEntryInfo{ModelEntry: entry, Provider: entry.Provider, TrackBilling: entry.OwnerID == 0}, nil
+	if entry.Capability != capability {
+		return nil, errors.New(errors.CodeInvalidParam, "model capability mismatch")
+	}
+	return &modelEntryInfo{ModelEntry: entry, Provider: entry.Provider, TrackBilling: entry.OwnerType == "platform"}, nil
+}
+
+func modelVisible(ownerType string, ownerID, requestedOwner *string) bool {
+	switch ownerType {
+	case "platform":
+		return ownerID == nil
+	case "user":
+		return ownerID != nil && requestedOwner != nil && *ownerID == *requestedOwner
+	default:
+		return false
+	}
+}
+
+func validateInvocation(ctx context.Context, botID, ownerID *string) error {
+	for _, id := range []*string{botID, ownerID} {
+		if id != nil && identity.Validate(*id) != nil {
+			return errors.New(errors.CodeInvalidParam, "invalid entity reference")
+		}
+	}
+	if caller, ok := ctx.Value(interceptor.ContextKeyUserID).(string); ok {
+		if identity.Validate(caller) != nil {
+			return errors.ErrUnauthorized
+		}
+		if ownerID == nil || *ownerID != caller {
+			return errors.ErrForbidden
+		}
+	}
+	return nil
+}
+
+func requireOwner(ctx context.Context, ownerID string) error {
+	caller, _ := ctx.Value(interceptor.ContextKeyUserID).(string)
+	if identity.Validate(caller) != nil {
+		return errors.ErrUnauthorized
+	}
+	if identity.Validate(ownerID) != nil {
+		return errors.New(errors.CodeInvalidParam, "invalid owner_id")
+	}
+	if caller != ownerID {
+		return errors.ErrForbidden
+	}
+	return nil
 }
 
 // ----- Balance check for official models -----
 
-func (h *LLMGatewayHandler) checkBalance(ctx context.Context, ownerID int64) error {
-	if ownerID <= 0 {
+func (h *LLMGatewayHandler) checkBalance(ctx context.Context, ownerID *string) error {
+	if ownerID == nil {
 		return nil
 	}
-	resp, err := h.svcCtx.UserClient.GetBalance(ctx, &userpb.GetBalanceReq{UserId: ownerID})
+	ctx = balanceContext(ctx, *ownerID)
+	resp, err := h.svcCtx.UserClient.GetBalance(ctx, &userpb.GetBalanceReq{UserId: *ownerID})
 	if err != nil {
 		return err
 	}
@@ -73,14 +124,24 @@ func (h *LLMGatewayHandler) checkBalance(ctx context.Context, ownerID int64) err
 	return nil
 }
 
-func (h *LLMGatewayHandler) deductBalance(ctx context.Context, ownerID int64, cost float64) {
-	if ownerID <= 0 || cost <= 0 {
+func (h *LLMGatewayHandler) deductBalance(ctx context.Context, ownerID *string, cost float64) {
+	if ownerID == nil || cost <= 0 {
 		return
 	}
+	ctx = balanceContext(ctx, *ownerID)
 	_, _ = h.svcCtx.UserClient.DeductBalance(ctx, &userpb.DeductBalanceReq{
-		UserId: ownerID,
+		UserId: *ownerID,
 		Amount: cost,
 	})
+}
+
+// Balance RPCs operate on the charged owner, including trusted Bot calls
+// without an end-user caller. Replace, rather than append, caller metadata.
+func balanceContext(ctx context.Context, ownerID string) context.Context {
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	md.Set("user-id", ownerID)
+	return metadata.NewOutgoingContext(ctx, md)
 }
 
 func (h *LLMGatewayHandler) calcCost(info *modelEntryInfo, inputTokens, outputTokens int) float64 {
@@ -114,13 +175,13 @@ func (h *LLMGatewayHandler) Chat(ctx context.Context, req *pb.ChatReq) (resp *pb
 		}
 	}()
 
-	info, err = h.resolveModel(req.ModelId)
+	info, err = h.resolveModel(ctx, req.ModelId, req.BotId, req.OwnerId, "chat")
 	if err != nil {
 		return nil, err
 	}
 
 	modelName := info.ModelEntry.ModelName
-	log.Infof("method=Chat model=%s model_id=%d bot_id=%d owner_id=%d", modelName, req.ModelId, req.BotId, req.OwnerId)
+	log.Infof("method=Chat model=%s model_id=%s bot_id=%s owner_id=%s", modelName, req.ModelId, req.GetBotId(), req.GetOwnerId())
 
 	if info.TrackBilling {
 		if err := h.checkBalance(ctx, req.OwnerId); err != nil {
@@ -138,14 +199,12 @@ func (h *LLMGatewayHandler) Chat(ctx context.Context, req *pb.ChatReq) (resp *pb
 
 	cm := llm.NewChatModel(modelName, info.Provider, info.ModelEntry.APIKey, info.ModelEntry.BaseURL)
 
-	if info.TrackBilling {
-		ctx = llm.WithBillingInfo(ctx, &llm.BillingInfo{
-			BotID:      req.BotId,
-			OwnerID:    req.OwnerId,
-			Capability: "chat",
-			ModelEntry: info.ModelEntry,
-		})
-	}
+	ctx = llm.WithBillingInfo(ctx, &llm.BillingInfo{
+		BotID:      req.BotId,
+		OwnerID:    req.OwnerId,
+		Capability: "chat",
+		ModelEntry: info.ModelEntry,
+	})
 
 	ctx = callbacks.InitCallbacks(ctx, &callbacks.RunInfo{
 		Name:      modelName,
@@ -219,16 +278,20 @@ func (h *LLMGatewayHandler) Chat(ctx context.Context, req *pb.ChatReq) (resp *pb
 // ----- ChatStream (Eino ChatModel + CallbackBilling) -----
 
 func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_ChatStreamServer) error {
-	ctx := stream.Context()
+	ctx, err := interceptor.WithUserIDFromMetadata(stream.Context())
+	if err != nil {
+		return err
+	}
+	ctx = interceptor.WithRequestIDFromMetadata(ctx)
 	log := h.svcCtx.Logger.WithContext(ctx)
 
-	info, err := h.resolveModel(req.ModelId)
+	info, err := h.resolveModel(ctx, req.ModelId, req.BotId, req.OwnerId, "chat")
 	if err != nil {
 		return err
 	}
 
 	modelName := info.ModelEntry.ModelName
-	log.Infof("method=ChatStream model=%s model_id=%d bot_id=%d owner_id=%d", modelName, req.ModelId, req.BotId, req.OwnerId)
+	log.Infof("method=ChatStream model=%s model_id=%s bot_id=%s owner_id=%s", modelName, req.ModelId, req.GetBotId(), req.GetOwnerId())
 
 	if info.TrackBilling {
 		if err := h.checkBalance(ctx, req.OwnerId); err != nil {
@@ -246,14 +309,12 @@ func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_Cha
 
 	cm := llm.NewChatModel(modelName, info.Provider, info.ModelEntry.APIKey, info.ModelEntry.BaseURL)
 
-	if info.TrackBilling {
-		ctx = llm.WithBillingInfo(ctx, &llm.BillingInfo{
-			BotID:      req.BotId,
-			OwnerID:    req.OwnerId,
-			Capability: "chat",
-			ModelEntry: info.ModelEntry,
-		})
-	}
+	ctx = llm.WithBillingInfo(ctx, &llm.BillingInfo{
+		BotID:      req.BotId,
+		OwnerID:    req.OwnerId,
+		Capability: "chat",
+		ModelEntry: info.ModelEntry,
+	})
 
 	ctx = callbacks.InitCallbacks(ctx, &callbacks.RunInfo{
 		Name:      modelName,
@@ -338,12 +399,9 @@ func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_Cha
 func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.EmbedResp, error) {
 	log := h.svcCtx.Logger.WithContext(ctx)
 
-	info, err := h.resolveModel(req.ModelId)
+	info, err := h.resolveModel(ctx, req.ModelId, req.BotId, req.OwnerId, "embed")
 	if err != nil {
 		return nil, err
-	}
-	if info.ModelEntry.OwnerID != 0 && info.ModelEntry.OwnerID != req.OwnerId {
-		return nil, errors.ErrForbidden
 	}
 	workload := "online"
 	limiter := h.svcCtx.OnlineEmbeddingLimiter
@@ -371,7 +429,7 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 	}()
 
 	modelName := info.ModelEntry.ModelName
-	log.Infof("method=Embed model=%s model_id=%d input_count=%d bot_id=%d owner_id=%d", modelName, req.ModelId, len(req.Input), req.BotId, req.OwnerId)
+	log.Infof("method=Embed model=%s model_id=%s input_count=%d bot_id=%s owner_id=%s", modelName, req.ModelId, len(req.Input), req.GetBotId(), req.GetOwnerId())
 
 	if info.TrackBilling {
 		if err := h.checkBalance(ctx, req.OwnerId); err != nil {
@@ -419,11 +477,13 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 		return nil, errors.Wrap(errors.CodeRPCError, "embeddings failed: "+err.Error(), err)
 	}
 
-	if promptTokens != nil && *promptTokens > 0 && info.TrackBilling && info.ModelEntry != nil {
+	if promptTokens != nil && *promptTokens > 0 {
 		h.recordBilling(info.ModelEntry, req.BotId, req.OwnerId, "embed",
 			&domain.UsageInfo{PromptTokens: *promptTokens, TotalTokens: *promptTokens})
-		cost := h.calcCost(info, *promptTokens, 0)
-		h.deductBalance(ctx, req.OwnerId, cost)
+		if info.TrackBilling {
+			cost := h.calcCost(info, *promptTokens, 0)
+			h.deductBalance(ctx, req.OwnerId, cost)
+		}
 	}
 
 	data := make([]*pb.EmbedResp_Embedding, len(embeddings))
@@ -471,7 +531,7 @@ func waitEmbeddingQuota(ctx context.Context, workload string, acquire func() err
 func (h *LLMGatewayHandler) Rerank(ctx context.Context, req *pb.RerankReq) (*pb.RerankResp, error) {
 	log := h.svcCtx.Logger.WithContext(ctx)
 
-	info, err := h.resolveModel(req.ModelId)
+	info, err := h.resolveModel(ctx, req.ModelId, req.BotId, req.OwnerId, "rerank")
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +541,7 @@ func (h *LLMGatewayHandler) Rerank(ctx context.Context, req *pb.RerankReq) (*pb.
 	if len(queryTrunc) > 200 {
 		queryTrunc = queryTrunc[:200] + "..."
 	}
-	log.Infof("method=Rerank model=%s model_id=%d query=%s docs=%d", modelName, req.ModelId, queryTrunc, len(req.Documents))
+	log.Infof("method=Rerank model=%s model_id=%s query=%s docs=%d", modelName, req.ModelId, queryTrunc, len(req.Documents))
 
 	if info.TrackBilling {
 		if err := h.checkBalance(ctx, req.OwnerId); err != nil {
@@ -504,11 +564,13 @@ func (h *LLMGatewayHandler) Rerank(ctx context.Context, req *pb.RerankReq) (*pb.
 		return nil, errors.Wrap(errors.CodeRPCError, "rerank failed", err)
 	}
 
-	if result.Tokens > 0 && info.TrackBilling && info.ModelEntry != nil {
+	if result.Tokens > 0 {
 		h.recordBilling(info.ModelEntry, req.BotId, req.OwnerId, "rerank",
-			&domain.UsageInfo{TotalTokens: result.Tokens})
-		cost := h.calcCost(info, result.Tokens, 0)
-		h.deductBalance(ctx, req.OwnerId, cost)
+			&domain.UsageInfo{PromptTokens: result.Tokens, TotalTokens: result.Tokens})
+		if info.TrackBilling {
+			cost := h.calcCost(info, result.Tokens, 0)
+			h.deductBalance(ctx, req.OwnerId, cost)
+		}
 	}
 
 	results := make([]*pb.RerankResp_Result, len(result.Items))
@@ -538,6 +600,9 @@ type modelEntryInfo struct {
 // ----- Model CRUD -----
 
 func (h *LLMGatewayHandler) ListModels(ctx context.Context, req *pb.ListModelsReq) (*pb.ListModelsResp, error) {
+	if err := validateInvocation(ctx, nil, req.OwnerId); err != nil {
+		return nil, err
+	}
 	entries := h.svcCtx.ModelRepo.ListAll()
 	var items []*pb.ModelResp
 	for _, e := range entries {
@@ -547,7 +612,7 @@ func (h *LLMGatewayHandler) ListModels(ctx context.Context, req *pb.ListModelsRe
 		if req.Capability != "" && e.Capability != req.Capability {
 			continue
 		}
-		if e.OwnerID != 0 && e.OwnerID != req.OwnerId {
+		if !modelVisible(e.OwnerType, e.OwnerID, req.OwnerId) {
 			continue
 		}
 		items = append(items, &pb.ModelResp{
@@ -557,21 +622,35 @@ func (h *LLMGatewayHandler) ListModels(ctx context.Context, req *pb.ListModelsRe
 			Capability:         e.Capability,
 			BaseUrl:            e.BaseURL,
 			OwnerId:            e.OwnerID,
+			OwnerType:          e.OwnerType,
 			Status:             e.Status,
 			InputPricePerMtok:  e.InputPricePerMTok,
 			OutputPricePerMtok: e.OutputPricePerMTok,
-			ApiKey:             e.APIKey,
+			ApiKey:             visibleAPIKey(e),
 		})
 	}
 	return &pb.ListModelsResp{Items: items, Total: int32(len(items))}, nil
 }
 
+func visibleAPIKey(entry *domain.ModelEntry) string {
+	if entry.OwnerType == "user" {
+		return entry.APIKey
+	}
+	return ""
+}
+
 func (h *LLMGatewayHandler) CreateModel(ctx context.Context, req *pb.CreateModelReq) (*pb.ModelResp, error) {
+	if req.OwnerType != "user" || req.OwnerId == nil {
+		return nil, errors.ErrForbidden
+	}
+	if err := requireOwner(ctx, *req.OwnerId); err != nil {
+		return nil, err
+	}
 	encrypted, err := crypto.EncryptString(req.ApiKey, h.svcCtx.EncKey)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "encrypt api key failed", err)
 	}
-	recID, err := h.svcCtx.Snowflake.Generate()
+	recID, err := identity.New()
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "generate model id failed", err)
 	}
@@ -585,12 +664,15 @@ func (h *LLMGatewayHandler) CreateModel(ctx context.Context, req *pb.CreateModel
 		InputPricePerMTok:  req.InputPricePerMtok,
 		OutputPricePerMTok: req.OutputPricePerMtok,
 		Status:             "active",
+		OwnerType:          req.OwnerType,
 		OwnerID:            req.OwnerId,
 	}
 	if err := h.svcCtx.DB.WithContext(ctx).Create(rec).Error; err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "create model failed", err)
 	}
-	_ = h.svcCtx.ModelRepo.Refresh()
+	if err := h.svcCtx.ModelRepo.Refresh(); err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "refresh models failed", err)
+	}
 	return &pb.ModelResp{
 		Id:                 rec.ID,
 		ModelName:          rec.ModelName,
@@ -598,6 +680,7 @@ func (h *LLMGatewayHandler) CreateModel(ctx context.Context, req *pb.CreateModel
 		Capability:         rec.Capability,
 		BaseUrl:            rec.BaseURL,
 		OwnerId:            rec.OwnerID,
+		OwnerType:          rec.OwnerType,
 		Status:             rec.Status,
 		InputPricePerMtok:  rec.InputPricePerMTok,
 		OutputPricePerMtok: rec.OutputPricePerMTok,
@@ -606,12 +689,18 @@ func (h *LLMGatewayHandler) CreateModel(ctx context.Context, req *pb.CreateModel
 }
 
 func (h *LLMGatewayHandler) UpdateModel(ctx context.Context, req *pb.UpdateModelReq) (*pb.ModelResp, error) {
+	if identity.Validate(req.ModelId) != nil {
+		return nil, errors.ErrInvalidParam
+	}
 	var current appModel.ModelRegistry
-	if err := h.svcCtx.DB.WithContext(ctx).First(&current, req.ModelId).Error; err != nil {
+	if err := h.svcCtx.DB.WithContext(ctx).Where("id = ?", req.ModelId).First(&current).Error; err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "model not found", err)
 	}
-	if current.OwnerID == 0 {
+	if current.OwnerType != "user" || current.OwnerID == nil {
 		return nil, errors.New(errors.CodeForbidden, "platform models cannot be modified")
+	}
+	if err := requireOwner(ctx, *current.OwnerID); err != nil {
+		return nil, err
 	}
 	updates := map[string]any{}
 	if req.ModelName != "" {
@@ -642,7 +731,9 @@ func (h *LLMGatewayHandler) UpdateModel(ctx context.Context, req *pb.UpdateModel
 	if err := h.svcCtx.DB.WithContext(ctx).Model(&appModel.ModelRegistry{}).Where("id = ?", req.ModelId).Updates(updates).Error; err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "update model failed", err)
 	}
-	_ = h.svcCtx.ModelRepo.Refresh()
+	if err := h.svcCtx.ModelRepo.Refresh(); err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "refresh models failed", err)
+	}
 	entry, err := h.svcCtx.ModelRepo.FindByID(req.ModelId)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "find model after update failed", err)
@@ -657,6 +748,7 @@ func (h *LLMGatewayHandler) UpdateModel(ctx context.Context, req *pb.UpdateModel
 		Capability:         entry.Capability,
 		BaseUrl:            entry.BaseURL,
 		OwnerId:            entry.OwnerID,
+		OwnerType:          entry.OwnerType,
 		Status:             entry.Status,
 		InputPricePerMtok:  entry.InputPricePerMTok,
 		OutputPricePerMtok: entry.OutputPricePerMTok,
@@ -665,24 +757,38 @@ func (h *LLMGatewayHandler) UpdateModel(ctx context.Context, req *pb.UpdateModel
 }
 
 func (h *LLMGatewayHandler) DeleteModel(ctx context.Context, req *pb.DeleteModelReq) (*pb.DeleteModelResp, error) {
+	if identity.Validate(req.ModelId) != nil {
+		return nil, errors.ErrInvalidParam
+	}
 	var current appModel.ModelRegistry
-	if err := h.svcCtx.DB.WithContext(ctx).First(&current, req.ModelId).Error; err != nil {
+	if err := h.svcCtx.DB.WithContext(ctx).Where("id = ?", req.ModelId).First(&current).Error; err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "model not found", err)
 	}
-	if current.OwnerID == 0 {
+	if current.OwnerType != "user" || current.OwnerID == nil {
 		return nil, errors.New(errors.CodeForbidden, "platform models cannot be deleted")
+	}
+	if err := requireOwner(ctx, *current.OwnerID); err != nil {
+		return nil, err
 	}
 	if err := h.svcCtx.DB.WithContext(ctx).Model(&appModel.ModelRegistry{}).Where("id = ?", req.ModelId).Update("status", "disabled").Error; err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "delete model failed", err)
 	}
-	_ = h.svcCtx.ModelRepo.Refresh()
+	if err := h.svcCtx.ModelRepo.Refresh(); err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "refresh models failed", err)
+	}
 	return &pb.DeleteModelResp{Success: true}, nil
 }
 
 func (h *LLMGatewayHandler) GetBillingStats(ctx context.Context, req *pb.BillingStatsReq) (*pb.BillingStatsResp, error) {
+	if err := requireOwner(ctx, req.OwnerId); err != nil {
+		return nil, err
+	}
+	if req.BotId != nil && identity.Validate(*req.BotId) != nil {
+		return nil, errors.ErrInvalidParam
+	}
 	query := h.svcCtx.DB.WithContext(ctx).Model(&appModel.BillingRecord{}).Where("owner_id = ?", req.OwnerId)
-	if req.BotId > 0 {
-		query = query.Where("bot_id = ?", req.BotId)
+	if req.BotId != nil {
+		query = query.Where("bot_id = ?", *req.BotId)
 	}
 	var stats []struct {
 		ModelName    string  `gorm:"column:model_name"`
@@ -720,6 +826,9 @@ func (h *LLMGatewayHandler) GetBillingStats(ctx context.Context, req *pb.Billing
 }
 
 func (h *LLMGatewayHandler) ListBillingRecords(ctx context.Context, req *pb.ListBillingRecordsReq) (*pb.ListBillingRecordsResp, error) {
+	if err := requireOwner(ctx, req.OwnerId); err != nil {
+		return nil, err
+	}
 	page := int(req.GetPage())
 	if page < 1 {
 		page = 1
@@ -745,6 +854,9 @@ func (h *LLMGatewayHandler) ListBillingRecords(ctx context.Context, req *pb.List
 		items = append(items, &pb.BillingRecordItem{
 			Id:           r.ID,
 			BotId:        r.BotID,
+			ModelId:      r.ModelID,
+			OwnerId:      r.OwnerID,
+			OwnerType:    r.OwnerType,
 			ModelName:    r.ModelName,
 			Capability:   r.Capability,
 			InputTokens:  int32(r.InputTokens),
@@ -763,37 +875,26 @@ func (h *LLMGatewayHandler) ListBillingRecords(ctx context.Context, req *pb.List
 	}, nil
 }
 
-func (h *LLMGatewayHandler) recordBilling(entry *domain.ModelEntry, botID, ownerID int64, capability string, usage *domain.UsageInfo) {
-	inputCost := float64(usage.PromptTokens) / 1_000_000 * entry.InputPricePerMTok
-	outputCost := float64(usage.CompletionTokens) / 1_000_000 * entry.OutputPricePerMTok
-
-	record := &appModel.BillingRecord{
-		BotID:        botID,
-		OwnerID:      ownerID,
-		ModelName:    entry.ModelName,
-		Capability:   capability,
-		InputTokens:  usage.PromptTokens,
-		OutputTokens: usage.CompletionTokens,
-		InputCost:    inputCost,
-		OutputCost:   outputCost,
-		Provider:     entry.Provider,
-		CreatedAt:    time.Now(),
+func (h *LLMGatewayHandler) recordBilling(entry *domain.ModelEntry, botID, ownerID *string, capability string, usage *domain.UsageInfo) {
+	record, err := domain.NewBillingRecord(entry, botID, ownerID, capability, usage)
+	if err == nil {
+		err = h.svcCtx.BillingRepo.Record(record)
 	}
-	if err := h.svcCtx.BillingRepo.Record(record); err != nil {
-		_ = err
+	if err != nil {
+		h.svcCtx.Logger.Errorf("record billing failed: model=%s capability=%s error=%v", entry.ID, capability, err)
 	}
 }
 
 func (h *LLMGatewayHandler) VlmChat(ctx context.Context, req *pb.VlmChatReq) (*pb.ChatResp, error) {
 	log := h.svcCtx.Logger.WithContext(ctx)
 
-	info, err := h.resolveModel(req.ModelId)
+	info, err := h.resolveModel(ctx, req.ModelId, req.BotId, req.OwnerId, "vlm")
 	if err != nil {
 		return nil, err
 	}
 
 	modelName := info.ModelEntry.ModelName
-	log.Infof("method=VlmChat model=%s model_id=%d owner_id=%d", modelName, req.ModelId, req.OwnerId)
+	log.Infof("method=VlmChat model=%s model_id=%s owner_id=%s", modelName, req.ModelId, req.GetOwnerId())
 
 	if info.TrackBilling {
 		if err := h.checkBalance(ctx, req.OwnerId); err != nil {
@@ -855,7 +956,7 @@ func (h *LLMGatewayHandler) VlmChat(ctx context.Context, req *pb.VlmChatReq) (*p
 		return nil, errors.Wrap(errors.CodeInternal, "decode vlm response", err)
 	}
 
-	resp := &pb.ChatResp{}
+	resp := &pb.ChatResp{Model: modelName}
 	if len(result.Choices) > 0 {
 		c := result.Choices[0]
 		resp.Choices = []*pb.ChatResp_Choice{{
@@ -874,16 +975,18 @@ func (h *LLMGatewayHandler) VlmChat(ctx context.Context, req *pb.VlmChatReq) (*p
 			modelName, result.Usage.PromptTokens, result.Usage.CompletionTokens, result.Usage.TotalTokens)
 	}
 
-	// Record billing for official models
-	if info.TrackBilling && result.Usage != nil && result.Usage.TotalTokens > 0 {
-		h.recordBilling(info.ModelEntry, 0, req.OwnerId, "vlm",
+	// Persist usage for private and platform models; charge only platform calls.
+	if result.Usage != nil && result.Usage.TotalTokens > 0 {
+		h.recordBilling(info.ModelEntry, req.BotId, req.OwnerId, "vlm",
 			&domain.UsageInfo{
 				PromptTokens:     result.Usage.PromptTokens,
 				CompletionTokens: result.Usage.CompletionTokens,
 				TotalTokens:      result.Usage.TotalTokens,
 			})
-		cost := h.calcCost(info, result.Usage.PromptTokens, result.Usage.CompletionTokens)
-		h.deductBalance(ctx, req.OwnerId, cost)
+		if info.TrackBilling {
+			cost := h.calcCost(info, result.Usage.PromptTokens, result.Usage.CompletionTokens)
+			h.deductBalance(ctx, req.OwnerId, cost)
+		}
 	}
 
 	return resp, nil

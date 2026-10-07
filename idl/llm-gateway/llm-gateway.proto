@@ -28,6 +28,7 @@ message VlmChatReq {
   double temperature = 5;
   int32 max_tokens = 6;
   optional string owner_id = 7 [(common.entity_id) = true];
+  optional string bot_id = 8 [(common.entity_id) = true];
 }
 
 message ToolDef {
@@ -227,6 +228,9 @@ message BillingRecordItem {
   double total_cost = 9;
   string provider = 10;
   string created_at = 11;
+  string model_id = 12 [(common.entity_id) = true];
+  optional string owner_id = 13 [(common.entity_id) = true];
+  string owner_type = 14;
 }
 
 message ListBillingRecordsResp {

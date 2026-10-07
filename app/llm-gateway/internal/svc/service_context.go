@@ -2,16 +2,14 @@ package svc
 
 import (
 	"encoding/base64"
-	"fmt"
 
 	"github.com/maomeng/aim/app/llm-gateway/internal/config"
 	"github.com/maomeng/aim/app/llm-gateway/internal/domain"
 	"github.com/maomeng/aim/app/llm-gateway/internal/infra"
-	"github.com/maomeng/aim/app/llm-gateway/internal/model"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
+	"github.com/maomeng/aim/migrations/postgres"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/logx"
-	"github.com/maomeng/aim/pkg/snowflake"
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
@@ -24,7 +22,6 @@ type ServiceContext struct {
 	RateLimiter            domain.RateLimiter
 	OnlineEmbeddingLimiter domain.RateLimiter
 	IngestEmbeddingLimiter domain.RateLimiter
-	Snowflake              *snowflake.Node
 	Logger                 logx.Logger
 	UserClient             userpb.UserServiceClient
 }
@@ -40,8 +37,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		panic("database init failed: " + err.Error())
 	}
-	if err := db.AutoMigrate(&model.ModelRegistry{}, &model.BillingRecord{}); err != nil {
-		panic("auto migrate failed: " + err.Error())
+	if err := database.RunMigrations(db.DB, postgres.FS); err != nil {
+		panic("run migrations failed: " + err.Error())
 	}
 
 	if c.EncKey == "" {
@@ -53,14 +50,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 	if len(encKey) != 32 {
 		panic("encKey must be 32 bytes (base64 encoded)")
-	}
-
-	snowNode, err := snowflake.NewNode(c.Snowflake.WorkerID)
-	if err != nil {
-		snowNode, err = snowflake.NewNode(0)
-		if err != nil {
-			panic(fmt.Sprintf("init snowflake failed: %v", err))
-		}
 	}
 
 	userConn, err := zrpc.NewClient(c.UserService)
@@ -77,7 +66,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		RateLimiter:            infra.NewRateLimiter(c.Redis.Host, c.Redis.Pass, c.RateLimit.DefaultRPM, c.RateLimit.DefaultConcurrency),
 		OnlineEmbeddingLimiter: infra.NewEmbeddingRateLimiter(c.Redis.Host, c.Redis.Pass, quota.OnlineRPM, quota.OnlineConcurrency, "online"),
 		IngestEmbeddingLimiter: infra.NewEmbeddingRateLimiter(c.Redis.Host, c.Redis.Pass, quota.IngestRPM, quota.IngestConcurrency, "ingest"),
-		Snowflake:              snowNode,
 		Logger:                 logger,
 		UserClient:             userpb.NewUserServiceClient(userConn.Conn()),
 	}

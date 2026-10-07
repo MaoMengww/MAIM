@@ -34,18 +34,39 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 	if in.PeerUserId != nil && identity.Validate(*in.PeerUserId) != nil {
 		return nil, ErrInvalidParam
 	}
+	if in.BotId != nil && identity.Validate(*in.BotId) != nil {
+		return nil, ErrInvalidParam
+	}
+	if in.BotId != nil {
+		bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, *in.BotId)
+		if err != nil {
+			return nil, ErrMemberAddFailed
+		}
+		if bot.Status != "active" || (bot.OwnerType != "platform" && (bot.OwnerId == nil || *bot.OwnerId != in.CreatorId)) {
+			return nil, ErrInsufficientPerm
+		}
+	}
 	convType := int32(in.Type)
 	switch convType {
 	case model.ConvTypePrivate:
-		if in.PeerUserId == nil || *in.PeerUserId == in.CreatorId || len(in.MemberIds) != 0 {
+		if (in.PeerUserId == nil) == (in.BotId == nil) || (in.PeerUserId != nil && *in.PeerUserId == in.CreatorId) || len(in.MemberIds) != 0 {
 			return nil, ErrInvalidParam
 		}
 	case model.ConvTypeGroup:
+		if in.BotId != nil || in.PeerUserId != nil {
+			return nil, ErrInvalidParam
+		}
 	default:
 		return nil, ErrInvalidConvType
 	}
+	findPrivate := func(r *repo.ConversationRepo) (*model.Conversation, error) {
+		if in.BotId != nil {
+			return r.FindPrivateBotConv(l.ctx, in.CreatorId, *in.BotId)
+		}
+		return r.FindPrivateConv(l.ctx, in.CreatorId, *in.PeerUserId)
+	}
 	if convType == model.ConvTypePrivate {
-		existing, err := l.svcCtx.ConversationRepo.FindPrivateConv(l.ctx, in.CreatorId, *in.PeerUserId)
+		existing, err := findPrivate(l.svcCtx.ConversationRepo)
 		if err == nil {
 			fetched, err := NewGetConversationLogic(l.ctx, l.svcCtx).GetConversation(&conversation.GetConversationReq{ConversationId: existing.ID, UserId: in.CreatorId})
 			if err != nil {
@@ -96,20 +117,39 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 			return nil, err
 		}
 	}
+	var convBot *model.ConvBot
+	if in.BotId != nil {
+		memberID, err := identity.New()
+		if err != nil {
+			return nil, err
+		}
+		relationID, err := identity.New()
+		if err != nil {
+			return nil, err
+		}
+		members = append(members, model.ConversationMember{ID: memberID, ConvID: id, MemberType: model.MemberTypeBot, BotID: in.BotId, Role: int32(conversation.MemberRole_MEMBER_ROLE_MEMBER), JoinedAt: now})
+		convBot = &model.ConvBot{ID: relationID, ConvID: id, BotID: *in.BotId, AddedBy: in.CreatorId, CreatedAt: now}
+	}
 	conv.MemberCount = int32(len(members))
 	created := false
 	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
 		if convType == model.ConvTypePrivate {
-			first, second := in.CreatorId, *in.PeerUserId
-			if first > second {
-				first, second = second, first
+			var lockKey string
+			if in.BotId != nil {
+				lockKey = "private-bot:" + in.CreatorId + ":" + *in.BotId
+			} else {
+				first, second := in.CreatorId, *in.PeerUserId
+				if first > second {
+					first, second = second, first
+				}
+				// Sorted identities identify an unordered user pair, not business order.
+				lockKey = "private:" + first + ":" + second
 			}
-			// The sorted identities identify an unordered pair, not business order.
-			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "private:"+first+":"+second).Error; err != nil {
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", lockKey).Error; err != nil {
 				return err
 			}
 			r := repo.NewConversationRepo(&database.DB{DB: tx})
-			existing, err := r.FindPrivateConv(l.ctx, in.CreatorId, *in.PeerUserId)
+			existing, err := findPrivate(r)
 			if err == nil {
 				conv = existing
 				return nil
@@ -126,6 +166,11 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 		}
 		if err := tx.Create(&members).Error; err != nil {
 			return err
+		}
+		if convBot != nil {
+			if err := tx.Create(convBot).Error; err != nil {
+				return err
+			}
 		}
 		if err := publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil); err != nil {
 			return err

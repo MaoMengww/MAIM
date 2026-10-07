@@ -35,6 +35,8 @@ APPLICATIONS = {
 USER_IDENTITY_APPLICATIONS = {"user-service", "realtime-service", "gateway"}
 MESSAGING_APPLICATIONS = USER_IDENTITY_APPLICATIONS | {"message-service"}
 ATTACHMENT_APPLICATIONS = MESSAGING_APPLICATIONS | {"file-service"}
+BOT_RUNTIME_APPLICATIONS = MESSAGING_APPLICATIONS | {"llm-gateway", "bot-service", "bot-runtime"}
+BOT_RUNTIME_SCENARIOS = {"bot-runtime", "bot-runtime-cross-instance"}
 MESSAGING_SCENARIOS = {"messaging", "conversations", "conversation-unread", "broadcasts",
                        "user-sync", "same-instance-a", "same-instance-b", "cross-instance"}
 OPTIONAL = {"prometheus", "kibana", "grafana"}
@@ -88,6 +90,7 @@ class Runner:
         self.applications = (USER_IDENTITY_APPLICATIONS if args.scenario == "user-identity"
                              else MESSAGING_APPLICATIONS if args.scenario in MESSAGING_SCENARIOS
                              else ATTACHMENT_APPLICATIONS if args.scenario == "attachments"
+                             else BOT_RUNTIME_APPLICATIONS if args.scenario in BOT_RUNTIME_SCENARIOS
                              else set(APPLICATIONS))
         self.builds = []
         self.built_images = []
@@ -261,7 +264,7 @@ class Runner:
             "NEO4J_dbms_memory_heap_initial__size": "256m",
             "NEO4J_dbms_memory_heap_max__size": "512m",
         })
-        if self.args.scenario in {"user-identity", "attachments"} or self.args.scenario in MESSAGING_SCENARIOS:
+        if self.args.scenario in {"user-identity", "attachments"} or self.args.scenario in MESSAGING_SCENARIOS | BOT_RUNTIME_SCENARIOS:
             keep = self.applications | {"realtime-b", "postgres", "redis", "kafka",
                                         "init-kafka-topics", "otel-collector", "jaeger"}
             if "message-service" in self.applications:
@@ -271,6 +274,10 @@ class Runner:
                 # URLs consumed by the container acceptance client must resolve inside this network.
                 for name in self.applications:
                     services[name].setdefault("environment", {})["MINIO_PUBLIC_ENDPOINT"] = "minio:9000"
+            if self.args.scenario in BOT_RUNTIME_SCENARIOS:
+                # Runtime memory initializes real graph/vector middleware even
+                # when this scenario uses no knowledge-base or ingest service.
+                keep.update({"e2e-provider", "neo4j", "milvus", "minio"})
             for name in set(services) - keep:
                 del services[name]
             for service in services.values():
@@ -545,7 +552,7 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery")
-    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
+    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "bot-runtime-cross-instance", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")

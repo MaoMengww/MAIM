@@ -72,7 +72,7 @@ func (p *IngestPipeline) emitProgress(ctx context.Context, doc *domain.Document,
 	}
 }
 
-func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg domain.PipelineConfig, embeddingModelID int64, ownerID int64) (err error) {
+func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg domain.PipelineConfig, embeddingModelID string, ownerID *string) (err error) {
 	start := time.Now()
 	logger := p.Logger.WithContext(ctx)
 	statusCtx, statusCancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -101,6 +101,9 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 		}
 	}()
 	var parsedContent *domain.ParsedDocument
+	if err := cfg.ValidateModelReferences(); err != nil {
+		return errors.Wrap(errors.CodeInvalidParam, "invalid pipeline model reference", err)
+	}
 
 	// Stage 1: Parse
 	p.emitProgress(ctx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeParsing, Level: event.EventLevelInfo, Title: "æ­£å¨è§£æ", Message: "ææ¡£æ­£å¨è§£æ"})
@@ -175,6 +178,9 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 		}
 		// VLM transcription via llm-gateway
 		if cfg.Parsing.VLM != nil && cfg.Parsing.VLM.Enabled && p.LLMGatewayClient != nil {
+			if cfg.Parsing.VLM.ModelID == nil {
+				return errors.New(errors.CodeInvalidParam, "VLM model is not configured")
+			}
 			conn := p.LLMGatewayClient.Conn()
 			if conn != nil {
 				cli := llmgateway.NewLLMGatewayClient(conn)
@@ -190,7 +196,7 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 					}
 					dataURL := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(img.RawContent))
 					resp, err := cli.VlmChat(ctx, &llmgateway.VlmChatReq{
-						ModelId: cfg.Parsing.VLM.ModelID, OwnerId: ownerID,
+						ModelId: *cfg.Parsing.VLM.ModelID, OwnerId: ownerID,
 						UserPrompt: "Please describe the content of this image in detail, including any text, data, tables, charts, and other information.",
 						ImageData:  dataURL, MaxTokens: 1024,
 					})

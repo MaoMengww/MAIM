@@ -16,7 +16,7 @@ func NewGraphStoreAdapter(manager *Manager) *GraphStoreAdapter {
 	return &GraphStoreAdapter{manager: manager}
 }
 
-func (a *GraphStoreAdapter) Retrieve(ctx context.Context, botID, userID int64, ownerID int64, embeddingModelID int64, query string, limit int) ([]graph.MemoryItem, error) {
+func (a *GraphStoreAdapter) Retrieve(ctx context.Context, botID, userID string, ownerID *string, embeddingModelID *string, query string, limit int) ([]graph.MemoryItem, error) {
 	if a == nil || a.manager == nil {
 		return nil, nil
 	}
@@ -44,7 +44,7 @@ func (a *GraphStoreAdapter) Retrieve(ctx context.Context, botID, userID int64, o
 	return result, nil
 }
 
-func (a *GraphStoreAdapter) GetProfile(ctx context.Context, botID, userID int64) string {
+func (a *GraphStoreAdapter) GetProfile(ctx context.Context, botID, userID string) string {
 	if a == nil || a.manager == nil {
 		return ""
 	}

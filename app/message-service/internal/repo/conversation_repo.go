@@ -286,11 +286,19 @@ func (r *ConversationRepo) RemoveMember(ctx context.Context, convID, userID stri
 
 func (r *ConversationRepo) GetMember(ctx context.Context, convID, userID string) (*model.ConversationMember, error) {
 	var m model.ConversationMember
-	err := r.DB.WithContext(ctx).Where("conv_id = ? AND (user_id = ? OR bot_id = ?)", convID, userID, userID).First(&m).Error
+	err := r.DB.WithContext(ctx).Where("conv_id = ? AND member_type = ? AND user_id = ?", convID, model.MemberTypeUser, userID).First(&m).Error
 	if err != nil {
 		return nil, err
 	}
 	return &m, nil
+}
+
+func (r *ConversationRepo) GetBotMember(ctx context.Context, convID, botID string) (*model.ConversationMember, error) {
+	var member model.ConversationMember
+	if err := r.DB.WithContext(ctx).Where("conv_id = ? AND member_type = ? AND bot_id = ?", convID, model.MemberTypeBot, botID).Take(&member).Error; err != nil {
+		return nil, err
+	}
+	return &member, nil
 }
 
 func (r *ConversationRepo) GetMembers(ctx context.Context, convID string, offset, limit int) ([]model.ConversationMember, error) {
@@ -551,12 +559,24 @@ func (r *ConversationRepo) FindPrivateConv(ctx context.Context, userID1, userID2
 	return &conv, nil
 }
 
+func (r *ConversationRepo) FindPrivateBotConv(ctx context.Context, userID, botID string) (*model.Conversation, error) {
+	var conv model.Conversation
+	err := r.DB.WithContext(ctx).Table("conversations c").
+		Joins("INNER JOIN conv_members u ON u.conv_id = c.id AND u.member_type = ? AND u.user_id = ?", model.MemberTypeUser, userID).
+		Joins("INNER JOIN conv_members b ON b.conv_id = c.id AND b.member_type = ? AND b.bot_id = ?", model.MemberTypeBot, botID).
+		Where("c.type = ?", model.ConvTypePrivate).First(&conv).Error
+	if err != nil {
+		return nil, err
+	}
+	return &conv, nil
+}
+
 // ========== Bot Management ==========
 
 // GetBot reads only the Bot display projection, never the control API (ADR-0007).
 func (r *ConversationRepo) GetBot(ctx context.Context, botID string) (*botpb.Bot, error) {
 	var bot botpb.Bot
-	if err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar").Where("id = ?", botID).Take(&bot).Error; err != nil {
+	if err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar, owner_type, owner_id, status").Where("id = ?", botID).Take(&bot).Error; err != nil {
 		return nil, err
 	}
 	return &bot, nil

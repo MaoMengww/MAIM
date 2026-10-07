@@ -96,7 +96,7 @@ export function KBListPage() {
   const items = data?.list ?? [];
 
   const embedModelOptions = (modelsData?.list ?? [])
-    .filter((m: any) => m.capability === 'embedding')
+    .filter((m: any) => m.capability === 'embed')
     .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
 
   const vlmModelOptions = (modelsData?.list ?? [])
@@ -148,7 +148,7 @@ export function KBListPage() {
       if (vals.dense_weight != null) pipelineConfig.retrieval.dense_weight = Number(vals.dense_weight);
       if (vals.sparse_weight != null) pipelineConfig.retrieval.sparse_weight = Number(vals.sparse_weight);
       if (vals.rerank_enabled) {
-        pipelineConfig.retrieval.rerank = { enabled: true, model_id: Number(vals.rerank_model) || 0, top_n: Number(vals.rerank_top_n) || 20 };
+        pipelineConfig.retrieval.rerank = { enabled: true, model_id: vals.rerank_model ?? undefined, top_n: Number(vals.rerank_top_n) || 20 };
       }
       if (Object.keys(pipelineConfig.retrieval).length === 0) delete pipelineConfig.retrieval;
       if (Object.keys(pipelineConfig.chunking || {}).length === 0) delete pipelineConfig.chunking;
@@ -158,7 +158,7 @@ export function KBListPage() {
         name: vals.name,
         description: vals.description,
         embedding_model: embedModelId ? (modelMap[embedModelId] || '') : undefined,
-        embedding_model_id: embedModelId || 0,
+        embedding_model_id: embedModelId ?? undefined,
         pipeline_config: Object.keys(pipelineConfig).length > 0 ? pipelineConfig : undefined,
         mode: 'rag',
       });

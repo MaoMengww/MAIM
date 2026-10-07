@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
@@ -47,7 +48,7 @@ func NewBuildContextNode(bot *model.Bot, convBot *model.ConvBot,
 }
 
 // Invoke loads history, knowledge, and memory, then renders the prompt.
-func (n *BuildContextNode) Invoke(ctx context.Context, event *model.BotEvent) *BuildContextResult {
+func (n *BuildContextNode) Invoke(ctx context.Context, event *model.BotEvent) (*BuildContextResult, error) {
 	vars := map[string]string{
 		"botname":       n.bot.Name,
 		"bot_name":      n.bot.Name,
@@ -80,7 +81,10 @@ func (n *BuildContextNode) Invoke(ctx context.Context, event *model.BotEvent) *B
 	vars["message"] = msgText
 
 	contextMsgs := make([]*schema.Message, 0, 3)
-	history := n.loadHistory(ctx, event)
+	history, err := n.loadHistory(ctx, event)
+	if err != nil {
+		return nil, err
+	}
 	knowledge, kbSources := n.loadKnowledge(ctx, msgText, event)
 	if knowledge != "" {
 		contextMsgs = append(contextMsgs, &schema.Message{Role: schema.Assistant, Content: knowledge})
@@ -96,7 +100,7 @@ func (n *BuildContextNode) Invoke(ctx context.Context, event *model.BotEvent) *B
 	if len(promptPreview) > 500 {
 		promptPreview = promptPreview[:500] + "..."
 	}
-	n.withLogger(ctx).Infof("prompt assembled: bot_id=%d conv_id=%d prompt_len=%d prompt=%q",
+	n.withLogger(ctx).Infof("prompt assembled: bot_id=%s conv_id=%s prompt_len=%d prompt=%q",
 		n.bot.ID, getConvID(event), len(renderedPrompt), promptPreview)
 
 	return &BuildContextResult{
@@ -104,7 +108,7 @@ func (n *BuildContextNode) Invoke(ctx context.Context, event *model.BotEvent) *B
 		Vars:           vars,
 		ContextMsgs:    contextMsgs,
 		KbSources:      kbSources,
-	}
+	}, nil
 }
 
 func (n *BuildContextNode) withLogger(ctx context.Context) logx.Logger {
@@ -114,20 +118,20 @@ func (n *BuildContextNode) withLogger(ctx context.Context) logx.Logger {
 	return logx.DefaultLogger().WithContext(ctx)
 }
 
-func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEvent) []*schema.Message {
-	if n.msgClient == nil || event == nil || event.ConvID <= 0 {
-		return nil
+func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEvent) ([]*schema.Message, error) {
+	if n.msgClient == nil || event == nil || event.ConvID == "" || event.Sender == nil || event.Sender.UserID == nil {
+		return nil, nil
 	}
 	limit := n.bot.MaxContextMessages
 	if limit <= 0 {
 		limit = 10
 	}
-	msgs, err := n.msgClient.GetRecentMessages(ctx, event.ConvID, event.Sender.UserID, limit)
-	if err != nil || len(msgs) == 0 {
-		return nil
+	msgs, err := n.msgClient.GetRecentMessages(ctx, event.ConvID, *event.Sender.UserID, limit)
+	if err != nil {
+		return nil, err
 	}
 
-	currentMsgID := int64(0)
+	currentMsgID := ""
 	if event.Message != nil {
 		currentMsgID = event.Message.MsgID
 	}
@@ -135,11 +139,11 @@ func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEven
 	result := make([]*schema.Message, 0, len(msgs))
 	totalTokens := 0
 	for _, m := range msgs {
-		if currentMsgID > 0 && m.MsgID == currentMsgID {
+		if currentMsgID != "" && m.MsgID == currentMsgID {
 			continue
 		}
 		role := schema.User
-		if m.SenderID == n.bot.ID {
+		if m.BotID == n.bot.ID {
 			role = schema.Assistant
 		}
 		content := fmt.Sprintf("[%s][%s]: %s", formatMessageTime(m.CreatedAt), messageSenderName(m), m.Content)
@@ -155,17 +159,15 @@ func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEven
 			Content: content,
 		})
 	}
-	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
-		result[i], result[j] = result[j], result[i]
-	}
-	return result
+	slices.Reverse(result)
+	return result, nil
 }
 
 func (n *BuildContextNode) loadKnowledge(ctx context.Context, query string, event *model.BotEvent) (string, []KnowledgeSource) {
 	if !n.bot.EnableKnowledge || n.resolver == nil || query == "" {
 		return "", nil
 	}
-	var convID int64
+	var convID string
 	if event != nil {
 		convID = event.ConvID
 	}
@@ -184,11 +186,11 @@ func renderTemplate(tpl string, vars map[string]string) string {
 	return result
 }
 
-func getConvID(event *model.BotEvent) int64 {
+func getConvID(event *model.BotEvent) string {
 	if event != nil {
 		return event.ConvID
 	}
-	return 0
+	return ""
 }
 
 var localeInstructions = map[string]string{
@@ -227,19 +229,19 @@ func (n *BuildContextNode) loadMemories(ctx context.Context, query string, event
 	if memoryLimit <= 0 {
 		memoryLimit = 5
 	}
-	if n.memoryStore == nil || event == nil || event.Sender == nil || query == "" {
+	if n.memoryStore == nil || event == nil || event.Sender == nil || event.Sender.UserID == nil || query == "" {
 		return ""
 	}
 
 	var parts []string
 
 	// 画像
-	if profile := n.memoryStore.GetProfile(ctx, n.bot.ID, event.Sender.UserID); profile != "" {
+	if profile := n.memoryStore.GetProfile(ctx, n.bot.ID, *event.Sender.UserID); profile != "" {
 		parts = append(parts, fmt.Sprintf("User Profile:\n%s", profile))
 	}
 
 	// 相关事实
-	items, err := n.memoryStore.Retrieve(ctx, n.bot.ID, event.Sender.UserID, n.bot.OwnerID, n.bot.MemoryEmbeddingModelID, query, memoryLimit)
+	items, err := n.memoryStore.Retrieve(ctx, n.bot.ID, *event.Sender.UserID, n.bot.OwnerID, n.bot.MemoryEmbeddingModelID, query, memoryLimit)
 	if err == nil && len(items) > 0 {
 		parts = append(parts, FormatMemories(items))
 	}

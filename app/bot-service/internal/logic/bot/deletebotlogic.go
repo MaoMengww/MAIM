@@ -24,6 +24,9 @@ func NewDeleteBotLogic(ctx context.Context, svcCtx *svc.ServiceContext) *DeleteB
 }
 
 func (l *DeleteBotLogic) DeleteBot(in *pb.DeleteBotReq) (*common.BaseResponse, error) {
+	if err := validateCaller(l.ctx, in.UserId, in.BotId); err != nil {
+		return nil, err
+	}
 	bot, err := l.svcCtx.Repo.GetBot(l.ctx, in.BotId)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -42,7 +45,7 @@ func (l *DeleteBotLogic) DeleteBot(in *pb.DeleteBotReq) (*common.BaseResponse, e
 		return nil, errors.Wrap(errors.CodeDBError, "delete bot failed", err)
 	}
 
-	l.Infof("bot deleted: bot_id=%d", in.BotId)
+	l.Infof("bot deleted: bot_id=%s", in.BotId)
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }
 

@@ -14,12 +14,11 @@ import (
 	"github.com/maomeng/aim/app/knowledge-base/internal/metrics"
 	"github.com/maomeng/aim/app/knowledge-base/internal/pipeline"
 	pb "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase"
-	llmgatewaypb "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/snowflake"
-	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -34,7 +33,6 @@ type KnowledgeBaseHandler struct {
 	RetrievePipe *pipeline.RetrievePipeline
 	Snowflake    *snowflake.Node
 	Logger       logx.Logger
-	LLMGateway   zrpc.Client
 }
 
 type PipelineConfigProvider interface {
@@ -42,29 +40,42 @@ type PipelineConfigProvider interface {
 }
 
 func (h *KnowledgeBaseHandler) CreateKB(ctx context.Context, req *pb.CreateKBReq) (*pb.KBRsp, error) {
-	ownerID := getCallerID(ctx)
-	if ownerID == 0 {
+	callerID := getCallerID(ctx)
+	if callerID == "" {
 		return nil, errors.ErrUnauthorized
 	}
-	cfg := convertPipelineConfig(req.PipelineConfig)
-	if cfg.Parsing.VLM != nil && cfg.Parsing.VLM.ModelID > 0 && h.LLMGateway != nil {
-		conn := h.LLMGateway.Conn()
-		if conn != nil {
-			cli := llmgatewaypb.NewLLMGatewayClient(conn)
-			models, err := cli.ListModels(ctx, &llmgatewaypb.ListModelsReq{})
-			if err == nil {
-				for _, m := range models.Items {
-					if m.Id == cfg.Parsing.VLM.ModelID {
-						cfg.Parsing.VLM.Provider = m.Provider
-						cfg.Parsing.VLM.Model = m.ModelName
-						cfg.Parsing.VLM.BaseURL = m.BaseUrl
-						cfg.Parsing.VLM.APIKey = m.ApiKey
-						cfg.Parsing.VLM.Enabled = true
-						break
-					}
-				}
-			}
+	ownerType := req.OwnerType
+	if ownerType == "" {
+		ownerType = "user"
+	}
+	ownerID := req.OwnerId
+	switch ownerType {
+	case "platform":
+		if !isAdmin(ctx) {
+			return nil, domain.ErrForbidden
 		}
+		if ownerID != nil {
+			return nil, errors.ErrInvalidParam
+		}
+	case "user":
+		if ownerID == nil {
+			ownerID = &callerID
+		}
+		if err := identity.Validate(*ownerID); err != nil {
+			return nil, errors.Wrap(errors.CodeInvalidParam, "invalid owner_id", err)
+		}
+		if *ownerID != callerID && !isAdmin(ctx) {
+			return nil, domain.ErrForbidden
+		}
+	default:
+		return nil, errors.ErrInvalidParam
+	}
+	if err := validateModelReference(req.EmbeddingModelId, false, false); err != nil {
+		return nil, err
+	}
+	cfg, err := convertPipelineConfig(req.PipelineConfig)
+	if err != nil {
+		return nil, err
 	}
 	kbID, err := h.Snowflake.Generate()
 	if err != nil {
@@ -72,6 +83,7 @@ func (h *KnowledgeBaseHandler) CreateKB(ctx context.Context, req *pb.CreateKBReq
 	}
 	kb := &domain.KnowledgeBase{
 		ID:               kbID,
+		OwnerType:        ownerType,
 		OwnerID:          ownerID,
 		Name:             req.Name,
 		Description:      req.Description,
@@ -84,7 +96,7 @@ func (h *KnowledgeBaseHandler) CreateKB(ctx context.Context, req *pb.CreateKBReq
 	if err := h.KBRepo.Create(ctx, kb); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "create kb failed", err)
 	}
-	h.Logger.WithContext(ctx).Infof("knowledge base created: kb_id=%d name=%s owner_id=%d", kb.ID, kb.Name, ownerID)
+	h.Logger.WithContext(ctx).Infof("knowledge base created: kb_id=%d name=%s owner_type=%s caller_id=%s", kb.ID, kb.Name, kb.OwnerType, callerID)
 	return toKBRsp(kb), nil
 }
 
@@ -94,7 +106,7 @@ func (h *KnowledgeBaseHandler) UpdateKB(ctx context.Context, req *pb.UpdateKBReq
 	if err != nil {
 		return nil, domain.ErrKBNotFound
 	}
-	if kb.OwnerID != callerID && !isAdmin(ctx) {
+	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
 		return nil, domain.ErrForbidden
 	}
 	if req.GetName() != "" {
@@ -103,14 +115,29 @@ func (h *KnowledgeBaseHandler) UpdateKB(ctx context.Context, req *pb.UpdateKBReq
 	if req.GetDescription() != "" {
 		kb.Description = req.GetDescription()
 	}
-	if req.GetEmbeddingModel() != "" {
-		kb.EmbeddingModel = req.GetEmbeddingModel()
+	if err := validateModelReference(req.EmbeddingModelId, req.ClearEmbeddingModelId, true); err != nil {
+		return nil, err
 	}
-	if req.GetEmbeddingModelId() > 0 {
-		kb.EmbeddingModelID = req.GetEmbeddingModelId()
+	if req.ClearEmbeddingModelId {
+		kb.EmbeddingModelID = nil
+		kb.EmbeddingModel = ""
+	} else {
+		if req.GetEmbeddingModel() != "" {
+			kb.EmbeddingModel = req.GetEmbeddingModel()
+		}
+		if req.EmbeddingModelId != nil {
+			kb.EmbeddingModelID = req.EmbeddingModelId
+			if req.GetEmbeddingModel() == "" {
+				kb.EmbeddingModel = ""
+			}
+		}
 	}
 	if req.GetPipelineConfig() != nil {
-		kb.PipelineConfig = convertPipelineConfig(req.GetPipelineConfig())
+		cfg, err := mergePipelineConfig(req.GetPipelineConfig(), kb.PipelineConfig, true)
+		if err != nil {
+			return nil, err
+		}
+		kb.PipelineConfig = cfg
 	}
 	if req.GetStatus() != "" {
 		kb.Status = req.GetStatus()
@@ -127,7 +154,7 @@ func (h *KnowledgeBaseHandler) DeleteKB(ctx context.Context, req *pb.DeleteKBReq
 	if err != nil {
 		return nil, domain.ErrKBNotFound
 	}
-	if kb.OwnerID != callerID && !isAdmin(ctx) {
+	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
 		return nil, domain.ErrForbidden
 	}
 	bindings, _ := h.KBRepo.ListBindingsByKB(ctx, req.KbId)
@@ -161,6 +188,9 @@ func (h *KnowledgeBaseHandler) GetKB(ctx context.Context, req *pb.GetKBReq) (*pb
 
 func (h *KnowledgeBaseHandler) ListKBs(ctx context.Context, req *pb.ListKBsReq) (*pb.ListKBsRsp, error) {
 	ownerID := getCallerID(ctx)
+	if ownerID == "" {
+		return nil, errors.ErrUnauthorized
+	}
 	offset, limit := int(req.Offset), int(req.Limit)
 	if limit <= 0 || limit > 100 {
 		limit = 20
@@ -173,7 +203,7 @@ func (h *KnowledgeBaseHandler) ListKBs(ctx context.Context, req *pb.ListKBsReq) 
 	for i, kb := range kbs {
 		items[i] = toKBRsp(&kb)
 	}
-	h.Logger.WithContext(ctx).Infof("knowledge bases listed: user_id=%d count=%d", ownerID, total)
+	h.Logger.WithContext(ctx).Infof("knowledge bases listed: user_id=%s count=%d", ownerID, total)
 	return &pb.ListKBsRsp{Items: items, Total: total}, nil
 }
 
@@ -215,7 +245,7 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 	if err != nil {
 		return domain.ErrKBNotFound
 	}
-	if callerID > 0 && kb.OwnerID != callerID && !isAdmin(ctx) {
+	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
 		return domain.ErrForbidden
 	}
 	contentHash := fmt.Sprintf("%x", sha256.Sum256(fileBytes.Bytes()))
@@ -231,7 +261,10 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 	}
 	var pipelineOverride *domain.PipelineConfig
 	if meta.PipelineOverride != nil {
-		cfg := convertPipelineConfig(meta.PipelineOverride)
+		cfg, err := convertPipelineConfig(meta.PipelineOverride)
+		if err != nil {
+			return err
+		}
 		pipelineOverride = &cfg
 	}
 	// fileType is already validated above
@@ -371,7 +404,7 @@ func (h *KnowledgeBaseHandler) DeleteDocument(ctx context.Context, req *pb.Delet
 	if err != nil {
 		return nil, domain.ErrKBNotFound
 	}
-	if kb.OwnerID != callerID && !isAdmin(ctx) {
+	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
 		return nil, domain.ErrForbidden
 	}
 	if doc.Status != domain.DocStatusReady && doc.Status != domain.DocStatusFailed {
@@ -403,7 +436,7 @@ func (h *KnowledgeBaseHandler) RetryDocument(ctx context.Context, req *pb.RetryD
 	if err != nil {
 		return nil, domain.ErrKBNotFound
 	}
-	if kb.OwnerID != getCallerID(ctx) && !isAdmin(ctx) {
+	if !ownsKnowledgeBase(kb, getCallerID(ctx)) && !isAdmin(ctx) {
 		return nil, domain.ErrForbidden
 	}
 	if doc.Status != domain.DocStatusFailed {
@@ -464,9 +497,9 @@ func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq
 	retrievalCfg := kb.PipelineConfig.Retrieval
 	metrics.KbSearchTotal.Inc("rag")
 	if h.RetrievePipe != nil {
-		embeddingModelID := kb.EmbeddingModelID
-		if embeddingModelID <= 0 {
-			embeddingModelID = h.RetrievePipe.EmbeddingModelID
+		embeddingModelID, err := kb.ResolveEmbeddingModelID(ctx, h.KBRepo)
+		if err != nil {
+			return nil, errors.Wrap(errors.CodeInvalidParam, "embedding model unavailable", err)
 		}
 		items, err := h.RetrievePipe.Retrieve(ctx, kbIDs, req.Query, retrievalCfg, embeddingModelID, kb.OwnerID)
 		if err != nil {
@@ -497,7 +530,7 @@ func (h *KnowledgeBaseHandler) Bind(ctx context.Context, req *pb.BindReq) (*empt
 	if err != nil {
 		return nil, domain.ErrKBNotFound
 	}
-	if kb.OwnerID != callerID && !isAdmin(ctx) {
+	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
 		return nil, domain.ErrForbidden
 	}
 	bindingID, err := h.Snowflake.Generate()
@@ -523,7 +556,7 @@ func (h *KnowledgeBaseHandler) Unbind(ctx context.Context, req *pb.UnbindReq) (*
 	if err != nil {
 		return nil, domain.ErrKBNotFound
 	}
-	if kb.OwnerID != callerID && !isAdmin(ctx) {
+	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
 		return nil, domain.ErrForbidden
 	}
 	if err := h.KBRepo.Unbind(ctx, req.KbId, req.TargetType, req.TargetId); err != nil {
@@ -573,22 +606,22 @@ func (h *KnowledgeBaseHandler) ListBoundTargets(ctx context.Context, req *pb.Lis
 	return &pb.ListBoundTargetsRsp{Items: items}, nil
 }
 
-func getCallerID(ctx context.Context) int64 {
+func getCallerID(ctx context.Context) string {
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if vals := md.Get("x-user-id"); len(vals) > 0 {
-			id, err := strconv.ParseInt(vals[0], 10, 64)
-			if err == nil {
-				return id
-			}
-		}
-		if vals := md.Get("user-id"); len(vals) > 0 {
-			id, err := strconv.ParseInt(vals[0], 10, 64)
-			if err == nil {
-				return id
+		for _, key := range []string{"x-user-id", "user-id"} {
+			if vals := md.Get(key); len(vals) > 0 {
+				if identity.Validate(vals[0]) == nil {
+					return vals[0]
+				}
+				return ""
 			}
 		}
 	}
-	return 0
+	return ""
+}
+
+func ownsKnowledgeBase(kb *domain.KnowledgeBase, callerID string) bool {
+	return callerID != "" && kb.OwnerType == "user" && kb.OwnerID != nil && *kb.OwnerID == callerID
 }
 
 func getKBIDFromContext(ctx context.Context) int64 {
@@ -635,6 +668,7 @@ func toKBRsp(kb *domain.KnowledgeBase) *pb.KBRsp {
 	rsp := &pb.KBRsp{
 		Id:               kb.ID,
 		OwnerId:          kb.OwnerID,
+		OwnerType:        kb.OwnerType,
 		Name:             kb.Name,
 		Description:      kb.Description,
 		Mode:             kb.Mode,
@@ -667,14 +701,30 @@ func toDocumentRsp(doc *domain.Document) *pb.DocumentRsp {
 	return rsp
 }
 
-func convertPipelineConfig(pbCfg *pb.PipelineConfig) domain.PipelineConfig {
-	if pbCfg == nil {
-		return domain.PipelineConfig{}
+func convertPipelineConfig(pbCfg *pb.PipelineConfig) (domain.PipelineConfig, error) {
+	return mergePipelineConfig(pbCfg, domain.PipelineConfig{}, false)
+}
+
+func validateModelReference(modelID *string, clear, update bool) error {
+	if clear && (!update || modelID != nil) {
+		return errors.New(errors.CodeInvalidParam, "clear_model_id requires an update without model_id")
 	}
-	cfg := domain.PipelineConfig{}
+	if modelID != nil {
+		if err := identity.Validate(*modelID); err != nil {
+			return errors.Wrap(errors.CodeInvalidParam, "invalid model_id", err)
+		}
+	}
+	return nil
+}
+
+func mergePipelineConfig(pbCfg *pb.PipelineConfig, cfg domain.PipelineConfig, update bool) (domain.PipelineConfig, error) {
+	if pbCfg == nil {
+		return cfg, nil
+	}
 	if pbCfg.Parsing != nil {
 		parsing := domain.ParsingConfig{
 			Engines: pbCfg.Parsing.Engines,
+			VLM:     cfg.Parsing.VLM,
 		}
 		if pbCfg.Parsing.MineruPrecision != nil {
 			parsing.MinerUPrecision = &domain.MinerUConfig{
@@ -690,14 +740,26 @@ func convertPipelineConfig(pbCfg *pb.PipelineConfig) domain.PipelineConfig {
 				APIKey:   pbCfg.Parsing.MineruAgent.ApiKey,
 			}
 		}
-		if pbCfg.Parsing.Vlm != nil {
+		if vlm := pbCfg.Parsing.Vlm; vlm != nil {
+			if err := validateModelReference(vlm.ModelId, vlm.ClearModelId, update); err != nil {
+				return domain.PipelineConfig{}, err
+			}
+			var modelID *string
+			if cfg.Parsing.VLM != nil {
+				modelID = cfg.Parsing.VLM.ModelID
+			}
+			if vlm.ClearModelId {
+				modelID = nil
+			} else if vlm.ModelId != nil {
+				modelID = vlm.ModelId
+			}
 			parsing.VLM = &domain.VLMConfig{
-				Enabled:  pbCfg.Parsing.Vlm.Enabled,
-				ModelID:  pbCfg.Parsing.Vlm.ModelId,
-				Provider: pbCfg.Parsing.Vlm.Provider,
-				Model:    pbCfg.Parsing.Vlm.Model,
-				APIKey:   pbCfg.Parsing.Vlm.ApiKey,
-				BaseURL:  pbCfg.Parsing.Vlm.BaseUrl,
+				Enabled:  vlm.Enabled,
+				ModelID:  modelID,
+				Provider: vlm.Provider,
+				Model:    vlm.Model,
+				APIKey:   vlm.ApiKey,
+				BaseURL:  vlm.BaseUrl,
 			}
 		}
 		cfg.Parsing = parsing
@@ -717,6 +779,18 @@ func convertPipelineConfig(pbCfg *pb.PipelineConfig) domain.PipelineConfig {
 		}
 	}
 	if pbCfg.Retrieval != nil {
+		rerank := cfg.Retrieval.Rerank
+		if pbRerank := pbCfg.Retrieval.Rerank; pbRerank != nil {
+			if err := validateModelReference(pbRerank.ModelId, pbRerank.ClearModelId, update); err != nil {
+				return domain.PipelineConfig{}, err
+			}
+			rerank.Enabled, rerank.TopN = pbRerank.Enabled, int(pbRerank.TopN)
+			if pbRerank.ClearModelId {
+				rerank.ModelID = nil
+			} else if pbRerank.ModelId != nil {
+				rerank.ModelID = pbRerank.ModelId
+			}
+		}
 		cfg.Retrieval = domain.RetrievalConfig{
 			Mode:           pbCfg.Retrieval.Mode,
 			TopK:           int(pbCfg.Retrieval.TopK),
@@ -724,20 +798,17 @@ func convertPipelineConfig(pbCfg *pb.PipelineConfig) domain.PipelineConfig {
 			ScoreThreshold: pbCfg.Retrieval.ScoreThreshold,
 			DenseWeight:    pbCfg.Retrieval.DenseWeight,
 			SparseWeight:   pbCfg.Retrieval.SparseWeight,
-		}
-		if pbCfg.Retrieval.Rerank != nil {
-			cfg.Retrieval.Rerank = domain.RerankConfig{
-				Enabled: pbCfg.Retrieval.Rerank.Enabled,
-				ModelID: pbCfg.Retrieval.Rerank.ModelId,
-				TopN:    int(pbCfg.Retrieval.Rerank.TopN),
-			}
+			Rerank:         rerank,
 		}
 	}
-	return cfg
+	if err := cfg.ValidateModelReferences(); err != nil {
+		return domain.PipelineConfig{}, errors.Wrap(errors.CodeInvalidParam, "invalid pipeline model reference", err)
+	}
+	return cfg, nil
 }
 
 func pipelineConfigToProto(cfg domain.PipelineConfig) *pb.PipelineConfig {
-	if cfg.Chunking.ChunkSize == 0 && !cfg.Chunking.ParentChild.Enabled && cfg.Retrieval.Mode == "" && len(cfg.Parsing.Engines) == 0 {
+	if cfg.Chunking.ChunkSize == 0 && !cfg.Chunking.ParentChild.Enabled && cfg.Retrieval.Mode == "" && len(cfg.Parsing.Engines) == 0 && cfg.Parsing.MinerUPrecision == nil && cfg.Parsing.MinerUAgent == nil && cfg.Parsing.VLM == nil && cfg.Retrieval.Rerank.ModelID == nil && !cfg.Retrieval.Rerank.Enabled {
 		return nil
 	}
 	pbCfg := &pb.PipelineConfig{}
@@ -786,7 +857,7 @@ func pipelineConfigToProto(cfg domain.PipelineConfig) *pb.PipelineConfig {
 		}
 		pbCfg.Chunking = chunkPB
 	}
-	if cfg.Retrieval.Mode != "" {
+	if cfg.Retrieval.Mode != "" || cfg.Retrieval.Rerank.ModelID != nil || cfg.Retrieval.Rerank.Enabled {
 		retPB := &pb.RetrievalConfig{
 			Mode:           cfg.Retrieval.Mode,
 			TopK:           int32(cfg.Retrieval.TopK),
@@ -795,9 +866,9 @@ func pipelineConfigToProto(cfg domain.PipelineConfig) *pb.PipelineConfig {
 			DenseWeight:    cfg.Retrieval.DenseWeight,
 			SparseWeight:   cfg.Retrieval.SparseWeight,
 		}
-		if cfg.Retrieval.Rerank.Enabled {
+		if cfg.Retrieval.Rerank.Enabled || cfg.Retrieval.Rerank.ModelID != nil {
 			retPB.Rerank = &pb.RerankConfig{
-				Enabled: true,
+				Enabled: cfg.Retrieval.Rerank.Enabled,
 				ModelId: cfg.Retrieval.Rerank.ModelID,
 				TopN:    int32(cfg.Retrieval.Rerank.TopN),
 			}

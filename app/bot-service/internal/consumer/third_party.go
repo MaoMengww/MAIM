@@ -14,10 +14,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/event"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 )
@@ -38,13 +40,16 @@ func NewThirdPartyHandler(bots *repo.BotRepo, bindings *repo.ConvBotRepo, publis
 
 func (h *ThirdPartyHandler) Handle(ctx context.Context, topic string, raw []byte) error {
 	var evt struct {
-		ConvID   int64  `json:"conv_id"`
-		BotID    int64  `json:"bot_id"`
-		SenderID int64  `json:"sender_id"`
-		Kind     string `json:"kind"`
+		ConvID   string  `json:"conv_id"`
+		BotID    string  `json:"bot_id"`
+		SenderID *string `json:"sender_id"`
+		Kind     string  `json:"kind"`
 	}
 	if err := json.Unmarshal(raw, &evt); err != nil {
 		return err
+	}
+	if identity.Validate(evt.ConvID) != nil || (evt.BotID != "" && identity.Validate(evt.BotID) != nil) || (evt.SenderID != nil && identity.Validate(*evt.SenderID) != nil) {
+		return fmt.Errorf("invalid third-party event identity")
 	}
 	if topic == consts.KafkaTopicMessageCreated {
 		switch evt.Kind {
@@ -67,18 +72,18 @@ func (h *ThirdPartyHandler) Handle(ctx context.Context, topic string, raw []byte
 		if topic == consts.KafkaTopicConvBotAdded && binding.BotID != evt.BotID {
 			continue
 		}
-		if binding.BotID == evt.SenderID {
+		if evt.SenderID != nil && binding.BotID == *evt.SenderID {
 			continue
 		}
 		if err := h.deliver(ctx, topic, raw, evt.ConvID, binding.BotID); err != nil {
-			failures = append(failures, fmt.Errorf("bot %d: %w", binding.BotID, err))
+			failures = append(failures, fmt.Errorf("bot %s: %w", binding.BotID, err))
 		}
 	}
 	return errors.Join(failures...)
 }
 
 // deliver routes one event to one bound bot, resolving its transport each time.
-func (h *ThirdPartyHandler) deliver(ctx context.Context, topic string, raw []byte, convID, botID int64) error {
+func (h *ThirdPartyHandler) deliver(ctx context.Context, topic string, raw []byte, convID, botID string) error {
 	bot, _, err := h.bots.FindByIDWithConvBot(ctx, botID, convID)
 	if err != nil {
 		return err
@@ -92,23 +97,23 @@ func (h *ThirdPartyHandler) deliver(ctx context.Context, topic string, raw []byt
 	}
 	switch bot.ConnMode {
 	case "ws":
-		return h.publisher.Publish(ctx, convID, delivery.Intent{BotIDs: []int64{botID}, Payload: payload})
+		return h.publisher.Publish(ctx, convID, delivery.Intent{BotIDs: []string{botID}, Payload: payload})
 	case "webhook":
 		return h.sendWebhook(ctx, bot.CallbackURL, bot.WebhookSecret, payload)
 	}
 	return nil
 }
 
-func externalBotPayload(topic string, raw []byte, botID, convID int64) (json.RawMessage, error) {
-	base := map[string]any{"type": topic, "conv_id": strconv.FormatInt(convID, 10), "bot_id": strconv.FormatInt(botID, 10), "event": map[string]any{"ts": time.Now().Unix(), "version": "1.0"}}
+func externalBotPayload(topic string, raw []byte, botID, convID string) (json.RawMessage, error) {
+	base := map[string]any{"type": topic, "conv_id": convID, "bot_id": botID, "event": map[string]any{"ts": time.Now().Unix(), "version": "1.0"}}
 	switch topic {
 	case consts.KafkaTopicMessageCreated:
 		var msg event.InboxChangeEvent
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			return nil, err
 		}
-		base["message"] = map[string]any{"message_id": strconv.FormatInt(msg.MessageID, 10), "msg_type": msg.MsgType, "content": msg.Content, "seq": strconv.FormatInt(msg.Seq, 10), "reply_to_msg_id": strconv.FormatInt(msg.ReplyToMsgID, 10), "created_at": strconv.FormatInt(msg.CreatedAt, 10)}
-		base["sender"] = map[string]any{"user_id": strconv.FormatInt(msg.SenderID, 10), "sender_type": msg.SenderType}
+		base["message"] = map[string]any{"message_id": msg.MessageID, "msg_type": msg.MsgType, "content": msg.Content, "seq": msg.Seq, "reply_to_msg_id": msg.ReplyToMsgID, "created_at": msg.CreatedAt}
+		base["sender"] = map[string]any{"user_id": msg.SenderID, "sender_type": msg.SenderType}
 	case consts.KafkaTopicConvBotAdded:
 		base["type"] = "bot.added_to_conv"
 	default:
@@ -118,14 +123,16 @@ func externalBotPayload(topic string, raw []byte, botID, convID int64) (json.Raw
 		if err := dec.Decode(&msg); err != nil {
 			return nil, err
 		}
-		for _, key := range []string{"message_id", "conv_id", "user_id"} {
-			if number, ok := msg[key].(json.Number); ok {
-				msg[key] = number.String()
-			}
-		}
 		base["message"] = msg
 	}
-	return json.Marshal(base)
+	payload, err := json.Marshal(base)
+	if err != nil {
+		return nil, err
+	}
+	if err := model.ValidateEntityJSON(payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }
 
 func (h *ThirdPartyHandler) sendWebhook(ctx context.Context, url, secret string, payload []byte) error {

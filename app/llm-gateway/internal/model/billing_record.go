@@ -3,9 +3,11 @@ package model
 import "time"
 
 type BillingRecord struct {
-	ID           int64     `gorm:"primaryKey;column:id" json:"id"`
-	BotID        int64     `gorm:"column:bot_id" json:"bot_id"`
-	OwnerID      int64     `gorm:"column:owner_id" json:"owner_id"`
+	ID           string    `gorm:"primaryKey;column:id;type:uuid" json:"id"`
+	BotID        *string   `gorm:"column:bot_id;type:uuid" json:"bot_id"`
+	OwnerType    string    `gorm:"column:owner_type;not null" json:"owner_type"`
+	OwnerID      *string   `gorm:"column:owner_id;type:uuid" json:"owner_id"`
+	ModelID      string    `gorm:"column:model_id;type:uuid;not null" json:"model_id"`
 	ModelName    string    `gorm:"column:model_name" json:"model_name"`
 	Capability   string    `gorm:"column:capability" json:"capability"`
 	InputTokens  int       `gorm:"column:input_tokens" json:"input_tokens"`

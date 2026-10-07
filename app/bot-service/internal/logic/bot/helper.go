@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,8 +11,11 @@ import (
 	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
+	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	pb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/pkg/consts"
+	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/interceptor"
 )
 
 // Bot type constants
@@ -67,6 +71,7 @@ func modelBotToProto(b *model.Bot) *pb.Bot {
 	}
 	pbBot := &pb.Bot{
 		Id:                       b.ID,
+		OwnerType:                b.OwnerType,
 		OwnerId:                  b.OwnerID,
 		Name:                     b.Name,
 		Avatar:                   b.Avatar,
@@ -121,13 +126,6 @@ func verifyWebhookSignature(message []byte, signature string, timestamp int64, s
 	return nil
 }
 
-func derefInt64(p *int64) int64 {
-	if p == nil {
-		return 0
-	}
-	return *p
-}
-
 func abs(x int64) int64 {
 	if x < 0 {
 		return -x
@@ -146,4 +144,89 @@ func generateRandomSecret(byteLen int) (string, error) {
 func hashSecret(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
+}
+
+func validateIDs(ids ...string) error {
+	for _, id := range ids {
+		if identity.Validate(id) != nil {
+			return ErrBotInvalid
+		}
+	}
+	return nil
+}
+
+func validateCaller(ctx context.Context, requestedUser string, ids ...string) error {
+	caller, _ := ctx.Value(interceptor.ContextKeyUserID).(string)
+	if identity.Validate(caller) != nil || requestedUser != caller {
+		return ErrBotForbidden
+	}
+	return validateIDs(ids...)
+}
+
+func validateOwnership(ownerType string, ownerID *string) error {
+	switch ownerType {
+	case "platform":
+		if ownerID == nil {
+			return nil
+		}
+	case "user":
+		if ownerID != nil {
+			return validateIDs(*ownerID)
+		}
+	}
+	return ErrBotInvalid
+}
+
+func validateUserOwnership(ctx context.Context, ownerType string, ownerID *string) error {
+	if err := validateOwnership(ownerType, ownerID); err != nil {
+		return err
+	}
+	// Platform entities are seeded internally. A public request cannot elevate ownership.
+	if ownerType != "user" || ownerID == nil {
+		return ErrBotForbidden
+	}
+	return validateCaller(ctx, *ownerID)
+}
+
+func selectModel(ctx context.Context, r repo.BotRepoInterface, modelID *string, name, userID string, platform bool) (*string, bool, error) {
+	if modelID != nil {
+		if err := validateIDs(*modelID); err != nil {
+			return nil, false, err
+		}
+	} else if name != "" {
+		id, err := r.ResolveModelID(ctx, name, userID, platform)
+		if err != nil {
+			return nil, false, err
+		}
+		modelID = &id
+	}
+	if modelID == nil {
+		return nil, false, nil
+	}
+	ownerType, ownerID, err := r.GetModelOwner(ctx, *modelID)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := validateOwnership(ownerType, ownerID); err != nil {
+		return nil, false, err
+	}
+	if ownerType == "user" && *ownerID != userID {
+		return nil, false, ErrBotForbidden
+	}
+	return modelID, ownerType == "platform", nil
+}
+
+func canWrite(bot *model.Bot, callerID string) bool {
+	return bot != nil && bot.OwnerType == "user" && bot.OwnerID != nil &&
+		identity.Validate(callerID) == nil && *bot.OwnerID == callerID
+}
+
+func validateReferenceUpdate(id *string, clear bool, name string) error {
+	if clear && (id != nil || name != "") {
+		return ErrBotInvalid
+	}
+	if id != nil {
+		return validateIDs(*id)
+	}
+	return nil
 }

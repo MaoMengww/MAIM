@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -20,6 +19,7 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-service/pb/bot"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -32,17 +32,12 @@ func NewRuntimeServer(svcCtx *svc.ServiceContext) *RuntimeServer {
 	return &RuntimeServer{svcCtx: svcCtx}
 }
 
-func extractChatCaller(ctx context.Context) (int64, string, string) {
+func extractChatCaller(ctx context.Context) (string, string, string) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return 0, "", ""
+		return "", "", ""
 	}
-	var userID int64
-	if vals := md.Get("x-user-id"); len(vals) > 0 {
-		if v, err := strconv.ParseInt(vals[0], 10, 64); err == nil {
-			userID = v
-		}
-	}
+	userID := runtimeUserID(ctx)
 	username := ""
 	if vals := md.Get("x-username"); len(vals) > 0 {
 		username = vals[0]
@@ -57,6 +52,13 @@ func extractChatCaller(ctx context.Context) (int64, string, string) {
 // StreamChat implements single-chat streaming conversation using ReAct agent.
 func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStreamingServer[pb.StreamChatResp]) error {
 	ctx := stream.Context()
+	userID, _, language := extractChatCaller(ctx)
+	if identity.Validate(req.BotId) != nil || identity.Validate(req.ConvId) != nil || (req.ReplyToMsgId != nil && identity.Validate(*req.ReplyToMsgId) != nil) {
+		return errors.New(errors.CodeInvalidParam, "invalid chat identity")
+	}
+	if err := NewConversationToolServer(s.svcCtx).requireConversation(ctx, userID, req.ConvId); err != nil {
+		return err
+	}
 	if s.svcCtx.RuntimeClient != nil {
 		upstream, err := s.svcCtx.RuntimeClient.StreamChat(forwardRuntimeContext(ctx), req)
 		if err != nil {
@@ -78,15 +80,21 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 	logger := s.svcCtx.Logger.WithContext(ctx)
 
 	botRepo := s.svcCtx.BotRepo
-	bot, err := botRepo.GetBot(ctx, req.BotId)
+	bot, _, err := botRepo.FindByIDWithConvBot(ctx, req.BotId, req.ConvId)
 	if err != nil {
-		logger.Errorf("bot not found: bot_id=%d error=%v", req.BotId, err)
+		logger.Errorf("bot not found: bot_id=%s error=%v", req.BotId, err)
 		return errors.New(errors.CodeNotFound, "bot not found")
+	}
+	if bot.Status != "active" {
+		return errors.New(errors.CodeForbidden, "bot is disabled")
+	}
+	if bot.ModelID == nil {
+		return errors.New(errors.CodeInvalidParam, "bot chat model is not configured")
 	}
 
 	llmClient := client.NewLlmGatewayClient(s.svcCtx.LlmGatewayConn)
 	msgClient := client.NewMessageClient(s.svcCtx.MessageSvcConn)
-	einoChatModel := llmClient.NewEinoChatModel(bot.ModelID, bot.ModelName, bot.OwnerID)
+	einoChatModel := llmClient.NewEinoChatModel(*bot.ModelID, bot.ModelName, bot.OwnerID, bot.ID)
 
 	// MCP tools
 	var mcpTools []tool.BaseTool
@@ -95,8 +103,6 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 			mcpTools = tools
 		}
 	}
-
-	userID, _, language := extractChatCaller(ctx)
 
 	// Track used tools
 	var usedTools []string
@@ -131,7 +137,7 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 		MaxStep: bot.MaxStep,
 	})
 	if err != nil {
-		logger.Errorf("create react agent failed: bot_id=%d error=%v", req.BotId, err)
+		logger.Errorf("create react agent failed: bot_id=%s error=%v", req.BotId, err)
 		return errors.Wrap(errors.CodeRPCError, "create agent failed", err)
 	}
 
@@ -142,9 +148,10 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 	if bot.StreamingEnabled {
 		sr, streamErr := agent.Stream(ctx, input)
 		if streamErr != nil {
-			logger.Errorf("agent stream failed: bot_id=%d error=%v", req.BotId, streamErr)
+			logger.Errorf("agent stream failed: bot_id=%s error=%v", req.BotId, streamErr)
 			return errors.Wrap(errors.CodeRPCError, "agent stream failed", streamErr)
 		}
+		defer sr.Close()
 
 		var fullText string
 		for {
@@ -153,50 +160,47 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 				break
 			}
 			if recvErr != nil {
-				logger.Errorf("agent stream recv failed: bot_id=%d error=%v", req.BotId, recvErr)
-				break
+				return errors.Wrap(errors.CodeRPCError, "agent stream receive failed", recvErr)
 			}
 			if chunk != nil && chunk.Content != "" {
 				fullText += chunk.Content
-				_ = stream.Send(&pb.StreamChatResp{
-					Type:    "chunk",
-					Content: chunk.Content,
-					ConvId:  req.ConvId,
-				})
+				if err := stream.Send(&pb.StreamChatResp{Type: "chunk", Content: chunk.Content, ConvId: req.ConvId}); err != nil {
+					return err
+				}
 			}
 		}
 
-		s.triggerMemoryExtraction(ctx, bot, userID, req.Message, fullText)
+		var messageID *string
 		if fullText != "" {
-			if _, err := msgClient.SendBotReply(ctx, req.BotId, req.ConvId, fullText, req.ReplyToMsgId); err != nil {
-				logger.Errorf("send bot reply failed: bot_id=%d error=%v", req.BotId, err)
+			id, err := msgClient.SendBotReply(ctx, req.BotId, req.ConvId, fullText, req.ReplyToMsgId)
+			if err != nil {
+				return errors.Wrap(errors.CodeRPCError, "send bot reply failed", err)
 			}
+			messageID = &id
 		}
-		_ = stream.Send(&pb.StreamChatResp{
-			Type:    "done",
-			Content: fullText,
-			ConvId:  req.ConvId,
-		})
-		return nil
+		s.triggerMemoryExtraction(ctx, bot, userID, req.Message, fullText)
+		return stream.Send(&pb.StreamChatResp{Type: "done", Content: fullText, ConvId: req.ConvId, MessageId: messageID})
 	}
 
 	msg, genErr := agent.Generate(ctx, input)
 	if genErr != nil {
-		logger.Errorf("agent generate failed: bot_id=%d error=%v", req.BotId, genErr)
-		_ = stream.Send(&pb.StreamChatResp{Type: "error", Content: "execution failed: " + genErr.Error()})
-		return nil
+		logger.Errorf("agent generate failed: bot_id=%s error=%v", req.BotId, genErr)
+		return errors.Wrap(errors.CodeRPCError, "agent generate failed", genErr)
 	}
 
-	s.triggerMemoryExtraction(ctx, bot, userID, req.Message, msg.Content)
+	var messageID *string
 	if msg.Content != "" {
-		if _, err := msgClient.SendBotReply(ctx, req.BotId, req.ConvId, msg.Content, req.ReplyToMsgId); err != nil {
-			logger.Errorf("send bot reply failed: bot_id=%d error=%v", req.BotId, err)
+		id, err := msgClient.SendBotReply(ctx, req.BotId, req.ConvId, msg.Content, req.ReplyToMsgId)
+		if err != nil {
+			return errors.Wrap(errors.CodeRPCError, "send bot reply failed", err)
 		}
+		messageID = &id
 	}
-	return stream.Send(&pb.StreamChatResp{Type: "done", Content: msg.Content, ConvId: req.ConvId})
+	s.triggerMemoryExtraction(ctx, bot, userID, req.Message, msg.Content)
+	return stream.Send(&pb.StreamChatResp{Type: "done", Content: msg.Content, ConvId: req.ConvId, MessageId: messageID})
 }
 
-func loadBotMcpServers(ctx context.Context, botRepo *repo.BotRepo, botID int64) []model.MCPServerConfig {
+func loadBotMcpServers(ctx context.Context, botRepo *repo.BotRepo, botID string) []model.MCPServerConfig {
 	servers, err := botRepo.ListEnabledMcpServers(ctx, botID)
 	if err != nil || len(servers) == 0 {
 		return nil
@@ -219,15 +223,15 @@ func loadBotMcpServers(ctx context.Context, botRepo *repo.BotRepo, botID int64) 
 	return configs
 }
 
-func (s *RuntimeServer) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, userID int64, userMsg string, botResponse string) {
+func (s *RuntimeServer) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, userID string, userMsg string, botResponse string) {
 	if s.svcCtx.MemoryManager == nil || userMsg == "" || botResponse == "" {
 		return
 	}
-	if bot.MemoryModelID <= 0 {
+	if bot.MemoryModelID == nil {
 		return
 	}
 	llmClient := client.NewLlmGatewayClient(s.svcCtx.LlmGatewayConn)
-	einoChatModel := llmClient.NewEinoChatModel(bot.MemoryModelID, bot.MemoryModelName, bot.OwnerID)
+	einoChatModel := llmClient.NewEinoChatModel(*bot.MemoryModelID, bot.MemoryModelName, bot.OwnerID, bot.ID)
 	extractor := memory.NewExtractor(einoChatModel, memory.ExtractorConfig{Temperature: 0.3})
 	s.svcCtx.MemoryManager.WithExtractor(extractor).RememberAsync(ctx, memory.ExtractInput{
 		BotID:            bot.ID,

@@ -31,21 +31,21 @@ func NewMetricsCollector() *MetricsCollector {
 }
 
 // RecordRequest records a completed bot request.
-func (m *MetricsCollector) RecordRequest(botID int64, status string, duration float64) {
+func (m *MetricsCollector) RecordRequest(botID string, status string, duration float64) {
 	// TODO: Increment request total and observe duration.
 }
 
 // RecordTokenUsage records LLM token consumption.
-func (m *MetricsCollector) RecordTokenUsage(botID int64, model string, direction string, tokens int) {
+func (m *MetricsCollector) RecordTokenUsage(botID string, model string, direction string, tokens int) {
 	// TODO: Increment token usage counter.
 }
 
 // RecordToolCall records a tool call outcome.
-func (m *MetricsCollector) RecordToolCall(botID int64, toolName string, success bool) {
+func (m *MetricsCollector) RecordToolCall(botID string, toolName string, success bool) {
 	// TODO: Increment tool call counter.
 }
 
 // SetActiveRequests sets the active requests gauge.
-func (m *MetricsCollector) SetActiveRequests(botID int64, count float64) {
+func (m *MetricsCollector) SetActiveRequests(botID string, count float64) {
 	// TODO: Set gauge.
 }

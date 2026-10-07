@@ -21,6 +21,9 @@ func NewGetBotLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetBotLogi
 }
 
 func (l *GetBotLogic) GetBot(in *pb.GetBotReq) (*pb.Bot, error) {
+	if err := validateIDs(in.BotId); err != nil {
+		return nil, err
+	}
 	bot, err := l.svcCtx.Repo.GetBot(l.ctx, in.BotId)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -29,6 +32,6 @@ func (l *GetBotLogic) GetBot(in *pb.GetBotReq) (*pb.Bot, error) {
 		l.Errorf("get bot failed: %v", err)
 		return nil, errors.Wrap(errors.CodeDBError, "get bot failed", err)
 	}
-	l.Infof("bot fetched: bot_id=%d name=%s", bot.ID, bot.Name)
+	l.Infof("bot fetched: bot_id=%s name=%s", bot.ID, bot.Name)
 	return modelBotToProto(bot), nil
 }

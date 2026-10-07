@@ -1,7 +1,7 @@
 package domain
 
 type ModelEntry struct {
-	ID                 int64
+	ID                 string
 	ModelName          string
 	Provider           string
 	Capability         string
@@ -13,14 +13,15 @@ type ModelEntry struct {
 	InputPricePerMTok  float64
 	OutputPricePerMTok float64
 	Status             string
-	OwnerID            int64
+	OwnerType          string
+	OwnerID            *string
 	Metadata           map[string]any
 }
 
 type ModelRegistry interface {
-	FindByID(modelID int64) (*ModelEntry, error)
+	FindByID(modelID string) (*ModelEntry, error)
 	FindByName(modelName string) (*ModelEntry, error)
-	FindByCapability(capability string) ([]*ModelEntry, error)
+	FindByCapability(capability string, ownerID *string) ([]*ModelEntry, error)
 	ListAll() []*ModelEntry
 	Refresh() error
 	Close()

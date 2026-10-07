@@ -103,7 +103,7 @@ func TestIngestPipelineEmitsProgressEvents(t *testing.T) {
 		},
 	}
 
-	err := pipe.Run(t.Context(), doc, domain.PipelineConfig{}, 0, 0)
+	err := pipe.Run(t.Context(), doc, domain.PipelineConfig{}, "01902ee3-8b7e-7fa1-96fd-ec908c0ace20", nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

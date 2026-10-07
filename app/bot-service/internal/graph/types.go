@@ -11,7 +11,7 @@ import (
 type KnowledgeSource struct {
 	Type    string `json:"type"` // "rag"
 	KbName  string `json:"kb_name"`
-	KbID    int64  `json:"kb_id"`
+	KbID    string `json:"kb_id"`
 	Title   string `json:"title"`
 	Content string `json:"content"`
 }
@@ -25,8 +25,8 @@ type StreamChunk struct {
 
 // MemoryStore is the memory retrieval interface used by BuildContext.
 type MemoryStore interface {
-	Retrieve(ctx context.Context, botID, userID int64, ownerID int64, embeddingModelID int64, query string, limit int) ([]MemoryItem, error)
-	GetProfile(ctx context.Context, botID, userID int64) string
+	Retrieve(ctx context.Context, botID, userID string, ownerID *string, embeddingModelID *string, query string, limit int) ([]MemoryItem, error)
+	GetProfile(ctx context.Context, botID, userID string) string
 }
 
 // MemoryItem is a retrieved memory fact.
@@ -39,23 +39,24 @@ type MemoryItem struct {
 
 // MsgClient abstracts gRPC calls to message-service.
 type MsgClient interface {
-	GetRecentMessages(ctx context.Context, convID, userID int64, limit int) ([]Message, error)
-	SendBotReply(ctx context.Context, botID, convID int64, text string, replyTo int64, rawPayload ...string) (int64, error)
+	GetRecentMessages(ctx context.Context, convID, userID string, limit int) ([]Message, error)
+	SendBotReply(ctx context.Context, botID, convID string, text string, replyTo *string, rawPayload ...string) (string, error)
 }
 
 // KbClient abstracts gRPC calls to knowledge-base.
 type KbClient interface {
-	Retrieve(ctx context.Context, query string, botID, convID int64, topK int, kbIDs []int64) ([]KbDocument, error)
-	ListBoundKBs(ctx context.Context, botID, convID int64) ([]BoundKB, error)
+	Retrieve(ctx context.Context, query string, botID, convID string, topK int, kbIDs []string) ([]KbDocument, error)
+	ListBoundKBs(ctx context.Context, botID, convID string) ([]BoundKB, error)
 }
 
 // UserNamesFunc resolves user IDs to display names.
-type UserNamesFunc func(ctx context.Context, userIDs []int64) (map[int64]string, error)
+type UserNamesFunc func(ctx context.Context, userIDs []string) (map[string]string, error)
 
 // Message is a simplified message from message-service.
 type Message struct {
-	MsgID      int64
-	SenderID   int64
+	MsgID      string
+	SenderID   *string
+	BotID      string
 	SenderName string
 	Content    string
 	MsgType    int32
@@ -70,13 +71,13 @@ type KbDocument struct {
 	Content        string
 	MatchedContent string
 	Score          float64
-	KbID           int64
+	KbID           string
 	KbName         string
 }
 
 // BoundKB represents a knowledge base binding with mode info.
 type BoundKB struct {
-	KBID int64
+	KBID string
 	Mode string // "rag"
 	Name string
 }
@@ -121,7 +122,13 @@ func messageSenderName(m Message) string {
 	if m.SenderName != "" {
 		return m.SenderName
 	}
-	return fmt.Sprintf("user_%d", m.SenderID)
+	if m.SenderID != nil {
+		return "user_" + *m.SenderID
+	}
+	if m.BotID != "" {
+		return "bot_" + m.BotID
+	}
+	return "system"
 }
 
 func formatMessageTime(ts int64) string {

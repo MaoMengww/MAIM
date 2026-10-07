@@ -111,7 +111,7 @@ func TestConversationPrivate(t *testing.T) {
 	memLogic := conversationservice.NewGetMembersLogic(ctx, svcCtx)
 	members, err := memLogic.GetMembers(&convpb.GetMembersReq{
 		ConversationId: convID,
-		UserId:         user1,
+		UserId:         &user1,
 	})
 	require.NoError(t, err)
 	memberIDs := make([]string, len(members.Members))

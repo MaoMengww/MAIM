@@ -19,6 +19,9 @@ func NewBatchGetBotsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Batc
 }
 
 func (l *BatchGetBotsLogic) BatchGetBots(in *pb.BatchGetBotsReq) (*pb.BatchGetBotsResp, error) {
+	if err := validateIDs(in.BotIds...); err != nil {
+		return nil, err
+	}
 	bots, err := l.svcCtx.Repo.GetBotsByIDs(l.ctx, in.BotIds)
 	if err != nil {
 		return nil, err

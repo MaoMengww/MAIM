@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/app/bot-service/internal/stream"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/logx"
 )
 
@@ -36,7 +36,7 @@ type Handler struct {
 	msgClient     graph.MsgClient
 	kbClient      graph.KbClient
 	convClient    interface {
-		GetConversationMembers(ctx context.Context, convID int64) ([]int64, error)
+		GetConversationMembers(ctx context.Context, convID string) ([]string, error)
 	}
 	dedup          *Dedup
 	userNames      graph.UserNamesFunc
@@ -54,7 +54,7 @@ func NewHandler(
 	msgClient graph.MsgClient,
 	kbClient graph.KbClient,
 	convClient interface {
-		GetConversationMembers(ctx context.Context, convID int64) ([]int64, error)
+		GetConversationMembers(ctx context.Context, convID string) ([]string, error)
 	},
 	dedup *Dedup,
 	deliveryClient stream.DeliveryClient,
@@ -100,7 +100,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		return fmt.Errorf("parse event: %w", err)
 	}
 
-	if event.BotID == 0 && event.ConvID != 0 && h.convBotRepo != nil {
+	if event.BotID == "" && event.ConvID != "" && h.convBotRepo != nil {
 		bots, err := h.convBotRepo.FindByConv(ctx, event.ConvID)
 		if err != nil {
 			return err
@@ -118,15 +118,15 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		return nil
 	}
 
-	if event.BotID == 0 {
+	if event.BotID == "" {
 		return nil
 	}
 
-	if event.Sender != nil && event.Sender.UserID == event.BotID {
+	if event.Sender != nil && event.Sender.UserID != nil && *event.Sender.UserID == event.BotID {
 		return nil
 	}
 
-	eventID := fmt.Sprintf("%d_%s_%d", msgID, event.EventType, event.BotID)
+	eventID := fmt.Sprintf("%s_%s_%s", msgID, event.EventType, event.BotID)
 	isDup, err := h.dedup.IsDuplicate(ctx, eventID)
 	if err != nil {
 		return fmt.Errorf("dedup check failed: %w", err)
@@ -139,9 +139,15 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 	if err != nil || bot == nil {
 		return fmt.Errorf("bot/conv not found: %w", err)
 	}
+	if bot.Status != "active" {
+		return nil
+	}
 
 	if bot.Type == "third_party" {
 		return nil
+	}
+	if bot.ModelID == nil {
+		return fmt.Errorf("bot %s chat model is not configured", bot.ID)
 	}
 	if !shouldRespond(event, bot) {
 		return nil
@@ -165,23 +171,26 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		}
 	}
 
-	botIDStr := strconv.FormatInt(event.BotID, 10)
+	botIDStr := event.BotID
 	start := time.Now()
 
 	// ---- context building ----
 	resolver := graph.NewKnowledgeResolver(h.kbClient)
 	ctxNode := graph.NewBuildContextNode(bot, convBot, h.msgClient, resolver, h.memoryStore, h.logger, h.userNames)
-	ctxResult := ctxNode.Invoke(ctx, event)
+	ctxResult, err := ctxNode.Invoke(ctx, event)
+	if err != nil {
+		return fmt.Errorf("load conversation context: %w", err)
+	}
 
 	// ---- MCP tools ----
 	var mcpTools []tool.BaseTool
 	if len(mcpConfigs) > 0 {
 		tools, toolErr := component.GetMCPServerTools(ctx, mcpConfigs)
 		if toolErr != nil {
-			h.logger.WithContext(ctx).Errorf("mcp tools failed: bot_id=%d error=%v", event.BotID, toolErr)
+			h.logger.WithContext(ctx).Errorf("mcp tools failed: bot_id=%s error=%v", event.BotID, toolErr)
 		} else {
 			mcpTools = tools
-			h.logger.WithContext(ctx).Infof("mcp tools loaded: bot_id=%d count=%d", event.BotID, len(tools))
+			h.logger.WithContext(ctx).Infof("mcp tools loaded: bot_id=%s count=%d", event.BotID, len(tools))
 		}
 	}
 
@@ -196,7 +205,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		},
 	}
 
-	einoChatModel := h.llmClient.NewEinoChatModel(bot.ModelID, bot.ModelName, bot.OwnerID)
+	einoChatModel := h.llmClient.NewEinoChatModel(*bot.ModelID, bot.ModelName, bot.OwnerID, bot.ID)
 
 	msgText := ""
 	if event != nil && event.Message != nil {
@@ -225,9 +234,9 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 	}
 
 	if bot.StreamingEnabled && h.deliveryClient != nil {
-		replyToMsgID := int64(0)
+		var replyToMsgID *string
 		if event.Message != nil {
-			replyToMsgID = event.Message.MsgID
+			replyToMsgID = &event.Message.MsgID
 		}
 		pusher := stream.NewDeliveryPusher(ctx, h.deliveryClient, event.ConvID, event.BotID, replyToMsgID)
 
@@ -244,15 +253,16 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 				h.logger.WithContext(ctx).Infof("direct generate fallback also failed: event_id=%s", eventID)
 				fallbackText = fallbackForLanguage(event.Sender)
 			}
-			replyTo := int64(0)
+			var replyTo *string
 			if event.Message != nil {
-				replyTo = event.Message.MsgID
+				replyTo = &event.Message.MsgID
 			}
 			if _, fbErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, fallbackText, replyTo); fbErr != nil {
 				h.logger.WithContext(ctx).Errorf("send fallback failed: event_id=%s error=%v", eventID, fbErr)
 			}
 			return fmt.Errorf("agent stream: %w", streamErr)
 		}
+		defer stream.Close()
 
 		var fullText string
 		for {
@@ -261,8 +271,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 				break
 			}
 			if recvErr != nil {
-				h.logger.WithContext(ctx).Errorf("agent stream recv failed: event_id=%s error=%v", eventID, recvErr)
-				break
+				return fmt.Errorf("agent stream receive: %w", recvErr)
 			}
 			if chunk != nil && chunk.Content != "" {
 				fullText += chunk.Content
@@ -309,17 +318,14 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 			h.logger.WithContext(ctx).Errorf("send reply failed: event_id=%s error=%v", eventID, sendErr)
 			return fmt.Errorf("send bot reply: %w", sendErr)
 		}
-		_ = pusher.Send(&model.StreamChunk{
-			Type:      "done",
-			Content:   fullText,
-			MessageID: strconv.FormatInt(respMsgID, 10),
-			ConvID:    event.ConvID,
-		})
+		if err := pusher.Send(&model.StreamChunk{Type: "done", Content: fullText, MessageID: respMsgID, ConvID: event.ConvID}); err != nil {
+			return err
+		}
 
-		h.logger.WithContext(ctx).Infof("stream reply sent: event_id=%s bot_id=%d conv_id=%d msg_id=%d", eventID, event.BotID, event.ConvID, respMsgID)
+		h.logger.WithContext(ctx).Infof("stream reply sent: event_id=%s bot_id=%s conv_id=%s msg_id=%s", eventID, event.BotID, event.ConvID, respMsgID)
 		metrics.BotReplyMessagesTotal.Inc(botIDStr)
-		if event.Message != nil && event.Sender != nil {
-			h.triggerMemoryExtraction(ctx, bot, event.Sender.UserID, event.Message.Text, fullText)
+		if event.Message != nil && event.Sender != nil && event.Sender.UserID != nil {
+			h.triggerMemoryExtraction(ctx, bot, *event.Sender.UserID, event.Message.Text, fullText)
 		}
 		return nil
 	}
@@ -338,9 +344,9 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 			h.logger.WithContext(ctx).Infof("direct generate fallback also failed: event_id=%s", eventID)
 			fallbackText = fallbackForLanguage(event.Sender)
 		}
-		replyTo := int64(0)
+		var replyTo *string
 		if event.Message != nil {
-			replyTo = event.Message.MsgID
+			replyTo = &event.Message.MsgID
 		}
 		if _, fbErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, fallbackText, replyTo); fbErr != nil {
 			h.logger.WithContext(ctx).Errorf("send fallback failed: event_id=%s error=%v", eventID, fbErr)
@@ -356,9 +362,9 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		return nil
 	}
 
-	replyTo := int64(0)
+	var replyTo *string
 	if event.Message != nil {
-		replyTo = event.Message.MsgID
+		replyTo = &event.Message.MsgID
 	}
 	rawPayload := buildRawPayload(ctxResult.KbSources, usedTools)
 
@@ -367,10 +373,10 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		return fmt.Errorf("send bot reply: %w", sendErr)
 	}
 
-	h.logger.WithContext(ctx).Infof("reply sent: event_id=%s bot_id=%d conv_id=%d", eventID, event.BotID, event.ConvID)
+	h.logger.WithContext(ctx).Infof("reply sent: event_id=%s bot_id=%s conv_id=%s", eventID, event.BotID, event.ConvID)
 	metrics.BotReplyMessagesTotal.Inc(botIDStr)
-	if event.Message != nil && event.Sender != nil {
-		h.triggerMemoryExtraction(ctx, bot, event.Sender.UserID, event.Message.Text, finalText)
+	if event.Message != nil && event.Sender != nil && event.Sender.UserID != nil {
+		h.triggerMemoryExtraction(ctx, bot, *event.Sender.UserID, event.Message.Text, finalText)
 	}
 	return nil
 }
@@ -380,7 +386,7 @@ func (h *Handler) tryDirectGenerate(ctx context.Context, bot *model.Bot, ctxResu
 	if msgText == "" {
 		return ""
 	}
-	chatModel := h.llmClient.NewEinoChatModel(bot.ModelID, bot.ModelName, bot.OwnerID)
+	chatModel := h.llmClient.NewEinoChatModel(*bot.ModelID, bot.ModelName, bot.OwnerID, bot.ID)
 	msgs := make([]*schema.Message, 0, 2+len(ctxResult.ContextMsgs))
 	if ctxResult.RenderedPrompt != "" {
 		msgs = append(msgs, &schema.Message{Role: schema.System, Content: ctxResult.RenderedPrompt})
@@ -393,14 +399,14 @@ func (h *Handler) tryDirectGenerate(ctx context.Context, bot *model.Bot, ctxResu
 	}
 	return result.Content
 }
-func (h *Handler) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, userID int64, userMsg, botResponse string) {
+func (h *Handler) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, userID string, userMsg, botResponse string) {
 	if h.memoryManager == nil || h.llmClient == nil || userMsg == "" || botResponse == "" {
 		return
 	}
-	if bot.MemoryModelID <= 0 {
+	if bot.MemoryModelID == nil {
 		return
 	}
-	einoChatModel := h.llmClient.NewEinoChatModel(bot.MemoryModelID, bot.MemoryModelName, bot.OwnerID)
+	einoChatModel := h.llmClient.NewEinoChatModel(*bot.MemoryModelID, bot.MemoryModelName, bot.OwnerID, bot.ID)
 	extractor := memory.NewExtractor(einoChatModel, memory.ExtractorConfig{Temperature: 0.3})
 	h.memoryManager.WithExtractor(extractor).RememberAsync(ctx, memory.ExtractInput{
 		BotID:            bot.ID,
@@ -431,35 +437,48 @@ func buildRawPayload(kbSources []graph.KnowledgeSource, usedTools []string) stri
 
 // parseEvent parses a Kafka message.created event, handling both nested (BotEvent)
 // and flat formats.
-func parseEvent(raw []byte) (*model.BotEvent, int64, error) {
+func parseEvent(raw []byte) (*model.BotEvent, string, error) {
 	var evt model.BotEvent
 	if err := json.Unmarshal(raw, &evt); err != nil {
-		return nil, 0, err
+		return nil, "", err
 	}
-	if evt.Message != nil {
-		return &evt, evt.Message.MsgID, nil
+	if evt.Message == nil {
+		var flat struct {
+			MessageID    string  `json:"message_id"`
+			SenderID     *string `json:"sender_id"`
+			SenderName   string  `json:"sender_name"`
+			MsgType      int32   `json:"msg_type"`
+			ReplyToMsgID *string `json:"reply_to_msg_id"`
+			Content      struct {
+				Text     string   `json:"text"`
+				Mentions []string `json:"mention_user_ids"`
+			} `json:"content"`
+		}
+		if err := json.Unmarshal(raw, &flat); err != nil {
+			return nil, "", err
+		}
+		if evt.EventType == "" {
+			evt.EventType = "message.created"
+		}
+		evt.Message = &model.EventMessage{MsgID: flat.MessageID, Text: flat.Content.Text, MsgType: flat.MsgType, ReplyToMsgID: flat.ReplyToMsgID}
+		evt.Sender = &model.EventSender{UserID: flat.SenderID, Username: flat.SenderName}
+		evt.MentionedUserIDs = flat.Content.Mentions
 	}
-	var flat struct {
-		MessageID    int64  `json:"message_id"`
-		SenderID     int64  `json:"sender_id"`
-		SenderName   string `json:"sender_name"`
-		MsgType      int32  `json:"msg_type"`
-		ReplyToMsgID int64  `json:"reply_to_msg_id"`
-		Content      struct {
-			Text     string  `json:"text"`
-			Mentions []int64 `json:"mention_user_ids"`
-		} `json:"content"`
+	if identity.Validate(evt.ConvID) != nil || identity.Validate(evt.Message.MsgID) != nil || (evt.BotID != "" && identity.Validate(evt.BotID) != nil) {
+		return nil, "", fmt.Errorf("invalid bot event identity")
 	}
-	if err := json.Unmarshal(raw, &flat); err != nil {
-		return nil, 0, err
+	if evt.Sender != nil && evt.Sender.UserID != nil && identity.Validate(*evt.Sender.UserID) != nil {
+		return nil, "", fmt.Errorf("invalid event sender identity")
 	}
-	if evt.EventType == "" {
-		evt.EventType = "message.created"
+	if evt.Message.ReplyToMsgID != nil && identity.Validate(*evt.Message.ReplyToMsgID) != nil {
+		return nil, "", fmt.Errorf("invalid reply identity")
 	}
-	evt.Message = &model.EventMessage{MsgID: flat.MessageID, Text: flat.Content.Text, MsgType: flat.MsgType, ReplyToMsgID: flat.ReplyToMsgID}
-	evt.Sender = &model.EventSender{UserID: flat.SenderID, Username: flat.SenderName}
-	evt.MentionedUserIDs = flat.Content.Mentions
-	return &evt, flat.MessageID, nil
+	for _, id := range evt.MentionedUserIDs {
+		if identity.Validate(id) != nil {
+			return nil, "", fmt.Errorf("invalid mention identity")
+		}
+	}
+	return &evt, evt.Message.MsgID, nil
 }
 
 // fallbackForLanguage returns a fallback message in the user's language.

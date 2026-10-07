@@ -17,7 +17,7 @@ export const modelApi = {
   delete: (id: string) =>
     client.delete<APIResponse<null>>(`/models/${id}`).then(unwrap),
 
-  billingStats: (botId?: number) =>
+  billingStats: (botId?: string) =>
     client.get<APIResponse<BillingStatsResp>>('/models/billing/stats', {
       params: botId ? { bot_id: botId } : undefined,
     }).then(unwrap),

@@ -17,7 +17,7 @@ func NewKnowledgeResolver(kbClient KbClient) *KnowledgeResolver {
 }
 
 // Query retrieves knowledge from all bound KBs and returns formatted context + structured sources.
-func (r *KnowledgeResolver) Query(ctx context.Context, query string, botID, convID int64) (string, []KnowledgeSource) {
+func (r *KnowledgeResolver) Query(ctx context.Context, query string, botID, convID string) (string, []KnowledgeSource) {
 	if r.kbClient == nil || query == "" {
 		return "", nil
 	}
@@ -27,7 +27,7 @@ func (r *KnowledgeResolver) Query(ctx context.Context, query string, botID, conv
 		return "", nil
 	}
 
-	ragKBIDs := make([]int64, 0, len(boundKBs))
+	ragKBIDs := make([]string, 0, len(boundKBs))
 	for _, kb := range boundKBs {
 		ragKBIDs = append(ragKBIDs, kb.KBID)
 	}

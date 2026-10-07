@@ -10,27 +10,27 @@ import (
 )
 
 type DeliveryClient interface {
-	PublishToConversation(ctx context.Context, convID, botID int64, msg []byte) error
+	PublishToConversation(ctx context.Context, convID, botID string, msg []byte) error
 }
 
 // DeliveryPusher publishes ephemeral chunks for current conversation members.
 type DeliveryPusher struct {
 	ctx          context.Context
 	client       DeliveryClient
-	convID       int64
-	botID        int64
-	replyToMsgID int64
+	convID       string
+	botID        string
+	replyToMsgID *string
 	seq          int64
 	streamID     string
 }
 
-func NewDeliveryPusher(ctx context.Context, client DeliveryClient, convID, botID, replyToMsgID int64) *DeliveryPusher {
+func NewDeliveryPusher(ctx context.Context, client DeliveryClient, convID, botID string, replyToMsgID *string) *DeliveryPusher {
 	return &DeliveryPusher{ctx: ctx, client: client, convID: convID, botID: botID, replyToMsgID: replyToMsgID, streamID: uuid.NewString()}
 }
 
 func (w *DeliveryPusher) Send(chunk *model.StreamChunk) error {
 	msg := map[string]any{"type": "bot.streaming." + chunk.Type, "stream_id": w.streamID, "bot_id": w.botID, "conv_id": w.convID, "content": chunk.Content, "seq": w.seq}
-	if w.seq == 0 && w.replyToMsgID > 0 {
+	if w.seq == 0 && w.replyToMsgID != nil {
 		msg["reply_to_msg_id"] = w.replyToMsgID
 	}
 	if chunk.Type == "tool_call" || chunk.Type == "tool_result" {

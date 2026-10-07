@@ -3,9 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Table, Button, Modal, Form, Input, Select, Switch, message, Tooltip, Tag, Collapse, Descriptions, Spin } from 'antd';
 import { mcpApi } from '@/services/mcp';
 import type { McpServerInfo, McpToolInfo } from '@/types/model';
+import { useAuthStore } from '@/stores/auth';
 
 export function McpServersPage() {
   const queryClient = useQueryClient();
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<McpServerInfo | null>(null);
   const [form] = Form.useForm();
@@ -22,9 +24,9 @@ export function McpServersPage() {
   const saveMutation = useMutation({
     mutationFn: (vals: any) => {
       const body = buildServerPayload(vals);
-      return editingServer
-        ? mcpApi.update(editingServer.id, body)
-        : mcpApi.create(body);
+      if (editingServer) return mcpApi.update(editingServer.id, body);
+      if (!currentUserId) throw new Error('请先登录');
+      return mcpApi.create({ ...body, owner_type: 'user', owner_id: currentUserId });
     },
     onSuccess: () => {
       message.success(editingServer ? 'MCP 服务器已更新' : 'MCP 服务器添加成功');
@@ -37,31 +39,38 @@ export function McpServersPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => mcpApi.delete(id),
+    mutationFn: (id: string) => mcpApi.delete(id),
     onSuccess: (_data, id) => {
       message.success('MCP 服务器已删除');
-      queryClient.setQueryData(['mcp-servers'], (old: any) => {
+      queryClient.setQueryData(['mcp-servers'], (old: { list: McpServerInfo[]; total: number } | undefined) => {
         if (!old?.list) return old;
-        return { ...old, list: old.list.filter((s: any) => s.id !== id) };
+        return { ...old, list: old.list.filter((s) => s.id !== id) };
       });
+      queryClient.removeQueries({ queryKey: ['mcp-tools', id] });
+      queryClient.invalidateQueries({ queryKey: ['bot-mcp-servers'] });
+      if (toolsServer?.id === id) {
+        setToolsModalOpen(false);
+        setToolsServer(null);
+      }
       queryClient.invalidateQueries({ queryKey: ['mcp-servers'] });
     },
   });
 
   const discoverMutation = useMutation({
-    mutationFn: (id: number) => mcpApi.discoverTools(id),
+    mutationFn: (id: string) => mcpApi.discoverTools(id),
     onSuccess: (data: any) => {
       const count = data?.tools?.length ?? 0;
       message.success(`工具发现完成，共 ${count} 个工具`);
       queryClient.invalidateQueries({ queryKey: ['mcp-servers'] });
+      queryClient.invalidateQueries({ queryKey: ['mcp-tools'] });
     },
     onError: (err: any) => message.error(err?.response?.data?.message || '工具发现失败，请检查 MCP 服务器是否可访问'),
   });
 
-  const { data: toolsData, isLoading: toolsLoading, refetch: refetchTools } = useQuery({
+  const { data: toolsData, isLoading: toolsLoading } = useQuery({
     queryKey: ['mcp-tools', toolsServer?.id],
     queryFn: () => mcpApi.listTools(toolsServer!.id),
-    enabled: false,
+    enabled: toolsModalOpen && !!toolsServer,
   });
 
   const openEdit = (server: McpServerInfo) => {
@@ -93,7 +102,6 @@ export function McpServersPage() {
   const openTools = (server: McpServerInfo) => {
     setToolsServer(server);
     setToolsModalOpen(true);
-    setTimeout(() => refetchTools(), 100);
   };
 
   const columns = [
@@ -107,21 +115,21 @@ export function McpServersPage() {
     },
     {
       title: '操作', key: 'actions', width: 200,
-      render: (_: any, r: McpServerInfo) => (
+      render: (_: unknown, r: McpServerInfo) => (
         <span style={{ display: 'flex', gap: 4 }}>
-          <Button type="link" size="small" onClick={() => openEdit(r)}>编辑</Button>
+          {r.owner_type === 'user' && r.owner_id === currentUserId && <Button type="link" size="small" onClick={() => openEdit(r)}>编辑</Button>}
           <Button type="link" size="small" onClick={() => openTools(r)}>工具</Button>
-          <Tooltip title="发现并更新工具列表">
+          {r.owner_type === 'user' && r.owner_id === currentUserId && <Tooltip title="发现并更新工具列表">
             <Button type="link" size="small" loading={discoverMutation.isPending}
               onClick={() => discoverMutation.mutate(r.id)}>刷新</Button>
-          </Tooltip>
-          <Button type="link" size="small" danger onClick={() => {
+          </Tooltip>}
+          {r.owner_type === 'user' && r.owner_id === currentUserId && <Button type="link" size="small" danger onClick={() => {
             Modal.confirm({
               title: '确认删除',
               content: `确定要删除 MCP 服务器「${r.name}」吗？`,
               onOk: () => deleteMutation.mutate(r.id),
             });
-          }}>删除</Button>
+          }}>删除</Button>}
         </span>
       ),
     },

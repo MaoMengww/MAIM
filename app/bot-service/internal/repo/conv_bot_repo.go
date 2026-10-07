@@ -17,7 +17,7 @@ func NewConvBotRepo(db *database.DB) *ConvBotRepo {
 }
 
 // FindByBotAndConv returns a ConvBot entry.
-func (r *ConvBotRepo) FindByBotAndConv(ctx context.Context, botID, convID int64) (*model.ConvBot, error) {
+func (r *ConvBotRepo) FindByBotAndConv(ctx context.Context, botID, convID string) (*model.ConvBot, error) {
 	var cb model.ConvBot
 	err := r.db.WithContext(ctx).Where("bot_id = ? AND conv_id = ?", botID, convID).First(&cb).Error
 	if err != nil {
@@ -27,7 +27,7 @@ func (r *ConvBotRepo) FindByBotAndConv(ctx context.Context, botID, convID int64)
 }
 
 // FindByConv returns ConvBot entries for a conversation (may be multiple bots).
-func (r *ConvBotRepo) FindByConv(ctx context.Context, convID int64) ([]model.ConvBot, error) {
+func (r *ConvBotRepo) FindByConv(ctx context.Context, convID string) ([]model.ConvBot, error) {
 	var bots []model.ConvBot
 	err := r.db.WithContext(ctx).Where("conv_id = ?", convID).Find(&bots).Error
 	return bots, err

@@ -102,16 +102,16 @@ func main() {
 		}
 
 		db := ctx.DB
-		userNames := graph.UserNamesFunc(func(ctx context.Context, ids []int64) (map[int64]string, error) {
+		userNames := graph.UserNamesFunc(func(ctx context.Context, ids []string) (map[string]string, error) {
 			type userInfo struct {
-				ID       int64 `gorm:"column:id"`
+				ID       string `gorm:"column:id"`
 				Username string
 			}
 			var users []userInfo
 			if err := db.Table("user.users").Where("id IN ?", ids).Find(&users).Error; err != nil {
 				return nil, err
 			}
-			m := make(map[int64]string, len(users))
+			m := make(map[string]string, len(users))
 			for _, u := range users {
 				m[u.ID] = u.Username
 			}

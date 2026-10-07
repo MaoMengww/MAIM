@@ -115,6 +115,8 @@ export interface UpdateUserSettingsReq {
 export interface CreateBotReq {
   name: string;
   type: string;
+  owner_type: 'user' | 'platform';
+  owner_id?: string;
   avatar?: string;
   template_id?: string;    // "qa" | "knowledge"
   sub_type?: string;       // "webhook" | "ws"
@@ -129,19 +131,23 @@ export interface CreateBotReq {
   max_context_tokens?: number;
   streaming_enabled?: boolean;
   memory_model_name?: string;
-  memory_model_id?: number;
+  memory_model_id?: string;
   memory_embedding_model_name?: string;
-  memory_embedding_model_id?: number;
+  memory_embedding_model_id?: string;
   conn_mode?: string;
   callback_url?: string;
+  use_platform_model?: boolean;
+  memory_use_platform_model?: boolean;
+  memory_limit?: number;
+  response_triggers?: string[];
   bot_tags?: string[];
   capabilities?: string;
   settings?: string;
-  model_id?: number;
+  model_id?: string;
 }
 
 export interface UpdateBotReq {
-  bot_id?: number;
+  bot_id?: string;
   name?: string;
   avatar?: string;
   status?: string;
@@ -158,19 +164,29 @@ export interface UpdateBotReq {
   max_context_tokens?: number;
   streaming_enabled?: boolean;
   memory_model_name?: string;
-  memory_model_id?: number;
+  memory_model_id?: string;
+  clear_memory_model_id?: boolean;
   memory_embedding_model_name?: string;
-  memory_embedding_model_id?: number;
+  memory_embedding_model_id?: string;
+  clear_memory_embedding_model_id?: boolean;
   conn_mode?: string;
   callback_url?: string;
   bot_tags?: string[];
+  use_platform_model?: boolean;
+  memory_use_platform_model?: boolean;
+  memory_limit?: number;
+  response_triggers?: string[];
   capabilities?: string;
   settings?: string;
+  model_id?: string;
+  clear_model_id?: boolean;
 }
 
 // ─── MCP ───
 export interface CreateMcpServerReq {
   name: string;
+  owner_type: 'user' | 'platform';
+  owner_id?: string;
   description?: string;
   transport?: string;
   url?: string;
@@ -203,7 +219,7 @@ export interface CreateKBReq {
   name: string;
   description?: string;
   embedding_model?: string;
-  embedding_model_id?: number;
+  embedding_model_id?: string;
   pipeline_config?: PipelineConfig;
   mode?: string;           // "rag"
 }
@@ -229,6 +245,8 @@ export interface MinerUConfigReq {
 
 export interface VLMConfigReq {
   enabled?: boolean;
+  model_id?: string;
+  clear_model_id?: boolean;
   provider?: string;
   model?: string;
   api_key?: string;
@@ -261,7 +279,8 @@ export interface RetrievalConfigReq {
 
 export interface RerankConfigReq {
   enabled?: boolean;
-  model_id?: number;
+  model_id?: string;
+  clear_model_id?: boolean;
   top_n?: number;
 }
 
@@ -282,4 +301,6 @@ export interface CreateModelReq {
   capability: string;
   base_url: string;
   api_key?: string;
+  owner_type: 'user' | 'platform';
+  owner_id?: string;
 }

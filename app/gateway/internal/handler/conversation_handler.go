@@ -30,6 +30,7 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 	var body struct {
 		Type       string   `json:"type"`
 		PeerUserID *string  `json:"peer_user_id"`
+		BotID      *string  `json:"bot_id"`
 		MemberIDs  []string `json:"member_ids"`
 		GroupName  string   `json:"group_name"`
 	}
@@ -44,13 +45,17 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 	switch body.Type {
 	case "single":
 		req.Type = message.ConversationType_CONVERSATION_TYPE_PRIVATE
-		if body.PeerUserID == nil || identity.Validate(*body.PeerUserID) != nil {
-			response.BadRequest(c, "invalid peer user identity")
+		if (body.PeerUserID == nil) == (body.BotID == nil) {
+			response.BadRequest(c, "exactly one peer user or bot is required")
 			return
 		}
-		req.PeerUserId = body.PeerUserID
+		req.PeerUserId, req.BotId = body.PeerUserID, body.BotID
 	case "group":
 		req.Type = message.ConversationType_CONVERSATION_TYPE_GROUP
+		if body.BotID != nil || body.PeerUserID != nil {
+			response.BadRequest(c, "group conversation cannot specify a private peer")
+			return
+		}
 		for _, id := range body.MemberIDs {
 			if err := identity.Validate(id); err != nil {
 				response.BadRequest(c, "invalid member identity")
@@ -218,7 +223,8 @@ func (h *ConversationHandler) GetMembers(c *gin.Context) {
 	if !requirePathIdentities(c, "id") {
 		return
 	}
-	req := &message.GetMembersReq{ConversationId: c.Param("id"), UserId: c.GetString(middleware.CtxKeyUserID)}
+	userID := c.GetString(middleware.CtxKeyUserID)
+	req := &message.GetMembersReq{ConversationId: c.Param("id"), UserId: &userID}
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, req) {
 		return

@@ -31,7 +31,7 @@ func (l *RemoveBotLogic) RemoveBot(in *conversation.RemoveBotReq) (*common.BaseR
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
 			return err
 		}
-		member, err := r.GetMember(l.ctx, conv.ID, in.BotId)
+		member, err := r.GetBotMember(l.ctx, conv.ID, in.BotId)
 		if err != nil {
 			return err
 		}
