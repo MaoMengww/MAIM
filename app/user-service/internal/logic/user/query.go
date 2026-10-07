@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"github.com/maomeng/aim/pkg/identity"
 
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/errors"
@@ -10,6 +11,9 @@ import (
 )
 
 func (l *Logic) GetUserInfo(ctx context.Context, req *userpb.GetUserInfoReq) (*userpb.UserInfo, error) {
+	if identity.Validate(req.UserId) != nil {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid user_id")
+	}
 	u, err := l.userRepo.GetByID(ctx, req.UserId)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -23,6 +27,11 @@ func (l *Logic) GetUserInfo(ctx context.Context, req *userpb.GetUserInfoReq) (*u
 func (l *Logic) BatchGetUserInfo(ctx context.Context, req *userpb.BatchGetUserInfoReq) (*userpb.BatchGetUserInfoResp, error) {
 	if len(req.UserIds) == 0 {
 		return &userpb.BatchGetUserInfoResp{}, nil
+	}
+	for _, id := range req.UserIds {
+		if identity.Validate(id) != nil {
+			return nil, errors.New(errors.CodeInvalidParam, "invalid user_id")
+		}
 	}
 	users, err := l.userRepo.BatchGetByIDs(ctx, req.UserIds)
 	if err != nil {
@@ -49,8 +58,7 @@ func (l *Logic) SearchUsers(ctx context.Context, req *userpb.SearchUsersReq) (*u
 			pageSize = req.Pagination.PageSize
 		}
 	}
-	offset := int(page-1) * int(pageSize)
-	users, total, err := l.userRepo.Search(ctx, req.Keyword, offset, int(pageSize))
+	users, total, err := l.userRepo.Search(ctx, req.Keyword, int(page), int(pageSize))
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "search users failed", err)
 	}

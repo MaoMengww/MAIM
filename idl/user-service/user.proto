@@ -124,7 +124,7 @@ message ValidateTokenResp {
 }
 
 message SessionInfo {
-  string session_id = 1;
+  string session_id = 1 [(common.entity_id) = true]; // 持久化账号设备记录 UUID，与 device_id 不同
   string device_id = 2;
   string platform = 3;
   string ip = 4;
@@ -141,7 +141,7 @@ message GetSessionsResp {
 
 message RevokeSessionReq {
   string user_id = 1 [(common.entity_id) = true];
-  string session_id = 2;
+  string session_id = 2 [(common.entity_id) = true];
 }
 
 message TokenPair {

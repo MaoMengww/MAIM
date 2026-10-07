@@ -25,8 +25,11 @@ func NewAcceptRequestLogic(ctx context.Context, svcCtx *Context) *AcceptRequestL
 }
 
 func (l *AcceptRequestLogic) AcceptRequest(in *userpb.AcceptRequestReq) (*common.BaseResponse, error) {
+	if err := validateCaller(l.ctx, in.GetUserId(), in.GetRequestId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 
@@ -41,13 +44,15 @@ func (l *AcceptRequestLogic) AcceptRequest(in *userpb.AcceptRequestReq) (*common
 		return nil, grpcError(ErrRequestAlreadyHandled)
 	}
 
-	if err := l.svcCtx.FriendRequestRepo.UpdateStatus(l.ctx, req.ID, model.FriendRequestStatusAccepted); err != nil {
+	if blocked, err := l.svcCtx.BlockRepo.IsBlocked(l.ctx, req.FromUserID, req.ToUserID); err != nil {
 		return nil, grpcError(err)
+	} else if blocked {
+		return nil, grpcError(ErrBlocked)
 	}
-	if err := l.svcCtx.FriendRepo.CreatePair(l.ctx, req.FromUserID, req.ToUserID, 0, func() int64 { id, _ := l.svcCtx.Snowflake.Generate(); return id }); err != nil {
+	if err := l.svcCtx.FriendRequestRepo.Accept(l.ctx, req); err != nil {
 		return nil, grpcError(err)
 	}
 
-	l.Infof("friend request accepted: requester_id=%d addressee_id=%d", req.FromUserID, req.ToUserID)
+	l.Infof("friend request accepted: requester_id=%s addressee_id=%s", req.FromUserID, req.ToUserID)
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

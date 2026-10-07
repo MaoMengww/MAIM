@@ -136,6 +136,29 @@ func (d *driver) relationships() error {
 	if err := d.relationshipFriends("group-private.B", b, a, &friendB); err != nil {
 		return err
 	}
+	if err := d.relationshipCall("omit-group-keeps-reference", http.MethodPut, "/friends/"+b.id.String()+"/group", a, map[string]any{}, nil); err != nil {
+		return err
+	}
+	if err := d.relationshipFriends("omitted-group-unchanged", a, b, &friendA); err != nil {
+		return err
+	}
+	if err := d.relationshipReject("conflicting-group-update", http.MethodPut, "/friends/"+b.id.String()+"/group", a, map[string]any{"group_id": group.ID, "clear_group_id": true}); err != nil {
+		return err
+	}
+	if err := d.relationshipFriends("conflict-group-unchanged", a, b, &friendA); err != nil {
+		return err
+	}
+	if err := d.relationshipCall("clear-group", http.MethodPut, "/friends/"+b.id.String()+"/group", a, map[string]bool{"clear_group_id": true}, nil); err != nil {
+		return err
+	}
+	friendA.GroupID, friendA.GroupName = nil, ""
+	if err := d.relationshipFriends("cleared-group-absent", a, b, &friendA); err != nil {
+		return err
+	}
+	if err := d.relationshipCall("reassign-group-before-delete", http.MethodPut, "/friends/"+b.id.String()+"/group", a, map[string]entityID{"group_id": group.ID}, nil); err != nil {
+		return err
+	}
+	friendA.GroupID, friendA.GroupName = &group.ID, group.Name
 	if err := d.relationshipCall("delete-group", http.MethodDelete, groupPath, a, nil, nil); err != nil {
 		return err
 	}

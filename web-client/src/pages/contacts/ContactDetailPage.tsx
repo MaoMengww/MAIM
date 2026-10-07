@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Descriptions, Spin, message, Select, Input } from 'antd';
+import { Button, Descriptions, Spin, message, Modal, Select, Input } from 'antd';
 import { Avatar } from '@/components/common/Avatar';
 import { PresenceDot } from '@/components/common/PresenceDot';
 import client from '@/services/client';
@@ -53,7 +53,7 @@ export function ContactDetailPage() {
     }
     setSavingRemark(true);
     try {
-      await friendApi.setRemark(Number(id), { remark: trimmed });
+      await friendApi.setRemark(id, { remark: trimmed });
       message.success('备注已更新');
       queryClient.invalidateQueries({ queryKey: ['friends'] });
       setEditingRemark(false);
@@ -72,14 +72,14 @@ export function ContactDetailPage() {
   // Subscribe to presence
   useEffect(() => {
     if (!id || wsStatus !== 'connected') return;
-    wsSend({ type: 'subscribe_presence', user_ids: [id] });
+    wsSend({ type: 'presence.subscribe', user_ids: [id] });
   }, [id, wsStatus]);
 
   // Listen for presence
   useEffect(() => {
-    const unsub = wsOn('presence', (payload: any) => {
-      if (String(payload.user_id) === id) {
-        setOnline(payload.status === 'online');
+    const unsub = wsOn('presence.state', (payload: any) => {
+      if (payload.user_id === id) {
+        setOnline(payload.online === true);
       }
     });
     return unsub;
@@ -107,8 +107,8 @@ export function ContactDetailPage() {
   });
 
   const groups = groupsData ?? [];
-  const friendInfo = friendsList?.list?.find((f: FriendInfo) => String(f.user_id) === id);
-  const currentGroupId = friendInfo?.group_id || 0;
+  const friendInfo = friendsList?.list?.find((f: FriendInfo) => f.user_id === id);
+  const currentGroupId = friendInfo?.group_id ?? undefined;
 
   if (isLoading) {
     return (
@@ -195,12 +195,15 @@ export function ContactDetailPage() {
           <Descriptions.Item label="分组">
             <Select
               value={currentGroupId}
+              allowClear
+              placeholder="默认分组"
               style={{ width: 160 }}
               loading={groupsLoading}
               disabled={groupsLoading}
               onChange={async (newGroupId) => {
+                if (!id) return;
                 try {
-                  await friendApi.setGroup(Number(id), { group_id: newGroupId });
+                  await friendApi.setGroup(id, newGroupId == null ? { clear_group_id: true } : { group_id: newGroupId });
                   message.success('分组已更新');
                   queryClient.invalidateQueries({ queryKey: ['friends'] });
                 } catch {
@@ -208,7 +211,6 @@ export function ContactDetailPage() {
                 }
               }}
               options={[
-                { value: 0, label: '默认分组' },
                 ...groups.map((g: FriendGroup) => ({ value: g.id, label: g.name })),
               ]}
             />
@@ -222,9 +224,10 @@ export function ContactDetailPage() {
         style={{ marginTop: 24, width: '100%' }}
         loading={sending}
         onClick={async () => {
+          if (!id) return;
           setSending(true);
           try {
-            const conv = await convApi.create({ type: 'single', peer_user_id: id as any });
+            const conv = await convApi.create({ type: 'single', peer_user_id: id });
             navigate(`/conversations/${conv.id}`);
           } catch {
             message.error('创建会话失败');
@@ -235,6 +238,24 @@ export function ContactDetailPage() {
       >
         发消息
       </Button>
+      {friendInfo && (
+        <Button danger style={{ marginTop: 12 }} onClick={() => {
+          if (!id) return;
+          Modal.confirm({
+            title: '删除好友',
+            content: `删除 ${friendInfo.remark || friendInfo.username}？`,
+            okText: '删除',
+            okButtonProps: { danger: true },
+            cancelText: '取消',
+            onOk: async () => {
+              await friendApi.deleteFriend(id);
+              await queryClient.invalidateQueries({ queryKey: ['friends'] });
+              await queryClient.invalidateQueries({ queryKey: ['friend-groups'] });
+              navigate('/contacts', { replace: true });
+            },
+          });
+        }}>删除好友</Button>
+      )}
     </div>
   );
 }

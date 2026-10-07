@@ -32,6 +32,7 @@ APPLICATIONS = {
     "realtime-service": ("realtime-service", "realtime.yaml", "http", 8081, []),
     "gateway": ("gateway", "gateway.yaml", "http", 8080, []),
 }
+USER_IDENTITY_APPLICATIONS = {"user-service", "realtime-service", "gateway"}
 OPTIONAL = {"prometheus", "kibana", "grafana"}
 CREDENTIALS = {
     "POSTGRES_USER": "aim",
@@ -45,11 +46,6 @@ CREDENTIALS = {
     "INGEST_EMBEDDING_TOKEN": "e2e-isolated-ingest-budget-token",
 }
 TAIL_BYTES = 64 * 1024
-# Every run builds with tags unique to its project, so BuildKit cache records pile
-# up run after run. Drop what no recent run can reuse, keeping a day of warm layers
-# so repeated runs stay fast. `--max-used-space` is not usable here: buildx measures
-# it against private cache only and leaves shared layers (the bulk) untouched.
-BUILD_CACHE_MAX_AGE = "24h"
 
 
 class LayerFailure(Exception):
@@ -85,6 +81,8 @@ class Runner:
         self.prefix = ["docker", "compose", "--env-file", str(self.envfile),
                        "--project-directory", str(self.repo), "--project-name", self.project]
         self.model = None
+        self.applications = (USER_IDENTITY_APPLICATIONS if args.scenario == "user-identity"
+                             else set(APPLICATIONS))
         self.builds = []
         self.built_images = []
         self.sequence = 0
@@ -254,7 +252,16 @@ class Runner:
             "NEO4J_dbms_memory_heap_initial__size": "256m",
             "NEO4J_dbms_memory_heap_max__size": "512m",
         })
-        self.infrastructure = sorted(set(services) - set(APPLICATIONS) -
+        if self.args.scenario == "user-identity":
+            keep = self.applications | {"realtime-b", "postgres", "redis", "kafka",
+                                        "init-kafka-topics", "otel-collector", "jaeger"}
+            for name in set(services) - keep:
+                del services[name]
+            for service in services.values():
+                for dependency in list(service.get("depends_on", {})):
+                    if dependency not in services:
+                        del service["depends_on"][dependency]
+        self.infrastructure = sorted(set(services) - self.applications -
                                      {"realtime-b", "init-kafka-topics"})
         for name in self.infrastructure:
             if not services[name].get("healthcheck") or services[name]["healthcheck"].get("disable"):
@@ -268,10 +275,10 @@ class Runner:
                             "user-service"],
             "gateway": sorted(set(APPLICATIONS) - {"gateway"}) + ["realtime-b"],
         }
-        for name in list(APPLICATIONS) + ["realtime-b"]:
+        for name in sorted(self.applications) + ["realtime-b"]:
             service = services[name]
             needs = service.setdefault("depends_on", {})
-            for dependency in self.infrastructure + dependencies.get(name, []):
+            for dependency in self.infrastructure + [dep for dep in dependencies.get(name, []) if dep in services]:
                 needs[dependency] = {"condition": "service_healthy"}
         services["e2e-client"] = {
             "build": {"context": str(self.repo), "dockerfile": "tests/e2e/Dockerfile"},
@@ -304,7 +311,7 @@ class Runner:
         self.compose_written = True
         if self.artifacts:
             shutil.copyfile(self.composefile, self.artifacts / "compose.json")
-        self.emit(f"[isolation] project={self.project}; {len(APPLICATIONS)} business services + realtime-b; "
+        self.emit(f"[isolation] project={self.project}; {len(self.applications)} business services + realtime-b; "
                   f"{len(self.infrastructure)} middleware; no published host ports")
 
     def run(self):
@@ -323,7 +330,7 @@ class Runner:
         self.compose("kafka-topics-init", "up", "--no-build", "--no-deps", "--abort-on-container-exit",
                      "--exit-code-from", "init-kafka-topics", "init-kafka-topics",
                      timeout=self.args.readiness_timeout)
-        self.wait_for("application-readiness", sorted(APPLICATIONS) + ["realtime-b"])
+        self.wait_for("application-readiness", sorted(self.applications) + ["realtime-b"])
         scenario = ["run", "-gateway", "http://gateway:8080",
                     "-realtime-a", "ws://realtime-a:8081/ws",
                     "-realtime-b", "ws://realtime-b:8081/ws",
@@ -447,15 +454,11 @@ class Runner:
         if self.compose_written:
             self.compose("cleanup", "down", "--volumes", "--remove-orphans",
                          "--timeout", "10", timeout=120)
-        # `compose down` removes this project's containers, networks and volumes but
-        # keeps the images it built here. Without these two steps every run leaves a
-        # full image set and its matching BuildKit cache on the host for good.
+        # Remove only images named for this run. Shared BuildKit cache is not
+        # owned by the isolated project and must not be globally pruned.
         if self.built_images:
             self.command("cleanup-images", ["docker", "image", "rm", "--force", *self.built_images],
                          timeout=300, required=False)
-        self.command("cleanup-build-cache", ["docker", "builder", "prune", "--force",
-                                             "--filter", f"until={BUILD_CACHE_MAX_AGE}"],
-                     timeout=600, required=False)
         if self.artifacts:
             self.emit(f"[artifacts] bounded logs and resolved model: {self.artifacts}")
 
@@ -473,7 +476,7 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery")
-    parser.add_argument("--scenario", choices=("all", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
+    parser.add_argument("--scenario", choices=("all", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-runtime", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")

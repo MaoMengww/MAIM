@@ -18,7 +18,7 @@ export interface RegisterReq {
 export interface CreateConvReq {
   type: 'single' | 'group';
   peer_user_id?: string;
-  member_ids?: number[];
+  member_ids?: string[];
   group_name?: string;
 }
 
@@ -69,7 +69,7 @@ export interface SyncMessagesReq {
 export interface SearchMessagesReq {
   keyword?: string;
   conversation_id?: number;
-  sender_id?: number;
+  sender_id?: string;
   sender_type?: string;
   message_types?: number[];
   start_time?: number;
@@ -80,23 +80,36 @@ export interface SearchMessagesReq {
 
 // ─── Friend ───
 export interface SendFriendRequestReq {
-  to_user_id: number;
+  to_user_id: string;
   message?: string;
-  from_user_id?: number;
+  from_user_id?: string;
 }
 
 export interface SetRemarkReq {
   remark: string;
-  friend_id?: number;
+  friend_id?: string;
 }
 
 export interface SetGroupReq {
-  group_id: number;
-  friend_id?: number;
+  group_id?: string;
+  clear_group_id?: boolean;
+  friend_id?: string;
 }
 
 export interface CreateFriendGroupReq {
   name: string;
+}
+
+export interface UpdateUserSettingsReq {
+  language?: string;
+  ai_model_id?: string;
+  clear_ai_model_id?: boolean;
+  ai_model_name?: string;
+  notification_enabled?: boolean;
+  sound_enabled?: boolean;
+  vibration_enabled?: boolean;
+  theme?: string;
+  settings_json?: string;
 }
 
 // ─── Bot ───

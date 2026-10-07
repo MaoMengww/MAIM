@@ -176,6 +176,8 @@ make proto
 
 可选实体引用使用 protobuf presence 和数据库 `NULL`。更新省略引用表示保持，`clear_<字段名>=true` 表示解除，同时设置与清除必须拒绝。对象所有权通过 `owner_type=platform|user` 表达：平台没有 `owner_id`，用户所有必须关联有效用户 UUID；该合同不授予平台管理权限。
 
+第 02 票的用户、关系和通知链路采用上述合同。JWT 分别携带用户 UUID、稳定专用 `device_id`、设备记录 UUID `session_id` 和专用 `jti`；gateway 与 realtime 经 user 的真实 `ValidateToken` 校验记录/撤销状态。撤销后同设备重新登录创建新 session，旧 token 不复活。好友解除分组发送 `clear_group_id=true`，省略保持；通知引用同时提供 `reference_type` 与 UUID `reference_id`，无引用时二者缺失。presence 使用 `presence.subscribe` / `presence.unsubscribe` 与 `presence.state` 的 `online` 布尔值。
+
 新环境只应用 `migrations/postgres/000_uuid_identity.sql`，服务通过 `database.RunMigrations` 消费同一嵌入基线；旧迁移的有效表、索引和约束已合并。旧结构/旧迁移记录会显式失败，不自动映射或清空。第 01 票只交付共享宽改型：业务调用链迁移归第 02–07 票，全仓绿色与协调重建归第 08 票；本阶段不能启动完整新系统，也未清理现有开发数据。
 
 
@@ -214,10 +216,11 @@ docker compose up -d --build
 
 ## 端到端验收
 
-前置条件：Python 3、Docker Engine、支持 `--wait` 的 Docker Compose 插件及 Buildx。验收只通过 gateway REST 与 WebSocket 驱动真实服务，不替换内部 RPC、Kafka 或数据库。
+前置条件：Python 3、Docker Engine、支持 `--wait` 的 Docker Compose 插件及 Buildx。验收通过 gateway REST 与 WebSocket 驱动真实服务；没有公开通知创建入口时直接调用现有 domain gRPC，不新增测试 API。不替换内部 RPC、Kafka 或数据库。
 
 ```bash
 python3 tests/e2e/run.py --scenario all --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --scenario user-identity --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p5 --artifacts /tmp/aim-e2e-artifacts
@@ -226,9 +229,11 @@ python3 tests/e2e/run.py --scenario user-sync --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifacts
 ```
 
-每次使用独立 Compose project、网络与数据卷，无宿主端口映射。全部中间件与应用就绪后才施加流量；realtime 的两个实例分别可寻址，但共用一个 Kafka 消费组。成功或失败后均清理该 project 的容器、数据卷与本次构建的镜像，并回收超过保留窗口的 BuildKit 缓存（`run.py` 的 `BUILD_CACHE_MAX_AGE`）；`--artifacts` 保留诊断日志。
+每次使用独立 Compose project、网络与数据卷，无宿主端口映射。所选场景全部依赖就绪后才施加流量；realtime 的两个实例分别可寻址，但共用一个 Kafka 消费组。成功或失败后均清理该 project 的容器、数据卷与本次构建的镜像，不清理共享 BuildKit 缓存；`--artifacts` 保留诊断日志。
 
 默认 `all` 检查关系链、同实例与 A/B 跨实例双向投递；`--scenario` 可选择单个场景。P6 已用连接登记取代旧的单实例 gRPC 推送目标，同实例与跨实例走同一条 Redis 定向投递路径。
+
+`user-identity` 只启动 user、gateway、双 realtime 及其真实中间件，复用 relationships 并验证注册/登录/刷新/资料/设置、跨账号拒绝、通知持久化/跨实例 WS/离线列表、设备稳定重连和撤销后旧 token 不复活。它不证明尚未迁移的其它 domain 可用；全仓和完整栈验收由第 08 票完成。
 
 `user-sync` 检查空流重建、单个位点跨会话分页、消息正文与账号隔离、新设备最近历史及置顶/免打扰设置、未知位点重建和续增量；同账号两设备个人删除他人消息后同步隐藏，原发送者仍可读取，搜索/历史/回复摘要/会话预览及新设备重建不泄露正文。过期回收后不复活与并发未提交写入窗口由真实 PostgreSQL 的集成回归覆盖。
 

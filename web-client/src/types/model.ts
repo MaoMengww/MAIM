@@ -22,7 +22,7 @@ export interface CursorPageData<T> {
 
 // ─── User & Auth ───
 export interface UserInfo {
-  id: number;
+  id: string;
   username: string;
   phone: string;
   email: string;
@@ -44,7 +44,7 @@ export interface TokenPair {
 }
 
 export interface LoginResp {
-  user_id: number;
+  user_id: string;
   tokens: TokenPair;
   user: UserInfo;
 }
@@ -62,7 +62,7 @@ export interface SessionInfo {
 
 export interface UserSettings {
   language: string;
-  ai_model_id: number;
+  ai_model_id?: string | null;
   ai_model_name: string;
   notification_enabled: boolean;
   sound_enabled: boolean;
@@ -96,7 +96,7 @@ export interface Conversation {
 }
 
 export interface ConvMember {
-  user_id: number;
+  user_id: string;
   username: string;
   avatar: string;
   role: 'MEMBER_ROLE_OWNER' | 'MEMBER_ROLE_ADMIN' | 'MEMBER_ROLE_MEMBER' | number;
@@ -112,7 +112,7 @@ export interface ConvMember {
 }
 
 export interface ReadUser {
-  user_id: number;
+  user_id: string;
   read_at: number;
 }
 
@@ -129,7 +129,7 @@ export interface BotInConv {
   type: string;
   response_triggers: string[];
   bot_settings: string;
-  added_by: number;
+  added_by: string;
   added_at: number;
 }
 
@@ -249,20 +249,20 @@ export interface Message {
 
 // ─── Friend ───
 export interface FriendInfo {
-  user_id: number;
+  user_id: string;
   username: string;
   avatar: string;
   remark: string;
-  group_id: number;
+  group_id?: string | null;
   group_name: string;
   status: string;
   created_at: number;
 }
 
 export interface FriendRequest {
-  request_id: number;
-  from_user_id: number;
-  to_user_id: number;
+  request_id: string;
+  from_user_id: string;
+  to_user_id: string;
   message: string;
   status: string;
   created_at: number;
@@ -272,7 +272,7 @@ export interface FriendRequest {
 }
 
 export interface FriendGroup {
-  id: number;
+  id: string;
   name: string;
   sort_order: number;
   friend_count: number;
@@ -459,12 +459,13 @@ export interface ChunkInfo {
 
 // ─── Model (LLM) ───
 export interface ModelResp {
-  id: number;
+  id: string;
   model_name: string;
   provider: string;
   capability: string;
   base_url: string;
-  owner_id: number;
+  owner_type: 'user' | 'platform';
+  owner_id?: string | null;
   status: string;
   api_key: string;
   input_price_per_mtok?: number;
@@ -501,14 +502,19 @@ export interface BillingRecordItem {
 }
 
 // ─── Notification ───
+export type NotificationReferenceType =
+  | 'user' | 'friend_request' | 'conversation' | 'message'
+  | 'bot' | 'knowledge_base' | 'document' | 'model';
+
 export interface Notification {
-  id: number;
-  user_id: number;
-  type: string;
+  id: string;
+  user_id: string;
+  type: number;
   title: string;
-  content: Record<string, unknown>;
+  content: string;
   is_read: boolean;
-  reference_id: string;
+  reference_id?: string | null;
+  reference_type?: NotificationReferenceType | null;
   created_at: number;
 }
 

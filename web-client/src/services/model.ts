@@ -11,10 +11,10 @@ export const modelApi = {
   create: (data: CreateModelReq) =>
     client.post<APIResponse<ModelResp>>('/models', data).then(unwrap),
 
-  update: (id: number, data: Record<string, unknown>) =>
+  update: (id: string, data: Record<string, unknown>) =>
     client.put<APIResponse<ModelResp>>(`/models/${id}`, data).then(unwrap),
 
-  delete: (id: number) =>
+  delete: (id: string) =>
     client.delete<APIResponse<null>>(`/models/${id}`).then(unwrap),
 
   billingStats: (botId?: number) =>

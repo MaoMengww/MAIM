@@ -5,6 +5,7 @@ import (
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
 	"github.com/maomeng/aim/app/gateway/internal/response"
 	friend "github.com/maomeng/aim/app/user-service/pb/user"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"google.golang.org/grpc"
 )
@@ -118,6 +119,13 @@ func (h *FriendHandler) ListSentRequests(c *gin.Context) {
 func (h *FriendHandler) ListFriends(c *gin.Context) {
 	var req friend.ListFriendsReq
 	req.UserId = c.GetString(middleware.CtxKeyUserID)
+	if groupID, supplied := c.GetQuery("group_id"); supplied {
+		if err := identity.Validate(groupID); err != nil {
+			response.BadRequest(c, "invalid group_id")
+			return
+		}
+		req.GroupId = &groupID
+	}
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, &req) {
 		return

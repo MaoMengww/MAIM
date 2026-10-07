@@ -25,8 +25,11 @@ func NewRejectRequestLogic(ctx context.Context, svcCtx *Context) *RejectRequestL
 }
 
 func (l *RejectRequestLogic) RejectRequest(in *userpb.RejectRequestReq) (*common.BaseResponse, error) {
+	if err := validateCaller(l.ctx, in.GetUserId(), in.GetRequestId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 
@@ -45,6 +48,6 @@ func (l *RejectRequestLogic) RejectRequest(in *userpb.RejectRequestReq) (*common
 		return nil, grpcError(err)
 	}
 
-	l.Infof("friend request rejected: requester_id=%d addressee_id=%d", req.FromUserID, req.ToUserID)
+	l.Infof("friend request rejected: requester_id=%s addressee_id=%s", req.FromUserID, req.ToUserID)
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

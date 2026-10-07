@@ -14,8 +14,8 @@ const (
 const (
 	// Client to Server
 	EventPing                = "ping"
-	EventSubscribePresence   = "subscribe_presence"
-	EventUnsubscribePresence = "unsubscribe_presence"
+	EventSubscribePresence   = "presence.subscribe"
+	EventUnsubscribePresence = "presence.unsubscribe"
 	EventTyping              = "typing"
 	EventTypingStop          = "typing.stop"
 	EventAck                 = "ack"
@@ -25,7 +25,7 @@ const (
 	EventMessageNew       = "message.new"
 	EventMessageRecalled  = "message.recalled"
 	EventMessageEdited    = "message.edited"
-	EventPresence         = "presence"
+	EventPresence         = "presence.state"
 	EventReadSync         = "read_sync"
 	EventTypingNotify     = "typing"
 	EventTypingStopNotify = "typing.stop"

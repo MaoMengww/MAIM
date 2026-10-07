@@ -23,8 +23,11 @@ func NewListGroupsLogic(ctx context.Context, svcCtx *Context) *ListGroupsLogic {
 }
 
 func (l *ListGroupsLogic) ListGroups(in *userpb.ListGroupsReq) (*userpb.ListGroupsResp, error) {
+	if err := validateCaller(l.ctx, in.GetUserId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 
@@ -34,10 +37,15 @@ func (l *ListGroupsLogic) ListGroups(in *userpb.ListGroupsReq) (*userpb.ListGrou
 	}
 
 	// count friends per group
-	allFriends, _, _ := l.svcCtx.FriendRepo.List(l.ctx, userID, nil, 0, 10000)
-	groupCount := make(map[int64]int32)
+	allFriends, _, err := l.svcCtx.FriendRepo.List(l.ctx, userID, nil, 0, -1)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	groupCount := make(map[string]int32)
 	for _, f := range allFriends {
-		groupCount[f.GroupID]++
+		if f.GroupID != nil {
+			groupCount[*f.GroupID]++
+		}
 	}
 
 	items := make([]*userpb.FriendGroup, 0, len(groups))

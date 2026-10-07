@@ -25,8 +25,11 @@ func NewRenameGroupLogic(ctx context.Context, svcCtx *Context) *RenameGroupLogic
 }
 
 func (l *RenameGroupLogic) RenameGroup(in *userpb.RenameGroupReq) (*common.BaseResponse, error) {
+	if err := validateCaller(l.ctx, in.GetUserId(), in.GetGroupId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 	name := strings.TrimSpace(in.GetName())

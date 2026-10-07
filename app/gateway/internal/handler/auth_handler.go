@@ -121,7 +121,10 @@ func (h *AuthHandler) GetSessions(c *gin.Context) {
 }
 
 func (h *AuthHandler) RevokeSession(c *gin.Context) {
-	req := &user.RevokeSessionReq{SessionId: c.Param("id")}
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	req := &user.RevokeSessionReq{SessionId: c.Param("id"), UserId: c.GetString(middleware.CtxKeyUserID)}
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, req) {
 		return

@@ -2,6 +2,7 @@ package friend
 
 import (
 	"context"
+	"github.com/maomeng/aim/pkg/identity"
 
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 
@@ -23,15 +24,27 @@ func NewListFriendsLogic(ctx context.Context, svcCtx *Context) *ListFriendsLogic
 }
 
 func (l *ListFriendsLogic) ListFriends(in *userpb.ListFriendsReq) (*userpb.ListFriendsResp, error) {
+	if in.GroupId != nil && identity.Validate(*in.GroupId) != nil {
+		return nil, grpcError(ErrInvalidParam)
+	}
+	if err := validateCaller(l.ctx, in.GetUserId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 
-	page, pageSize := paginationParams(in.GetPagination())
+	page, pageSize := 1, 20
+	if p := in.GetPagination(); p != nil {
+		page = max(1, int(p.Page))
+		if p.PageSize >= 1 && p.PageSize <= 100 {
+			pageSize = int(p.PageSize)
+		}
+	}
 	offset, limit := paginationParams(in.GetPagination())
 
-	var groupID *int64
+	var groupID *string
 	if in.GroupId != nil {
 		groupID = in.GroupId
 	}
@@ -41,18 +54,21 @@ func (l *ListFriendsLogic) ListFriends(in *userpb.ListFriendsReq) (*userpb.ListF
 		return nil, grpcError(err)
 	}
 
-	friendIDs := make([]int64, len(friends))
-	groupIDs := make([]int64, 0)
+	friendIDs := make([]string, len(friends))
+	groupIDs := make([]string, 0)
 	for i, f := range friends {
 		friendIDs[i] = f.FriendID
-		if f.GroupID > 0 {
-			groupIDs = append(groupIDs, f.GroupID)
+		if f.GroupID != nil {
+			groupIDs = append(groupIDs, *f.GroupID)
 		}
 	}
 
-	userMap, _ := l.svcCtx.batchGetUserInfo(l.ctx, friendIDs)
+	userMap, err := l.svcCtx.batchGetUserInfo(l.ctx, friendIDs)
+	if err != nil {
+		return nil, grpcError(err)
+	}
 
-	groupNames := make(map[int64]string)
+	groupNames := make(map[string]string)
 	for _, gid := range groupIDs {
 		g, err := l.svcCtx.FriendGroupRepo.GetByID(l.ctx, gid)
 		if err == nil {
@@ -66,8 +82,10 @@ func (l *ListFriendsLogic) ListFriends(in *userpb.ListFriendsReq) (*userpb.ListF
 			UserId:    f.FriendID,
 			Remark:    f.Remark,
 			GroupId:   f.GroupID,
-			GroupName: groupNames[f.GroupID],
 			CreatedAt: f.CreatedAt.Unix(),
+		}
+		if f.GroupID != nil {
+			info.GroupName = groupNames[*f.GroupID]
 		}
 		if u, ok := userMap[f.FriendID]; ok {
 			info.Username = u.GetUsername()
@@ -76,7 +94,7 @@ func (l *ListFriendsLogic) ListFriends(in *userpb.ListFriendsReq) (*userpb.ListF
 		items = append(items, info)
 	}
 
-	l.Infof("friends listed: user_id=%d count=%d", userID, len(friends))
+	l.Infof("friends listed: user_id=%s count=%d", userID, len(friends))
 	return &userpb.ListFriendsResp{
 		Friends:    items,
 		Pagination: paginationResp(page, pageSize, total),

@@ -141,8 +141,8 @@ components:
       type: object
       properties:
         user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         tokens:
           $ref: '#/components/schemas/TokenPair'
         user:
@@ -171,8 +171,8 @@ components:
       type: object
       properties:
         user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         tokens:
           $ref: '#/components/schemas/TokenPair'
         user:
@@ -191,6 +191,8 @@ components:
       properties:
         tokens:
           $ref: '#/components/schemas/TokenPair'
+        user:
+          $ref: '#/components/schemas/UserInfo'
 
     OAuthLoginReq:
       type: object
@@ -219,6 +221,7 @@ components:
       properties:
         session_id:
           type: string
+          format: uuid
         device_id:
           type: string
         platform:
@@ -252,14 +255,15 @@ components:
       properties:
         session_id:
           type: string
+          format: uuid
 
     # ========== User ==========
     UserInfo:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         username:
           type: string
         phone:
@@ -347,8 +351,8 @@ components:
         user_ids:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
 
     BatchGetUserInfoResp:
       type: object
@@ -386,15 +390,15 @@ components:
         user_ids:
           type: array
           items:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
 
     UserStatus:
       type: object
       properties:
         user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         is_online:
           type: boolean
         devices:
@@ -440,6 +444,12 @@ components:
         settings_json:
           type: string
           description: 扩展设置 JSON
+        ai_model_id:
+          type: string
+          format: uuid
+          description: 未配置时缺失
+        ai_model_name:
+          type: string
 
     UpdateSettingsReq:
       type: object
@@ -458,6 +468,16 @@ components:
         settings_json:
           type: string
 
+        ai_model_id:
+          type: string
+          format: uuid
+          description: 省略保持；与 clear_ai_model_id 同时提供时拒绝
+        ai_model_name:
+          type: string
+        clear_ai_model_id:
+          type: boolean
+          description: true 解除模型引用
+
     # ========== Friend ==========
     SendRequestReq:
       type: object
@@ -465,8 +485,8 @@ components:
         - to_user_id
       properties:
         to_user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
           description: 目标用户 ID
         message:
           type: string
@@ -476,27 +496,26 @@ components:
       type: object
       properties:
         request_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
 
     FriendRequest:
       type: object
       properties:
         request_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         from_user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         to_user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         message:
           type: string
         status:
-          type: integer
-          enum: [0, 1, 2, 3, 4]
-          description: "0: unspecified, 1: pending, 2: accepted, 3: rejected, 4: cancelled"
+          type: string
+          enum: [pending, accepted, rejected, cancelled]
         created_at:
           type: integer
           format: int64
@@ -518,8 +537,8 @@ components:
       type: object
       properties:
         group_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
           description: 按分组过滤
         pagination:
           $ref: '#/components/schemas/Pagination'
@@ -528,8 +547,8 @@ components:
       type: object
       properties:
         user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         username:
           type: string
         avatar:
@@ -538,8 +557,9 @@ components:
           type: string
           description: 好友备注
         group_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 未分组时缺失
         group_name:
           type: string
         created_at:
@@ -568,12 +588,14 @@ components:
 
     SetGroupReq:
       type: object
-      required:
-        - group_id
       properties:
         group_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
+          description: 省略表示保持；与 clear_group_id 同时提供时拒绝
+        clear_group_id:
+          type: boolean
+          description: true 表示解除分组引用
 
     CreateGroupReq:
       type: object
@@ -588,8 +610,8 @@ components:
       type: object
       properties:
         group_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
 
     RenameGroupReq:
       type: object
@@ -603,8 +625,8 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         name:
           type: string
         sort_order:
@@ -627,15 +649,15 @@ components:
       type: object
       properties:
         blocked_user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
 
     BlacklistUser:
       type: object
       properties:
         user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         username:
           type: string
         avatar:
@@ -1488,11 +1510,11 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         user_id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         type:
           $ref: '#/components/schemas/NotificationType'
         title:
@@ -1504,6 +1526,11 @@ components:
           type: boolean
         reference_id:
           type: string
+          format: uuid
+          description: 本地实体引用，与 reference_type 一同提供或一同缺失
+        reference_type:
+          type: string
+          enum: [user, friend_request, conversation, message, bot, knowledge_base, document, model]
         created_at:
           type: integer
           format: int64
@@ -2865,6 +2892,7 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
           description: 会话 ID
       responses:
         "200":
@@ -2998,8 +3026,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 用户 ID
       responses:
         "200":
@@ -3213,8 +3241,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 好友申请 ID
       responses:
         "200":
@@ -3237,8 +3265,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 好友申请 ID
       responses:
         "200":
@@ -3261,8 +3289,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 好友申请 ID
       responses:
         "200":
@@ -3280,6 +3308,13 @@ paths:
       operationId: friendListFriends
       security:
         - BearerAuth: []
+      parameters:
+        - name: group_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: 省略返回全部好友
       responses:
         "200":
           description: 好友列表
@@ -3305,8 +3340,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 好友用户 ID
       responses:
         "200":
@@ -3329,8 +3364,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 好友用户 ID
       requestBody:
         required: true
@@ -3359,8 +3394,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 好友用户 ID
       requestBody:
         required: true
@@ -3389,8 +3424,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 要拉黑的用户 ID
       responses:
         "200":
@@ -3411,8 +3446,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 要取消拉黑的用户 ID
       responses:
         "200":
@@ -3479,8 +3514,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 分组 ID
       requestBody:
         required: true
@@ -3507,8 +3542,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 分组 ID
       responses:
         "200":
@@ -4686,6 +4721,26 @@ paths:
       operationId: notifList
       security:
         - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: type
+          in: query
+          schema:
+            type: integer
+        - name: is_read
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: 通知列表
@@ -4697,6 +4752,30 @@ paths:
                   - properties:
                       data:
                         $ref: '#/components/schemas/ListNotificationsResp'
+
+  /notifications/unread_count:
+    get:
+      tags:
+        - Notification
+      summary: 获取当前账号未读通知总数
+      operationId: notifUnreadCount
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: 未读数
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Response'
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          count:
+                            type: integer
+                            format: int64
 
   /notifications/{id}:
     delete:
@@ -4711,8 +4790,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 通知 ID
       responses:
         "200":
@@ -4735,8 +4814,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            type: string
+            format: uuid
           description: 通知 ID
       responses:
         "200":

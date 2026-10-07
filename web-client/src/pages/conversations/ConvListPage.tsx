@@ -81,7 +81,7 @@ export function ConvListPage() {
   const currentUserId = useAuthStore((s) => s.user?.id);
   const [groupOpen, setGroupOpen] = useState(false);
   const [groupName, setGroupName] = useState('');
-  const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameConv, setRenameConv] = useState<Conversation | null>(null);
   const [renameName, setRenameName] = useState('');
@@ -95,7 +95,7 @@ export function ConvListPage() {
   const [searchHighlights, setSearchHighlights] = useState<Record<string, string>>({});
   const [typeCounts, setTypeCounts] = useState<{ msg_type: number; count: number }[]>([]);
   const [activeTypeFilters, setActiveTypeFilters] = useState<number[]>([]);
-  const [senderId, setSenderId] = useState<number | undefined>();
+  const [senderId, setSenderId] = useState<string | undefined>();
   const [senderType, setSenderType] = useState<'' | 'user' | 'bot'>('');
   const [startTime, setStartTime] = useState<number | undefined>();
   const [endTime, setEndTime] = useState<number | undefined>();
@@ -124,15 +124,15 @@ export function ConvListPage() {
     if (!conversations.length || wsStatus !== 'connected') return;
     const ids = conversations
       .filter((c: any) => c.type === 'private' && c.peer_user_id)
-      .map((c: any) => String(c.peer_user_id));
+      .map((c: any) => c.peer_user_id);
     if (ids.length === 0) return;
-    wsSend({ type: 'subscribe_presence', user_ids: ids });
+    wsSend({ type: 'presence.subscribe', user_ids: ids });
   }, [conversations, wsStatus]);
 
   // Listen for presence events
   useEffect(() => {
-    const unsub = wsOn('presence', (payload: any) => {
-      setOnlineStatus((prev) => ({ ...prev, [String(payload.user_id)]: payload.status === 'online' }));
+    const unsub = wsOn('presence.state', (payload: any) => {
+      setOnlineStatus((prev) => ({ ...prev, [payload.user_id]: payload.online === true }));
     });
     return unsub;
   }, []);
@@ -155,7 +155,7 @@ export function ConvListPage() {
   const friendNameMap = useMemo(() => {
     const map = new Map<string, string>();
     friends.forEach((f: any) => {
-      map.set(String(f.user_id), f.remark || f.username);
+      map.set(f.user_id, f.remark || f.username);
     });
     return map;
   }, [friends]);
@@ -189,7 +189,7 @@ export function ConvListPage() {
         if (!text) return;
 
         if (conv.type === 'group' && msg.from_user_id) {
-          const sender = friends.find((f: any) => String(f.user_id) === String(msg.from_user_id));
+          const sender = friends.find((f: any) => f.user_id === String(msg.from_user_id));
           const name = sender?.remark || sender?.username || `用户${msg.from_user_id}`;
           updates[String(conv.id)] = `${name}: ${text}`;
         } else {
@@ -551,7 +551,7 @@ export function ConvListPage() {
                   )}
                   {conv.type === 'private' && (conv as any).peer_user_id && (
                     <PresenceDot
-                      online={!!onlineStatus[String((conv as any).peer_user_id)]}
+                      online={!!onlineStatus[(conv as any).peer_user_id]}
                       size="small"
                       className={conv.is_muted ? 'conv-item-online-muted' : ''}
                     />

@@ -10,8 +10,9 @@ import (
 
 	logic "github.com/maomeng/aim/app/user-service/internal/logic/friend"
 	"github.com/maomeng/aim/app/user-service/internal/model"
-	"github.com/maomeng/aim/pkg/interceptor"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
+	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,17 +23,17 @@ func newFriendSvcCtx(t *testing.T) *logic.Context {
 	return newUserSvcCtx(t).FriendContext
 }
 
-func newFriendUser(t *testing.T, ctx *logic.Context) int64 {
+func newFriendUser(t *testing.T, ctx *logic.Context) string {
 	t.Helper()
-	userID, err := ctx.Snowflake.Generate()
+	userID, err := identity.New()
 	require.NoError(t, err)
-	suffix := strconv.FormatInt(userID, 10)
+	suffix := userID
 	err = ctx.DB.WithContext(t.Context()).Create(&model.User{
-		ID: userID,
+		ID:       userID,
 		Username: "friend_int_" + suffix,
-		Phone: suffix,
-		Email: suffix + "@test.com",
-		Avatar: "https://example.com/" + suffix + ".png",
+		Phone:    "",
+		Email:    suffix + "@test.com",
+		Avatar:   "https://example.com/" + suffix + ".png",
 	}).Error
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -40,12 +41,12 @@ func newFriendUser(t *testing.T, ctx *logic.Context) int64 {
 		assert.NoError(t, ctx.DB.Where("user_id = ? OR friend_id = ?", userID, userID).Delete(&model.Friend{}).Error)
 		assert.NoError(t, ctx.DB.Where("user_id = ?", userID).Delete(&model.FriendGroup{}).Error)
 		assert.NoError(t, ctx.DB.Where("user_id = ? OR blocked_user_id = ?", userID, userID).Delete(&model.UserBlock{}).Error)
-		assert.NoError(t, ctx.DB.Delete(&model.User{}, userID).Error)
+		assert.NoError(t, ctx.DB.Where("id = ?", userID).Delete(&model.User{}).Error)
 	})
 	return userID
 }
 
-func userCtx(t *testing.T, userID int64) context.Context {
+func userCtx(t *testing.T, userID string) context.Context {
 	return context.WithValue(t.Context(), interceptor.ContextKeyUserID, userID)
 }
 
@@ -62,9 +63,8 @@ func TestFriendRequestFlow(t *testing.T) {
 		Message:  "hello",
 	})
 	require.NoError(t, err)
-	require.Greater(t, resp.RequestId, int64(0))
+	require.NoError(t, identity.Validate(resp.RequestId))
 	reqID := resp.RequestId
-
 
 	// List pending (recipient side)
 	listPendingLogic := logic.NewListPendingRequestsLogic(userCtx(t, user2), svcCtx)
@@ -74,7 +74,7 @@ func TestFriendRequestFlow(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pending.Requests, 1)
 	assert.Equal(t, reqID, pending.Requests[0].RequestId)
-	assert.Equal(t, "friend_int_" + strconv.FormatInt(user1, 10), pending.Requests[0].FromUsername)
+	assert.Equal(t, "friend_int_"+user1, pending.Requests[0].FromUsername)
 
 	// Accept request
 	acceptLogic := logic.NewAcceptRequestLogic(userCtx(t, user2), svcCtx)
@@ -91,7 +91,7 @@ func TestFriendRequestFlow(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, friends.Friends, 1)
 	assert.Equal(t, user2, friends.Friends[0].UserId)
-	assert.Equal(t, "friend_int_" + strconv.FormatInt(user2, 10), friends.Friends[0].Username)
+	assert.Equal(t, "friend_int_"+user2, friends.Friends[0].Username)
 }
 
 func TestFriendRequestReject(t *testing.T) {
@@ -208,8 +208,33 @@ func TestFriendGroup(t *testing.T) {
 	createGroupLogic := logic.NewCreateGroupLogic(userCtx(t, user1), svcCtx)
 	grpResp, err := createGroupLogic.CreateGroup(&userpb.CreateGroupReq{Name: groupName})
 	require.NoError(t, err)
-	require.Greater(t, grpResp.GroupId, int64(0))
+	require.NoError(t, identity.Validate(grpResp.GroupId))
 	groupID := grpResp.GroupId
+	user2 := newFriendUser(t, svcCtx)
+	request, err := logic.NewSendRequestLogic(userCtx(t, user1), svcCtx).SendRequest(&userpb.SendRequestReq{ToUserId: user2})
+	require.NoError(t, err)
+	_, err = logic.NewAcceptRequestLogic(userCtx(t, user2), svcCtx).AcceptRequest(&userpb.AcceptRequestReq{RequestId: request.RequestId})
+	require.NoError(t, err)
+	setGroup := logic.NewSetGroupLogic(userCtx(t, user1), svcCtx)
+	_, err = setGroup.SetGroup(&userpb.SetGroupReq{FriendId: user2, GroupId: &groupID})
+	require.NoError(t, err)
+	_, err = setGroup.SetGroup(&userpb.SetGroupReq{FriendId: user2})
+	require.NoError(t, err)
+	friends, err := logic.NewListFriendsLogic(userCtx(t, user1), svcCtx).ListFriends(&userpb.ListFriendsReq{})
+	require.NoError(t, err)
+	require.Len(t, friends.Friends, 1)
+	require.NotNil(t, friends.Friends[0].GroupId)
+	assert.Equal(t, groupID, *friends.Friends[0].GroupId)
+	_, err = setGroup.SetGroup(&userpb.SetGroupReq{FriendId: user2, GroupId: &groupID, ClearGroupId: true})
+	require.Error(t, err)
+	_, err = setGroup.SetGroup(&userpb.SetGroupReq{FriendId: user2, ClearGroupId: true})
+	require.NoError(t, err)
+	friends, err = logic.NewListFriendsLogic(userCtx(t, user1), svcCtx).ListFriends(&userpb.ListFriendsReq{})
+	require.NoError(t, err)
+	require.Len(t, friends.Friends, 1)
+	assert.Nil(t, friends.Friends[0].GroupId)
+	_, err = setGroup.SetGroup(&userpb.SetGroupReq{FriendId: user2, GroupId: &groupID})
+	require.NoError(t, err)
 
 	// List groups
 	listGroupsLogic := logic.NewListGroupsLogic(userCtx(t, user1), svcCtx)
@@ -229,7 +254,7 @@ func TestFriendGroup(t *testing.T) {
 	groups, err = listGroupsLogic.ListGroups(&userpb.ListGroupsReq{})
 	require.NoError(t, err)
 	require.Len(t, groups.Groups, 1)
-	assert.Equal(t, groupName + "_renamed", groups.Groups[0].Name)
+	assert.Equal(t, groupName+"_renamed", groups.Groups[0].Name)
 
 	// Delete group
 	deleteGroupLogic := logic.NewDeleteGroupLogic(userCtx(t, user1), svcCtx)
@@ -238,6 +263,10 @@ func TestFriendGroup(t *testing.T) {
 	groups, err = listGroupsLogic.ListGroups(&userpb.ListGroupsReq{})
 	require.NoError(t, err)
 	assert.Empty(t, groups.Groups)
+	friends, err = logic.NewListFriendsLogic(userCtx(t, user1), svcCtx).ListFriends(&userpb.ListFriendsReq{})
+	require.NoError(t, err)
+	require.Len(t, friends.Friends, 1)
+	assert.Nil(t, friends.Friends[0].GroupId)
 }
 
 func TestFriendSetRemark(t *testing.T) {

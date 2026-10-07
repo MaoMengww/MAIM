@@ -3,6 +3,7 @@ package friend
 import (
 	"context"
 	"fmt"
+	"github.com/maomeng/aim/pkg/identity"
 	"time"
 
 	"github.com/maomeng/aim/app/user-service/internal/model"
@@ -26,26 +27,38 @@ func NewSendRequestLogic(ctx context.Context, svcCtx *Context) *SendRequestLogic
 }
 
 func (l *SendRequestLogic) SendRequest(in *userpb.SendRequestReq) (*userpb.SendRequestResp, error) {
+	if err := validateCaller(l.ctx, in.GetFromUserId(), in.GetToUserId()); err != nil {
+		return nil, err
+	}
 	fromUserID := userIDFromContext(l.ctx)
-	if fromUserID == 0 {
+	if fromUserID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 	toUserID := in.GetToUserId()
-	if toUserID == 0 || fromUserID == toUserID {
+	if identity.Validate(toUserID) != nil || fromUserID == toUserID {
 		return nil, grpcError(ErrCannotFriendSelf)
 	}
 
-	if ok, _ := l.svcCtx.FriendRepo.IsFriend(l.ctx, fromUserID, toUserID); ok {
+	if _, err := l.svcCtx.UserLogic.GetUserInfo(l.ctx, &userpb.GetUserInfoReq{UserId: toUserID}); err != nil {
+		return nil, err
+	}
+	if ok, err := l.svcCtx.FriendRepo.IsFriend(l.ctx, fromUserID, toUserID); err != nil {
+		return nil, grpcError(err)
+	} else if ok {
 		return nil, grpcError(ErrAlreadyFriend)
 	}
-	if ok, _ := l.svcCtx.BlockRepo.IsBlocked(l.ctx, fromUserID, toUserID); ok {
+	if ok, err := l.svcCtx.BlockRepo.IsBlocked(l.ctx, fromUserID, toUserID); err != nil {
+		return nil, grpcError(err)
+	} else if ok {
 		return nil, grpcError(ErrBlocked)
 	}
-	if ok, _ := l.svcCtx.FriendRequestRepo.CheckPending(l.ctx, fromUserID, toUserID); ok {
+	if ok, err := l.svcCtx.FriendRequestRepo.CheckPending(l.ctx, fromUserID, toUserID); err != nil {
+		return nil, grpcError(err)
+	} else if ok {
 		return nil, grpcError(ErrRequestAlreadySent)
 	}
 
-	reqID, err := l.svcCtx.Snowflake.Generate()
+	reqID, err := identity.New()
 	if err != nil {
 		return nil, fmt.Errorf("generate request id failed: %w", err)
 	}
@@ -60,10 +73,10 @@ func (l *SendRequestLogic) SendRequest(in *userpb.SendRequestReq) (*userpb.SendR
 		UpdatedAt:  now,
 	}
 	if err := l.svcCtx.FriendRequestRepo.Create(l.ctx, req); err != nil {
-		l.Errorf("failed to send friend request: requester_id=%d addressee_id=%d err=%v", fromUserID, toUserID, err)
+		l.Errorf("failed to send friend request: requester_id=%s addressee_id=%s err=%v", fromUserID, toUserID, err)
 		return nil, grpcError(err)
 	}
 
-	l.Infof("friend request sent: requester_id=%d addressee_id=%d", fromUserID, toUserID)
+	l.Infof("friend request sent: requester_id=%s addressee_id=%s", fromUserID, toUserID)
 	return &userpb.SendRequestResp{RequestId: reqID}, nil
 }

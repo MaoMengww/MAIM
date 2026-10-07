@@ -24,8 +24,11 @@ func NewDeleteGroupLogic(ctx context.Context, svcCtx *Context) *DeleteGroupLogic
 }
 
 func (l *DeleteGroupLogic) DeleteGroup(in *userpb.DeleteGroupReq) (*common.BaseResponse, error) {
+	if err := validateCaller(l.ctx, in.GetUserId(), in.GetGroupId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 

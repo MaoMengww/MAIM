@@ -12,7 +12,6 @@ import (
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/logx"
-	"github.com/maomeng/aim/pkg/snowflake"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/zeromicro/go-zero/core/stores/redis"
 )
@@ -23,7 +22,6 @@ type ServiceContext struct {
 	Redis         *redis.Redis
 	PresenceRedis goredis.UniversalClient
 	JWT           *jwt.Manager
-	Snow          *snowflake.Node
 	Log           logx.Logger
 
 	AuthLogic     *authlogic.Logic
@@ -68,11 +66,6 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 
 	jwtMgr := jwt.NewManager(cfg.JWT.Secret, cfg.JWT.ExpireSec, cfg.JWT.RefreshSec)
 
-	snowNode, err := snowflake.NewNode(7)
-	if err != nil {
-		snowNode, _ = snowflake.NewNode(0)
-	}
-
 	userRepo := repo.NewUserRepo(db)
 	authRepo := repo.NewAuthRepo(db, rdb)
 	userLogic := userlogic.New(userRepo, logger)
@@ -87,12 +80,11 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		Redis:         rdb,
 		PresenceRedis: presenceRedis,
 		JWT:           jwtMgr,
-		Snow:          snowNode,
 		Log:           logger,
-		AuthLogic:     authlogic.New(userRepo, authRepo, snowNode, jwtMgr, logger),
+		AuthLogic:     authlogic.New(userRepo, authRepo, jwtMgr, logger),
 		UserLogic:     userLogic,
 		StatusLogic:   userlogic.NewStatusLogic(connections.New(presenceRedis, 0)),
-		FriendContext: friendlogic.NewContext(db, snowNode, userLogic),
+		FriendContext: friendlogic.NewContext(db, userLogic),
 	}
 }
 

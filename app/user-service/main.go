@@ -24,6 +24,8 @@ func main() {
 
 	var c config.Config
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
+	// RPC statistics serialize request bodies, which include passwords and JWTs.
+	c.Middlewares.Stat = false
 	ctx := svc.NewServiceContext(c)
 	defer ctx.Close()
 

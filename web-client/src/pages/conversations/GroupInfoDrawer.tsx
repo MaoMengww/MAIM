@@ -124,7 +124,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
   });
 
   const removeMemberMutation = useMutation({
-    mutationFn: (userId: string) => convApi.removeMembers(convId!, [userId] as any),
+    mutationFn: (userId: string) => convApi.removeMembers(convId!, [userId]),
     onSuccess: () => {
       message.success('已移除成员');
       props.onMembersChange();
@@ -133,7 +133,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
   });
 
   const muteMemberMutation = useMutation({
-    mutationFn: ({ userId, duration }: { userId: number; duration?: number }) =>
+    mutationFn: ({ userId, duration }: { userId: string; duration?: number }) =>
       convApi.muteMember(convId!, userId, duration),
     onSuccess: () => {
       message.success('已禁言');
@@ -143,7 +143,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
   });
 
   const unmuteMemberMutation = useMutation({
-    mutationFn: (userId: number) => convApi.unmuteMember(convId!, userId),
+    mutationFn: (userId: string) => convApi.unmuteMember(convId!, userId),
     onSuccess: () => {
       message.success('已取消禁言');
       props.onMembersChange();
@@ -201,7 +201,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
   });
 
   const updateMemberRoleMutation = useMutation({
-    mutationFn: ({ userId, role }: { userId: number; role: number }) =>
+    mutationFn: ({ userId, role }: { userId: string; role: number }) =>
       convApi.updateMember(convId!, userId, { role }),
     onSuccess: () => {
       message.success('成员角色已更新');
@@ -395,7 +395,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                       <Popconfirm
                         title="移除成员"
                         description={`确定要移除 ${member.username || `用户${member.user_id}`} 吗？`}
-                        onConfirm={() => removeMemberMutation.mutate(String(member.user_id))}
+                        onConfirm={() => removeMemberMutation.mutate(member.user_id)}
                         okText="移除"
                         cancelText="取消"
                       >
@@ -549,7 +549,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
           value={selectedFriends}
           onChange={setSelectedFriends}
           options={friends
-            .filter((f: any) => !members.some((m) => String(m.user_id) === String(f.user_id)))
+            .filter((f: any) => !members.some((m) => m.user_id === f.user_id))
             .map((f: any) => ({
               value: f.user_id,
               label: f.remark || f.username,
@@ -578,9 +578,9 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
           value={transferTarget}
           onChange={setTransferTarget}
           options={members
-            .filter((m) => String(m.user_id) !== currentUserId && !isBotMember(m))
+            .filter((m) => m.user_id !== currentUserId && !isBotMember(m))
             .map((m) => ({
-              value: String(m.user_id),
+              value: m.user_id,
               label: m.username || `用户${m.user_id}`,
             }))
           }

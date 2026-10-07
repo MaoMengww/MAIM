@@ -41,7 +41,7 @@ export function ModelManagePage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => modelApi.delete(id),
+    mutationFn: (id: string) => modelApi.delete(id),
     onSuccess: (_data, id) => {
       message.success('模型已删除');
       queryClient.setQueryData(['models'], (old: any) => {
@@ -53,7 +53,7 @@ export function ModelManagePage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Record<string, unknown> }) => modelApi.update(id, data),
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => modelApi.update(id, data),
     onSuccess: () => {
       message.success('模型更新成功');
       setEditOpen(false);
@@ -83,7 +83,7 @@ export function ModelManagePage() {
       render: (name: string, r: ModelResp) => (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           {name}
-          {Number(r.owner_id) === 0 && (
+          {r.owner_type === 'platform' && (
             <Tag icon={<CrownOutlined />} color="gold" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>官方</Tag>
           )}
         </span>
@@ -114,7 +114,7 @@ export function ModelManagePage() {
     },
     {
       title: '操作', key: 'actions', width: 120,
-      render: (_: any, r: ModelResp) => Number(r.owner_id) !== 0 ? (
+      render: (_: any, r: ModelResp) => r.owner_type === 'user' ? (
         <span style={{ display: 'inline-flex', gap: 4 }}>
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(r)}>编辑</Button>
           <Button type="link" danger onClick={() => deleteMutation.mutate(r.id)}>删除</Button>

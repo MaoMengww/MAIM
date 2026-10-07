@@ -2,6 +2,8 @@ package user
 
 import (
 	"context"
+	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/connections"
@@ -21,6 +23,9 @@ func (l *StatusLogic) BatchGetStatus(ctx context.Context, req *userpb.BatchGetSt
 	}
 	statuses := make([]*userpb.UserStatus, 0, len(req.UserIds))
 	for _, uid := range req.UserIds {
+		if identity.Validate(uid) != nil {
+			return nil, errors.New(errors.CodeInvalidParam, "invalid user_id")
+		}
 		routes, err := l.registry.List(ctx, connections.User, uid)
 		if err != nil {
 			return nil, err

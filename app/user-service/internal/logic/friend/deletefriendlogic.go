@@ -24,12 +24,17 @@ func NewDeleteFriendLogic(ctx context.Context, svcCtx *Context) *DeleteFriendLog
 }
 
 func (l *DeleteFriendLogic) DeleteFriend(in *userpb.DeleteFriendReq) (*common.BaseResponse, error) {
+	if err := validateCaller(l.ctx, in.GetUserId(), in.GetFriendId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 
-	if ok, _ := l.svcCtx.FriendRepo.IsFriend(l.ctx, userID, in.GetFriendId()); !ok {
+	if ok, err := l.svcCtx.FriendRepo.IsFriend(l.ctx, userID, in.GetFriendId()); err != nil {
+		return nil, grpcError(err)
+	} else if !ok {
 		return nil, grpcError(ErrNotFriend)
 	}
 
@@ -37,6 +42,6 @@ func (l *DeleteFriendLogic) DeleteFriend(in *userpb.DeleteFriendReq) (*common.Ba
 		return nil, grpcError(err)
 	}
 
-	l.Infof("friend deleted: user_id=%d friend_id=%d", userID, in.GetFriendId())
+	l.Infof("friend deleted: user_id=%s friend_id=%s", userID, in.GetFriendId())
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

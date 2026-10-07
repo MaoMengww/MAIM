@@ -7,6 +7,7 @@ import (
 	"github.com/maomeng/aim/app/gateway/internal/grpc"
 	"github.com/maomeng/aim/app/gateway/internal/handler"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
+	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/metrics"
@@ -50,7 +51,7 @@ func New(
 		modelH = handler.NewModelHandler(clients.LLMGateway.Conn())
 	}
 
-	auth := middleware.AuthRequired(jwtMgr)
+	auth := middleware.AuthRequired(jwtMgr, userpb.NewUserServiceClient(clients.User.Conn()))
 	rateLimit := middleware.RateLimit(rdb, cfg.RateLimit.RequestsPerSecond, cfg.RateLimit.MessagePerSecond)
 
 	r.GET("/health", func(c *gin.Context) { c.String(200, "ok") })
@@ -163,6 +164,7 @@ func New(
 	// Notification
 	notifs := protected.Group("/notifications")
 	notifs.GET("", notifH.ListNotifications)
+	notifs.GET("/unread_count", notifH.GetUnreadCount)
 
 	notifs.POST("/:id/read", notifH.MarkRead)
 	notifs.POST("/read_all", notifH.MarkAllRead)

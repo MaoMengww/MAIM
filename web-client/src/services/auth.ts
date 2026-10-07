@@ -1,7 +1,7 @@
-import client, { unwrap } from './client';
+import client, { unwrap, refreshSession } from './client';
 import { deviceCredentials } from './device';
-import type { LoginReq, RegisterReq } from '@/types/api';
-import type { APIResponse, LoginResp, SessionInfo, UserInfo } from '@/types/model';
+import type { LoginReq, RegisterReq, UpdateUserSettingsReq } from '@/types/api';
+import type { APIResponse, LoginResp, SessionInfo, UserInfo, UserSettings } from '@/types/model';
 
 export const authApi = {
   login: (data: LoginReq) =>
@@ -13,8 +13,7 @@ export const authApi = {
   logout: () =>
     client.post<APIResponse<null>>('/auth/logout', {}).then(unwrap),
 
-  refresh: (refreshToken: string) =>
-    client.post<APIResponse<LoginResp>>('/auth/refresh', { refresh_token: refreshToken }).then(unwrap),
+  refresh: refreshSession,
 
   getSessions: () =>
     client.get<APIResponse<{ sessions: SessionInfo[] }>>('/auth/sessions').then((r) => r.data.data.sessions),
@@ -38,9 +37,9 @@ export const authApi = {
     client.put<APIResponse<null>>('/users/me/email', { email }).then(unwrap),
 
   getSettings: () =>
-    client.get<APIResponse<any>>('/users/me/settings').then(unwrap),
+    client.get<APIResponse<UserSettings>>('/users/me/settings').then(unwrap),
 
-  updateSettings: (data: Record<string, unknown>) =>
+  updateSettings: (data: UpdateUserSettingsReq) =>
     client.put<APIResponse<null>>('/users/me/settings', data).then(unwrap),
 
   uploadAvatar: (file: File) => {

@@ -24,12 +24,17 @@ func NewSetRemarkLogic(ctx context.Context, svcCtx *Context) *SetRemarkLogic {
 }
 
 func (l *SetRemarkLogic) SetRemark(in *userpb.SetRemarkReq) (*common.BaseResponse, error) {
+	if err := validateCaller(l.ctx, in.GetUserId(), in.GetFriendId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 
-	if ok, _ := l.svcCtx.FriendRepo.IsFriend(l.ctx, userID, in.GetFriendId()); !ok {
+	if ok, err := l.svcCtx.FriendRepo.IsFriend(l.ctx, userID, in.GetFriendId()); err != nil {
+		return nil, grpcError(err)
+	} else if !ok {
 		return nil, grpcError(ErrNotFriend)
 	}
 

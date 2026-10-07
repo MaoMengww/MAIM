@@ -2,13 +2,22 @@ import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notifApi } from '@/services/notification';
 import { wsOn } from '@/services/ws';
+import { useAuthStore } from '@/stores/auth';
 
 export function useNotifications() {
   const queryClient = useQueryClient();
+  const accountId = useAuthStore((state) => state.user?.id);
 
   const listQuery = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () => notifApi.list(),
+    queryKey: ['notifications', accountId, 'list'],
+    queryFn: () => notifApi.list({ page: 1, page_size: 20 }),
+    enabled: !!accountId,
+  });
+
+  const unreadCountQuery = useQuery({
+    queryKey: ['notifications', accountId, 'unread-count'],
+    queryFn: () => notifApi.unreadCount(),
+    enabled: !!accountId,
   });
 
   useEffect(() => {
@@ -19,7 +28,7 @@ export function useNotifications() {
   }, [queryClient]);
 
   const markReadMutation = useMutation({
-    mutationFn: (id: number) => notifApi.markRead(id),
+    mutationFn: (id: string) => notifApi.markRead(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
@@ -28,5 +37,5 @@ export function useNotifications() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
-  return { listQuery, markReadMutation, markAllReadMutation };
+  return { listQuery, unreadCountQuery, markReadMutation, markAllReadMutation };
 }

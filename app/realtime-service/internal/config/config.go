@@ -17,6 +17,7 @@ type Config struct {
 	Kafka          config.KafkaConfig    `json:"Kafka"`
 	BotService     zrpc.RpcClientConf    `json:"BotService"`
 	MessageService zrpc.RpcClientConf    `json:"MessageService"`
+	UserService    zrpc.RpcClientConf    `json:"UserService"`
 	Metrics        MetricsConfig         `json:"Metrics"`
 	Log            config.LogConfig      `json:"Log"`
 	Telemetry      TelemetryConfig       `json:"Telemetry"`

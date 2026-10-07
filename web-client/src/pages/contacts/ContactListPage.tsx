@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Outlet, useNavigate, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { UserAddOutlined, UnorderedListOutlined, InboxOutlined, PlusOutlined, EllipsisOutlined } from '@ant-design/icons';
 import { Modal, Input, message, List, Button, Tag, Drawer, Select, Dropdown } from 'antd';
 import { friendApi } from '@/services/friend';
 import client from '@/services/client';
-import type { FriendInfo, FriendGroup } from '@/types/model';
+import type { APIResponse, UserInfo, FriendInfo, FriendGroup } from '@/types/model';
 import type { MenuProps } from 'antd';
 import { Avatar } from '@/components/common/Avatar';
 import { PresenceDot } from '@/components/common/PresenceDot';
@@ -16,18 +16,25 @@ import './ContactListPage.css';
 
 export function ContactListPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { id: activeId } = useParams();
+  const [searchParams] = useSearchParams();
   const [addOpen, setAddOpen] = useState(false);
   const [reqOpen, setReqOpen] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [contactKeyword, setContactKeyword] = useState('');
+  const [searchResults, setSearchResults] = useState<UserInfo[]>([]);
   const [searching, setSearching] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
-  const [renameGroupId, setRenameGroupId] = useState<number | null>(null);
+  const [renameGroupId, setRenameGroupId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+
+  useEffect(() => {
+    if (searchParams.has('request')) setReqOpen(true);
+  }, [searchParams]);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['friends'],
@@ -46,25 +53,26 @@ export function ContactListPage() {
     enabled: reqOpen,
   });
 
-  const friends = data?.list ?? [];
+  const keyword = contactKeyword.trim().toLowerCase();
+  const friends = (data?.list ?? []).filter((friend) => {
+    return !keyword || friend.username.toLowerCase().includes(keyword)
+      || friend.remark.toLowerCase().includes(keyword) || friend.user_id === keyword;
+  });
 
-  // Group friends by group_id, preserving server group order
-  const friendsByGroup = friends.reduce((acc, f) => {
-    const gid = f.group_id || 0;
-    if (!acc[gid]) acc[gid] = [];
-    acc[gid].push(f);
-    return acc;
-  }, {} as Record<number, FriendInfo[]>);
-
-  // Ordered group IDs: server groups first, then default group (id=0) if it has members
-  const groupOrder: number[] = groups.map((g: FriendGroup) => g.id);
-  if (friends.some((f: FriendInfo) => !f.group_id)) {
-    groupOrder.push(0);
+  // Missing group references remain absent, rather than becoming an entity ID.
+  const friendsByGroup = new Map<string | null, FriendInfo[]>();
+  for (const friend of friends) {
+    const groupId = friend.group_id ?? null;
+    const members = friendsByGroup.get(groupId) ?? [];
+    members.push(friend);
+    friendsByGroup.set(groupId, members);
   }
+  const groupOrder: Array<string | null> = groups.map((group) => group.id);
+  if (friendsByGroup.has(null)) groupOrder.push(null);
 
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string | null>>(new Set());
 
-  const toggleGroup = (gid: number) => {
+  const toggleGroup = (gid: string | null) => {
     setCollapsedGroups(prev => {
       const next = new Set(prev);
       if (next.has(gid)) next.delete(gid);
@@ -78,15 +86,15 @@ export function ContactListPage() {
 
   // 好友列表加载后订阅在线状态
   useEffect(() => {
-    const ids = friends.map((f: any) => String(f.user_id));
+    const ids = friends.map((friend) => friend.user_id);
     if (ids.length === 0 || wsStatus !== 'connected') return;
-    wsSend({ type: 'subscribe_presence', user_ids: ids });
+    wsSend({ type: 'presence.subscribe', user_ids: ids });
   }, [data, wsStatus]);
 
   // 监听 WebSocket presence 事件
   useEffect(() => {
-    const unsub = wsOn('presence', (payload: any) => {
-      setOnlineStatus((prev) => ({ ...prev, [String(payload.user_id)]: payload.status === 'online' }));
+    const unsub = wsOn('presence.state', (payload: any) => {
+      setOnlineStatus((prev) => ({ ...prev, [payload.user_id]: payload.online === true }));
     });
     return unsub;
   }, []);
@@ -95,7 +103,7 @@ export function ContactListPage() {
     if (!searchKeyword.trim()) return;
     setSearching(true);
     try {
-      const res = await client.post('/users/search', { keyword: searchKeyword });
+      const res = await client.post<APIResponse<{ users: UserInfo[] }>>('/users/search', { keyword: searchKeyword });
       const users = res.data.data?.users ?? [];
       setSearchResults(users);
     } catch {
@@ -105,7 +113,7 @@ export function ContactListPage() {
     }
   };
 
-  const handleSendRequest = async (userId: number) => {
+  const handleSendRequest = async (userId: string) => {
     try {
       await friendApi.sendRequest({ to_user_id: userId, message: '你好，加个好友' });
       message.success('好友请求已发送');
@@ -114,17 +122,18 @@ export function ContactListPage() {
     }
   };
 
-  const handleAccept = async (id: number) => {
+  const handleAccept = async (id: string) => {
     try {
       await friendApi.acceptRequest(id);
       message.success('已同意');
       refetch();
+      await queryClient.invalidateQueries({ queryKey: ['friend-requests'] });
     } catch {
       message.error('操作失败');
     }
   };
 
-  const handleReject = async (id: number) => {
+  const handleReject = async (id: string) => {
     try {
       await friendApi.rejectRequest(id);
       message.success('已拒绝');
@@ -159,7 +168,7 @@ export function ContactListPage() {
         </div>
 
         <div className="contact-search">
-          <input className="contact-search-input" placeholder="搜索联系人..." />
+          <input className="contact-search-input" placeholder="搜索联系人..." value={contactKeyword} onChange={(event) => setContactKeyword(event.target.value)} />
         </div>
 
         <div className="contact-actions">
@@ -183,38 +192,36 @@ export function ContactListPage() {
             </div>
           )}
 
-          {!isLoading && friends.length > 0 && groupOrder.map((gid: number) => {
-            const group = groups.find((g: FriendGroup) => g.id === gid);
-            const name = group?.name || '默认分组';
-            const members = friendsByGroup[gid] || [];
-            const collapsed = collapsedGroups.has(gid);
-
-            return (
-              <div key={gid}>
-                <div className="contact-group-header" onClick={() => toggleGroup(gid)}>
-                  <span className={`contact-group-arrow ${collapsed ? 'collapsed' : ''}`}>&#x25BC;</span>
-                  <span className="contact-group-name">{name}</span>
-                  <span className="contact-group-count">{members.length}</span>
-                </div>
-                {!collapsed && members.map((f: FriendInfo) => (
-                  <div key={f.user_id} className="contact-item" onClick={() => navigate(`/contacts/${f.user_id}`)}>
-                    <div style={{ position: 'relative', display: 'inline-block' }}>
-                      <Avatar name={f.remark || f.username} src={f.avatar} size={40} />
-                      <div style={{ position: 'absolute', bottom: 0, right: 0 }}>
-                        <PresenceDot online={!!onlineStatus[f.user_id]} size="small" />
-                      </div>
-                    </div>
-                    <div className="contact-item-info">
-                      <div className="contact-item-name">{f.remark || f.username}</div>
-                      <span style={{ fontSize: 11, color: onlineStatus[f.user_id] ? 'var(--aim-success)' : 'var(--aim-text-tertiary)' }}>
-                        {onlineStatus[f.user_id] ? '在线' : '离线'}
-                      </span>
+          {!isLoading && friends.length > 0 && groupOrder.map((gid: string | null) => { const group = groups.find((g: FriendGroup) => g.id === gid);
+          const name = group?.name || '默认分组';
+          const members = friendsByGroup.get(gid) ?? [];
+          const collapsed = collapsedGroups.has(gid);
+          
+          return (
+            <div key={gid ?? 'ungrouped'}>
+              <div className="contact-group-header" onClick={() => toggleGroup(gid)}>
+                <span className={`contact-group-arrow ${collapsed ? 'collapsed' : ''}`}>&#x25BC;</span>
+                <span className="contact-group-name">{name}</span>
+                <span className="contact-group-count">{members.length}</span>
+              </div>
+              {!collapsed && members.map((f: FriendInfo) => (
+                <div key={f.user_id} className="contact-item" onClick={() => navigate(`/contacts/${f.user_id}`)}>
+                  <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <Avatar name={f.remark || f.username} src={f.avatar} size={40} />
+                    <div style={{ position: 'absolute', bottom: 0, right: 0 }}>
+                      <PresenceDot online={!!onlineStatus[f.user_id]} size="small" />
                     </div>
                   </div>
-                ))}
-              </div>
-            );
-          })}
+                  <div className="contact-item-info">
+                    <div className="contact-item-name">{f.remark || f.username}</div>
+                    <span style={{ fontSize: 11, color: onlineStatus[f.user_id] ? 'var(--aim-success)' : 'var(--aim-text-tertiary)' }}>
+                      {onlineStatus[f.user_id] ? '在线' : '离线'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ); })}
         </div>
       </div>
 
@@ -240,7 +247,7 @@ export function ContactListPage() {
           renderItem={(user: any) => (
             <List.Item
               actions={[
-                <Button type="primary" size="small" onClick={() => handleSendRequest(user.user_id || user.id)}>
+                <Button type="primary" size="small" onClick={() => handleSendRequest(user.id)}>
                   添加
                 </Button>,
               ]}
@@ -349,78 +356,77 @@ export function ContactListPage() {
         </Modal>
 
         <div className="contact-group-manage-list">
-          {groupOrder.map((gid: number) => {
-            const group = groups.find((g: FriendGroup) => g.id === gid);
-            const name = group?.name || '默认分组';
-            const members: FriendInfo[] = friendsByGroup[gid] || [];
-
-            return (
-              <div key={gid} className="group-manage-section">
-                <div className="group-manage-header">
-                  <span className="group-manage-name">{name}</span>
-                  <span className="group-manage-count">{members.length}人</span>
-                  {gid !== 0 && (
-                    <Dropdown menu={{
-                      items: [
-                        {
-                          key: 'rename',
-                          label: '重命名',
-                          onClick: () => { setRenameGroupId(gid); setRenameValue(name); setRenameOpen(true); },
+          {groupOrder.map((gid: string | null) => { const group = groups.find((g: FriendGroup) => g.id === gid);
+          const name = group?.name || '默认分组';
+          const members = friendsByGroup.get(gid) ?? [];
+          
+          return (
+            <div key={gid ?? 'ungrouped'} className="group-manage-section">
+              <div className="group-manage-header">
+                <span className="group-manage-name">{name}</span>
+                <span className="group-manage-count">{members.length}人</span>
+                {gid !== null && (
+                  <Dropdown menu={{
+                    items: [
+                      {
+                        key: 'rename',
+                        label: '重命名',
+                        onClick: () => { setRenameGroupId(gid); setRenameValue(name); setRenameOpen(true); },
+                      },
+                      {
+                        key: 'delete',
+                        label: '删除',
+                        danger: true,
+                        onClick: () => {
+                          Modal.confirm({
+                            title: `删除分组「${name}」`,
+                            content: '组内好友将移入默认分组',
+                            onOk: async () => {
+                              try {
+                                await friendApi.deleteGroup(gid);
+                                message.success('已删除');
+                                refetch();
+                                refetchGroups();
+                              } catch {
+                                message.error('删除失败');
+                              }
+                            },
+                          });
                         },
-                        {
-                          key: 'delete',
-                          label: '删除',
-                          danger: true,
-                          onClick: () => {
-                            Modal.confirm({
-                              title: `删除分组「${name}」`,
-                              content: '组内好友将移入默认分组',
-                              onOk: async () => {
-                                try {
-                                  await friendApi.deleteGroup(gid);
-                                  message.success('已删除');
-                                  refetch();
-                                  refetchGroups();
-                                } catch {
-                                  message.error('删除失败');
-                                }
-                              },
-                            });
-                          },
-                        },
-                      ] as MenuProps['items'],
-                    }} trigger={['click']}>
-                      <Button type="text" size="small" icon={<EllipsisOutlined />} />
-                    </Dropdown>
-                  )}
-                </div>
-                {members.map((f: FriendInfo) => (
-                  <div key={f.user_id} className="group-manage-item">
-                    <Avatar name={f.remark || f.username} src={f.avatar} size={28} />
-                    <span className="group-manage-item-name">{f.remark || f.username}</span>
-                    <Select
-                      size="small"
-                      value={f.group_id || 0}
-                      style={{ width: 100 }}
-                      onChange={async (newGroupId) => {
-                        try {
-                          await friendApi.setGroup(f.user_id, { group_id: newGroupId });
-                          message.success('已移动');
-                          refetch();
-                        } catch {
-                          message.error('移动失败');
-                        }
-                      }}
-                      options={[
-                        { value: 0, label: '默认分组' },
-                        ...groups.map((g: FriendGroup) => ({ value: g.id, label: g.name })),
-                      ]}
-                    />
-                  </div>
-                ))}
+                      },
+                    ] as MenuProps['items'],
+                  }} trigger={['click']}>
+                    <Button type="text" size="small" icon={<EllipsisOutlined />} />
+                  </Dropdown>
+                )}
               </div>
-            );
-          })}
+              {members.map((f: FriendInfo) => (
+                <div key={f.user_id} className="group-manage-item">
+                  <Avatar name={f.remark || f.username} src={f.avatar} size={28} />
+                  <span className="group-manage-item-name">{f.remark || f.username}</span>
+                  <Select
+                    size="small"
+                    value={f.group_id ?? undefined}
+                    allowClear
+                    placeholder="默认分组"
+                    style={{ width: 100 }}
+                    onChange={async (newGroupId) => {
+                      try {
+                        await friendApi.setGroup(f.user_id, newGroupId == null ? { clear_group_id: true } : { group_id: newGroupId });
+                        message.success('已移动');
+                        refetch();
+                      } catch {
+                        message.error('移动失败');
+                      }
+                    }}
+                    options={[
+                      ...groups.map((g: FriendGroup) => ({ value: g.id, label: g.name })),
+                    ]}
+                  />
+                </div>
+              ))}
+            </div>
+          ); })}
         </div>
       </Drawer>
 

@@ -24,8 +24,11 @@ func NewUnblockUserLogic(ctx context.Context, svcCtx *Context) *UnblockUserLogic
 }
 
 func (l *UnblockUserLogic) UnblockUser(in *userpb.UnblockUserReq) (*common.BaseResponse, error) {
+	if err := validateCaller(l.ctx, in.GetUserId(), in.GetBlockedUserId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 
@@ -33,6 +36,6 @@ func (l *UnblockUserLogic) UnblockUser(in *userpb.UnblockUserReq) (*common.BaseR
 		return nil, grpcError(err)
 	}
 
-	l.Infof("user unblocked: user_id=%d blocked_id=%d", userID, in.GetBlockedUserId())
+	l.Infof("user unblocked: user_id=%s blocked_id=%s", userID, in.GetBlockedUserId())
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil
 }

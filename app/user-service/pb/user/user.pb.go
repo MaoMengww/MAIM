@@ -616,7 +616,7 @@ func (x *ValidateTokenResp) GetExpiresAt() int64 {
 
 type SessionInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // 持久化账号设备记录 UUID，与 device_id 不同
 	DeviceId      string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	Platform      string                 `protobuf:"bytes,3,opt,name=platform,proto3" json:"platform,omitempty"`
 	Ip            string                 `protobuf:"bytes,4,opt,name=ip,proto3" json:"ip,omitempty"`
@@ -3985,10 +3985,10 @@ const file_user_service_user_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x04 \x01(\x03R\texpiresAtB\n" +
 	"\n" +
-	"\b_user_id\"\x92\x02\n" +
-	"\vSessionInfo\x12\x1d\n" +
+	"\b_user_id\"\x9a\x02\n" +
+	"\vSessionInfo\x12%\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1b\n" +
+	"session_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tsessionId\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x12\x1a\n" +
 	"\bplatform\x18\x03 \x01(\tR\bplatform\x12\x0e\n" +
 	"\x02ip\x18\x04 \x01(\tR\x02ip\x12\x1a\n" +
@@ -4000,11 +4000,11 @@ const file_user_service_user_proto_rawDesc = "" +
 	"is_current\x18\b \x01(\bR\tisCurrent\x12\x1b\n" +
 	"\tis_online\x18\t \x01(\bR\bisOnline\"@\n" +
 	"\x0fGetSessionsResp\x12-\n" +
-	"\bsessions\x18\x01 \x03(\v2\x11.user.SessionInfoR\bsessions\"R\n" +
+	"\bsessions\x18\x01 \x03(\v2\x11.user.SessionInfoR\bsessions\"Z\n" +
 	"\x10RevokeSessionReq\x12\x1f\n" +
-	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1d\n" +
+	"\auser_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12%\n" +
 	"\n" +
-	"session_id\x18\x02 \x01(\tR\tsessionId\"\x9f\x01\n" +
+	"session_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tsessionId\"\x9f\x01\n" +
 	"\tTokenPair\x12!\n" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
 	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\x12#\n" +

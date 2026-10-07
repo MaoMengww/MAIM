@@ -1,6 +1,9 @@
-import axios from 'axios';
+import axios, { type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/auth';
 import { safeJsonParse } from '@/utils/json';
+import type { APIResponse, LoginResp } from '@/types/model';
+
+type SessionRequest = InternalAxiosRequestConfig & { _authRevision?: number; _retry?: boolean };
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
 
@@ -18,11 +21,14 @@ const client = axios.create({
 });
 
 // ─── Request: inject JWT ───
-client.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().token;
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+client.interceptors.request.use((config: SessionRequest) => {
+  const auth = useAuthStore.getState();
+  if (config._authRevision !== undefined && config._authRevision !== auth.revision) {
+    throw new axios.CanceledError('账号已切换');
   }
+  config._authRevision = auth.revision;
+  if (auth.token) config.headers.Authorization = `Bearer ${auth.token}`;
+  else delete config.headers.Authorization;
   return config;
 });
 
@@ -61,32 +67,38 @@ function mapErrorMessage(code: number, originalMessage: string): string {
 }
 
 // ─── Response: unwrap & 401 refresh ───
-let isRefreshing = false;
-let refreshQueue: Array<{
-  resolve: (token: string) => void;
-  reject: (err: unknown) => void;
-}> = [];
+let refreshJob: { revision: number; promise: Promise<string | null> } | null = null;
 
-async function doRefresh(): Promise<string | null> {
-  const rt = useAuthStore.getState().refreshToken;
-  if (!rt) return null;
-  try {
-    const resp = await axios.post<{ code: number; message: string; data: any }>(
-      `${API_BASE}/api/v1/auth/refresh`,
-      { refresh_token: rt },
-    );
-    const d = resp.data.data;
-    const existingUser = useAuthStore.getState().user;
-    useAuthStore.getState().setAuth(d.tokens.access_token, d.tokens.refresh_token, d.user ?? existingUser);
-    return d.tokens.access_token;
-  } catch {
-    useAuthStore.getState().logout();
-    return null;
-  }
+export function refreshSession(): Promise<string | null> {
+  const { refreshToken, revision } = useAuthStore.getState();
+  if (!refreshToken) return Promise.resolve(null);
+  if (refreshJob?.revision === revision) return refreshJob.promise;
+  const promise = (async () => {
+    try {
+      const resp = await axios.post<APIResponse<LoginResp>>(
+        `${API_BASE}/api/v1/auth/refresh`, { refresh_token: refreshToken },
+      );
+      if (resp.data.code !== 0) throw new Error(resp.data.message);
+      const { tokens, user } = resp.data.data;
+      return useAuthStore.getState().applyRefresh(revision, refreshToken, tokens, user)
+        ? tokens.access_token : null;
+    } catch {
+      const current = useAuthStore.getState();
+      if (current.revision === revision && current.refreshToken === refreshToken) current.logout();
+      return null;
+    } finally {
+      if (refreshJob?.revision === revision) refreshJob = null;
+    }
+  })();
+  refreshJob = { revision, promise };
+  return promise;
 }
 
 client.interceptors.response.use(
   (resp) => {
+    if ((resp.config as SessionRequest)._authRevision !== useAuthStore.getState().revision) {
+      return Promise.reject(new axios.CanceledError('账号已切换'));
+    }
     // Backend guarantees code=0 for success. If we receive a non-zero code
     // on a 2xx response, treat it as a business error (belt and suspenders).
     if (resp.data && typeof resp.data === 'object' && 'code' in resp.data && resp.data.code !== 0) {
@@ -98,31 +110,17 @@ client.interceptors.response.use(
   },
   async (error) => {
     const { config, response } = error;
-    if (response?.status === 401 && !config._retry) {
+    if (config && config._authRevision !== useAuthStore.getState().revision) {
+      return Promise.reject(new axios.CanceledError('账号已切换'));
+    }
+    if (response?.status === 401 && config && !config._retry && !config.url?.startsWith('/auth/')) {
       config._retry = true;
-      if (!isRefreshing) {
-        isRefreshing = true;
-        const newToken = await doRefresh();
-        isRefreshing = false;
-        if (newToken) {
-          refreshQueue.forEach((p) => p.resolve(newToken));
-          refreshQueue = [];
-          config.headers.Authorization = `Bearer ${newToken}`;
-          return client(config);
-        }
-        refreshQueue.forEach((p) => p.reject(new Error('refresh failed')));
-        refreshQueue = [];
-        return Promise.reject(error);
+      const newToken = await refreshSession();
+      if (newToken && config._authRevision === useAuthStore.getState().revision) {
+        config.headers.Authorization = `Bearer ${newToken}`;
+        return client(config);
       }
-      return new Promise((resolve, reject) => {
-        refreshQueue.push({
-          resolve: (token: string) => {
-            config.headers.Authorization = `Bearer ${token}`;
-            resolve(client(config));
-          },
-          reject,
-        });
-      });
+      return Promise.reject(error);
     }
 
     // Map business error code to Chinese message

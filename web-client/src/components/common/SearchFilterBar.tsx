@@ -5,7 +5,7 @@ import type { Dayjs } from 'dayjs';
 const { RangePicker } = DatePicker;
 
 export interface SenderOption {
-  id: number;
+  id: string;
   name: string;
   isBot: boolean;
 }
@@ -15,8 +15,8 @@ export type SenderType = '' | 'user' | 'bot';
 export interface SearchFilterBarProps {
   // Sender filter
   senderOptions: SenderOption[];
-  senderId?: number;
-  onSenderIdChange: (id: number | undefined) => void;
+  senderId?: string;
+  onSenderIdChange: (id: string | undefined) => void;
   // Sender type filter
   senderType: SenderType;
   onSenderTypeChange: (type: SenderType) => void;

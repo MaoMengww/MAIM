@@ -38,6 +38,9 @@ BotService:
 MessageService:
   Target: ${MESSAGE_SERVICE_ADDR}
   NonBlock: true
+UserService:
+  Target: ${USER_SERVICE_ADDR}
+  NonBlock: true
 Metrics:
   Port: 9103
 Log:

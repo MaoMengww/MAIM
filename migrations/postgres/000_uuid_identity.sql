@@ -450,6 +450,15 @@ CREATE TABLE IF NOT EXISTS "user".friend_groups (
     created_at TIMESTAMPTZ
 );
 
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'friends_group_reference' AND conrelid = '"user".friends'::regclass) THEN
+        ALTER TABLE "user".friends ADD CONSTRAINT friends_group_reference
+            FOREIGN KEY (group_id) REFERENCES "user".friend_groups(id) ON DELETE SET NULL;
+    END IF;
+END;
+$$;
+
 CREATE TABLE IF NOT EXISTS "user".friend_requests (
     id           UUID PRIMARY KEY CHECK (id <> '00000000-0000-0000-0000-000000000000'::uuid),
     from_user_id UUID NOT NULL CHECK (from_user_id <> '00000000-0000-0000-0000-000000000000'::uuid),

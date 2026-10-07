@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
-	"strconv"
+	"github.com/maomeng/aim/pkg/identity"
 	"time"
 
 	"github.com/maomeng/aim/app/user-service/internal/model"
@@ -13,6 +13,9 @@ import (
 )
 
 func (l *Logic) OAuthLogin(ctx context.Context, req *userpb.OAuthLoginReq) (*userpb.LoginResp, error) {
+	if req.DeviceId == "" || len(req.DeviceId) > 128 {
+		return nil, errors.New(errors.CodeInvalidParam, "device_id is required")
+	}
 	if req.Provider == "" || req.Code == "" {
 		return nil, errors.New(errors.CodeInvalidParam, "provider and code are required")
 	}
@@ -23,7 +26,7 @@ func (l *Logic) OAuthLogin(ctx context.Context, req *userpb.OAuthLoginReq) (*use
 		return nil, errors.Wrap(errors.CodeDBError, "query oauth user failed", err)
 	}
 	if u == nil {
-		id, err := l.snow.Generate()
+		id, err := identity.New()
 		if err != nil {
 			return nil, fmt.Errorf("generate user id failed: %w", err)
 		}
@@ -39,23 +42,20 @@ func (l *Logic) OAuthLogin(ctx context.Context, req *userpb.OAuthLoginReq) (*use
 		}
 	}
 
-	userIDStr := strconv.FormatInt(u.ID, 10)
-	accessToken, err := l.jwtMgr.Generate(userIDStr, u.Username)
+	if err := l.authRepo.SaveDevice(ctx, &model.UserDevice{UserID: u.ID, DeviceID: req.DeviceId, Platform: req.Platform}); err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "save device failed", err)
+	}
+	device, err := l.authRepo.GetDevice(ctx, u.ID, req.DeviceId)
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "get device failed", err)
+	}
+	accessToken, err := l.jwtMgr.Generate(u.ID, u.Username, req.DeviceId, device.ID)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeUnauthorized, "generate access token failed", err)
 	}
-	refreshToken, err := l.jwtMgr.Generate(userIDStr, u.Username)
+	refreshToken, err := l.jwtMgr.Generate(u.ID, u.Username, req.DeviceId, device.ID)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeUnauthorized, "generate refresh token failed", err)
-	}
-
-	if req.DeviceId != "" {
-		device := &model.UserDevice{
-			UserID:   u.ID,
-			DeviceID: req.DeviceId,
-			Platform: req.Platform,
-		}
-		_ = l.authRepo.SaveDevice(ctx, device)
 	}
 
 	nowUnix := time.Now().Unix()
@@ -64,8 +64,8 @@ func (l *Logic) OAuthLogin(ctx context.Context, req *userpb.OAuthLoginReq) (*use
 		Tokens: &userpb.TokenPair{
 			AccessToken:   accessToken,
 			RefreshToken:  refreshToken,
-			AccessExpire:  nowUnix + 3600,
-			RefreshExpire: nowUnix + 2592000,
+			AccessExpire:  nowUnix + int64(l.jwtMgr.ExpireSeconds()),
+			RefreshExpire: nowUnix + int64(l.jwtMgr.ExpireSeconds()),
 		},
 		User: modelToUserInfo(u),
 	}, nil

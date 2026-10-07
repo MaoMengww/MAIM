@@ -3,16 +3,15 @@ package auth
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/maomeng/aim/app/user-service/internal/metrics"
 	"github.com/maomeng/aim/app/user-service/internal/model"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/logx"
-	"github.com/maomeng/aim/pkg/snowflake"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -20,7 +19,7 @@ import (
 // UserRepo defines user repository methods needed by this package.
 type UserRepo interface {
 	Create(ctx context.Context, user *model.User) error
-	GetByID(ctx context.Context, id int64) (*model.User, error)
+	GetByID(ctx context.Context, id string) (*model.User, error)
 	GetByUsername(ctx context.Context, username string) (*model.User, error)
 	GetByPhone(ctx context.Context, phone string) (*model.User, error)
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
@@ -31,21 +30,21 @@ type AuthRepo interface {
 	RevokeToken(ctx context.Context, jti string, ttl time.Duration) error
 	IsTokenRevoked(ctx context.Context, jti string) (bool, error)
 	SaveDevice(ctx context.Context, d *model.UserDevice) error
-	GetUserDevices(ctx context.Context, userID int64) ([]*model.UserDevice, error)
-	DeleteDevice(ctx context.Context, userID int64, deviceID string) error
-	IsDeviceOnline(ctx context.Context, userID int64, deviceID string) (bool, error)
+	GetUserDevices(ctx context.Context, userID string) ([]*model.UserDevice, error)
+	DeleteSession(ctx context.Context, userID string, sessionID string) error
+	IsDeviceOnline(ctx context.Context, userID string, deviceID string) (bool, error)
+	GetDevice(ctx context.Context, userID string, deviceID string) (*model.UserDevice, error)
 }
 
 type Logic struct {
 	userRepo UserRepo
 	authRepo AuthRepo
-	snow     *snowflake.Node
 	jwtMgr   *jwt.Manager
 	logger   logx.Logger
 }
 
-func New(userRepo UserRepo, authRepo AuthRepo, snow *snowflake.Node, jwtMgr *jwt.Manager, logger logx.Logger) *Logic {
-	return &Logic{userRepo: userRepo, authRepo: authRepo, snow: snow, jwtMgr: jwtMgr, logger: logger}
+func New(userRepo UserRepo, authRepo AuthRepo, jwtMgr *jwt.Manager, logger logx.Logger) *Logic {
+	return &Logic{userRepo: userRepo, authRepo: authRepo, jwtMgr: jwtMgr, logger: logger}
 }
 
 func (l *Logic) ctxLogger(ctx context.Context) logx.Logger {
@@ -57,6 +56,9 @@ func (l *Logic) ctxLogger(ctx context.Context) logx.Logger {
 
 func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.RegisterResp, error) {
 	logger := l.ctxLogger(ctx)
+	if req.DeviceId == "" || len(req.DeviceId) > 128 {
+		return nil, errors.New(errors.CodeInvalidParam, "device_id is required")
+	}
 
 	if req.Username == "" || req.Password == "" {
 		err := errors.New(errors.CodeInvalidParam, "username and password are required")
@@ -75,7 +77,10 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 	}
 
 	if req.Phone != "" {
-		exist, _ = l.userRepo.GetByPhone(ctx, req.Phone)
+		exist, err = l.userRepo.GetByPhone(ctx, req.Phone)
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return nil, errors.Wrap(errors.CodeDBError, "check phone failed", err)
+		}
 		if exist != nil {
 			err := errors.New(errors.CodeConflict, "phone already registered")
 			logger.Errorf("method=Register error=%v", err)
@@ -83,7 +88,10 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 		}
 	}
 	if req.Email != "" {
-		exist, _ = l.userRepo.GetByEmail(ctx, req.Email)
+		exist, err = l.userRepo.GetByEmail(ctx, req.Email)
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return nil, errors.Wrap(errors.CodeDBError, "check email failed", err)
+		}
 		if exist != nil {
 			err := errors.New(errors.CodeConflict, "email already registered")
 			logger.Errorf("method=Register error=%v", err)
@@ -96,7 +104,7 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 		return nil, errors.Wrap(errors.CodeInternal, "hash password failed", err)
 	}
 
-	id, err := l.snow.Generate()
+	id, err := identity.New()
 	if err != nil {
 		return nil, fmt.Errorf("generate user id failed: %w", err)
 	}
@@ -122,34 +130,31 @@ func (l *Logic) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.
 	}
 	metrics.UserRegistrationsTotal.Inc(source)
 
-	userIDStr := strconv.FormatInt(id, 10)
-	accessToken, err := l.jwtMgr.Generate(userIDStr, req.Username)
+	if err := l.authRepo.SaveDevice(ctx, &model.UserDevice{UserID: id, DeviceID: req.DeviceId, Platform: req.Platform}); err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "save device failed", err)
+	}
+	device, err := l.authRepo.GetDevice(ctx, id, req.DeviceId)
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "get device failed", err)
+	}
+	accessToken, err := l.jwtMgr.Generate(id, req.Username, req.DeviceId, device.ID)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeUnauthorized, "generate access token failed", err)
 	}
-	refreshToken, err := l.jwtMgr.Generate(userIDStr, req.Username)
+	refreshToken, err := l.jwtMgr.Generate(id, req.Username, req.DeviceId, device.ID)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeUnauthorized, "generate refresh token failed", err)
 	}
 
-	if req.DeviceId != "" {
-		device := &model.UserDevice{
-			UserID:   id,
-			DeviceID: req.DeviceId,
-			Platform: req.Platform,
-		}
-		_ = l.authRepo.SaveDevice(ctx, device)
-	}
-
 	nowUnix := time.Now().Unix()
-	logger.Infof("method=Register user_id=%d username=%s", id, req.Username)
+	logger.Infof("method=Register user_id=%s username=%s", id, req.Username)
 	return &userpb.RegisterResp{
 		UserId: id,
 		Tokens: &userpb.TokenPair{
 			AccessToken:   accessToken,
 			RefreshToken:  refreshToken,
-			AccessExpire:  nowUnix + 3600,
-			RefreshExpire: nowUnix + 2592000,
+			AccessExpire:  nowUnix + int64(l.jwtMgr.ExpireSeconds()),
+			RefreshExpire: nowUnix + int64(l.jwtMgr.ExpireSeconds()),
 		},
 		User: modelToUserInfo(user),
 	}, nil

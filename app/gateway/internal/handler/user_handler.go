@@ -33,6 +33,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, &req) {
 		return
@@ -186,6 +187,7 @@ func (h *UserHandler) UpdateSettings(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
+	req.UserId = c.GetString(middleware.CtxKeyUserID)
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, &req) {
 		return

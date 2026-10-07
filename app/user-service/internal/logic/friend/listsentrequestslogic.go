@@ -23,8 +23,11 @@ func NewListSentRequestsLogic(ctx context.Context, svcCtx *Context) *ListSentReq
 }
 
 func (l *ListSentRequestsLogic) ListSentRequests(in *userpb.ListSentRequestsReq) (*userpb.ListRequestsResp, error) {
+	if err := validateCaller(l.ctx, in.GetUserId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, ErrUnauthenticated
 	}
 
@@ -40,11 +43,14 @@ func (l *ListSentRequestsLogic) ListSentRequests(in *userpb.ListSentRequestsReq)
 		return nil, err
 	}
 
-	userIDs := make([]int64, 0, len(reqs))
+	userIDs := make([]string, 0, len(reqs))
 	for _, r := range reqs {
 		userIDs = append(userIDs, r.ToUserID)
 	}
-	userMap, _ := l.svcCtx.batchGetUserInfo(l.ctx, userIDs)
+	userMap, err := l.svcCtx.batchGetUserInfo(l.ctx, userIDs)
+	if err != nil {
+		return nil, grpcError(err)
+	}
 
 	items := make([]*userpb.FriendRequest, 0, len(reqs))
 	for _, r := range reqs {

@@ -88,7 +88,8 @@ type authResult struct {
 	UserID entityID `json:"user_id"`
 	User   identity `json:"user"`
 	Tokens struct {
-		AccessToken string `json:"access_token"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
 	} `json:"tokens"`
 }
 
@@ -98,6 +99,7 @@ type account struct {
 	device   string
 	token    string
 	password string
+	refresh  string
 }
 
 type sentMessage struct {
@@ -133,6 +135,8 @@ type driver struct {
 	provider      string
 	ingestTimeout time.Duration
 	queryDeadline time.Duration
+	realtimeRPC   string
+	userRPC       string
 	controlDir    string
 }
 
@@ -167,12 +171,14 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://realtime-service:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
 	queryDeadline := flags.Duration("query-deadline", 5*time.Second, "入库负载下每次检索的硬截止时间")
 	controlDir := flags.String("control-dir", "", "stage-p6 runner 生命周期检查点目录")
+	realtimeRPC := flags.String("realtime-rpc", "realtime-service:50059", "现有通知domain gRPC入口")
+	userRPC := flags.String("user-rpc", "user-service:50051", "现有用户domain gRPC入口")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -199,6 +205,8 @@ func run(args []string) error {
 		}
 	case "stage-p3":
 		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}}
+	case "user-identity":
+		scenarios = []scenarioSpec{{"relationships", "", ""}, {"user-identity", *realtimeA, *realtimeB}}
 	case "stage-p4":
 		scenarios = []scenarioSpec{{"relationships", "", ""}, {"same-instance-a", *realtimeA, *realtimeA}, {"conversation-unread", *realtimeA, *realtimeA}}
 	case "stage-p5":
@@ -251,7 +259,8 @@ func run(args []string) error {
 		return errors.New("realtime A/B 必须使用不同地址，不能将单实例冒充两实例")
 	}
 	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout,
-		provider: strings.TrimRight(*provider, "/"), ingestTimeout: *ingestTimeout, queryDeadline: *queryDeadline, controlDir: *controlDir}
+		provider: strings.TrimRight(*provider, "/"), ingestTimeout: *ingestTimeout, queryDeadline: *queryDeadline, controlDir: *controlDir,
+		realtimeRPC: *realtimeRPC, userRPC: *userRPC}
 	defer d.client.CloseIdleConnections()
 	var failures []error
 	for _, scenario := range scenarios {
@@ -259,6 +268,8 @@ func run(args []string) error {
 		switch scenario.name {
 		case "relationships":
 			err = d.relationships()
+		case "user-identity":
+			err = d.userIdentity(scenario.a, scenario.b)
 		case "user-sync":
 			err = d.userSync(scenario.a, scenario.b)
 			if err == nil {
@@ -283,6 +294,8 @@ func run(args []string) error {
 			failures = append(failures, failure)
 		} else if scenario.name == "relationships" {
 			fmt.Println("E2E PASS: relationships 请求 → 接受/拒绝/取消 → 双向好友 → 备注/分组 → 删除 → 拉黑/解除")
+		} else if scenario.name == "user-identity" {
+			fmt.Println("E2E PASS: user-identity UUID注册/登录/刷新/资料/设置 → 真实通知落库/跨实例投递/离线列表/权限 → 稳定设备重连/撤销/旧token不复活")
 		} else if scenario.name == "user-sync" {
 			fmt.Println("E2E PASS: user-sync 双账号注册/登录 → 空流正位点重建 → 单位点跨单聊/群聊limit=1分页正文/无遗漏/隔离 → 最近2条历史与置顶免打扰重建 → 续增量 → 未知/负位点显式重建 → 非法参数HTTP400")
 			fmt.Println("E2E PASS: inbox-changes 双realtime离线编辑两次/撤回/全删 → 完整状态重放/重复读取 → 在线变更提示 → 会话元数据/私有设置 → 自己已读合并/边界/列表详情回执一致 → 他人已读不入流 → 移除后无消息/重加入/解散")
@@ -426,6 +439,7 @@ func (d *driver) register(label, suffix string) (account, error) {
 		return a, errors.New("gateway.login: 登录用户身份或 access_token 无效")
 	}
 	a.id, a.token = loggedIn.UserID, loggedIn.Tokens.AccessToken
+	a.refresh = loggedIn.Tokens.RefreshToken
 	var current identity
 	if err := d.request(http.MethodGet, "/users/me", a.token, nil, &current); err != nil {
 		return a, fmt.Errorf("gateway.identity: %w", err)

@@ -7,15 +7,15 @@ import (
 	"github.com/maomeng/aim/app/user-service/internal/repo"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/database"
+	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/interceptor"
-	"github.com/maomeng/aim/pkg/snowflake"
 )
 
-// Context shares the user service's database, ID generator and profile logic.
+// Context shares the user service's database and profile logic.
 // It owns no connections and never calls UserService over RPC.
 type Context struct {
 	DB                *database.DB
-	Snowflake         *snowflake.Node
 	UserLogic         *userlogic.Logic
 	FriendRequestRepo *repo.FriendRequestRepo
 	FriendRepo        *repo.FriendRepo
@@ -23,10 +23,9 @@ type Context struct {
 	BlockRepo         *repo.BlockRepo
 }
 
-func NewContext(db *database.DB, snow *snowflake.Node, users *userlogic.Logic) *Context {
+func NewContext(db *database.DB, users *userlogic.Logic) *Context {
 	return &Context{
 		DB:                db,
-		Snowflake:         snow,
 		UserLogic:         users,
 		FriendRequestRepo: repo.NewFriendRequestRepo(db),
 		FriendRepo:        repo.NewFriendRepo(db),
@@ -35,19 +34,37 @@ func NewContext(db *database.DB, snow *snowflake.Node, users *userlogic.Logic) *
 	}
 }
 
-func userIDFromContext(ctx context.Context) int64 {
-	userID, _ := ctx.Value(interceptor.ContextKeyUserID).(int64)
+func userIDFromContext(ctx context.Context) string {
+	userID, _ := ctx.Value(interceptor.ContextKeyUserID).(string)
+	if identity.Validate(userID) != nil {
+		return ""
+	}
 	return userID
 }
 
-func (c *Context) batchGetUserInfo(ctx context.Context, userIDs []int64) (map[int64]*userpb.UserInfo, error) {
+func (c *Context) batchGetUserInfo(ctx context.Context, userIDs []string) (map[string]*userpb.UserInfo, error) {
 	resp, err := c.UserLogic.BatchGetUserInfo(ctx, &userpb.BatchGetUserInfoReq{UserIds: userIDs})
 	if err != nil {
 		return nil, err
 	}
-	users := make(map[int64]*userpb.UserInfo, len(resp.GetUsers()))
+	users := make(map[string]*userpb.UserInfo, len(resp.GetUsers()))
 	for _, user := range resp.GetUsers() {
 		users[user.GetId()] = user
 	}
 	return users, nil
+}
+func validateCaller(ctx context.Context, requestedUser string, ids ...string) error {
+	userID := userIDFromContext(ctx)
+	if userID == "" {
+		return grpcError(ErrUnauthenticated)
+	}
+	if requestedUser != "" && requestedUser != userID {
+		return grpcError(errors.New(errors.CodeForbidden, "account is not owned by caller"))
+	}
+	for _, id := range ids {
+		if identity.Validate(id) != nil {
+			return grpcError(ErrInvalidParam)
+		}
+	}
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/maomeng/aim/app/gateway/internal/response"
+	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/jwt"
@@ -27,7 +28,7 @@ var authWhitelist = map[string]bool{
 	"/metrics":                     true,
 }
 
-func AuthRequired(jwtMgr *jwt.Manager) gin.HandlerFunc {
+func AuthRequired(jwtMgr *jwt.Manager, users userpb.UserServiceClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if authWhitelist[c.FullPath()] {
 			c.Next()
@@ -60,9 +61,15 @@ func AuthRequired(jwtMgr *jwt.Manager) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		validated, err := users.ValidateToken(c.Request.Context(), &userpb.ValidateTokenReq{AccessToken: parts[1]})
+		if err != nil || !validated.GetValid() || validated.GetUserId() != claims.UserID || validated.GetDeviceId() != claims.DeviceID {
+			response.Unauthorized(c, "invalid or revoked session")
+			c.Abort()
+			return
+		}
 
 		c.Set(CtxKeyUserID, claims.UserID)
-		c.Set(CtxKeyDeviceID, claims.Subject)
+		c.Set(CtxKeyDeviceID, claims.DeviceID)
 
 		c.Next()
 	}

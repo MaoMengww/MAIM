@@ -24,7 +24,6 @@ import (
 	"github.com/maomeng/aim/app/realtime-service/internal/handler"
 	"github.com/maomeng/aim/app/realtime-service/internal/metrics"
 	"github.com/maomeng/aim/app/realtime-service/internal/middleware"
-	"github.com/maomeng/aim/app/realtime-service/internal/model"
 	"github.com/maomeng/aim/app/realtime-service/internal/offline"
 	"github.com/maomeng/aim/app/realtime-service/internal/repo"
 	"github.com/maomeng/aim/app/realtime-service/internal/router"
@@ -34,6 +33,8 @@ import (
 	"github.com/maomeng/aim/app/realtime-service/internal/svc"
 	"github.com/maomeng/aim/app/realtime-service/internal/transport"
 	"github.com/maomeng/aim/app/realtime-service/pb/realtime"
+	userpb "github.com/maomeng/aim/app/user-service/pb/user"
+	"github.com/maomeng/aim/migrations/postgres"
 	registry "github.com/maomeng/aim/pkg/connections"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/delivery"
@@ -105,7 +106,7 @@ func run(cfg config.Config) error {
 		return err
 	}
 	defer db.Close()
-	if err := db.AutoMigrate(&model.Notification{}, &model.DeviceToken{}); err != nil {
+	if err := database.RunMigrations(db.DB, postgres.FS); err != nil {
 		return err
 	}
 	var fcm *offline.FCMSender
@@ -141,6 +142,11 @@ func run(cfg config.Config) error {
 		return err
 	}
 	defer msgRPC.Conn().Close()
+	userRPC, err := zrpc.NewClient(cfg.UserService)
+	if err != nil {
+		return err
+	}
+	defer userRPC.Conn().Close()
 	consumer, err := kafka.NewConsumer(cfg.Kafka, []string{delivery.Topic}, cfg.Kafka.ConsumerGroup, logger)
 	if err != nil {
 		return err
@@ -176,7 +182,7 @@ func run(cfg config.Config) error {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	engine.Use(gin.Recovery(), middleware.RequestID())
-	ws := &handler.WSHandler{Router: node, Config: cfg, BotClient: botpb.NewBotServiceClient(botRPC.Conn()), MessageClient: message.NewMessageServiceClient(msgRPC.Conn()), Upgrader: websocket.Upgrader{ReadBufferSize: cfg.WebSocket.ReadBufferSize, WriteBufferSize: cfg.WebSocket.WriteBufferSize, CheckOrigin: func(*http.Request) bool { return true }}}
+	ws := &handler.WSHandler{Router: node, Config: cfg, BotClient: botpb.NewBotServiceClient(botRPC.Conn()), MessageClient: message.NewMessageServiceClient(msgRPC.Conn()), UserClient: userpb.NewUserServiceClient(userRPC.Conn()), Upgrader: websocket.Upgrader{ReadBufferSize: cfg.WebSocket.ReadBufferSize, WriteBufferSize: cfg.WebSocket.WriteBufferSize, CheckOrigin: func(*http.Request) bool { return true }}}
 	router.Register(engine, ws)
 	httpServer := &http.Server{Addr: net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)), Handler: engine, ReadHeaderTimeout: 5 * time.Second}
 	metricsMux := http.NewServeMux()

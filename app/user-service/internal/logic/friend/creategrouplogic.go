@@ -24,8 +24,11 @@ func NewCreateGroupLogic(ctx context.Context, svcCtx *Context) *CreateGroupLogic
 }
 
 func (l *CreateGroupLogic) CreateGroup(in *userpb.CreateGroupReq) (*userpb.CreateGroupResp, error) {
+	if err := validateCaller(l.ctx, in.GetUserId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 	name := strings.TrimSpace(in.GetName())

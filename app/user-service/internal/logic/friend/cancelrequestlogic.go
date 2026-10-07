@@ -25,8 +25,11 @@ func NewCancelRequestLogic(ctx context.Context, svcCtx *Context) *CancelRequestL
 }
 
 func (l *CancelRequestLogic) CancelRequest(in *userpb.CancelRequestReq) (*common.BaseResponse, error) {
+	if err := validateCaller(l.ctx, in.GetUserId(), in.GetRequestId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 

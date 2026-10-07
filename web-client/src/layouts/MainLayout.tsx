@@ -22,6 +22,8 @@ import { useWSStore } from '@/stores/ws';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNotifications } from '@/hooks/useNotifications';
 import { Avatar } from '@/components/common/Avatar';
+import type { Notification, NotificationReferenceType } from '@/types/model';
+import { authApi } from '@/services/auth';
 
 import './MainLayout.css';
 
@@ -34,20 +36,21 @@ const NAV_ITEMS = [
 ];
 
 export function MainLayout() {
-  const { isAuthenticated, user, logout } = useAuthStore();
+  const { isAuthenticated, user, logout, revision } = useAuthStore();
   const sidebarKey = useUIStore((s) => s.sidebarKey);
   const setSidebarKey = useUIStore((s) => s.setSidebarKey);
   const navigate = useNavigate();
   const location = useLocation();
   const [notifOpen, setNotifOpen] = useState(false);
-  const { listQuery, markReadMutation, markAllReadMutation } = useNotifications();
+  const { listQuery, unreadCountQuery, markReadMutation, markAllReadMutation } = useNotifications();
   const notifications = listQuery.data?.list ?? [];
-  const unreadCount = notifications.filter((n: any) => !n.is_read).length;
+  const unreadCount = unreadCountQuery.data ?? 0;
 
   const queryClient = useQueryClient();
   const wsStatus = useWSStore((s) => s.status);
-  const accountId = isAuthenticated && user ? String(user.id) : null;
+  const accountId = isAuthenticated && user ? user.id : null;
   useEffect(() => {
+    setNotifOpen(false);
     if (!accountId) return;
     messageSync.start(accountId);
     const unsubscribe = messageSync.subscribe((_id, snapshotChanged) => {
@@ -78,9 +81,8 @@ export function MainLayout() {
       unsubscribeChanges.forEach((unsubscribeChange) => unsubscribeChange());
       wsDisconnect();
       messageSync.reset();
-      queryClient.clear();
     };
-  }, [accountId, queryClient]);
+  }, [accountId, revision, queryClient]);
 
   useEffect(() => {
     // Establish live delivery before taking the HTTP snapshot, closing the login gap.
@@ -88,7 +90,7 @@ export function MainLayout() {
   }, [accountId, wsStatus]);
 
   useEffect(() => messageSync.subscribe((_id, _snapshotChanged, removedConversations) => {
-    const active = window.location.pathname.match(/^\/conversations\/(\d+)$/)?.[1];
+    const active = window.location.pathname.match(/^\/conversations\/([^/]+)$/)?.[1];
     if (active && removedConversations.includes(active)) {
       navigate('/conversations', { replace: true });
     }
@@ -155,10 +157,10 @@ export function MainLayout() {
               ) : (
                 <List
                   dataSource={notifications.slice(0, 20)}
-                  renderItem={(n: any) => {
+                  renderItem={(n: Notification) => {
                     const Icon = n.type === 2 ? WarningOutlined : n.type === 3 ? CheckCircleOutlined : n.type === 4 ? NotificationOutlined : InfoCircleOutlined;
                     const color = n.type === 2 ? 'var(--aim-warning, #faad14)' : n.type === 3 ? 'var(--aim-success, #52c41a)' : 'var(--aim-primary, #1677ff)';
-                    const content = typeof n.content === 'string' ? n.content : n.content?.text || n.content?.action || '';
+                    const content = n.content;
                     return (
                       <List.Item
                         style={{
@@ -170,7 +172,21 @@ export function MainLayout() {
                           border: n.is_read ? '1px solid transparent' : '1px solid rgba(22,119,255,0.12)',
                           transition: 'all 0.2s',
                         }}
-                        onClick={() => { markReadMutation.mutate(n.id); }}
+                        title={n.reference_type === 'message' || n.reference_type === 'document' ? '缺少关联会话或知识库，无法打开此对象；点击标记已读' : undefined}
+                        onClick={() => {
+                          markReadMutation.mutate(n.id);
+                          if (!n.reference_id || !n.reference_type) return;
+                          const routes: Partial<Record<NotificationReferenceType, string>> = {
+                            user: `/contacts/${n.reference_id}`,
+                            friend_request: `/contacts?request=${n.reference_id}`,
+                            conversation: `/conversations/${n.reference_id}`,
+                            bot: `/bots/${n.reference_id}`,
+                            knowledge_base: `/knowledge/${n.reference_id}`,
+                            model: '/settings/models',
+                          };
+                          const target = routes[n.reference_type];
+                          if (target) { setNotifOpen(false); navigate(target); }
+                        }}
                       >
                         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', width: '100%' }}>
                           <div style={{
@@ -217,14 +233,17 @@ export function MainLayout() {
           <div className="sidebar-user" onClick={() => navigate('/settings')} title={user?.username}>
             <Avatar name={user?.username} src={user?.avatar} size={32} />
           </div>
-          <button className="sidebar-logout" onClick={() => { wsDisconnect(); logout(); }} title="退出登录">
+          <button className="sidebar-logout" onClick={async () => {
+            try { await authApi.logout(); } catch { /* local logout must still complete */ }
+            if (useAuthStore.getState().revision === revision) logout();
+          }} title="退出登录">
             <PoweroffOutlined />
           </button>
         </div>
       </nav>
 
       <main className="main-content">
-        <Outlet />
+        <Outlet key={revision} />
       </main>
     </div>
   );

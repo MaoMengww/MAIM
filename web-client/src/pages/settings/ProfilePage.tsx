@@ -24,6 +24,7 @@ import { modelApi } from '@/services/model';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { modelOptionLabel } from '@/utils/provider';
 import type { UserSettings } from '@/types/model';
+import type { UpdateUserSettingsReq } from '@/types/api';
 import dayjs from 'dayjs';
 
 import './ProfilePage.css';
@@ -71,7 +72,7 @@ export function ProfilePage() {
   // ─── settings query ───
   const { data: settings, isLoading: settingsLoading } = useQuery<UserSettings>({
     queryKey: ['userSettings'],
-    queryFn: () => authApi.getSettings() as Promise<UserSettings>,
+    queryFn: () => authApi.getSettings(),
   });
 
   // ─── models ───
@@ -87,6 +88,7 @@ export function ProfilePage() {
   const [editing, setEditing] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [form] = Form.useForm();
+  const [modelSelectionChanged, setModelSelectionChanged] = useState(false);
 
   // ─── password modal ───
   const [pwdOpen, setPwdOpen] = useState(false);
@@ -106,12 +108,13 @@ export function ProfilePage() {
 
   // ─── enter edit mode ───
   const startEdit = useCallback(() => {
+    setModelSelectionChanged(false);
     form.setFieldsValue({
       bio: user?.bio || '',
       gender: user?.gender ?? 0,
       birthday: user?.birthday ? dayjs.unix(Number(user.birthday)) : undefined,
       language: settings?.language || 'zh-CN',
-      ai_model_id: settings?.ai_model_id || undefined,
+      ai_model_id: settings?.ai_model_id ?? undefined,
     });
     setEditing(true);
   }, [user, settings, form]);
@@ -140,12 +143,14 @@ export function ProfilePage() {
       }
 
       // Update settings
-      const settingsPayload: Record<string, unknown> = {};
+      const settingsPayload: UpdateUserSettingsReq = {};
       if (values.language) settingsPayload.language = values.language;
-      if (values.ai_model_id) {
+      if (modelSelectionChanged && values.ai_model_id) {
         const selected = models.find((m) => m.id === values.ai_model_id);
         settingsPayload.ai_model_id = values.ai_model_id;
         settingsPayload.ai_model_name = selected?.model_name || settings?.ai_model_name || '';
+      } else if (modelSelectionChanged) {
+        settingsPayload.clear_ai_model_id = true;
       }
       if (Object.keys(settingsPayload).length > 0) {
         await authApi.updateSettings(settingsPayload);
@@ -350,6 +355,8 @@ export function ProfilePage() {
                   <Form.Item label="AI 助手模型" name="ai_model_id" className="profile-edit-half">
                     <Select
                       placeholder="选择模型"
+                      allowClear
+                      onChange={() => setModelSelectionChanged(true)}
                       options={models.map((m) => ({
                         value: m.id,
                         label: modelOptionLabel(m),
@@ -456,7 +463,7 @@ export function ProfilePage() {
                   <>
                     <div className="profile-model-name">
                       {selectedModel.model_name}
-                      {Number(selectedModel.owner_id) === 0 && (
+                      {selectedModel.owner_type === 'platform' && (
                         <span className="profile-model-badge">官方</span>
                       )}
                     </div>

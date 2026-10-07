@@ -25,7 +25,7 @@ func (r *UserRepo) Create(ctx context.Context, user *model.User) error {
 	return r.db.WithContext(ctx).Create(user).Error
 }
 
-func (r *UserRepo) GetByID(ctx context.Context, id int64) (*model.User, error) {
+func (r *UserRepo) GetByID(ctx context.Context, id string) (*model.User, error) {
 	var user model.User
 	err := r.db.WithContext(ctx).Where("id = ?", id).First(&user).Error
 	if err != nil {
@@ -61,11 +61,11 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 	return &user, nil
 }
 
-func (r *UserRepo) Update(ctx context.Context, id int64, updates map[string]any) error {
+func (r *UserRepo) Update(ctx context.Context, id string, updates map[string]any) error {
 	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Updates(updates).Error
 }
 
-func (r *UserRepo) BatchGetByIDs(ctx context.Context, ids []int64) ([]*model.User, error) {
+func (r *UserRepo) BatchGetByIDs(ctx context.Context, ids []string) ([]*model.User, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -121,13 +121,13 @@ func (r *UserRepo) ExistsByEmail(ctx context.Context, email string) (bool, error
 	return count > 0, err
 }
 
-func (r *UserRepo) ListAllIDs(ctx context.Context) ([]int64, error) {
-	var ids []int64
+func (r *UserRepo) ListAllIDs(ctx context.Context) ([]string, error) {
+	var ids []string
 	err := r.db.WithContext(ctx).Model(&model.User{}).Pluck("id", &ids).Error
 	return ids, err
 }
 
-func (r *UserRepo) UpdateBalance(ctx context.Context, userID int64, delta float64) (float64, error) {
+func (r *UserRepo) UpdateBalance(ctx context.Context, userID string, delta float64) (float64, error) {
 	result := r.db.WithContext(ctx).Exec(
 		`UPDATE "user".users SET balance = balance + ? WHERE id = ? AND balance + ? >= 0`,
 		delta, userID, delta,
@@ -141,14 +141,14 @@ func (r *UserRepo) UpdateBalance(ctx context.Context, userID int64, delta float6
 	return r.GetBalance(ctx, userID)
 }
 
-func (r *UserRepo) GetBalance(ctx context.Context, userID int64) (float64, error) {
+func (r *UserRepo) GetBalance(ctx context.Context, userID string) (float64, error) {
 	var user model.User
-	if err := r.db.WithContext(ctx).Select("balance").First(&user, userID).Error; err != nil {
+	if err := r.db.WithContext(ctx).Select("balance").Where("id = ?", userID).First(&user).Error; err != nil {
 		return 0, err
 	}
 	return user.Balance, nil
 }
 
 func IsNotFound(err error) bool {
-	return err != nil && err.Error() == gorm.ErrRecordNotFound.Error()
+	return errors.Is(err, gorm.ErrRecordNotFound)
 }

@@ -223,11 +223,7 @@ func (r *Router) Presence(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	status := "offline"
-	if r.Registry.IsOnline(ctx, id) {
-		status = "online"
-	}
-	payload, err := json.Marshal(map[string]any{"type": "presence", "user_id": id, "status": status})
+	payload, err := json.Marshal(map[string]any{"type": "presence.state", "user_id": id, "online": r.Registry.IsOnline(ctx, id)})
 	if err != nil {
 		return err
 	}

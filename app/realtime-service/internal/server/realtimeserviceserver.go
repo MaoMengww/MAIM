@@ -53,6 +53,9 @@ func (s *RealtimeServiceServer) DeleteNotification(ctx context.Context, in *real
 }
 
 func (s *RealtimeServiceServer) PushNotification(ctx context.Context, in *realtime.PushNotificationReq) (*realtime.PushNotificationResp, error) {
+	if len(in.UserIds) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "notification requires a recipient")
+	}
 	for _, id := range in.UserIds {
 		if err := entityidentity.Validate(id); err != nil {
 			return nil, status.Error(codes.InvalidArgument, "invalid recipient identity")
@@ -62,8 +65,13 @@ func (s *RealtimeServiceServer) PushNotification(ctx context.Context, in *realti
 		return nil, status.Error(codes.InvalidArgument, "reference identity and type must be provided together")
 	}
 	if in.ReferenceId != nil {
-		if entityidentity.Validate(*in.ReferenceId) != nil || *in.ReferenceType == "" {
+		if entityidentity.Validate(*in.ReferenceId) != nil {
 			return nil, status.Error(codes.InvalidArgument, "invalid notification reference")
+		}
+		switch *in.ReferenceType {
+		case "user", "friend_request", "conversation", "message", "bot", "knowledge_base", "document", "model":
+		default:
+			return nil, status.Error(codes.InvalidArgument, "unsupported notification reference type")
 		}
 	}
 	l := logic.NewPushNotificationLogic(ctx, s.svcCtx)
@@ -71,6 +79,9 @@ func (s *RealtimeServiceServer) PushNotification(ctx context.Context, in *realti
 }
 
 func (s *RealtimeServiceServer) IsOnline(ctx context.Context, in *realtime.IsOnlineReq) (*realtime.IsOnlineResp, error) {
+	if _, err := identity(ctx); err != nil {
+		return nil, err
+	}
 	if err := entityidentity.Validate(in.UserId); err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid user identity")
 	}
@@ -79,6 +90,9 @@ func (s *RealtimeServiceServer) IsOnline(ctx context.Context, in *realtime.IsOnl
 }
 
 func (s *RealtimeServiceServer) BatchIsOnline(ctx context.Context, in *realtime.BatchIsOnlineReq) (*realtime.BatchIsOnlineResp, error) {
+	if _, err := identity(ctx); err != nil {
+		return nil, err
+	}
 	for _, id := range in.UserIds {
 		if err := entityidentity.Validate(id); err != nil {
 			return nil, status.Error(codes.InvalidArgument, "invalid user identity")

@@ -21,17 +21,18 @@ import (
 // public heartbeat. Negative membership checks use the same observation log.
 type p6Event struct {
 	event
-	MessageID   *entityID      `json:"message_id"`
-	UserID      *entityID      `json:"user_id"`
-	LastReadSeq sequenceNumber `json:"last_read_seq"`
-	UnreadCount *int32         `json:"unread_count"`
-	StreamID    string         `json:"stream_id"`
-	BotID       *entityID      `json:"bot_id"`
-	ReplyToID   *entityID      `json:"reply_to_msg_id"`
-	Content     string         `json:"content"`
-	Seq         int64          `json:"seq"`
-	Online      bool           `json:"online"`
-	Devices     []struct {
+	MessageID    *entityID             `json:"message_id"`
+	UserID       *entityID             `json:"user_id"`
+	LastReadSeq  sequenceNumber        `json:"last_read_seq"`
+	Notification *identityNotification `json:"notification"`
+	UnreadCount  *int32                `json:"unread_count"`
+	StreamID     string                `json:"stream_id"`
+	BotID        *entityID             `json:"bot_id"`
+	ReplyToID    *entityID             `json:"reply_to_msg_id"`
+	Content      string                `json:"content"`
+	Seq          int64                 `json:"seq"`
+	Online       bool                  `json:"online"`
+	Devices      []struct {
 		DeviceID   string `json:"device_id"`
 		InstanceID string `json:"instance_id"`
 	} `json:"devices"`

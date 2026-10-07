@@ -10,8 +10,10 @@ import (
 )
 
 type Claims struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
+	UserID    string `json:"user_id"`
+	Username  string `json:"username"`
+	DeviceID  string `json:"device_id"`
+	SessionID string `json:"session_id"`
 	jwt.RegisteredClaims
 }
 
@@ -45,14 +47,22 @@ func NewManager(secret string, expireSec, refreshSec int) *Manager {
 
 func (m *Manager) ExpireSeconds() int { return m.expireSec }
 
-func (m *Manager) Generate(userID, username string) (string, error) {
+func (m *Manager) Generate(userID, username, deviceID, sessionID string) (string, error) {
 	if err := identity.Validate(userID); err != nil {
 		return "", errors.Wrap(errors.CodeUnauthorized, "invalid user identity", err)
 	}
+	if deviceID == "" || len(deviceID) > 128 {
+		return "", errors.New(errors.CodeUnauthorized, "invalid device identity")
+	}
+	if err := identity.Validate(sessionID); err != nil {
+		return "", errors.Wrap(errors.CodeUnauthorized, "invalid session identity", err)
+	}
 	now := time.Now()
 	claims := Claims{
-		UserID:   userID,
-		Username: username,
+		UserID:    userID,
+		Username:  username,
+		DeviceID:  deviceID,
+		SessionID: sessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "aim",
 			Subject:   userID,
@@ -86,6 +96,9 @@ func (m *Manager) Parse(tokenStr string) (*Claims, error) {
 	if err := identity.Validate(claims.UserID); err != nil {
 		return nil, errors.Wrap(errors.CodeUnauthorized, "invalid user identity", err)
 	}
+	if claims.Subject != claims.UserID || claims.DeviceID == "" || len(claims.DeviceID) > 128 || identity.Validate(claims.SessionID) != nil {
+		return nil, errors.New(errors.CodeUnauthorized, "invalid user session")
+	}
 	return claims, nil
 }
 
@@ -108,6 +121,9 @@ func (m *Manager) ParseIgnoreExpiry(tokenStr string) (*Claims, error) {
 	if err := identity.Validate(claims.UserID); err != nil {
 		return nil, errors.Wrap(errors.CodeUnauthorized, "invalid user identity", err)
 	}
+	if claims.Subject != claims.UserID || claims.DeviceID == "" || len(claims.DeviceID) > 128 || identity.Validate(claims.SessionID) != nil {
+		return nil, errors.New(errors.CodeUnauthorized, "invalid user session")
+	}
 	return claims, nil
 }
 
@@ -119,7 +135,7 @@ func (m *Manager) Refresh(tokenStr string) (string, error) {
 	if claims == nil {
 		return "", errors.New(errors.CodeUnauthorized, "invalid token for refresh")
 	}
-	return m.Generate(claims.UserID, claims.Username)
+	return m.Generate(claims.UserID, claims.Username, claims.DeviceID, claims.SessionID)
 }
 
 func (m *Manager) GenerateBotToken(botID, ownerType string, ownerID *string, botType string) (string, error) {

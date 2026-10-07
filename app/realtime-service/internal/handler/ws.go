@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
@@ -15,6 +14,7 @@ import (
 	"github.com/maomeng/aim/app/realtime-service/internal/config"
 	"github.com/maomeng/aim/app/realtime-service/internal/session"
 	"github.com/maomeng/aim/app/realtime-service/internal/transport"
+	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	registry "github.com/maomeng/aim/pkg/connections"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/delivery"
@@ -28,6 +28,7 @@ type WSHandler struct {
 	Config        config.Config
 	BotClient     botpb.BotServiceClient
 	MessageClient message.MessageServiceClient
+	UserClient    userpb.UserServiceClient
 	Upgrader      websocket.Upgrader
 }
 type clientEvent struct {
@@ -71,27 +72,27 @@ func (event *clientEvent) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-func (h *WSHandler) AuthenticatedUser(token string) (string, error) {
-	parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) { return []byte(h.Config.JWT.Secret), nil }, jwt.WithValidMethods([]string{"HS256"}))
-	if err != nil || !parsed.Valid {
-		return "", errors.New("invalid token")
+func (h *WSHandler) authenticateUser(ctx context.Context, token, device string) (string, error) {
+	if h.UserClient == nil || token == "" || device == "" || len(device) > 128 {
+		return "", errors.New("invalid user session")
 	}
-	claims, ok := parsed.Claims.(jwt.MapClaims)
-	if !ok {
-		return "", errors.New("invalid claims")
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	resp, err := h.UserClient.ValidateToken(ctx, &userpb.ValidateTokenReq{AccessToken: token})
+	if err != nil {
+		return "", err
 	}
-	id, ok := claims["user_id"].(string)
-	if !ok || identity.Validate(id) != nil {
-		return "", errors.New("invalid user identity")
+	if !resp.GetValid() || identity.Validate(resp.GetUserId()) != nil || resp.GetDeviceId() != device {
+		return "", errors.New("invalid user session")
 	}
-	return id, nil
+	return resp.GetUserId(), nil
 }
 func (h *WSHandler) Upgrade(c *gin.Context) {
 	if !h.Router.Ready() {
 		c.AbortWithStatus(503)
 		return
 	}
-	id, err := h.AuthenticatedUser(c.Query("token"))
+	id, err := h.authenticateUser(c.Request.Context(), c.Query("token"), c.Query("device_id"))
 	if err != nil {
 		c.AbortWithStatus(401)
 		return
@@ -123,6 +124,20 @@ func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id string) {
 	}
 	defer h.Router.Connections.Done()
 	device := c.Query("device_id")
+	token := c.Query("token")
+	authenticate := func(ctx context.Context) error {
+		if kind != registry.User {
+			return nil
+		}
+		uid, err := h.authenticateUser(ctx, token, device)
+		if err != nil {
+			return err
+		}
+		if uid != id {
+			return errors.New("connection user identity changed")
+		}
+		return nil
+	}
 	if device == "" || len(device) > 128 {
 		c.AbortWithStatus(400)
 		return
@@ -165,10 +180,18 @@ func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id string) {
 	conn.SetReadLimit(1 << 20)
 	heartbeat := time.Duration(h.Config.WebSocket.HeartbeatInterval) * time.Second
 	_ = conn.SetReadDeadline(time.Now().Add(heartbeat * 2))
-	conn.SetPongHandler(func(string) error { return conn.SetReadDeadline(time.Now().Add(heartbeat * 2)) })
+	conn.SetPongHandler(func(string) error {
+		if err := authenticate(context.Background()); err != nil {
+			return err
+		}
+		return conn.SetReadDeadline(time.Now().Add(heartbeat * 2))
+	})
 	conn.SetPingHandler(func(data string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.Config.WebSocket.WriteTimeoutSeconds)*time.Second)
 		defer cancel()
+		if err := authenticate(ctx); err != nil {
+			return err
+		}
 		owned, err := h.Router.Registry.Refresh(ctx, route)
 		if err != nil {
 			return err
@@ -194,6 +217,10 @@ func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id string) {
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(heartbeat * 2))
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := authenticate(ctx); err != nil {
+			cancel()
+			return
+		}
 		owned, err := h.Router.Registry.Refresh(ctx, route)
 		if err != nil || !owned {
 			cancel()
@@ -272,11 +299,7 @@ func (h *WSHandler) handle(ctx context.Context, s *session.Session, raw []byte) 
 				return err
 			}
 			if e.Type == consts.EventSubscribePresence {
-				status := "offline"
-				if h.Router.Registry.IsOnline(ctx, id) {
-					status = "online"
-				}
-				if err := reply(s, map[string]any{"type": "presence", "user_id": id, "status": status}); err != nil {
+				if err := reply(s, map[string]any{"type": "presence.state", "user_id": id, "online": h.Router.Registry.IsOnline(ctx, id)}); err != nil {
 					return err
 				}
 			}

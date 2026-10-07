@@ -2,6 +2,8 @@ package user
 
 import (
 	"context"
+	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/interceptor"
 
 	"github.com/maomeng/aim/app/user-service/internal/model"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
@@ -14,15 +16,15 @@ import (
 
 // UserRepo defines the user repository methods needed by this package.
 type UserRepo interface {
-	GetByID(ctx context.Context, id int64) (*model.User, error)
+	GetByID(ctx context.Context, id string) (*model.User, error)
 	GetByPhone(ctx context.Context, phone string) (*model.User, error)
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
-	Update(ctx context.Context, id int64, updates map[string]any) error
-	BatchGetByIDs(ctx context.Context, ids []int64) ([]*model.User, error)
+	Update(ctx context.Context, id string, updates map[string]any) error
+	BatchGetByIDs(ctx context.Context, ids []string) ([]*model.User, error)
 	Search(ctx context.Context, keyword string, page, pageSize int) ([]*model.User, int64, error)
-	ListAllIDs(ctx context.Context) ([]int64, error)
-	UpdateBalance(ctx context.Context, userID int64, delta float64) (float64, error)
-	GetBalance(ctx context.Context, userID int64) (float64, error)
+	ListAllIDs(ctx context.Context) ([]string, error)
+	UpdateBalance(ctx context.Context, userID string, delta float64) (float64, error)
+	GetBalance(ctx context.Context, userID string) (float64, error)
 }
 
 type Logic struct {
@@ -57,30 +59,39 @@ func modelToUserInfo(u *model.User) *userpb.UserInfo {
 	}
 }
 
-func (l *Logic) GetProfile(ctx context.Context, userID int64) (*userpb.UserInfo, error) {
+func (l *Logic) GetProfile(ctx context.Context, userID string) (*userpb.UserInfo, error) {
+	if err := authorizeAccount(ctx, userID); err != nil {
+		return nil, err
+	}
 	u, err := l.userRepo.GetByID(ctx, userID)
 	logger := l.ctxLogger(ctx)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			logger.Errorf("method=GetProfile user_id=%d error=user not found", userID)
+			logger.Errorf("method=GetProfile user_id=%s error=user not found", userID)
 			return nil, errors.New(errors.CodeNotFound, "user not found")
 		}
-		logger.Errorf("method=GetProfile user_id=%d error=%v", userID, err)
+		logger.Errorf("method=GetProfile user_id=%s error=%v", userID, err)
 		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
-	logger.Infof("method=GetProfile user_id=%d username=%s", userID, u.Username)
+	logger.Infof("method=GetProfile user_id=%s username=%s", userID, u.Username)
 	return modelToUserInfo(u), nil
 }
 
-func (l *Logic) UpdateProfile(ctx context.Context, userID int64, req *userpb.UpdateProfileReq) (*userpb.UserInfo, error) {
+func (l *Logic) UpdateProfile(ctx context.Context, userID string, req *userpb.UpdateProfileReq) (*userpb.UserInfo, error) {
+	if req.UserId != "" && req.UserId != userID {
+		return nil, errors.New(errors.CodeForbidden, "account is not owned by caller")
+	}
+	if err := authorizeAccount(ctx, userID); err != nil {
+		return nil, err
+	}
 	u, err := l.userRepo.GetByID(ctx, userID)
 	logger := l.ctxLogger(ctx)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			logger.Errorf("method=UpdateProfile user_id=%d error=user not found", userID)
+			logger.Errorf("method=UpdateProfile user_id=%s error=user not found", userID)
 			return nil, errors.New(errors.CodeNotFound, "user not found")
 		}
-		logger.Errorf("method=UpdateProfile user_id=%d error=%v", userID, err)
+		logger.Errorf("method=UpdateProfile user_id=%s error=%v", userID, err)
 		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	if req.Avatar != nil {
@@ -101,32 +112,35 @@ func (l *Logic) UpdateProfile(ctx context.Context, userID int64, req *userpb.Upd
 		"bio":      u.Bio,
 		"birthday": u.Birthday,
 	}); err != nil {
-		logger.Errorf("method=UpdateProfile user_id=%d error=%v", userID, err)
+		logger.Errorf("method=UpdateProfile user_id=%s error=%v", userID, err)
 		return nil, errors.Wrap(errors.CodeDBError, "update user failed", err)
 	}
-	logger.Infof("method=UpdateProfile user_id=%d", userID)
+	logger.Infof("method=UpdateProfile user_id=%s", userID)
 	return modelToUserInfo(u), nil
 }
 
-func (l *Logic) UpdatePassword(ctx context.Context, userID int64, req *userpb.UpdatePasswordReq) (*commonpb.BaseResponse, error) {
+func (l *Logic) UpdatePassword(ctx context.Context, userID string, req *userpb.UpdatePasswordReq) (*commonpb.BaseResponse, error) {
+	if err := authorizeAccount(ctx, userID); err != nil {
+		return nil, err
+	}
 	logger := l.ctxLogger(ctx)
 
 	if req.OldPassword == "" || req.NewPassword == "" {
 		err := errors.New(errors.CodeInvalidParam, "old_password and new_password are required")
-		logger.Errorf("method=UpdatePassword user_id=%d error=%v", userID, err)
+		logger.Errorf("method=UpdatePassword user_id=%s error=%v", userID, err)
 		return nil, err
 	}
 	u, err := l.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			logger.Errorf("method=UpdatePassword user_id=%d error=user not found", userID)
+			logger.Errorf("method=UpdatePassword user_id=%s error=user not found", userID)
 			return nil, errors.New(errors.CodeNotFound, "user not found")
 		}
-		logger.Errorf("method=UpdatePassword user_id=%d error=%v", userID, err)
+		logger.Errorf("method=UpdatePassword user_id=%s error=%v", userID, err)
 		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.OldPassword)); err != nil {
-		logger.Errorf("method=UpdatePassword user_id=%d error=old password is incorrect", userID)
+		logger.Errorf("method=UpdatePassword user_id=%s error=old password is incorrect", userID)
 		return nil, errors.New(errors.CodeUnauthorized, "old password is incorrect")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
@@ -136,69 +150,88 @@ func (l *Logic) UpdatePassword(ctx context.Context, userID int64, req *userpb.Up
 	if err := l.userRepo.Update(ctx, userID, map[string]any{
 		"password_hash": string(hash),
 	}); err != nil {
-		logger.Errorf("method=UpdatePassword user_id=%d error=%v", userID, err)
+		logger.Errorf("method=UpdatePassword user_id=%s error=%v", userID, err)
 		return nil, errors.Wrap(errors.CodeDBError, "update password failed", err)
 	}
-	logger.Infof("method=UpdatePassword user_id=%d", userID)
+	logger.Infof("method=UpdatePassword user_id=%s", userID)
 	return &commonpb.BaseResponse{Code: 0, Message: "ok"}, nil
 }
 
-func (l *Logic) BindPhone(ctx context.Context, userID int64, req *userpb.BindPhoneReq) (*commonpb.BaseResponse, error) {
+func (l *Logic) BindPhone(ctx context.Context, userID string, req *userpb.BindPhoneReq) (*commonpb.BaseResponse, error) {
+	if err := authorizeAccount(ctx, userID); err != nil {
+		return nil, err
+	}
 	logger := l.ctxLogger(ctx)
 
 	if req.Phone == "" {
 		err := errors.New(errors.CodeInvalidParam, "phone is required")
-		logger.Errorf("method=BindPhone user_id=%d error=%v", userID, err)
+		logger.Errorf("method=BindPhone user_id=%s error=%v", userID, err)
 		return nil, err
 	}
 	u, err := l.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		logger.Errorf("method=BindPhone user_id=%d error=%v", userID, err)
+		logger.Errorf("method=BindPhone user_id=%s error=%v", userID, err)
 		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	exist, _ := l.userRepo.GetByPhone(ctx, req.Phone)
 	if exist != nil && exist.ID != userID {
 		err := errors.New(errors.CodeConflict, "phone already bound")
-		logger.Errorf("method=BindPhone user_id=%d error=%v", userID, err)
+		logger.Errorf("method=BindPhone user_id=%s error=%v", userID, err)
 		return nil, err
 	}
 	u.Phone = req.Phone
 	if err := l.userRepo.Update(ctx, userID, map[string]any{
 		"phone": req.Phone,
 	}); err != nil {
-		logger.Errorf("method=BindPhone user_id=%d error=%v", userID, err)
+		logger.Errorf("method=BindPhone user_id=%s error=%v", userID, err)
 		return nil, errors.Wrap(errors.CodeDBError, "bind phone failed", err)
 	}
-	logger.Infof("method=BindPhone user_id=%d", userID)
+	logger.Infof("method=BindPhone user_id=%s", userID)
 	return &commonpb.BaseResponse{Code: 0, Message: "ok"}, nil
 }
 
-func (l *Logic) BindEmail(ctx context.Context, userID int64, req *userpb.BindEmailReq) (*commonpb.BaseResponse, error) {
+func (l *Logic) BindEmail(ctx context.Context, userID string, req *userpb.BindEmailReq) (*commonpb.BaseResponse, error) {
+	if err := authorizeAccount(ctx, userID); err != nil {
+		return nil, err
+	}
 	logger := l.ctxLogger(ctx)
 
 	if req.Email == "" {
 		err := errors.New(errors.CodeInvalidParam, "email is required")
-		logger.Errorf("method=BindEmail user_id=%d error=%v", userID, err)
+		logger.Errorf("method=BindEmail user_id=%s error=%v", userID, err)
 		return nil, err
 	}
 	u, err := l.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		logger.Errorf("method=BindEmail user_id=%d error=%v", userID, err)
+		logger.Errorf("method=BindEmail user_id=%s error=%v", userID, err)
 		return nil, errors.Wrap(errors.CodeDBError, "get user failed", err)
 	}
 	exist, _ := l.userRepo.GetByEmail(ctx, req.Email)
 	if exist != nil && exist.ID != userID {
 		err := errors.New(errors.CodeConflict, "email already bound")
-		logger.Errorf("method=BindEmail user_id=%d error=%v", userID, err)
+		logger.Errorf("method=BindEmail user_id=%s error=%v", userID, err)
 		return nil, err
 	}
 	u.Email = req.Email
 	if err := l.userRepo.Update(ctx, userID, map[string]any{
 		"email": req.Email,
 	}); err != nil {
-		logger.Errorf("method=BindEmail user_id=%d error=%v", userID, err)
+		logger.Errorf("method=BindEmail user_id=%s error=%v", userID, err)
 		return nil, errors.Wrap(errors.CodeDBError, "bind email failed", err)
 	}
-	logger.Infof("method=BindEmail user_id=%d", userID)
+	logger.Infof("method=BindEmail user_id=%s", userID)
 	return &commonpb.BaseResponse{Code: 0, Message: "ok"}, nil
+}
+func authorizeAccount(ctx context.Context, userID string) error {
+	if identity.Validate(userID) != nil {
+		return errors.New(errors.CodeInvalidParam, "invalid user_id")
+	}
+	owner, _ := ctx.Value(interceptor.ContextKeyUserID).(string)
+	if identity.Validate(owner) != nil {
+		return errors.New(errors.CodeUnauthorized, "authentication required")
+	}
+	if owner != userID {
+		return errors.New(errors.CodeForbidden, "account is not owned by caller")
+	}
+	return nil
 }

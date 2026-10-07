@@ -23,12 +23,21 @@ func NewListBlacklistLogic(ctx context.Context, svcCtx *Context) *ListBlacklistL
 }
 
 func (l *ListBlacklistLogic) ListBlacklist(in *userpb.ListBlacklistReq) (*userpb.ListBlacklistResp, error) {
+	if err := validateCaller(l.ctx, in.GetUserId()); err != nil {
+		return nil, err
+	}
 	userID := userIDFromContext(l.ctx)
-	if userID == 0 {
+	if userID == "" {
 		return nil, grpcError(ErrUnauthenticated)
 	}
 
-	page, pageSize := paginationParams(in.GetPagination())
+	page, pageSize := 1, 20
+	if p := in.GetPagination(); p != nil {
+		page = max(1, int(p.Page))
+		if p.PageSize >= 1 && p.PageSize <= 100 {
+			pageSize = int(p.PageSize)
+		}
+	}
 	offset, limit := paginationParams(in.GetPagination())
 
 	blocks, total, err := l.svcCtx.BlockRepo.List(l.ctx, userID, offset, limit)
@@ -36,12 +45,15 @@ func (l *ListBlacklistLogic) ListBlacklist(in *userpb.ListBlacklistReq) (*userpb
 		return nil, grpcError(err)
 	}
 
-	userIDs := make([]int64, len(blocks))
+	userIDs := make([]string, len(blocks))
 	for i, b := range blocks {
 		userIDs[i] = b.BlockedUserID
 	}
 
-	userMap, _ := l.svcCtx.batchGetUserInfo(l.ctx, userIDs)
+	userMap, err := l.svcCtx.batchGetUserInfo(l.ctx, userIDs)
+	if err != nil {
+		return nil, grpcError(err)
+	}
 
 	items := make([]*userpb.BlacklistUser, 0, len(blocks))
 	for _, b := range blocks {

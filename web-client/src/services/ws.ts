@@ -2,6 +2,7 @@ import { getDeviceId } from './device';
 import { useAuthStore } from '@/stores/auth';
 import { useWSStore } from '@/stores/ws';
 import { safeJsonParse } from '@/utils/json';
+import { refreshSession } from './client';
 
 type Handler = (payload: any) => void;
 
@@ -33,8 +34,20 @@ export function wsConnect() {
   }
   if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
 
-  const token = useAuthStore.getState().token;
+  const { token, revision } = useAuthStore.getState();
   if (!token) return;
+  try {
+    const claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (typeof claims.exp === 'number' && claims.exp <= Date.now() / 1000) {
+      void refreshSession().then((refreshed) => {
+        if (refreshed && revision === useAuthStore.getState().revision) wsConnect();
+      });
+      return;
+    }
+  } catch {
+    useAuthStore.getState().logout();
+    return;
+  }
 
   let deviceId: string;
   try {
@@ -95,11 +108,17 @@ export function wsConnect() {
     } catch { /* ignore malformed */ }
   };
 
-  socket.onclose = () => {
-    if (currentWs !== socket) return;
+  socket.onclose = (event) => {
+    if (currentWs !== socket || revision !== useAuthStore.getState().revision) return;
+    ws = null;
+    currentWs = null;
     useWSStore.getState().setStatus('disconnected');
     stopHeartbeat();
-    scheduleReconnect();
+    if (event.code === 1008) {
+      void refreshSession().then((refreshed) => {
+        if (refreshed && revision === useAuthStore.getState().revision) wsConnect();
+      });
+    } else scheduleReconnect();
   };
 
   socket.onerror = () => socket.close();
@@ -162,6 +181,7 @@ function stopHeartbeat() {
 }
 
 export function forceReconnect() {
+  stopHeartbeat();
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -173,6 +193,11 @@ export function forceReconnect() {
   useWSStore.getState().setReconnectAttempts(0);
   wsConnect();
 }
+
+useAuthStore.subscribe((state, previous) => {
+  if (state.revision !== previous.revision) wsDisconnect();
+  else if (state.token !== previous.token && state.token && ws) forceReconnect();
+});
 
 if (typeof window !== 'undefined') {
   window.addEventListener('ws-force-reconnect', () => forceReconnect());

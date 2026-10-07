@@ -4,18 +4,18 @@ import "time"
 
 // UserSettings holds user preference fields stored as JSON.
 type UserSettings struct {
-	Language            string `json:"language"`
-	AIModelID           int64  `json:"ai_model_id"`
-	AIModelName         string `json:"ai_model_name"`
-	NotificationEnabled bool   `json:"notification_enabled"`
-	SoundEnabled        bool   `json:"sound_enabled"`
-	VibrationEnabled    bool   `json:"vibration_enabled"`
-	Theme               string `json:"theme"`
-	SettingsJSON        string `json:"settings_json"`
+	Language            string  `json:"language"`
+	AIModelID           *string `json:"ai_model_id"`
+	AIModelName         string  `json:"ai_model_name"`
+	NotificationEnabled bool    `json:"notification_enabled"`
+	SoundEnabled        bool    `json:"sound_enabled"`
+	VibrationEnabled    bool    `json:"vibration_enabled"`
+	Theme               string  `json:"theme"`
+	SettingsJSON        string  `json:"settings_json"`
 }
 
 type User struct {
-	ID           int64        `gorm:"primaryKey" json:"id"`
+	ID           string       `gorm:"primaryKey;type:uuid;not null" json:"id"`
 	Username     string       `gorm:"column:username;type:varchar(64)" json:"username"`
 	PasswordHash string       `gorm:"column:password_hash;type:varchar(256)" json:"-"`
 	Phone        string       `gorm:"column:phone;type:varchar(20)" json:"phone"`
@@ -33,9 +33,9 @@ type User struct {
 func (User) TableName() string { return "user.users" }
 
 type UserDevice struct {
-	ID           int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID       int64     `gorm:"column:user_id;index" json:"user_id"`
-	DeviceID     string    `gorm:"column:device_id;type:varchar(128)" json:"device_id"`
+	ID           string    `gorm:"primaryKey;type:uuid;not null" json:"id"`
+	UserID       string    `gorm:"column:user_id;type:uuid;not null;uniqueIndex:uk_user_device" json:"user_id"`
+	DeviceID     string    `gorm:"column:device_id;type:varchar(128);not null;uniqueIndex:uk_user_device" json:"device_id"`
 	Platform     string    `gorm:"column:platform;type:varchar(32);default:web" json:"platform"`
 	PushToken    string    `gorm:"column:push_token;type:varchar(512)" json:"push_token"`
 	IP           string    `gorm:"column:ip;type:varchar(64)" json:"ip"`

@@ -23,7 +23,10 @@ func NewIsBlockedLogic(ctx context.Context, svcCtx *Context) *IsBlockedLogic {
 }
 
 func (l *IsBlockedLogic) IsBlocked(in *userpb.IsBlockedReq) (*userpb.IsBlockedResp, error) {
-	if in.GetUserId() == 0 {
+	if err := validateCaller(l.ctx, in.GetUserId(), in.GetTargetUserId()); err != nil {
+		return nil, err
+	}
+	if in.GetUserId() == "" {
 		return nil, grpcError(ErrInvalidParam)
 	}
 	blocked, err := l.svcCtx.BlockRepo.IsBlocked(l.ctx, in.GetUserId(), in.GetTargetUserId())

@@ -458,7 +458,7 @@ export function ChatPage() {
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
-  const currentUserId = String(useAuthStore((s) => s.user?.id ?? ''));
+  const currentUserId = useAuthStore((s) => s.user?.id ?? '');
   const currentUserName = useAuthStore((s) => s.user?.username ?? '');
   const [typingUsers, setTypingUsers] = useState<Record<string, { name: string; timestamp: number }>>({});
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -501,7 +501,7 @@ export function ChatPage() {
   const [convTypeCounts, setConvTypeCounts] = useState<{ msg_type: number; count: number }[]>([]);
   const [activeConvTypeFilters, setActiveConvTypeFilters] = useState<number[]>([]);
   const [convSearchIndex, setConvSearchIndex] = useState(0);
-  const [convSenderId, setConvSenderId] = useState<number | undefined>();
+  const [convSenderId, setConvSenderId] = useState<string | undefined>();
   const [convSenderType, setConvSenderType] = useState<'' | 'user' | 'bot'>('');
   const [convStartTime, setConvStartTime] = useState<number | undefined>();
   const [convEndTime, setConvEndTime] = useState<number | undefined>();
@@ -658,7 +658,7 @@ export function ChatPage() {
       queryClient.setQueryData(['conv-members', id], (old: ConvMember[]) => {
         if (!old) return old;
         return old.map((m) =>
-          String(m.user_id) === String(payload.user_id)
+          m.user_id === payload.user_id
             ? { ...m, last_read_seq: Math.max(m.last_read_seq || 0, payload.last_read_seq || 0) }
             : m,
         );
@@ -820,7 +820,7 @@ export function ChatPage() {
     if (!id) return;
 
     const unsubTyping = wsOn('typing', (payload: any) => {
-      const userId = String(payload.user_id);
+      const userId = payload.user_id;
       if (payload.conv_id == null || String(payload.conv_id) !== id || userId === currentUserId) return;
       // 群聊不展示 typing 指示器
       if (conv?.type === 'group') return;
@@ -835,7 +835,7 @@ export function ChatPage() {
     });
 
     const unsubStop = wsOn('typing.stop', (payload: any) => {
-      const userId = String(payload.user_id);
+      const userId = payload.user_id;
       if (payload.conv_id == null || String(payload.conv_id) !== id || userId === currentUserId) return;
       // 群聊不展示 typing 指示器
       if (conv?.type === 'group') return;
@@ -912,7 +912,7 @@ export function ChatPage() {
     const selfMsgs = messages.filter((m: any) => String(m.from_user_id) === currentUserId);
     for (const msg of selfMsgs) {
       if (conv.type === 'private') {
-        const peer = members.find((m: ConvMember) => String(m.user_id) !== currentUserId);
+        const peer = members.find((m: ConvMember) => m.user_id !== currentUserId);
         result[String(msg.message_id)] = {
           read: !!peer && (peer.last_read_seq || 0) >= (msg.seq || 0),
         };
@@ -926,7 +926,7 @@ export function ChatPage() {
     return result;
   }, [id, messages, conv, currentUserId, members]);
 
-  const currentMember = members.find((m) => String(m.user_id) === currentUserId);
+  const currentMember = members.find((m) => m.user_id === currentUserId);
   const isOwner = String(conv?.owner_id) === currentUserId;
   const isAdmin = isOwner || currentMember?.role === 'MEMBER_ROLE_ADMIN';
 
@@ -938,7 +938,7 @@ export function ChatPage() {
         const isBot = isBotMember(m);
         const name = isBot ? (m.bot_name || m.username) : m.username;
         const avatar = isBot ? (m.bot_avatar || m.avatar) : m.avatar;
-        map.set(String(m.user_id), { username: name, avatar });
+        map.set(m.user_id, { username: name, avatar });
         // Bot messages use bot_id (primary key) as sender_id,
         // not pseudo_user_id, so add both keys for lookup.
         if (m.bot_id) {
@@ -960,7 +960,7 @@ export function ChatPage() {
     const map = new Map<string, ConvMember['role']>();
     if (members?.length) {
       members.forEach((m: ConvMember) => {
-        map.set(String(m.user_id), m.role);
+        map.set(m.user_id, m.role);
         if (m.bot_id) {
           map.set(String(m.bot_id), m.role);
         }
@@ -974,7 +974,7 @@ export function ChatPage() {
     if (members?.length) {
       members.forEach((m: ConvMember) => {
         if (isBotMember(m)) {
-          set.add(String(m.user_id));
+          set.add(m.user_id);
           if (m.bot_id) {
             set.add(String(m.bot_id));
           }
@@ -1279,15 +1279,15 @@ export function ChatPage() {
       const username = match[1];
       const member = (members as ConvMember[]).find((m) => m.username === username);
       if (member) {
-        mentionSet.add(String(member.user_id));
+        mentionSet.add(member.user_id);
       }
     }
 
     // Private chat: auto-mention peer
     if (conv?.type === 'private') {
       (members as ConvMember[]).forEach((m) => {
-        if (String(m.user_id) !== currentUserId) {
-          mentionSet.add(String(m.user_id));
+        if (m.user_id !== currentUserId) {
+          mentionSet.add(m.user_id);
         }
       });
     }
@@ -1313,7 +1313,7 @@ export function ChatPage() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (mentionOpen) {
       const filtered = (members as ConvMember[]).filter(
-        (m) => String(m.user_id) !== currentUserId && m.username.toLowerCase().includes(mentionQuery.toLowerCase())
+        (m) => m.user_id !== currentUserId && m.username.toLowerCase().includes(mentionQuery.toLowerCase())
       );
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -1904,7 +1904,7 @@ export function ChatPage() {
           {mentionOpen && (
             <div className="chat-mention-dropdown">
               {(members as ConvMember[])
-                .filter((m) => String(m.user_id) !== currentUserId && m.username.toLowerCase().includes(mentionQuery.toLowerCase()))
+                .filter((m) => m.user_id !== currentUserId && m.username.toLowerCase().includes(mentionQuery.toLowerCase()))
                 .map((m, i) => (
                   <div key={m.user_id}
                     className={`chat-mention-item${i === mentionSelected ? ' active' : ''}`}
@@ -1916,7 +1916,7 @@ export function ChatPage() {
                   </div>
                 ))}
               {(members as ConvMember[]).filter(
-                (m) => String(m.user_id) !== currentUserId && m.username.toLowerCase().includes(mentionQuery.toLowerCase())
+                (m) => m.user_id !== currentUserId && m.username.toLowerCase().includes(mentionQuery.toLowerCase())
               ).length === 0 && (
                 <div className="chat-mention-empty">无匹配成员</div>
               )}

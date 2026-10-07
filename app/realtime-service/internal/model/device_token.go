@@ -1,8 +1,8 @@
 package model
 
 type DeviceToken struct {
-	ID        int64  `gorm:"primaryKey;autoIncrement"`
-	UserID    int64  `gorm:"index:idx_user_device,unique"`
+	ID        string `gorm:"type:uuid;primaryKey;autoIncrement:false"`
+	UserID    string `gorm:"type:uuid;not null;index:idx_user_device,unique"`
 	DeviceID  string `gorm:"index:idx_user_device,unique;size:128"`
 	Platform  string `gorm:"size:16"`  // ios, android, web
 	Token     string `gorm:"size:512"` // FCM or APNS token

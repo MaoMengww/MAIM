@@ -46,22 +46,13 @@
 	    client.get<APIResponse<{ members: ConvMember[] }>>(`/convs/${id}/members`)
 	      .then((r) => r.data.data.members),
 
-	  addMembers: (id: number, memberIds: number[]) =>
+    addMembers: (id: number, memberIds: string[]) =>
 	    client.post<APIResponse<null>>(`/convs/${id}/members/invite`, { user_ids: memberIds }).then(unwrap),
 
-    removeMembers: (id: number | string, memberIds: (number | string)[]) => {
-      const ids = memberIds.map((value) => {
-        if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new Error('成员 ID 已丢失精度');
-        const decimal = String(value);
-        if (!/^[1-9]\d*$/.test(decimal) || BigInt(decimal) > 9223372036854775807n) throw new Error('成员 ID 无效');
-        return decimal;
-      });
-      // gateway binds []int64, so emit exact JSON integer tokens without Number(id).
-      return client.post<APIResponse<null>>(`/convs/${id}/members/kick`, `{"user_ids":[${ids.join(',')}]}`,
-        { headers: { 'Content-Type': 'application/json' } }).then(unwrap);
-    },
+    removeMembers: (id: number | string, memberIds: string[]) =>
+      client.post<APIResponse<null>>(`/convs/${id}/members/kick`, { user_ids: memberIds }).then(unwrap),
 
-	  updateMember: (convId: number, userId: number, data: { role?: number; alias?: string }) =>
+    updateMember: (convId: number, userId: string, data: { role?: number; alias?: string }) =>
 	    client.put<APIResponse<null>>(`/convs/${convId}/members/${userId}/role`, data).then(unwrap),
 
 	  muteAll: (id: number) =>
@@ -70,10 +61,10 @@
 	  unmuteAll: (id: number) =>
 	    client.delete<APIResponse<null>>(`/convs/${id}/mute_all`).then(unwrap),
 
-	  muteMember: (convId: number, userId: number, durationSeconds?: number) =>
+    muteMember: (convId: number, userId: string, durationSeconds?: number) =>
 	    client.put<APIResponse<null>>(`/convs/${convId}/members/${userId}/mute`, { duration_seconds: durationSeconds ?? 0 }).then(unwrap),
 
-	  unmuteMember: (convId: number, userId: number) =>
+    unmuteMember: (convId: number, userId: string) =>
 	    client.delete<APIResponse<null>>(`/convs/${convId}/members/${userId}/mute`).then(unwrap),
 
 	  setAnnouncement: (id: number, content: string) =>
@@ -82,14 +73,14 @@
 	  deleteAnnouncement: (id: number) =>
 	    client.delete<APIResponse<null>>(`/convs/${id}/announcement`).then(unwrap),
 
-	  transferOwner: (id: number, newOwnerId: number) =>
+    transferOwner: (id: number, newOwnerId: string) =>
 	    client.post<APIResponse<null>>(`/convs/${id}/transfer`, { new_owner_id: newOwnerId }).then(unwrap),
 
 	  markRead: (id: number, seq: number) =>
 	    client.put<APIResponse<null>>(`/convs/${id}/read`, { seq }).then(unwrap),
 
 	  getReadStatus: (id: number, messageId: number) =>
-	    client.get<APIResponse<{ read_count: number; total_count: number; read_users: { user_id: number; read_at: number }[] }>>(`/convs/${id}/read_status/${messageId}`).then(unwrap),
+      client.get<APIResponse<{ read_count: number; total_count: number; read_users: { user_id: string; read_at: number }[] }>>(`/convs/${id}/read_status/${messageId}`).then(unwrap),
 
 	  getSettings: (id: number) =>
 	    client.get<APIResponse<any>>(`/convs/${id}/settings`).then(unwrap),

@@ -10,9 +10,9 @@ const (
 )
 
 type FriendRequest struct {
-	ID         int64     `gorm:"primaryKey;column:id" json:"id"`
-	FromUserID int64     `gorm:"column:from_user_id;not null" json:"from_user_id"`
-	ToUserID   int64     `gorm:"column:to_user_id;not null" json:"to_user_id"`
+	ID         string    `gorm:"primaryKey;column:id;type:uuid;not null" json:"id"`
+	FromUserID string    `gorm:"column:from_user_id;not null;type:uuid" json:"from_user_id"`
+	ToUserID   string    `gorm:"column:to_user_id;not null;type:uuid" json:"to_user_id"`
 	Message    string    `gorm:"column:message;size:256;not null;default:''" json:"message"`
 	Status     int32     `gorm:"column:status;not null;default:0" json:"status"`
 	CreatedAt  time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
