@@ -368,8 +368,9 @@ export interface BotMcpServerInfo {
 
 // ─── Knowledge Base ───
 export interface KBRsp {
-  id: number;
-  owner_id: number;
+  id: string;
+  owner_type: 'user' | 'platform';
+  owner_id?: string | null;
   name: string;
   description: string;
   embedding_model: string;
@@ -442,8 +443,8 @@ export interface RerankConfig {
 }
 
 export interface DocumentRsp {
-  id: number;
-  kb_id: number;
+  id: string;
+  kb_id: string;
   title: string;
   file_type: string;
   file_size: number;
@@ -467,13 +468,41 @@ export interface StageInfo {
 }
 
 export interface ChunkInfo {
-  id: number;
-  doc_id: number;
+  id: string;
+  doc_id: string;
   chunk_index: number;
   content: string;
   token_count: number;
   metadata: string;
   created_at: number;
+}
+
+export interface KnowledgeBinding {
+  id: string;
+  kb_id: string;
+  kb_name: string;
+  target_type: 'bot' | 'conv';
+  target_id: string;
+  created_at: number;
+  mode: string;
+}
+
+export interface KnowledgeBoundTarget {
+  target_type: 'bot' | 'conv';
+  target_id: string;
+  created_at: number;
+}
+
+export interface KnowledgeRetrieveItem {
+  chunk_id: string;
+  doc_id: string;
+  kb_id: string;
+  content: string;
+  matched_content: string;
+  score: number;
+  doc_title: string;
+  kb_name: string;
+  metadata?: Record<string, unknown>;
 }
 
 // ─── Model (LLM) ───

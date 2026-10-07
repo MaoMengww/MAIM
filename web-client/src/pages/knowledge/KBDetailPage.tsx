@@ -1,14 +1,39 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { Button, Spin, Tag, Upload, message, Modal, Input, Select, Form, InputNumber, Switch } from 'antd';
 import { UploadOutlined, ReloadOutlined, RobotOutlined, TeamOutlined } from '@ant-design/icons';
 import { kbApi } from '@/services/knowledge';
 import { botApi } from '@/services/bot';
 import { convApi } from '@/services/conversation';
 import { modelApi } from '@/services/model';
-import type { DocumentRsp } from '@/types/model';
+import { wsOn } from '@/services/ws';
+import type { DocumentRsp, KBRsp, ChunkingConfig, RetrievalConfig } from '@/types/model';
 import { modelOptionLabel } from '@/utils/provider';
+import type { UpdateKBReq, PipelineConfig } from '@/types/api';
+
+interface EditKBFormValues {
+  name: string;
+  description?: string;
+  embedding_model_id?: string;
+  vlm_model_id?: string;
+  rerank_model_id?: string;
+  engines?: string[];
+  parent_child_enabled?: boolean;
+  chunk_size?: number;
+  overlap?: number;
+  separators?: string[];
+  parent_size?: number;
+  child_size?: number;
+  retrieval_mode?: string;
+  top_k?: number;
+  candidate_top_k?: number;
+  score_threshold?: number;
+  dense_weight?: number;
+  sparse_weight?: number;
+  rerank_enabled?: boolean;
+  rerank_top_n?: number;
+}
 
 const STATUS_COLOR: Record<string, string> = {
   ready: 'green', failed: 'red', pending: 'gold',
@@ -17,13 +42,13 @@ const STATUS_COLOR: Record<string, string> = {
 
 /* ─── Bot Bindings Modal ─── */
 
-function BotBindButton({ kbId }: { kbId: number }) {
+function BotBindButton({ kbId }: { kbId: string }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: bindings, isLoading: bindingsLoading } = useQuery({
     queryKey: ['kb-bindings', kbId],
-    queryFn: () => kbApi.listBindings('bot', kbId),
+    queryFn: () => kbApi.listKBBindings(kbId).then((items) => items.filter((item) => item.target_type === 'bot')),
     enabled: open,
   });
 
@@ -55,8 +80,8 @@ function BotBindButton({ kbId }: { kbId: number }) {
     onError: (err: any) => message.error(err?.response?.data?.message || '解绑失败'),
   });
 
-  const boundIds = new Set((bindings ?? []).map((b: any) => b.target_id));
-  const availableBots = bots.filter((b: any) => !boundIds.has(b.id));
+  const boundIds = new Set((bindings ?? []).map((b) => b.target_id));
+  const availableBots = bots.filter((b) => !boundIds.has(b.id));
 
   return (
     <>
@@ -70,8 +95,8 @@ function BotBindButton({ kbId }: { kbId: number }) {
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--aim-text-secondary)' }}>已绑定的 Bot</div>
               {bindings && bindings.length > 0 ? (
-                bindings.map((b: any) => {
-                  const bot = bots.find((bb: any) => bb.id === b.target_id);
+                bindings.map((b) => {
+                  const bot = bots.find((bb) => bb.id === b.target_id);
                   return (
                     <div key={b.target_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--aim-border)' }}>
                       <span>{bot?.name || `Bot #${b.target_id}`}</span>
@@ -91,7 +116,7 @@ function BotBindButton({ kbId }: { kbId: number }) {
                 placeholder="选择 Bot..."
                 value={selectedBotId}
                 onChange={setSelectedBotId}
-                options={availableBots.map((b: any) => ({ value: b.id, label: b.name }))}
+                options={availableBots.map((b) => ({ value: b.id, label: b.name }))}
                 showSearch
                 filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
               />
@@ -108,13 +133,13 @@ function BotBindButton({ kbId }: { kbId: number }) {
 
 /* ─── Conv Bindings Modal ─── */
 
-function ConvBindButton({ kbId }: { kbId: number }) {
+function ConvBindButton({ kbId }: { kbId: string }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: bindings, isLoading: bindingsLoading } = useQuery({
     queryKey: ['kb-conv-bindings', kbId],
-    queryFn: () => kbApi.listBindings('conv', kbId),
+    queryFn: () => kbApi.listKBBindings(kbId).then((items) => items.filter((item) => item.target_type === 'conv')),
     enabled: open,
   });
 
@@ -125,10 +150,10 @@ function ConvBindButton({ kbId }: { kbId: number }) {
   });
 
   const convs = convsData?.list ?? [];
-  const [selectedConvId, setSelectedConvId] = useState<number | undefined>();
+  const [selectedConvId, setSelectedConvId] = useState<string | undefined>();
 
   const bindMutation = useMutation({
-    mutationFn: (convId: number) => kbApi.bindToConv(convId, kbId),
+    mutationFn: (convId: string) => kbApi.bindToConv(convId, kbId),
     onSuccess: () => {
       message.success('绑定成功');
       queryClient.invalidateQueries({ queryKey: ['kb-conv-bindings', kbId] });
@@ -138,7 +163,7 @@ function ConvBindButton({ kbId }: { kbId: number }) {
   });
 
   const unbindMutation = useMutation({
-    mutationFn: (convId: number) => kbApi.unbindFromConv(convId, kbId),
+    mutationFn: (convId: string) => kbApi.unbindFromConv(convId, kbId),
     onSuccess: () => {
       message.success('已解绑');
       queryClient.invalidateQueries({ queryKey: ['kb-conv-bindings', kbId] });
@@ -146,8 +171,8 @@ function ConvBindButton({ kbId }: { kbId: number }) {
     onError: (err: any) => message.error(err?.response?.data?.message || '解绑失败'),
   });
 
-  const boundIds = new Set((bindings ?? []).map((b: any) => b.target_id));
-  const availableConvs = convs.filter((c: any) => !boundIds.has(c.id));
+  const boundIds = new Set((bindings ?? []).map((b) => b.target_id));
+  const availableConvs = convs.filter((c) => !boundIds.has(c.id));
 
   return (
     <>
@@ -160,8 +185,8 @@ function ConvBindButton({ kbId }: { kbId: number }) {
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--aim-text-secondary)' }}>已绑定的会话</div>
               {bindings && bindings.length > 0 ? (
-                bindings.map((b: any) => {
-                  const conv = convs.find((cc: any) => cc.id === b.target_id);
+                bindings.map((b) => {
+                  const conv = convs.find((cc) => cc.id === b.target_id);
                   return (
                     <div key={b.target_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--aim-border)' }}>
                       <span>{conv?.name || `会话 #${b.target_id}`}</span>
@@ -180,7 +205,7 @@ function ConvBindButton({ kbId }: { kbId: number }) {
                 placeholder="选择会话..."
                 value={selectedConvId}
                 onChange={setSelectedConvId}
-                options={availableConvs.map((c: any) => ({ value: c.id, label: c.name || `会话 ${c.id}` }))}
+                options={availableConvs.map((c) => ({ value: c.id, label: c.name || `会话 ${c.id}` }))}
                 showSearch
                 filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
               />
@@ -200,33 +225,39 @@ export function KBDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    const events = ['knowledge.parsing', 'knowledge.chunking', 'knowledge.embedding', 'knowledge.ready', 'knowledge.failed'];
+    const unsubscribe = events.map((event) => wsOn(event, (payload: { kb_id: string; doc_id: string }) => {
+      if (payload.kb_id !== id) return;
+      queryClient.invalidateQueries({ queryKey: ['kb-docs', id] });
+      queryClient.invalidateQueries({ queryKey: ['kb', id] });
+    }));
+    return () => unsubscribe.forEach((off) => off());
+  }, [id, queryClient]);
+
   const { data: kb, isLoading } = useQuery({
     queryKey: ['kb', id],
-    queryFn: () => kbApi.get(id as any),
+    queryFn: () => kbApi.get(id!),
     enabled: !!id,
   });
 
   const { data: docsData, isLoading: docsLoading } = useQuery({
     queryKey: ['kb-docs', id],
-    queryFn: () => kbApi.listDocuments(id as any),
+    queryFn: () => kbApi.listDocuments(id!),
     enabled: !!id,
   });
 
   const docs = docsData?.list ?? [];
 
   const deleteKBMutation = useMutation({
-    mutationFn: () => kbApi.delete(id as any),
+    mutationFn: () => kbApi.delete(id!),
     onSuccess: () => { message.success('知识库已删除'); navigate('/knowledge'); },
     onError: (err: any) => message.error(err?.response?.data?.message || '删除失败'),
   });
 
-  const retryMutation = useMutation({
-    mutationFn: (docId: number) => kbApi.retryDocument(docId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['kb-docs', id] }),
-  });
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => kbApi.uploadDocument(id as any, file),
+    mutationFn: (file: File) => kbApi.uploadDocument(id!, file),
     onSuccess: () => {
       message.success('文档上传成功');
       queryClient.invalidateQueries({ queryKey: ['kb-docs', id] });
@@ -253,31 +284,37 @@ export function KBDetailPage() {
 
 /* ─── RAG View ─── */
 
-function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: any) {
+function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: {
+  kb: KBRsp;
+  docs: DocumentRsp[];
+  docsLoading: boolean;
+  uploadMutation: UseMutationResult<DocumentRsp, Error, File>;
+  deleteKBMutation: UseMutationResult<null, Error, void>;
+}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: modelsData } = useQuery({
     queryKey: ['models'],
     queryFn: () => modelApi.list(),
   });
-  const vlmModels = (modelsData?.list ?? []).filter((m: any) => m.capability === 'vlm');
+  const vlmModels = (modelsData?.list ?? []).filter((m) => m.capability === 'vlm');
 
   const retryMutation = useMutation({
-    mutationFn: (docId: number) => kbApi.retryDocument(docId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['kb-docs', String(kb.id)] }),
+    mutationFn: (docId: string) => kbApi.retryDocument(docId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['kb-docs', kb.id] }),
   });
 
-  const pc = kb.pipeline_config || {};
+  const pc: Partial<KBRsp['pipeline_config']> = kb.pipeline_config || {};
 
   const [editOpen, setEditOpen] = useState(false);
-  const [editForm] = Form.useForm();
+  const [editForm] = Form.useForm<EditKBFormValues>();
   const [changedModelFields, setChangedModelFields] = useState<Set<string>>(new Set());
 
   const editMutation = useMutation({
-    mutationFn: (vals: Record<string, unknown>) => kbApi.update(kb.id, vals),
+    mutationFn: (vals: UpdateKBReq) => kbApi.update(kb.id, vals),
     onSuccess: () => {
       message.success('知识库已更新');
-      queryClient.invalidateQueries({ queryKey: ['kb', String(kb.id)] });
+      queryClient.invalidateQueries({ queryKey: ['kb', kb.id] });
       setEditOpen(false);
     },
     onError: (err: any) => message.error(err?.response?.data?.message || '更新失败'),
@@ -311,18 +348,18 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
           <BotBindButton kbId={kb.id} />
           <ConvBindButton kbId={kb.id} />
           <Button size="small" onClick={() => {
-            const pc = kb.pipeline_config || {};
-            const cc = pc.chunking || {};
-            const rc = pc.retrieval || {};
-            const vlm = pc.parsing?.vlm || {};
+            const pc = kb.pipeline_config;
+            const cc: Partial<ChunkingConfig> = pc?.chunking || {};
+            const rc: Partial<RetrievalConfig> = pc?.retrieval || {};
+            const vlm = pc?.parsing?.vlm;
             editForm.resetFields();
             setChangedModelFields(new Set());
             editForm.setFieldsValue({
               name: kb.name,
               description: kb.description,
               embedding_model_id: kb.embedding_model_id ?? undefined,
-              engines: pc.parsing?.engines,
-              vlm_model_id: vlm.model_id ?? undefined,
+              engines: pc?.parsing?.engines,
+              vlm_model_id: vlm?.model_id ?? undefined,
               parent_child_enabled: cc.parent_child?.enabled || false,
               chunk_size: cc.chunk_size,
               overlap: cc.overlap,
@@ -451,12 +488,12 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
 
       <Modal title="编辑知识库" open={editOpen}
         onOk={() => editForm.validateFields().then((vals) => {
-          const payload: Record<string, unknown> = { name: vals.name, description: vals.description };
-          const pipelineConfig: Record<string, any> = {};
+          const payload: UpdateKBReq = { name: vals.name, description: vals.description };
+          const pipelineConfig: PipelineConfig = {};
           pipelineConfig.parsing = {
             engines: vals.engines?.length ? vals.engines : undefined,
             vlm: {
-              enabled: !!vals.vlm_model_id,
+              enabled: changedModelFields.has('vlm_model_id') ? vals.vlm_model_id != null : pc.parsing?.vlm?.enabled,
               ...(changedModelFields.has('vlm_model_id')
                 ? vals.vlm_model_id != null ? { model_id: vals.vlm_model_id } : { clear_model_id: true }
                 : {}),
@@ -528,7 +565,7 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: an
             ]} />
           </Form.Item>
           <Form.Item name="vlm_model_id" label="VLM 图片描述模型" style={{ marginBottom: 12 }}>
-            <Select allowClear placeholder="不启用" options={vlmModels.map((m: any) => ({ value: m.id, label: modelOptionLabel(m) }))} />
+            <Select allowClear placeholder="不启用" options={vlmModels.map((m) => ({ value: m.id, label: modelOptionLabel(m) }))} />
           </Form.Item>
 
           <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, marginTop: 12, color: 'var(--aim-text)' }}>切片配置</div>

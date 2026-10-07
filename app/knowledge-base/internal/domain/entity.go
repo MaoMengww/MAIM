@@ -10,7 +10,7 @@ import (
 )
 
 type KnowledgeBase struct {
-	ID                int64          `json:"id" gorm:"primaryKey"`
+	ID                string         `json:"id" gorm:"type:uuid;primaryKey"`
 	OwnerType         string         `json:"owner_type" gorm:"not null"`
 	OwnerID           *string        `json:"owner_id,omitempty" gorm:"type:uuid"`
 	Name              string         `json:"name"`
@@ -76,8 +76,8 @@ const (
 )
 
 type Document struct {
-	ID               int64           `json:"id" gorm:"primaryKey"`
-	KBID             int64           `json:"kb_id"`
+	ID               string          `json:"id" gorm:"type:uuid;primaryKey"`
+	KBID             string          `json:"kb_id" gorm:"type:uuid;not null"`
 	Title            string          `json:"title"`
 	FileType         string          `json:"file_type"`
 	FileSize         int64           `json:"file_size"`
@@ -86,6 +86,7 @@ type Document struct {
 	MinioKey         string          `json:"minio_key"`
 	ContentHash      string          `json:"content_hash"`
 	Status           DocStatus       `json:"status"`
+	Stages           []Stage         `json:"stages" gorm:"type:jsonb;serializer:json"`
 	ChunkCount       int             `json:"chunk_count"`
 	ErrorMessage     string          `json:"error_message"`
 	PipelineOverride *PipelineConfig `json:"pipeline_override" gorm:"type:jsonb;serializer:json"`
@@ -99,14 +100,13 @@ func (Document) TableName() string {
 }
 
 type ChunkRecord struct {
-	ID            int64          `json:"id" gorm:"primaryKey"`
-	DocID         int64          `json:"doc_id"`
-	KBID          int64          `json:"kb_id"`
-	ParentChunkID *int64         `json:"parent_chunk_id" gorm:"index"`
+	ID            string         `json:"id" gorm:"type:uuid;primaryKey"`
+	DocID         string         `json:"doc_id" gorm:"type:uuid;not null"`
+	KBID          string         `json:"kb_id" gorm:"type:uuid;not null"`
+	ParentChunkID *string        `json:"parent_chunk_id" gorm:"type:uuid;index"`
 	ChunkIndex    int            `json:"chunk_index"`
 	Content       string         `json:"content"`
 	TokenCount    int            `json:"token_count"`
-	MilvusDocID   string         `json:"milvus_doc_id"`
 	Metadata      map[string]any `json:"metadata" gorm:"type:jsonb;serializer:json"`
 	CreatedAt     time.Time      `json:"created_at"`
 }
@@ -116,11 +116,11 @@ func (ChunkRecord) TableName() string {
 }
 
 type KnowledgeBinding struct {
-	ID         int64     `json:"id" gorm:"primaryKey"`
-	KBID       int64     `json:"kb_id"`
+	ID         string    `json:"id" gorm:"type:uuid;primaryKey"`
+	KBID       string    `json:"kb_id" gorm:"type:uuid;not null"`
 	KBName     string    `json:"kb_name" gorm:"<-:false"`
 	TargetType string    `json:"target_type"`
-	TargetID   int64     `json:"target_id"`
+	TargetID   string    `json:"target_id" gorm:"type:uuid;not null"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -237,12 +237,12 @@ type Stage struct {
 }
 
 type RetrieveItem struct {
-	ChunkID        int64          `json:"chunk_id"`
+	ChunkID        string         `json:"chunk_id"`
 	Content        string         `json:"content"`
 	Score          float32        `json:"score"`
-	DocID          int64          `json:"doc_id"`
+	DocID          string         `json:"doc_id"`
 	DocTitle       string         `json:"doc_title"`
-	KBID           int64          `json:"kb_id"`
+	KBID           string         `json:"kb_id"`
 	KBName         string         `json:"kb_name"`
 	MatchedContent string         `json:"matched_content"`
 	Metadata       map[string]any `json:"metadata"`

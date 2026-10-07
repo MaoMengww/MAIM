@@ -14,7 +14,6 @@ type Config struct {
 	Kafka       config.KafkaConfig     `json:"kafka"`
 	LLMGateway  LLMGatewayConfig       `json:"llmGateway"`
 	MinerU      MinerUConfig           `json:"mineru"`
-	Snowflake   SnowflakeConfig        `json:"snowflake"`
 	MaxFileSize int64                  `json:"maxFileSize" default:"10485760"`
 	RetryLimit  int                    `json:"retryLimit" default:"3"`
 	RateLimit   config.RateLimitConfig `json:"rateLimit"`
@@ -26,10 +25,6 @@ type IngestConfig struct {
 	Concurrency       int    `json:"concurrency,default=2"`
 	MetricsPort       int    `json:"metricsPort,default=9118"`
 	EmbeddingToken    string `json:"embeddingToken,optional"`
-}
-
-type SnowflakeConfig struct {
-	WorkerID int64 `json:"workerId" default:"1"`
 }
 
 type MilvusConfig struct {

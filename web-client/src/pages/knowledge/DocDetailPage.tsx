@@ -20,24 +20,24 @@ export function DocDetailPage() {
 
   useEffect(() => {
     const evts = ['knowledge.parsing', 'knowledge.chunking', 'knowledge.embedding', 'knowledge.ready', 'knowledge.failed'];
-    const unsubs = evts.map((t) => wsOn(t, (payload: any) => {
-      if (payload.kb_id && Number(payload.kb_id) !== Number(kbId)) return;
-      if (payload.doc_id && Number(payload.doc_id) !== Number(docId)) return;
+    const unsubs = evts.map((t) => wsOn(t, (payload: { kb_id: string; doc_id: string }) => {
+      if (payload.kb_id !== kbId || payload.doc_id !== docId) return;
       queryClient.invalidateQueries({ queryKey: ['kb-doc', docId] });
+      queryClient.invalidateQueries({ queryKey: ['kb-doc-chunks', docId] });
     }));
     return () => unsubs.forEach((fn) => fn());
   }, [kbId, docId, queryClient]);
 
   const { data: doc, isLoading } = useQuery({
     queryKey: ['kb-doc', docId],
-    queryFn: () => kbApi.getDocument(docId as any),
+    queryFn: () => kbApi.getDocument(docId!),
     enabled: !!docId,
   });
 
   const { data: chunksData, isLoading: chunksLoading } = useQuery({
     queryKey: ['kb-doc-chunks', docId, page, pageSize],
-    queryFn: () => kbApi.listChunks(docId as any, { offset: (page - 1) * pageSize, limit: pageSize }),
-    enabled: !!docId,
+    queryFn: () => kbApi.listChunks(docId!, { offset: (page - 1) * pageSize, limit: pageSize }),
+    enabled: !!docId && doc?.kb_id === kbId,
   });
 
   const handleDelete = () => {
@@ -49,9 +49,10 @@ export function DocDetailPage() {
       cancelText: '取消',
       onOk: async () => {
         try {
-          await kbApi.deleteDocument(docId as any);
+          await kbApi.deleteDocument(docId!);
           message.success('文档已删除');
           queryClient.invalidateQueries({ queryKey: ['kb-docs'] });
+          queryClient.invalidateQueries({ queryKey: ['kb', kbId] });
           navigate(`/knowledge/${kbId}`);
         } catch {
           message.error('删除失败');
@@ -64,7 +65,7 @@ export function DocDetailPage() {
     if (!docId) return;
     setContentLoading(true);
     try {
-      const data = await kbApi.getDocumentContent(docId as any);
+      const data = await kbApi.getDocumentContent(docId);
       setContentData(data);
       setContentOpen(true);
     } catch {
@@ -82,7 +83,7 @@ export function DocDetailPage() {
     );
   }
 
-  if (!doc) {
+  if (!doc || doc.kb_id !== kbId) {
     return <div style={{ padding: 32, color: 'var(--aim-text-tertiary)' }}>文档不存在</div>;
   }
 

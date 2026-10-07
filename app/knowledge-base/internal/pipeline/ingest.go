@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +21,7 @@ import (
 	llmgateway "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/event"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/zeromicro/go-zero/zrpc"
 )
@@ -58,7 +59,6 @@ type IngestPipeline struct {
 	FileStore        domain.FileStore
 	DocRepo          domain.DocumentRepo
 	KBRepo           domain.KBRepo
-	NextChunkID      func(context.Context) (int64, error)
 	LLMGatewayClient zrpc.Client
 	RetryLimit       int
 	MaxFileSize      int64
@@ -72,41 +72,101 @@ func (p *IngestPipeline) emitProgress(ctx context.Context, doc *domain.Document,
 	}
 }
 
-func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg domain.PipelineConfig, embeddingModelID string, ownerID *string) (err error) {
+func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document) error {
+	return p.DocRepo.WithDocumentLock(ctx, doc.ID, func(ctx context.Context) error {
+		current, err := p.DocRepo.Get(ctx, doc.ID)
+		if err != nil {
+			return err
+		}
+		if current.Status == domain.DocStatusReady || current.Status == domain.DocStatusFailed {
+			return nil
+		}
+		// Holding the document lock excludes a live ingest attempt. A processing
+		// state here is interrupted work from an unacknowledged queue delivery.
+		kb, err := p.KBRepo.Get(ctx, current.KBID)
+		if err != nil {
+			return err
+		}
+		if kb.Status == "deleting" {
+			return nil
+		}
+		*doc = *current
+		return p.run(ctx, doc, kb)
+	})
+}
+
+func (p *IngestPipeline) run(ctx context.Context, doc *domain.Document, kb *domain.KnowledgeBase) (err error) {
 	start := time.Now()
 	logger := p.Logger.WithContext(ctx)
 	statusCtx, statusCancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer statusCancel()
 	defer func() {
 		duration := time.Since(start).Seconds()
-		kbIDStr := strconv.FormatInt(doc.KBID, 10)
 		status := "success"
 		if err != nil {
 			status = "failed"
 			failureCtx, cancel := context.WithTimeout(statusCtx, 5*time.Second)
 			defer cancel()
 			if updateErr := p.DocRepo.UpdateStatus(failureCtx, doc.ID, domain.DocStatusFailed, err.Error()); updateErr != nil {
-				logger.Errorf("failed to update doc %d status to failed: %v", doc.ID, updateErr)
+				logger.Errorf("failed to update doc %s status to failed: %v", doc.ID, updateErr)
+				err = stderrors.Join(err, updateErr)
+			}
+			cleanupCtx, cleanupCancel := context.WithTimeout(statusCtx, 30*time.Second)
+			defer cleanupCancel()
+			if cleanupErr := p.clearChunks(cleanupCtx, doc.ID); cleanupErr != nil {
+				logger.Errorf("failed to clean chunks for doc %s: %v", doc.ID, cleanupErr)
+				err = stderrors.Join(err, cleanupErr)
+			}
+			if cleanupErr := p.clearImages(cleanupCtx, doc); cleanupErr != nil {
+				logger.Errorf("failed to clean images for doc %s: %v", doc.ID, cleanupErr)
+				err = stderrors.Join(err, cleanupErr)
+			}
+			doc.Status, doc.ErrorMessage, doc.ChunkCount = domain.DocStatusFailed, err.Error(), 0
+			updateCtx, updateCancel := context.WithTimeout(statusCtx, 5*time.Second)
+			defer updateCancel()
+			if updateErr := p.DocRepo.Update(updateCtx, doc); updateErr != nil {
+				err = stderrors.Join(err, updateErr)
 			}
 			p.emitProgress(failureCtx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeFailed, Level: event.EventLevelError, Title: "入库失败", Message: err.Error()})
 		}
 		metrics.KbIngestDuration.Observe(duration, status)
 		metrics.KbIngestTotal.Inc(status)
-		metrics.KbDocumentTotal.Add(1, kbIDStr, status)
+		metrics.KbDocumentTotal.Add(1, doc.KBID, status)
 		// Always update counts after processing attempt
 		countCtx, cancel := context.WithTimeout(statusCtx, 5*time.Second)
 		defer cancel()
 		if countErr := p.KBRepo.UpdateCounts(countCtx, doc.KBID); countErr != nil {
-			logger.Errorf("failed to update kb counts for kb %d: %v", doc.KBID, countErr)
+			logger.Errorf("failed to update kb counts for kb %s: %v", doc.KBID, countErr)
 		}
 	}()
+	if kb.Status != "active" {
+		return domain.ErrKBNotFound
+	}
+	cfg := kb.PipelineConfig
+	if doc.PipelineOverride != nil {
+		cfg = *doc.PipelineOverride
+	}
+	embeddingModelID, err := kb.ResolveEmbeddingModelID(ctx, p.KBRepo)
+	if err != nil {
+		return errors.Wrap(errors.CodeInvalidParam, "embedding model unavailable", err)
+	}
+	ownerID := kb.OwnerID
+	doc.Stages = nil
 	var parsedContent *domain.ParsedDocument
 	if err := cfg.ValidateModelReferences(); err != nil {
 		return errors.Wrap(errors.CodeInvalidParam, "invalid pipeline model reference", err)
 	}
+	// Pending documents are already hidden from retrieval. Remove both old
+	// representations before creating the replacement under the same lock.
+	if err := p.clearChunks(ctx, doc.ID); err != nil {
+		return err
+	}
+	if err := p.clearImages(ctx, doc); err != nil {
+		return err
+	}
 
 	// Stage 1: Parse
-	p.emitProgress(ctx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeParsing, Level: event.EventLevelInfo, Title: "æ­£å¨è§£æ", Message: "ææ¡£æ­£å¨è§£æ"})
+	p.emitProgress(ctx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeParsing, Level: event.EventLevelInfo, Title: "正在解析", Message: "文档正在解析"})
 	if err := p.runStage(ctx, doc, domain.DocStatusParsing, func() error {
 		raw, err := p.FileStore.Get(ctx, doc.MinioKey)
 		if err != nil {
@@ -165,23 +225,36 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 			Type:    event.EventTypeKnowledgeParsing,
 			Level:   event.EventLevelInfo,
 			Title:   "处理图片",
-			Message: fmt.Sprintf("å¤ç %d å¼ å¾ç", len(parsedContent.Images)),
+			Message: fmt.Sprintf("处理 %d 张图片", len(parsedContent.Images)),
 		})
+		imageKeys := make([]string, len(parsedContent.Images))
+		for i, image := range parsedContent.Images {
+			imageKeys[i] = fmt.Sprintf("knowledge/%s/%s/images/%d", doc.KBID, doc.ID, image.Index)
+		}
+		doc.Metadata["image_keys"] = imageKeys
+		if err := p.DocRepo.Update(ctx, doc); err != nil {
+			return errors.Wrap(errors.CodeDBError, "failed to persist document image keys", err)
+		}
 		for i := range parsedContent.Images {
 			img := &parsedContent.Images[i]
-			key := fmt.Sprintf("knowledge/%d/%d/images/%d", doc.KBID, doc.ID, img.Index)
+			key := imageKeys[i]
 			if err := p.FileStore.Put(ctx, key, bytes.NewReader(img.RawContent), int64(len(img.RawContent)), img.ContentType); err != nil {
-				logger.Errorf("upload image %d failed: %v", img.Index, err)
-				continue
+				return errors.Wrap(errors.CodeIOError, "failed to upload document image", err)
 			}
 			img.MinioKey = key
 		}
 		// VLM transcription via llm-gateway
-		if cfg.Parsing.VLM != nil && cfg.Parsing.VLM.Enabled && p.LLMGatewayClient != nil {
+		if cfg.Parsing.VLM != nil && cfg.Parsing.VLM.Enabled {
 			if cfg.Parsing.VLM.ModelID == nil {
 				return errors.New(errors.CodeInvalidParam, "VLM model is not configured")
 			}
+			if p.LLMGatewayClient == nil {
+				return errors.New(errors.CodeServiceDown, "VLM gateway is not configured")
+			}
 			conn := p.LLMGatewayClient.Conn()
+			if conn == nil {
+				return errors.New(errors.CodeServiceDown, "VLM gateway is unavailable")
+			}
 			if conn != nil {
 				cli := llmgateway.NewLLMGatewayClient(conn)
 				// Serial image requests keep total VLM concurrency bounded by the
@@ -204,9 +277,14 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 						return errors.Wrap(errors.CodeRPCError, "vlm describe failed", err)
 					}
 					if len(resp.Choices) > 0 {
+						if resp.Choices[0].Message == nil {
+							return errors.New(errors.CodeRPCError, "VLM returned an empty message")
+						}
 						orig := fmt.Sprintf("![%s](%s)", img.AltText, img.URL)
 						figure := fmt.Sprintf("<figure>\n<img src=\"%s\" alt=\"%s\">\n<figcaption>%s</figcaption>\n</figure>", img.URL, img.AltText, resp.Choices[0].Message.Content)
 						parsedContent.RawText = strings.ReplaceAll(parsedContent.RawText, orig, figure)
+					} else {
+						return errors.New(errors.CodeRPCError, "VLM returned no description")
 					}
 				}
 			}
@@ -214,77 +292,93 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 	}
 
 	// Stage 2: Chunk
-	p.emitProgress(ctx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeChunking, Level: event.EventLevelInfo, Title: "æ­£å¨åå", Message: "ææ¡£æ­£å¨ååä¸ºç¥è¯çæ®µ"})
+	p.emitProgress(ctx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeChunking, Level: event.EventLevelInfo, Title: "正在分块", Message: "文档正在拆分为知识片段"})
 	var pcResult *domain.ParentChildChunks
+	var parentRecords, records []domain.ChunkRecord
+	chunksPrepared := false
 	if err := p.runStage(ctx, doc, domain.DocStatusChunking, func() error {
-		setupChunker := p.Chunker
-		if setupChunker == nil {
-			setupChunker = chunker.NewChunker()
+		if pcResult == nil {
+			setupChunker := p.Chunker
+			if setupChunker == nil {
+				setupChunker = chunker.NewChunker()
+			}
+			chunks, err := setupChunker.Chunk(ctx, parsedContent, cfg.Chunking)
+			if err != nil {
+				return err
+			}
+			pcResult = chunks
 		}
-		var err error
-		pcResult, err = setupChunker.Chunk(ctx, parsedContent, cfg.Chunking)
-		if err != nil {
-			return err
-		}
-
-		for i := range pcResult.Parents {
-			pcResult.Parents[i].KBID = doc.KBID
-			pcResult.Parents[i].DocID = doc.ID
-		}
-		for i := range pcResult.Children {
-			pcResult.Children[i].KBID = doc.KBID
-			pcResult.Children[i].DocID = doc.ID
+		if !chunksPrepared {
+			parentIDMap := make(map[int]string, len(pcResult.Parents))
+			for i := range pcResult.Parents {
+				parent := &pcResult.Parents[i]
+				if parent.ID == "" {
+					id, err := identity.New()
+					if err != nil {
+						return err
+					}
+					parent.ID = id
+				}
+				parent.KBID, parent.DocID = doc.KBID, doc.ID
+				parentIDMap[parent.Index] = parent.ID
+			}
+			for i := range pcResult.Children {
+				child := &pcResult.Children[i]
+				if child.ID == "" {
+					id, err := identity.New()
+					if err != nil {
+						return err
+					}
+					child.ID = id
+				}
+				child.KBID, child.DocID = doc.KBID, doc.ID
+				if child.Metadata == nil {
+					child.Metadata = make(map[string]any)
+				}
+				child.Metadata["doc_title"] = doc.Title
+				child.Metadata["doc_id"] = doc.ID
+				child.Metadata["chunk_index"] = int32(child.Index)
+				if len(pcResult.Parents) > 0 {
+					parentIndex, ok := child.Metadata["parent_index"].(int)
+					parentID, exists := parentIDMap[parentIndex]
+					if !ok || !exists {
+						return errors.New(errors.CodeInternal, "child chunk is missing its parent")
+					}
+					child.Metadata["parent_chunk_id"] = parentID
+				}
+			}
+			parentRecords = make([]domain.ChunkRecord, len(pcResult.Parents))
+			for i, parent := range pcResult.Parents {
+				parentRecords[i] = domain.ChunkRecord{
+					ID: parent.ID, DocID: parent.DocID, KBID: parent.KBID,
+					ChunkIndex: parent.Index, Content: CleanInvalidUTF8(parent.Content),
+					TokenCount: parent.TokenCount, Metadata: parent.Metadata,
+				}
+			}
+			records = make([]domain.ChunkRecord, len(pcResult.Children))
+			for i, child := range pcResult.Children {
+				records[i] = domain.ChunkRecord{
+					ID: child.ID, DocID: child.DocID, KBID: child.KBID,
+					ChunkIndex: child.Index, Content: CleanInvalidUTF8(child.Content),
+					TokenCount: child.TokenCount, Metadata: child.Metadata,
+				}
+				if parentID, ok := child.Metadata["parent_chunk_id"].(string); ok {
+					records[i].ParentChunkID = &parentID
+				}
+			}
+			chunksPrepared = true
 		}
 
 		if err := p.DocRepo.DeleteChunksByDoc(ctx, doc.ID); err != nil {
 			return errors.Wrap(errors.CodeDBError, "failed to delete old chunks", err)
 		}
 
-		// Store parent chunks and build index -> ID mapping
-		parentIDMap := make(map[int]int64)
-		for _, parent := range pcResult.Parents {
-			chunkID, err := p.NextChunkID(ctx)
-			if err != nil {
-				return fmt.Errorf("generate chunk id failed: %w", err)
-			}
-			parentRecord := &domain.ChunkRecord{
-				ID:         chunkID,
-				DocID:      doc.ID,
-				KBID:       doc.KBID,
-				ChunkIndex: parent.Index,
-				Content:    CleanInvalidUTF8(parent.Content),
-				TokenCount: parent.TokenCount,
-				Metadata:   parent.Metadata,
-			}
-			if err := p.DocRepo.CreateParentChunk(ctx, parentRecord); err != nil {
+		// A failed relationship write can have committed a prefix. Replace that
+		// prefix on retry, reusing the IDs assigned before the first write.
+		for i := range parentRecords {
+			if err := p.DocRepo.CreateParentChunk(ctx, &parentRecords[i]); err != nil {
 				return errors.Wrap(errors.CodeDBError, "failed to create parent chunk", err)
 			}
-			parentIDMap[parent.Index] = parentRecord.ID
-		}
-
-		// Create child records with ParentChunkID
-		records := make([]domain.ChunkRecord, len(pcResult.Children))
-		for i, ch := range pcResult.Children {
-			chunkID, err := p.NextChunkID(ctx)
-			if err != nil {
-				return fmt.Errorf("generate chunk id failed: %w", err)
-			}
-			record := domain.ChunkRecord{
-				ID:          chunkID,
-				DocID:       ch.DocID,
-				KBID:        ch.KBID,
-				ChunkIndex:  ch.Index,
-				Content:     CleanInvalidUTF8(ch.Content),
-				TokenCount:  ch.TokenCount,
-				MilvusDocID: ch.ID(),
-				Metadata:    ch.Metadata,
-			}
-			if pi, ok := ch.Metadata["parent_index"].(int); ok {
-				if parentID, exists := parentIDMap[pi]; exists {
-					record.ParentChunkID = &parentID
-				}
-			}
-			records[i] = record
 		}
 		if err := p.DocRepo.CreateChunks(ctx, records); err != nil {
 			return errors.Wrap(errors.CodeDBError, "failed to create chunks", err)
@@ -300,33 +394,25 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 	}
 
 	// Stage 3: Embed + Store
-	p.emitProgress(ctx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeEmbedding, Level: event.EventLevelInfo, Title: "æ­£å¨åéå", Message: "ææ¡£æ­£å¨çæåé"})
+	p.emitProgress(ctx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeEmbedding, Level: event.EventLevelInfo, Title: "正在向量化", Message: "文档正在生成向量"})
 	// Retain completed batches if the final index write or a later batch needs
 	// a stage retry; already embedded chunks must not consume another RPM slot.
 	var completedVectors [][]float32
-	if err := p.runStage(ctx, doc, domain.DocStatusEmbedding, func() error {
-		var vecDocs []domain.VectorDoc
-		for _, ch := range pcResult.Children {
-			if ch.Metadata == nil {
-				ch.Metadata = make(map[string]any)
-			}
-			ch.Metadata["doc_title"] = doc.Title
-			ch.Metadata["doc_id"] = strconv.FormatInt(doc.ID, 10)
-			ch.Metadata["chunk_index"] = int32(ch.Index)
-			vd := domain.VectorDoc{
-				DocID:    ch.ID(),
-				KBID:     ch.KBID,
-				Content:  CleanInvalidUTF8(ch.Content),
-				Metadata: ch.Metadata,
-			}
-			vecDocs = append(vecDocs, vd)
+	vecDocs := make([]domain.VectorDoc, len(records))
+	childTexts := make([]string, len(records))
+	for i, record := range records {
+		vecDocs[i] = domain.VectorDoc{
+			ChunkID: record.ID, DocID: record.DocID, KBID: record.KBID,
+			Content: record.Content, Metadata: record.Metadata,
 		}
-
-		childTexts := make([]string, len(vecDocs))
-		childIndices := make([]int, len(vecDocs))
-		for i, vd := range vecDocs {
-			childTexts[i] = vd.Content
-			childIndices[i] = i
+		childTexts[i] = record.Content
+	}
+	if err := p.runStage(ctx, doc, domain.DocStatusEmbedding, func() error {
+		if len(childTexts) > 0 && p.Embedder == nil {
+			return errors.New(errors.CodeServiceDown, "embedding gateway is not configured")
+		}
+		if len(vecDocs) > 0 && p.VectorStore == nil {
+			return errors.New(errors.CodeServiceDown, "vector store is not configured")
 		}
 
 		if len(childTexts) > 0 && p.Embedder != nil {
@@ -339,20 +425,23 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 				if vectors[start] != nil {
 					continue
 				}
-				end := start + batchSize
-				if end > len(childTexts) {
-					end = len(childTexts)
-				}
+				end := min(start+batchSize, len(childTexts))
 				batch, err := p.Embedder.Embed(ctx, childTexts[start:end], embeddingModelID, ownerID)
 				if err != nil {
 					return errors.Wrap(errors.CodeRPCError, "embedding failed", err)
 				}
+				if len(batch) != end-start {
+					return errors.New(errors.CodeRPCError, "embedding returned an unexpected vector count")
+				}
+				for _, vector := range batch {
+					if len(vector) == 0 {
+						return errors.New(errors.CodeRPCError, "embedding returned an empty vector")
+					}
+				}
 				copy(vectors[start:], batch)
 			}
-			for i, idx := range childIndices {
-				if i < len(vectors) {
-					vecDocs[idx].Vector = vectors[i]
-				}
+			for i, vector := range vectors {
+				vecDocs[i].Vector = vector
 			}
 		}
 
@@ -370,17 +459,95 @@ func (p *IngestPipeline) Run(ctx context.Context, doc *domain.Document, cfg doma
 	if err := p.DocRepo.UpdateStatus(ctx, doc.ID, domain.DocStatusReady, ""); err != nil {
 		return err
 	}
-	p.emitProgress(ctx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeReady, Level: event.EventLevelSuccess, Title: "å¤çå®æ", Message: "ææ¡£å·²å®æå¤ç"})
+	p.emitProgress(ctx, doc, event.RealtimeEvent{Type: event.EventTypeKnowledgeReady, Level: event.EventLevelSuccess, Title: "入库完成", Message: "文档已完成入库"})
 	l := p.Logger.WithContext(ctx)
-	l.Infof("ingest pipeline completed: doc_id=%d stages=3 duration=%s", doc.ID, time.Since(start))
+	l.Infof("ingest pipeline completed: doc_id=%s stages=3 duration=%s", doc.ID, time.Since(start))
 	return nil
 }
 
-func (p *IngestPipeline) runStage(ctx context.Context, doc *domain.Document, status domain.DocStatus, fn func() error) error {
+func (p *IngestPipeline) clearChunks(ctx context.Context, docID string) error {
+	var vectorErr error
+	if p.VectorStore != nil {
+		if err := p.VectorStore.DeleteByDoc(ctx, docID); err != nil {
+			vectorErr = errors.Wrap(errors.CodeInternal, "failed to delete document vectors", err)
+		}
+	}
+	var relationErr error
+	if err := p.DocRepo.DeleteChunksByDoc(ctx, docID); err != nil {
+		relationErr = errors.Wrap(errors.CodeDBError, "failed to delete document chunks", err)
+	}
+	return stderrors.Join(vectorErr, relationErr)
+}
+
+func (p *IngestPipeline) clearImages(ctx context.Context, doc *domain.Document) error {
+	var keys []string
+	switch value := doc.Metadata["image_keys"].(type) {
+	case nil:
+		return nil
+	case []string:
+		keys = value
+	case []any:
+		keys = make([]string, len(value))
+		for i, item := range value {
+			key, ok := item.(string)
+			if !ok {
+				return errors.New(errors.CodeInvalidParam, "invalid document image keys")
+			}
+			keys[i] = key
+		}
+	default:
+		return errors.New(errors.CodeInvalidParam, "invalid document image keys")
+	}
+	prefix := fmt.Sprintf("knowledge/%s/%s/images/", doc.KBID, doc.ID)
+	for _, key := range keys {
+		index, ok := strings.CutPrefix(key, prefix)
+		if !ok || index == "" || strings.Contains(index, "/") {
+			return errors.New(errors.CodeInvalidParam, "image key does not belong to document")
+		}
+		for _, digit := range index {
+			if digit < '0' || digit > '9' {
+				return errors.New(errors.CodeInvalidParam, "invalid document image index")
+			}
+		}
+	}
+	var cleanupErr error
+	for _, key := range keys {
+		if err := p.FileStore.Delete(ctx, key); err != nil {
+			cleanupErr = stderrors.Join(cleanupErr, errors.Wrap(errors.CodeIOError, "failed to delete document image", err))
+		}
+	}
+	if cleanupErr == nil {
+		delete(doc.Metadata, "image_keys")
+	}
+	return cleanupErr
+}
+
+func (p *IngestPipeline) runStage(ctx context.Context, doc *domain.Document, status domain.DocStatus, fn func() error) (err error) {
 	l := p.Logger.WithContext(ctx)
 
 	if err := p.DocRepo.UpdateStatus(ctx, doc.ID, status, ""); err != nil {
 		return err
+	}
+	doc.Status = status
+	doc.ErrorMessage = ""
+	stageIndex := len(doc.Stages)
+	doc.Stages = append(doc.Stages, domain.Stage{Name: string(status), Status: "running", StartedAt: time.Now().UnixMilli()})
+	defer func() {
+		stage := &doc.Stages[stageIndex]
+		stage.EndedAt = time.Now().UnixMilli()
+		stage.Status = "ready"
+		if err != nil {
+			stage.Status = "failed"
+			stage.Error = err.Error()
+		}
+		stageCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if updateErr := p.DocRepo.UpdateStages(stageCtx, doc.ID, doc.Stages); updateErr != nil {
+			err = stderrors.Join(err, errors.Wrap(errors.CodeDBError, "failed to update document stages", updateErr))
+		}
+	}()
+	if err := p.DocRepo.UpdateStages(ctx, doc.ID, doc.Stages); err != nil {
+		return errors.Wrap(errors.CodeDBError, "failed to update document stages", err)
 	}
 
 	limit := p.RetryLimit
@@ -390,6 +557,7 @@ func (p *IngestPipeline) runStage(ctx context.Context, doc *domain.Document, sta
 
 	var lastErr error
 	for attempt := 0; attempt <= limit; attempt++ {
+		doc.Stages[stageIndex].Retries = attempt
 		if err := ctx.Err(); err != nil {
 			return err
 		}

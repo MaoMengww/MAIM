@@ -450,6 +450,9 @@ func (h *KnowledgeHandler) Search(c *gin.Context) {
 		return
 	}
 	req.KbIds = []string{c.Param("id")}
+	// The direct KB route must not resolve a different scope through target bindings.
+	req.BotId = nil
+	req.ConvId = nil
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, &req) {
 		return

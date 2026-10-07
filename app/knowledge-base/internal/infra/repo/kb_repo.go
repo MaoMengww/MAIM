@@ -4,27 +4,26 @@ import (
 	"context"
 	"time"
 
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/identity"
-	"github.com/maomeng/aim/pkg/snowflake"
 )
 
 type KBRepo struct {
-	db     *database.DB
-	snowID *snowflake.Node
+	db *database.DB
 }
 
 func NewKBRepo(db *database.DB) *KBRepo {
 	return &KBRepo{db: db}
 }
 
-func (r *KBRepo) WithSnow(snow *snowflake.Node) *KBRepo {
-	r.snowID = snow
-	return r
-}
-
 func (r *KBRepo) Create(ctx context.Context, kb *domain.KnowledgeBase) error {
+	if err := assignEntityID(&kb.ID); err != nil {
+		return err
+	}
 	if err := kb.ValidateOwner(); err != nil {
 		return err
 	}
@@ -40,6 +39,9 @@ func (r *KBRepo) Create(ctx context.Context, kb *domain.KnowledgeBase) error {
 }
 
 func (r *KBRepo) Update(ctx context.Context, kb *domain.KnowledgeBase) error {
+	if err := identity.Validate(kb.ID); err != nil {
+		return err
+	}
 	if err := kb.ValidateOwner(); err != nil {
 		return err
 	}
@@ -64,7 +66,18 @@ func (r *KBRepo) Update(ctx context.Context, kb *domain.KnowledgeBase) error {
 	if kb.LastMaintenanceAt != nil {
 		updates["last_maintenance_at"] = kb.LastMaintenanceAt
 	}
-	return r.db.WithContext(ctx).Model(kb).Where("id = ?", kb.ID).Updates(updates).Error
+	query := r.db.WithContext(ctx).Model(kb).Where("id = ?", kb.ID)
+	if kb.Status != "deleting" {
+		query = query.Where("status <> ?", "deleting")
+	}
+	result := query.Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrKBNotFound
+	}
+	return nil
 }
 
 func (r *KBRepo) ListByMode(ctx context.Context, mode string, offset, limit int) ([]domain.KnowledgeBase, error) {
@@ -80,11 +93,17 @@ func (r *KBRepo) ListByMode(ctx context.Context, mode string, offset, limit int)
 	return kbs, nil
 }
 
-func (r *KBRepo) Delete(ctx context.Context, kbID int64) error {
+func (r *KBRepo) Delete(ctx context.Context, kbID string) error {
+	if err := identity.Validate(kbID); err != nil {
+		return err
+	}
 	return r.db.WithContext(ctx).Where("id = ?", kbID).Delete(&domain.KnowledgeBase{}).Error
 }
 
-func (r *KBRepo) Get(ctx context.Context, kbID int64) (*domain.KnowledgeBase, error) {
+func (r *KBRepo) Get(ctx context.Context, kbID string) (*domain.KnowledgeBase, error) {
+	if err := identity.Validate(kbID); err != nil {
+		return nil, err
+	}
 	var kb domain.KnowledgeBase
 	err := r.db.WithContext(ctx).Where("id = ?", kbID).First(&kb).Error
 	if err != nil {
@@ -130,16 +149,44 @@ func (r *KBRepo) ResolveModelID(ctx context.Context, modelName string) (string, 
 }
 
 func (r *KBRepo) Bind(ctx context.Context, binding *domain.KnowledgeBinding) error {
-	return r.db.WithContext(ctx).Create(binding).Error
+	if err := identity.Validate(binding.KBID); err != nil {
+		return err
+	}
+	if err := identity.Validate(binding.TargetID); err != nil {
+		return err
+	}
+	if err := assignEntityID(&binding.ID); err != nil {
+		return err
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var kb domain.KnowledgeBase
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("id", "status").Where("id = ?", binding.KBID).First(&kb).Error; err != nil {
+			return err
+		}
+		if kb.Status != "active" {
+			return domain.ErrKBNotFound
+		}
+		return tx.Create(binding).Error
+	})
 }
 
-func (r *KBRepo) Unbind(ctx context.Context, kbID int64, targetType string, targetID int64) error {
+func (r *KBRepo) Unbind(ctx context.Context, kbID string, targetType string, targetID string) error {
+	if err := identity.Validate(kbID); err != nil {
+		return err
+	}
+	if err := identity.Validate(targetID); err != nil {
+		return err
+	}
 	return r.db.WithContext(ctx).
 		Where("kb_id = ? AND target_type = ? AND target_id = ?", kbID, targetType, targetID).
 		Delete(&domain.KnowledgeBinding{}).Error
 }
 
-func (r *KBRepo) ListBindingsByTarget(ctx context.Context, targetType string, targetID int64) ([]domain.KnowledgeBinding, error) {
+func (r *KBRepo) ListBindingsByTarget(ctx context.Context, targetType string, targetID string) ([]domain.KnowledgeBinding, error) {
+	if err := identity.Validate(targetID); err != nil {
+		return nil, err
+	}
 	var bindings []domain.KnowledgeBinding
 	err := r.db.WithContext(ctx).
 		Table("knowledge_bindings").
@@ -153,7 +200,10 @@ func (r *KBRepo) ListBindingsByTarget(ctx context.Context, targetType string, ta
 	return bindings, nil
 }
 
-func (r *KBRepo) ListBindingsByKB(ctx context.Context, kbID int64) ([]domain.KnowledgeBinding, error) {
+func (r *KBRepo) ListBindingsByKB(ctx context.Context, kbID string) ([]domain.KnowledgeBinding, error) {
+	if err := identity.Validate(kbID); err != nil {
+		return nil, err
+	}
 	var bindings []domain.KnowledgeBinding
 	err := r.db.WithContext(ctx).Where("kb_id = ?", kbID).Find(&bindings).Error
 	if err != nil {
@@ -162,7 +212,10 @@ func (r *KBRepo) ListBindingsByKB(ctx context.Context, kbID int64) ([]domain.Kno
 	return bindings, nil
 }
 
-func (r *KBRepo) UpdateCounts(ctx context.Context, kbID int64) error {
+func (r *KBRepo) UpdateCounts(ctx context.Context, kbID string) error {
+	if err := identity.Validate(kbID); err != nil {
+		return err
+	}
 	var docCount int64
 	if err := r.db.WithContext(ctx).Model(&domain.Document{}).Where("kb_id = ?", kbID).Count(&docCount).Error; err != nil {
 		return err
@@ -180,4 +233,16 @@ func (r *KBRepo) UpdateCounts(ctx context.Context, kbID int64) error {
 		"total_chunks": chunkCount,
 		"updated_at":   time.Now(),
 	}).Error
+}
+
+func assignEntityID(id *string) error {
+	if *id == "" {
+		generated, err := identity.New()
+		if err != nil {
+			return err
+		}
+		*id = generated
+		return nil
+	}
+	return identity.Validate(*id)
 }

@@ -500,9 +500,13 @@ llm-gateway 是所有 LLM 调用的统一入口，提供多 Provider 抽象、�
 
 知识库支持 **RAG 检索**，满足不同场景的知识管理需求。上传文档后经解析、分块、Embedding 管线处理。在线检索（`-role online`）与入库（`-role ingest`）是两个独立工作负载，同镜像不同角色。
 
+知识库、文档、父/子片段和绑定由 knowledge domain 分配 UUIDv7，关系库使用 `uuid`。子片段在 Milvus `kb_chunks_uuid_v1` 的主键与 `document_chunks.id` 相同，`id`、`kb_id`、`doc_id` 均为 `VARCHAR(36)`；不再拼接第二套向量身份。原对象键为 `knowledge/<kb UUID>/<document UUID>/original`，图片对象限定在该文档的 `images/` 目录。
+
+同文档摄取、重试和删除通过 PostgreSQL session advisory lock 串行；阶段重试复用已分配片段 UUID，未确认的处理中任务重投在锁内恢复。替换前清理旧关系和向量，检索仅接受 `ready` 文档、`active` 知识库的当前关系片段；失败片段不可检索，禁用后的摄取失败仍可在重新启用后重试。向量写入成功依赖 Milvus mutation 确认，立即可见性由强一致性读取保障，不逐文档执行手动 Flush。
+
 ---
 
-#### RAG Ingest Pipeline（五阶段）
+#### RAG Ingest Pipeline（含图片处理）
 
 ```
 文档上传
@@ -583,12 +587,12 @@ Parent 块（~4096 字符）  ─────── 提供 LLM 上下文窗口
   ├─ Child 块1（~384 字符）     ─── 用于向量检索
   ├─ Child 块2（~384 字符）
   └─ Child 块3（~384 字符）
-       metadata: {block_type: "child", parent_index: 0}
+       metadata: {block_type: "child", parent_index: 0, parent_chunk_id: "父片段 UUID"}
 ```
 
 - Parent 和 Child 使用完全独立的 `ChunkingConfig`（size/overlap/separators）
 - Child 通过 `document_chunks.parent_chunk_id` 关联到 Parent
-- 检索时先匹配 Child，可 `expandParentChunks` 回填 Parent 上下文
+- 检索时先验证命中 Child 的当前关系 UUID，再按 `parent_chunk_id` 恢复 Parent 正文并去重；返回来源保留 Child 的 `chunk_id` 与 `matched_content`。
 
 #### RAG Retrieve Pipeline
 
@@ -608,7 +612,7 @@ Parent 块（~4096 字符）  ─────── 提供 LLM 上下文窗口
   │
   ├─ ScoreThreshold 过滤 → 低于阈值剔除
   │
-  ├─ expandParentChunks（当前为占位，直接返回子块）
+  ├─ 当前 ready 片段验证 + 父片段关系恢复与去重
   │
   └─ 返回 RetrieveItem[] → LLM 上下文注入
 ```

@@ -224,6 +224,15 @@ export interface CreateKBReq {
   mode?: string;           // "rag"
 }
 
+export interface UpdateKBReq {
+  name?: string;
+  description?: string;
+  embedding_model?: string;
+  embedding_model_id?: string;
+  clear_embedding_model_id?: boolean;
+  pipeline_config?: PipelineConfig;
+}
+
 export interface PipelineConfig {
   parsing?: ParsingConfigReq;
   chunking?: ChunkingConfigReq;

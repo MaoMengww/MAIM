@@ -1,4 +1,5 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import base64
 import hashlib
 import json
 import math
@@ -100,6 +101,13 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/health":
             self._json(200, {"status": "ok"})
+        elif path == "/knowledge.png":
+            image = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jfWQAAAAASUVORK5CYII=")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(image)))
+            self.end_headers()
+            self.wfile.write(image)
         elif path == "/observations":
             with LOCK:
                 snapshot = json.loads(json.dumps(OBSERVATIONS))
@@ -224,7 +232,7 @@ class Handler(BaseHTTPRequestHandler):
             inputs = body.get("input", [])
             if isinstance(inputs, str):
                 inputs = [inputs]
-            if any("P5_FAIL_INGEST" in value for value in inputs):
+            if any("P5_FAIL_INGEST" in value for value in inputs) and not body.get("model", "").startswith("fixture-embed-recover-"):
                 self._json(422, {"error": {"message": "fixture rejected this document", "type": "invalid_request_error"}})
                 return
             bulk = any("P5_BULK_INGEST" in value for value in inputs)

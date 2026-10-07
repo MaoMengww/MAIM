@@ -146,12 +146,12 @@ export function BotDetailPage() {
   });
 
   const allKbs = allKbsData?.list ?? [];
-  const [selectedKbId, setSelectedKbId] = useState<number | undefined>();
-  const boundKbIds = new Set((boundKbs ?? []).map((b: any) => b.kb_id));
-  const availableKbs = allKbs.filter((kb: any) => !boundKbIds.has(kb.id));
+  const [selectedKbId, setSelectedKbId] = useState<string | undefined>();
+  const boundKbIds = new Set((boundKbs ?? []).map((b) => b.kb_id));
+  const availableKbs = allKbs.filter((kb) => !boundKbIds.has(kb.id));
 
   const bindKbMutation = useMutation({
-    mutationFn: (kbId: number) => kbApi.bindToBot(id!, kbId),
+    mutationFn: (kbId: string) => kbApi.bindToBot(id!, kbId),
     onSuccess: () => {
       message.success('绑定成功');
       queryClient.invalidateQueries({ queryKey: ['bot-kb-bindings', id] });
@@ -161,7 +161,7 @@ export function BotDetailPage() {
   });
 
   const unbindKbMutation = useMutation({
-    mutationFn: (kbId: number) => kbApi.unbindFromBot(id!, kbId),
+    mutationFn: (kbId: string) => kbApi.unbindFromBot(id!, kbId),
     onSuccess: () => {
       message.success('已解绑');
       queryClient.invalidateQueries({ queryKey: ['bot-kb-bindings', id] });
@@ -241,7 +241,7 @@ export function BotDetailPage() {
         {bot.enable_knowledge ? (
           boundKbs && boundKbs.length > 0 ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {boundKbs.map((b: any) => (
+              {boundKbs.map((b) => (
                 <Tag key={b.kb_id} color="blue" style={{ padding: '2px 10px', fontSize: 13 }}>
                   {b.kb_name || `知识库 #${b.kb_id}`}
                 </Tag>
@@ -273,7 +273,7 @@ export function BotDetailPage() {
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--aim-text-secondary)' }}>已绑定的知识库</div>
               {boundKbs && boundKbs.length > 0 ? (
-                boundKbs.map((b: any) => (
+                boundKbs.map((b) => (
                   <div key={b.kb_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--aim-border)' }}>
                     <span>
                       <Tag color="blue" style={{ marginRight: 6 }}>
@@ -297,7 +297,7 @@ export function BotDetailPage() {
                 placeholder="选择知识库..."
                 value={selectedKbId}
                 onChange={setSelectedKbId}
-                options={availableKbs.map((kb: any) => ({ value: kb.id, label: `${kb.name} (RAG)` }))}
+                options={availableKbs.map((kb) => ({ value: kb.id, label: `${kb.name} (RAG)` }))}
                 showSearch
                 filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
               />

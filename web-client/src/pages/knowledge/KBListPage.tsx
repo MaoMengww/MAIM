@@ -1,13 +1,46 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Modal, Form, Input, InputNumber, Select, Switch, Collapse, message, Tag } from 'antd';
+import { Modal, Form, Input, InputNumber, Select, Switch, Collapse, message, Tag, type FormInstance } from 'antd';
 import { modelApi } from '@/services/model';
 import { kbApi } from '@/services/knowledge';
 import { modelOptionLabel } from '@/utils/provider';
 import { FolderIcon } from '@/components/common/Icons';
-
+import type { PipelineConfig, ParsingConfigReq } from '@/types/api';
 import './KBPage.css';
+
+interface CreateKBFormValues {
+  name: string;
+  description?: string;
+  embedding_model?: string;
+  vlm_model_id?: string;
+  rerank_model?: string;
+  parsing_engines?: string[];
+  mineru_api_url?: string;
+  mineru_api_token?: string;
+  mineru_agent_url?: string;
+  chunk_size?: number;
+  overlap?: number;
+  separators?: string[];
+  parent_child_enabled?: boolean;
+  parent_size?: number;
+  child_size?: number;
+  retrieval_mode?: string;
+  top_k?: number;
+  candidate_top_k?: number;
+  score_threshold?: number;
+  dense_weight?: number;
+  sparse_weight?: number;
+  rerank_enabled?: boolean;
+  rerank_top_n?: number;
+}
+
+interface ModelOption {
+  value: string;
+  label: ReactNode;
+  model_name: string;
+}
+
 
 const PRESET_OPTIONS = [
   { value: 'general', label: '通用' },
@@ -17,7 +50,7 @@ const PRESET_OPTIONS = [
   { value: 'customer_service', label: '客服问答' },
 ];
 
-const PRESET_VALUES: Record<string, Record<string, any>> = {
+const PRESET_VALUES: Record<string, Partial<CreateKBFormValues>> = {
     general: {
         parsing_engines: ['builtin'],
         chunk_size: 512, overlap: 50,
@@ -77,7 +110,7 @@ const FM = { marginBottom: 12 };
 export function KBListPage() {
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
-  const [form] = Form.useForm();
+  const [form] = Form.useForm<CreateKBFormValues>();
   const [creating, setCreating] = useState(false);
 
   const { data, isLoading, refetch } = useQuery({
@@ -93,25 +126,25 @@ export function KBListPage() {
   const items = data?.list ?? [];
 
   const embedModelOptions = (modelsData?.list ?? [])
-    .filter((m: any) => m.capability === 'embed')
-    .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
+    .filter((m) => m.capability === 'embed')
+    .map((m) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
 
   const vlmModelOptions = (modelsData?.list ?? [])
-    .filter((m: any) => m.capability === 'vlm')
-    .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
+    .filter((m) => m.capability === 'vlm')
+    .map((m) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
 
   const rerankModelOptions = (modelsData?.list ?? [])
-    .filter((m: any) => m.capability === 'rerank')
-    .map((m: any) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
+    .filter((m) => m.capability === 'rerank')
+    .map((m) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
 
-  const modelMap = Object.fromEntries((modelsData?.list ?? []).map((m: any) => [m.id, m.model_name]));
+  const modelMap = Object.fromEntries((modelsData?.list ?? []).map((m) => [m.id, m.model_name]));
 
   const handleCreate = async () => {
     try {
       const vals = await form.validateFields();
       setCreating(true);
 
-      const pipelineConfig: any = {};
+      const pipelineConfig: PipelineConfig = {};
 
       if (vals.chunk_size || vals.overlap != null || vals.separators?.length || vals.parent_child_enabled) {
         pipelineConfig.chunking = {};
@@ -124,8 +157,8 @@ export function KBListPage() {
           if (vals.child_size) pipelineConfig.chunking.parent_child.child_size = Number(vals.child_size);
         }
       }
-      if (vals.parsing_engines?.length) {
-        const parsing: Record<string, any> = { engines: vals.parsing_engines };
+      if (vals.parsing_engines?.length || vals.vlm_model_id) {
+        const parsing: ParsingConfigReq = { engines: vals.parsing_engines };
         if (vals.mineru_api_url) {
           parsing.mineru_precision = { api_url: vals.mineru_api_url, api_token: vals.mineru_api_token || '' };
         }
@@ -154,7 +187,7 @@ export function KBListPage() {
       const kb = await kbApi.create({
         name: vals.name,
         description: vals.description,
-        embedding_model: embedModelId ? (modelMap[embedModelId] || '') : undefined,
+        embedding_model: embedModelId ? modelMap[embedModelId] : undefined,
         embedding_model_id: embedModelId ?? undefined,
         pipeline_config: Object.keys(pipelineConfig).length > 0 ? pipelineConfig : undefined,
         mode: 'rag',
@@ -264,7 +297,7 @@ export function KBListPage() {
 
 /* ─── RAG ─── */
 
-function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModelOptions }: { form: any; embedModelOptions: any[]; vlmModelOptions: any[]; rerankModelOptions: any[] }) {
+function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModelOptions }: { form: FormInstance<CreateKBFormValues>; embedModelOptions: ModelOption[]; vlmModelOptions: ModelOption[]; rerankModelOptions: ModelOption[] }) {
   const collapseItems = [
     {
       key: 'parsing',
@@ -281,7 +314,7 @@ function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModel
             />
           </Form.Item>
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.parsing_engines !== cur.parsing_engines}>
-            {({ getFieldValue }: any) => {
+            {({ getFieldValue }) => {
               const engines: string[] = getFieldValue('parsing_engines') || [];
               const hasPrecision = engines.includes('mineru_precision');
               const hasAgent = engines.includes('mineru_agent');
@@ -355,7 +388,7 @@ function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModel
           <div style={{ borderTop: '1px solid var(--aim-border)', paddingTop: 8, marginTop: 0 }}>
             <Form.Item name="parent_child_enabled" label="父子分块" valuePropName="checked" style={FM}><Switch /></Form.Item>
             <Form.Item noStyle shouldUpdate={(prev, cur) => prev.parent_child_enabled !== cur.parent_child_enabled}>
-              {({ getFieldValue }: any) => getFieldValue('parent_child_enabled') ? (
+              {({ getFieldValue }) => getFieldValue('parent_child_enabled') ? (
                 <div style={{ display: 'flex', gap: 16 }}>
                   <Form.Item name="parent_size" label="父块大小" style={{ flex: 1, marginBottom: 0 }}>
                     <InputNumber min={256} max={4096} step={128} placeholder="默认 4096" style={{ width: '100%' }} />
@@ -409,7 +442,7 @@ function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModel
           <div style={{ borderTop: '1px solid var(--aim-border)', paddingTop: 8, marginTop: 0 }}>
             <Form.Item name="rerank_enabled" label="启用重排序" valuePropName="checked" style={FM}><Switch /></Form.Item>
             <Form.Item noStyle shouldUpdate={(prev, cur) => prev.rerank_enabled !== cur.rerank_enabled}>
-              {({ getFieldValue }: any) => getFieldValue('rerank_enabled') ? (
+              {({ getFieldValue }) => getFieldValue('rerank_enabled') ? (
                 <div style={{ display: 'flex', gap: 16 }}>
                   <Form.Item name="rerank_model" label="重排序模型" style={{ flex: 1, marginBottom: 0 }}>
                     <Select placeholder="选择模型" allowClear options={rerankModelOptions} showSearch

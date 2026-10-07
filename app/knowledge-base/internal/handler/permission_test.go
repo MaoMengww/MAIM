@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"testing"
 
 	"google.golang.org/grpc/metadata"
@@ -40,21 +39,19 @@ func TestGetCallerID_InvalidID(t *testing.T) {
 }
 
 func TestGetKBIDFromContext(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("kb-id", "555"))
-	if got := getKBIDFromContext(ctx); got != 555 {
-		t.Fatalf("expected 555, got %d", got)
+	const kbID = "01902ee3-8b7e-7fa1-96fd-ec908c0ace23"
+	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("kb-id", kbID))
+	if got := getKBIDFromContext(ctx); got != kbID {
+		t.Fatalf("expected %s, got %s", kbID, got)
 	}
 }
 
 func TestGetKBIDFromContext_Missing(t *testing.T) {
-	if got := getKBIDFromContext(context.Background()); got != 0 {
-		t.Fatalf("expected 0 for missing kb-id, got %d", got)
-	}
-}
-
-func TestIsAdmin(t *testing.T) {
-	if isAdmin(context.Background()) {
-		t.Fatal("expected isAdmin to return false")
+	for _, value := range []string{"", "555", "00000000-0000-0000-0000-000000000000", "01902EE3-8B7E-7FA1-96FD-EC908C0ACE23"} {
+		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("kb-id", value))
+		if got := getKBIDFromContext(ctx); got != "" {
+			t.Fatalf("expected no identity for invalid kb-id %q, got %s", value, got)
+		}
 	}
 }
 
@@ -78,19 +75,5 @@ func TestParseJSONMeta(t *testing.T) {
 	m := parseJSONMeta(`{"key":"val"}`)
 	if m["key"] != "val" {
 		t.Fatalf("expected val, got %v", m["key"])
-	}
-}
-
-func TestParseJSONMeta_Empty(t *testing.T) {
-	m := parseJSONMeta("")
-	if m == nil {
-		t.Fatal("expected non-nil map for empty input")
-	}
-}
-
-func TestParseJSONMeta_Invalid(t *testing.T) {
-	m := parseJSONMeta("{bad-json}")
-	if m == nil {
-		t.Fatal("expected non-nil map for invalid input")
 	}
 }

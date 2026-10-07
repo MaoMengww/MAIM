@@ -1,23 +1,17 @@
 package domain
 
-import (
-	"context"
-	"fmt"
-)
+import "context"
 
 type Chunk struct {
+	ID         string
 	Index      int
 	Content    string
 	TokenCount int
-	KBID       int64
-	DocID      int64
+	KBID       string
+	DocID      string
 	StartPos   int
 	EndPos     int
 	Metadata   map[string]any
-}
-
-func (c *Chunk) ID() string {
-	return fmt.Sprintf("kb_%d_doc_%d_chk_%d", c.KBID, c.DocID, c.Index)
 }
 
 type ParentChildChunks struct {

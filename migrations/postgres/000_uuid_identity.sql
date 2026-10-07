@@ -535,7 +535,9 @@ CREATE TABLE IF NOT EXISTS knowledge.documents (
     metadata          JSONB,
     stages            JSONB DEFAULT '[]'::JSONB NOT NULL,
     created_at        TIMESTAMPTZ,
-    updated_at        TIMESTAMPTZ
+    updated_at        TIMESTAMPTZ,
+    CONSTRAINT documents_kb_fk FOREIGN KEY (kb_id) REFERENCES knowledge.knowledge_bases(id),
+    CONSTRAINT documents_identity_scope UNIQUE (id, kb_id)
 );
 
 CREATE TABLE IF NOT EXISTS knowledge.document_chunks (
@@ -547,7 +549,10 @@ CREATE TABLE IF NOT EXISTS knowledge.document_chunks (
     token_count     BIGINT,
     metadata        JSONB,
     created_at      TIMESTAMPTZ,
-    parent_chunk_id UUID CHECK (parent_chunk_id <> '00000000-0000-0000-0000-000000000000'::uuid)
+    parent_chunk_id UUID CHECK (parent_chunk_id <> '00000000-0000-0000-0000-000000000000'::uuid AND parent_chunk_id <> id),
+    CONSTRAINT document_chunks_identity_scope UNIQUE (id, doc_id, kb_id),
+    CONSTRAINT document_chunks_document_fk FOREIGN KEY (doc_id, kb_id) REFERENCES knowledge.documents(id, kb_id) ON DELETE CASCADE,
+    CONSTRAINT document_chunks_parent_fk FOREIGN KEY (parent_chunk_id, doc_id, kb_id) REFERENCES knowledge.document_chunks(id, doc_id, kb_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS knowledge.knowledge_bindings (
@@ -556,7 +561,8 @@ CREATE TABLE IF NOT EXISTS knowledge.knowledge_bindings (
     target_type TEXT,
     target_id   UUID NOT NULL CHECK (target_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     created_at  TIMESTAMPTZ,
-    kb_name     TEXT
+    kb_name     TEXT,
+    CONSTRAINT knowledge_bindings_kb_fk FOREIGN KEY (kb_id) REFERENCES knowledge.knowledge_bases(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_bases_owner ON knowledge.knowledge_bases(owner_id);

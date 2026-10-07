@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	stderrors "errors"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -474,6 +476,10 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 	embeddings, promptTokens, err := llm.CreateEmbeddings(ctx, apiKey, baseURL, modelName, req.Input, dim)
 	if err != nil {
 		log.Errorf("method=Embed model=%s error=%v", modelName, err)
+		var rejection *llm.HTTPError
+		if stderrors.As(err, &rejection) && (rejection.StatusCode == http.StatusBadRequest || rejection.StatusCode == http.StatusUnprocessableEntity) {
+			return nil, errors.Wrap(errors.CodeInvalidParam, "embedding input rejected", err)
+		}
 		return nil, errors.Wrap(errors.CodeRPCError, "embeddings failed: "+err.Error(), err)
 	}
 

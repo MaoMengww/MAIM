@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
-	"strconv"
+	"strings"
+	"time"
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	"github.com/maomeng/aim/app/knowledge-base/internal/infra/parser"
@@ -18,9 +20,9 @@ import (
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
-	"github.com/maomeng/aim/pkg/snowflake"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"gorm.io/gorm"
 )
 
 type KnowledgeBaseHandler struct {
@@ -31,12 +33,7 @@ type KnowledgeBaseHandler struct {
 	VectorStore  domain.VectorStore
 	Producer     *kafka.Producer
 	RetrievePipe *pipeline.RetrievePipeline
-	Snowflake    *snowflake.Node
 	Logger       logx.Logger
-}
-
-type PipelineConfigProvider interface {
-	GetPipelineConfig(kbID int64) (domain.PipelineConfig, error)
 }
 
 func (h *KnowledgeBaseHandler) CreateKB(ctx context.Context, req *pb.CreateKBReq) (*pb.KBRsp, error) {
@@ -77,7 +74,7 @@ func (h *KnowledgeBaseHandler) CreateKB(ctx context.Context, req *pb.CreateKBReq
 	if err != nil {
 		return nil, err
 	}
-	kbID, err := h.Snowflake.Generate()
+	kbID, err := identity.New()
 	if err != nil {
 		return nil, fmt.Errorf("generate kb id failed: %w", err)
 	}
@@ -96,18 +93,17 @@ func (h *KnowledgeBaseHandler) CreateKB(ctx context.Context, req *pb.CreateKBReq
 	if err := h.KBRepo.Create(ctx, kb); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "create kb failed", err)
 	}
-	h.Logger.WithContext(ctx).Infof("knowledge base created: kb_id=%d name=%s owner_type=%s caller_id=%s", kb.ID, kb.Name, kb.OwnerType, callerID)
+	h.Logger.WithContext(ctx).Infof("knowledge base created: kb_id=%s name=%s owner_type=%s caller_id=%s", kb.ID, kb.Name, kb.OwnerType, callerID)
 	return toKBRsp(kb), nil
 }
 
 func (h *KnowledgeBaseHandler) UpdateKB(ctx context.Context, req *pb.UpdateKBReq) (*pb.KBRsp, error) {
-	callerID := getCallerID(ctx)
-	kb, err := h.KBRepo.Get(ctx, req.KbId)
+	kb, err := h.loadKnowledgeBase(ctx, req.KbId, true)
 	if err != nil {
-		return nil, domain.ErrKBNotFound
+		return nil, err
 	}
-	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
-		return nil, domain.ErrForbidden
+	if kb.Status == "deleting" {
+		return nil, domain.ErrKBNotFound
 	}
 	if req.GetName() != "" {
 		kb.Name = req.GetName()
@@ -149,39 +145,62 @@ func (h *KnowledgeBaseHandler) UpdateKB(ctx context.Context, req *pb.UpdateKBReq
 }
 
 func (h *KnowledgeBaseHandler) DeleteKB(ctx context.Context, req *pb.DeleteKBReq) (*emptypb.Empty, error) {
-	callerID := getCallerID(ctx)
-	kb, err := h.KBRepo.Get(ctx, req.KbId)
+	kb, err := h.loadKnowledgeBase(ctx, req.KbId, true)
 	if err != nil {
-		return nil, domain.ErrKBNotFound
+		return nil, err
 	}
-	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
-		return nil, domain.ErrForbidden
+	// Quiesce uploads/retries before enumerating documents. Repository creates
+	// serialize with this update on the KB row; ingestion checks the same state.
+	kb.Status = "deleting"
+	if err := h.KBRepo.Update(ctx, kb); err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "mark kb for deletion failed", err)
 	}
-	bindings, _ := h.KBRepo.ListBindingsByKB(ctx, req.KbId)
-	for _, b := range bindings {
-		_ = h.KBRepo.Unbind(ctx, req.KbId, b.TargetType, b.TargetID)
+	bindings, err := h.KBRepo.ListBindingsByKB(ctx, kb.ID)
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "list kb bindings failed", err)
 	}
-	docs, _, _ := h.DocRepo.ListByKB(ctx, req.KbId, 0, 10000, "")
-	for _, doc := range docs {
-		_ = h.DocRepo.DeleteChunksByDoc(ctx, doc.ID)
-		if doc.MinioKey != "" {
-			_ = h.FileStore.Delete(ctx, doc.MinioKey)
+	for _, binding := range bindings {
+		if err := h.KBRepo.Unbind(ctx, kb.ID, binding.TargetType, binding.TargetID); err != nil {
+			return nil, errors.Wrap(errors.CodeDBError, "remove kb binding failed", err)
 		}
-		if h.VectorStore != nil {
-			_ = h.VectorStore.DeleteByDoc(ctx, doc.ID)
-		}
-		_ = h.DocRepo.Delete(ctx, doc.ID)
 	}
-	if err := h.KBRepo.Delete(ctx, req.KbId); err != nil {
+	for {
+		// Removing a page shifts the remaining documents to offset zero.
+		docs, _, err := h.DocRepo.ListByKB(ctx, kb.ID, 0, 100, "")
+		if err != nil {
+			return nil, errors.Wrap(errors.CodeDBError, "list kb documents failed", err)
+		}
+		if len(docs) == 0 {
+			break
+		}
+		for _, doc := range docs {
+			if err := h.DocRepo.WithDocumentLock(ctx, doc.ID, func(lockCtx context.Context) error {
+				current, err := h.DocRepo.Get(lockCtx, doc.ID)
+				if stderrors.Is(err, gorm.ErrRecordNotFound) {
+					return nil
+				}
+				if err != nil {
+					return errors.Wrap(errors.CodeDBError, "get document for deletion failed", err)
+				}
+				if current.KBID != kb.ID {
+					return domain.ErrForbidden
+				}
+				return h.deleteDocumentData(lockCtx, current)
+			}); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := h.KBRepo.Delete(ctx, kb.ID); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "delete kb failed", err)
 	}
 	return &emptypb.Empty{}, nil
 }
 
 func (h *KnowledgeBaseHandler) GetKB(ctx context.Context, req *pb.GetKBReq) (*pb.KBRsp, error) {
-	kb, err := h.KBRepo.Get(ctx, req.KbId)
+	kb, err := h.loadKnowledgeBase(ctx, req.KbId, false)
 	if err != nil {
-		return nil, domain.ErrKBNotFound
+		return nil, err
 	}
 	return toKBRsp(kb), nil
 }
@@ -237,27 +256,23 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 		return domain.ErrInvalidFileType
 	}
 	kbID := getKBIDFromContext(ctx)
-	if kbID == 0 {
+	if kbID == "" {
 		return errors.ErrInvalidParam
 	}
-	callerID := getCallerID(ctx)
-	kb, err := h.KBRepo.Get(ctx, kbID)
+	kb, err := h.loadKnowledgeBase(ctx, kbID, true)
 	if err != nil {
-		return domain.ErrKBNotFound
+		return err
 	}
-	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
-		return domain.ErrForbidden
+	if kb.Status != "active" {
+		return domain.ErrKBNotFound
 	}
 	contentHash := fmt.Sprintf("%x", sha256.Sum256(fileBytes.Bytes()))
 
 	// Check for duplicate content within the same KB
 	if existing, err := h.DocRepo.GetByHash(ctx, kbID, contentHash); err == nil && existing != nil {
 		return errors.New(errors.CodeConflict, "file already exists in this knowledge base")
-	}
-
-	minioKey := fmt.Sprintf("knowledge/%d/%s/%s", kbID, contentHash, meta.OriginalFilename)
-	if err := h.FileStore.Put(ctx, minioKey, bytes.NewReader(fileBytes.Bytes()), meta.FileSize, contentType(meta.FileType)); err != nil {
-		return errors.Wrap(errors.CodeIOError, "upload file failed", err)
+	} else if err != nil && !stderrors.Is(err, gorm.ErrRecordNotFound) {
+		return errors.Wrap(errors.CodeDBError, "check document content failed", err)
 	}
 	var pipelineOverride *domain.PipelineConfig
 	if meta.PipelineOverride != nil {
@@ -267,11 +282,11 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 		}
 		pipelineOverride = &cfg
 	}
-	// fileType is already validated above
-	docID, err := h.Snowflake.Generate()
+	docID, err := identity.New()
 	if err != nil {
 		return fmt.Errorf("generate doc id failed: %w", err)
 	}
+	minioKey := fmt.Sprintf("knowledge/%s/%s/original", kbID, docID)
 	doc := &domain.Document{
 		ID:               docID,
 		KBID:             kbID,
@@ -285,35 +300,56 @@ func (h *KnowledgeBaseHandler) UploadDocument(stream pb.KnowledgeBase_UploadDocu
 		PipelineOverride: pipelineOverride,
 		Metadata:         parseJSONMeta(meta.Metadata),
 	}
-	if err := h.DocRepo.Create(ctx, doc); err != nil {
-		return errors.Wrap(errors.CodeDBError, "create document failed", err)
-	}
-	if err := h.KBRepo.UpdateCounts(ctx, kbID); err != nil {
-		h.Logger.WithContext(ctx).Errorf("failed to update kb counts after upload: %v", err)
-	}
-	eventData, err := json.Marshal(map[string]any{
-		"doc_id": doc.ID,
+	// Storage-owned object references cannot be supplied through user metadata.
+	delete(doc.Metadata, "image_keys")
+	err = h.DocRepo.WithDocumentLock(ctx, doc.ID, func(lockCtx context.Context) error {
+		if err := h.FileStore.Put(lockCtx, minioKey, bytes.NewReader(fileBytes.Bytes()), meta.FileSize, contentType(fileType)); err != nil {
+			return errors.Wrap(errors.CodeIOError, "upload file failed", err)
+		}
+		if err := h.DocRepo.Create(lockCtx, doc); err != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(lockCtx), 5*time.Second)
+			defer cancel()
+			if cleanupErr := h.FileStore.Delete(cleanupCtx, minioKey); cleanupErr != nil {
+				err = stderrors.Join(err, fmt.Errorf("remove uploaded object: %w", cleanupErr))
+			}
+			return errors.Wrap(errors.CodeDBError, "create document failed", err)
+		}
+		if err := h.KBRepo.UpdateCounts(lockCtx, kbID); err != nil {
+			h.Logger.WithContext(lockCtx).Errorf("failed to update kb counts after upload: %v", err)
+		}
+		eventData, err := json.Marshal(DocumentUploadedEvent{DocID: doc.ID})
+		if err != nil {
+			return errors.Wrap(errors.CodeInternal, "marshal upload event failed", err)
+		}
+		if err := h.Producer.Send(lockCtx, doc.ID, eventData); err != nil {
+			statusCtx, cancel := context.WithTimeout(context.WithoutCancel(lockCtx), 5*time.Second)
+			defer cancel()
+			if statusErr := h.DocRepo.UpdateStatus(statusCtx, doc.ID, domain.DocStatusFailed, "publish upload event failed: "+err.Error()); statusErr != nil {
+				err = stderrors.Join(err, statusErr)
+			}
+			return errors.Wrap(errors.CodeMQError, "publish upload event failed", err)
+		}
+		return nil
 	})
 	if err != nil {
-		return errors.Wrap(errors.CodeInternal, "marshal upload event failed", err)
+		return err
 	}
-	if err := h.Producer.Send(ctx, fmt.Sprintf("%d", doc.ID), eventData); err != nil {
-		_ = h.DocRepo.UpdateStatus(ctx, doc.ID, domain.DocStatusFailed, "publish upload event failed: "+err.Error())
-		return errors.Wrap(errors.CodeMQError, "publish upload event failed", err)
-	}
-	h.Logger.WithContext(ctx).Infof("document uploaded: doc_id=%d kb_id=%d file_name=%s", doc.ID, kbID, meta.OriginalFilename)
+	h.Logger.WithContext(ctx).Infof("document uploaded: doc_id=%s kb_id=%s file_name=%s", doc.ID, kbID, meta.OriginalFilename)
 	return stream.SendAndClose(toDocumentRsp(doc))
 }
 
 func (h *KnowledgeBaseHandler) GetDocument(ctx context.Context, req *pb.GetDocumentReq) (*pb.DocumentRsp, error) {
-	doc, err := h.DocRepo.Get(ctx, req.DocId)
+	doc, err := h.loadDocument(ctx, req.DocId, false)
 	if err != nil {
-		return nil, domain.ErrDocNotFound
+		return nil, err
 	}
 	return toDocumentRsp(doc), nil
 }
 
 func (h *KnowledgeBaseHandler) ListDocuments(ctx context.Context, req *pb.ListDocumentsReq) (*pb.ListDocumentsRsp, error) {
+	if _, err := h.loadKnowledgeBase(ctx, req.KbId, false); err != nil {
+		return nil, err
+	}
 	offset, limit := int(req.Offset), int(req.Limit)
 	if limit <= 0 || limit > 100 {
 		limit = 20
@@ -330,9 +366,9 @@ func (h *KnowledgeBaseHandler) ListDocuments(ctx context.Context, req *pb.ListDo
 }
 
 func (h *KnowledgeBaseHandler) GetDocumentContent(ctx context.Context, req *pb.GetDocumentContentReq) (*pb.GetDocumentContentResp, error) {
-	doc, err := h.DocRepo.Get(ctx, req.DocId)
+	doc, err := h.loadDocument(ctx, req.DocId, false)
 	if err != nil {
-		return nil, domain.ErrDocNotFound
+		return nil, err
 	}
 	if doc.MinioKey == "" {
 		return &pb.GetDocumentContentResp{
@@ -357,9 +393,9 @@ func (h *KnowledgeBaseHandler) GetDocumentContent(ctx context.Context, req *pb.G
 }
 
 func (h *KnowledgeBaseHandler) ListChunks(ctx context.Context, req *pb.ListChunksReq) (*pb.ListChunksResp, error) {
-	doc, err := h.DocRepo.Get(ctx, req.DocId)
+	doc, err := h.loadDocument(ctx, req.DocId, false)
 	if err != nil {
-		return nil, domain.ErrDocNotFound
+		return nil, err
 	}
 	offset, limit := int(req.Offset), int(req.Limit)
 	if limit <= 0 || limit > 100 {
@@ -394,146 +430,165 @@ func (h *KnowledgeBaseHandler) ListChunks(ctx context.Context, req *pb.ListChunk
 }
 
 func (h *KnowledgeBaseHandler) DeleteDocument(ctx context.Context, req *pb.DeleteDocumentReq) (*emptypb.Empty, error) {
-	logger := h.Logger.WithContext(ctx)
-	doc, err := h.DocRepo.Get(ctx, req.DocId)
+	if _, err := h.loadDocument(ctx, req.DocId, true); err != nil {
+		return nil, err
+	}
+	err := h.DocRepo.WithDocumentLock(ctx, req.DocId, func(lockCtx context.Context) error {
+		doc, err := h.loadDocument(lockCtx, req.DocId, true)
+		if err != nil {
+			return err
+		}
+		if doc.Status != domain.DocStatusReady && doc.Status != domain.DocStatusFailed {
+			return domain.ErrDocumentProcessing
+		}
+		if err := h.deleteDocumentData(lockCtx, doc); err != nil {
+			return err
+		}
+		if err := h.KBRepo.UpdateCounts(lockCtx, doc.KBID); err != nil {
+			return errors.Wrap(errors.CodeDBError, "update kb counts after delete failed", err)
+		}
+		h.Logger.WithContext(lockCtx).Infof("document deleted: doc_id=%s kb_id=%s", doc.ID, doc.KBID)
+		return nil
+	})
 	if err != nil {
-		return nil, domain.ErrDocNotFound
+		return nil, err
 	}
-	callerID := getCallerID(ctx)
-	kb, err := h.KBRepo.Get(ctx, doc.KBID)
-	if err != nil {
-		return nil, domain.ErrKBNotFound
-	}
-	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
-		return nil, domain.ErrForbidden
-	}
-	if doc.Status != domain.DocStatusReady && doc.Status != domain.DocStatusFailed {
-		return nil, domain.ErrDocumentProcessing
-	}
-	if doc.MinioKey != "" {
-		_ = h.FileStore.Delete(ctx, doc.MinioKey)
-	}
-	if h.VectorStore != nil {
-		_ = h.VectorStore.DeleteByDoc(ctx, doc.ID)
-	}
-	_ = h.DocRepo.DeleteChunksByDoc(ctx, doc.ID)
-	if err := h.DocRepo.Delete(ctx, doc.ID); err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "delete document failed", err)
-	}
-	if err := h.KBRepo.UpdateCounts(ctx, doc.KBID); err != nil {
-		logger.Errorf("failed to update kb counts after delete: %v", err)
-	}
-	logger.Infof("document deleted: doc_id=%d kb_id=%d", doc.ID, doc.KBID)
 	return &emptypb.Empty{}, nil
 }
 
 func (h *KnowledgeBaseHandler) RetryDocument(ctx context.Context, req *pb.RetryDocumentReq) (*pb.DocumentRsp, error) {
-	doc, err := h.DocRepo.Get(ctx, req.DocId)
-	if err != nil {
-		return nil, domain.ErrDocNotFound
+	if _, err := h.loadDocument(ctx, req.DocId, true); err != nil {
+		return nil, err
 	}
-	kb, err := h.KBRepo.Get(ctx, doc.KBID)
-	if err != nil {
-		return nil, domain.ErrKBNotFound
-	}
-	if !ownsKnowledgeBase(kb, getCallerID(ctx)) && !isAdmin(ctx) {
-		return nil, domain.ErrForbidden
-	}
-	if doc.Status != domain.DocStatusFailed {
-		return nil, domain.ErrDocumentNotFailed
-	}
-	doc.Status = domain.DocStatusPending
-	doc.ErrorMessage = ""
-	if err := h.DocRepo.Update(ctx, doc); err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "reset document status failed", err)
-	}
-	eventData, err := json.Marshal(map[string]any{
-		"doc_id": doc.ID,
+	var doc *domain.Document
+	err := h.DocRepo.WithDocumentLock(ctx, req.DocId, func(lockCtx context.Context) error {
+		var err error
+		doc, err = h.loadDocument(lockCtx, req.DocId, true)
+		if err != nil {
+			return err
+		}
+		kb, err := h.loadKnowledgeBase(lockCtx, doc.KBID, true)
+		if err != nil {
+			return err
+		}
+		if kb.Status != "active" {
+			return domain.ErrKBNotFound
+		}
+		if doc.Status != domain.DocStatusFailed {
+			return domain.ErrDocumentNotFailed
+		}
+		doc.Status = domain.DocStatusPending
+		doc.ErrorMessage = ""
+		if err := h.DocRepo.Update(lockCtx, doc); err != nil {
+			return errors.Wrap(errors.CodeDBError, "reset document status failed", err)
+		}
+		eventData, err := json.Marshal(DocumentUploadedEvent{DocID: doc.ID})
+		if err != nil {
+			return errors.Wrap(errors.CodeInternal, "marshal retry event failed", err)
+		}
+		if err := h.Producer.Send(lockCtx, doc.ID, eventData); err != nil {
+			statusCtx, cancel := context.WithTimeout(context.WithoutCancel(lockCtx), 5*time.Second)
+			defer cancel()
+			if statusErr := h.DocRepo.UpdateStatus(statusCtx, doc.ID, domain.DocStatusFailed, "publish retry event failed: "+err.Error()); statusErr != nil {
+				err = stderrors.Join(err, statusErr)
+			}
+			return errors.Wrap(errors.CodeMQError, "publish retry event failed", err)
+		}
+		return nil
 	})
 	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "marshal retry event failed", err)
-	}
-	if err := h.Producer.Send(ctx, fmt.Sprintf("%d", doc.ID), eventData); err != nil {
-		_ = h.DocRepo.UpdateStatus(ctx, doc.ID, domain.DocStatusFailed, "publish retry event failed: "+err.Error())
-		return nil, errors.Wrap(errors.CodeMQError, "publish retry event failed", err)
+		return nil, err
 	}
 	return toDocumentRsp(doc), nil
 }
 
 func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq) (*pb.RetrieveRsp, error) {
-	var kbIDs []int64
-	if len(req.KbIds) > 0 {
-		kbIDs = req.KbIds
-	} else {
-		if req.BotId > 0 {
-			bindings, err := h.KBRepo.ListBindingsByTarget(ctx, "bot", req.BotId)
-			if err == nil {
-				for _, b := range bindings {
-					if kb, err := h.KBRepo.Get(ctx, b.KBID); err == nil && kb.Mode == "rag" {
-						kbIDs = append(kbIDs, b.KBID)
-					}
-				}
-			}
-		}
-		if req.ConvId > 0 {
-			bindings, err := h.KBRepo.ListBindingsByTarget(ctx, "conv", req.ConvId)
-			if err == nil {
-				for _, b := range bindings {
-					if kb, err := h.KBRepo.Get(ctx, b.KBID); err == nil && kb.Mode == "rag" {
-						kbIDs = append(kbIDs, b.KBID)
-					}
-				}
+	if getCallerID(ctx) == "" {
+		return nil, errors.ErrUnauthorized
+	}
+	for _, targetID := range []*string{req.BotId, req.ConvId} {
+		if targetID != nil {
+			if err := identity.Validate(*targetID); err != nil {
+				return nil, errors.Wrap(errors.CodeInvalidParam, "invalid retrieval target_id", err)
 			}
 		}
 	}
+	kbIDs := req.KbIds
 	if len(kbIDs) == 0 {
-		h.Logger.WithContext(ctx).Infof("retrieve: kb_ids=[] query_len=%d doc_count=0", len(req.Query))
-		return &pb.RetrieveRsp{}, nil
-	}
-	kb, err := h.KBRepo.Get(ctx, kbIDs[0])
-	if err != nil {
-		return nil, domain.ErrKBNotFound
-	}
-	retrievalCfg := kb.PipelineConfig.Retrieval
-	metrics.KbSearchTotal.Inc("rag")
-	if h.RetrievePipe != nil {
-		embeddingModelID, err := kb.ResolveEmbeddingModelID(ctx, h.KBRepo)
-		if err != nil {
-			return nil, errors.Wrap(errors.CodeInvalidParam, "embedding model unavailable", err)
+		for _, target := range []struct {
+			kind string
+			id   *string
+		}{{"bot", req.BotId}, {"conv", req.ConvId}} {
+			if target.id == nil {
+				continue
+			}
+			bindings, err := h.KBRepo.ListBindingsByTarget(ctx, target.kind, *target.id)
+			if err != nil {
+				return nil, errors.Wrap(errors.CodeDBError, "list retrieval bindings failed", err)
+			}
+			for _, binding := range bindings {
+				kb, err := h.loadKnowledgeBase(ctx, binding.KBID, false)
+				if err != nil {
+					return nil, err
+				}
+				if kb.Mode == "rag" {
+					kbIDs = append(kbIDs, kb.ID)
+				}
+			}
 		}
-		items, err := h.RetrievePipe.Retrieve(ctx, kbIDs, req.Query, retrievalCfg, embeddingModelID, kb.OwnerID)
+	}
+	var firstKB *domain.KnowledgeBase
+	for _, kbID := range kbIDs {
+		kb, err := h.loadKnowledgeBase(ctx, kbID, false)
 		if err != nil {
 			return nil, err
 		}
-		pbItems := make([]*pb.RetrieveItem, len(items))
-		for i, item := range items {
-			pbItems[i] = &pb.RetrieveItem{
-				Content:        item.Content,
-				Score:          item.Score,
-				DocId:          item.DocID,
-				DocTitle:       item.DocTitle,
-				KbId:           item.KBID,
-				KbName:         item.KBName,
-				MatchedContent: item.MatchedContent,
-			}
+		if kb.Status != "active" {
+			return nil, domain.ErrKBNotFound
 		}
-		h.Logger.WithContext(ctx).Infof("retrieve: kb_id=%d query_len=%d doc_count=%d", kbIDs[0], len(req.Query), len(pbItems))
-		return &pb.RetrieveRsp{Items: pbItems}, nil
+		if firstKB == nil {
+			firstKB = kb
+		}
 	}
-	h.Logger.WithContext(ctx).Infof("retrieve: kb_id=%d query_len=%d doc_count=0 (no pipeline)", kbIDs[0], len(req.Query))
-	return &pb.RetrieveRsp{}, nil
+	if firstKB == nil {
+		return &pb.RetrieveRsp{}, nil
+	}
+	if h.RetrievePipe == nil {
+		return nil, errors.New(errors.CodeInternal, "retrieval pipeline unavailable")
+	}
+	embeddingModelID, err := firstKB.ResolveEmbeddingModelID(ctx, h.KBRepo)
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeInvalidParam, "embedding model unavailable", err)
+	}
+	metrics.KbSearchTotal.Inc("rag")
+	items, err := h.RetrievePipe.Retrieve(ctx, kbIDs, req.Query, firstKB.PipelineConfig.Retrieval, embeddingModelID, firstKB.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	pbItems := make([]*pb.RetrieveItem, len(items))
+	for i, item := range items {
+		pbItems[i] = &pb.RetrieveItem{
+			ChunkId: item.ChunkID, Content: item.Content, Score: item.Score,
+			DocId: item.DocID, DocTitle: item.DocTitle, KbId: item.KBID,
+			KbName: item.KBName, MatchedContent: item.MatchedContent,
+		}
+	}
+	h.Logger.WithContext(ctx).Infof("retrieve: kb_id=%s query_len=%d doc_count=%d", firstKB.ID, len(req.Query), len(pbItems))
+	return &pb.RetrieveRsp{Items: pbItems}, nil
 }
 
 func (h *KnowledgeBaseHandler) Bind(ctx context.Context, req *pb.BindReq) (*emptypb.Empty, error) {
-	callerID := getCallerID(ctx)
-	kb, err := h.KBRepo.Get(ctx, req.KbId)
+	kb, err := h.loadKnowledgeBase(ctx, req.KbId, true)
 	if err != nil {
+		return nil, err
+	}
+	if kb.Status != "active" {
 		return nil, domain.ErrKBNotFound
 	}
-	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
-		return nil, domain.ErrForbidden
+	if err := validateBindingTarget(req.TargetType, req.TargetId); err != nil {
+		return nil, err
 	}
-	bindingID, err := h.Snowflake.Generate()
+	bindingID, err := identity.New()
 	if err != nil {
 		return nil, fmt.Errorf("generate binding id failed: %w", err)
 	}
@@ -546,51 +601,61 @@ func (h *KnowledgeBaseHandler) Bind(ctx context.Context, req *pb.BindReq) (*empt
 	if err := h.KBRepo.Bind(ctx, binding); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "bind failed", err)
 	}
-	h.Logger.WithContext(ctx).Infof("kb bound: kb_id=%d target_type=%s target_id=%d", req.KbId, req.TargetType, req.TargetId)
+	h.Logger.WithContext(ctx).Infof("kb bound: kb_id=%s target_type=%s target_id=%s", req.KbId, req.TargetType, req.TargetId)
 	return &emptypb.Empty{}, nil
 }
 
 func (h *KnowledgeBaseHandler) Unbind(ctx context.Context, req *pb.UnbindReq) (*emptypb.Empty, error) {
-	callerID := getCallerID(ctx)
-	kb, err := h.KBRepo.Get(ctx, req.KbId)
-	if err != nil {
-		return nil, domain.ErrKBNotFound
+	if _, err := h.loadKnowledgeBase(ctx, req.KbId, true); err != nil {
+		return nil, err
 	}
-	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) {
-		return nil, domain.ErrForbidden
+	if err := validateBindingTarget(req.TargetType, req.TargetId); err != nil {
+		return nil, err
 	}
 	if err := h.KBRepo.Unbind(ctx, req.KbId, req.TargetType, req.TargetId); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "unbind failed", err)
 	}
-	h.Logger.WithContext(ctx).Infof("kb unbound: kb_id=%d target_type=%s target_id=%d", req.KbId, req.TargetType, req.TargetId)
+	h.Logger.WithContext(ctx).Infof("kb unbound: kb_id=%s target_type=%s target_id=%s", req.KbId, req.TargetType, req.TargetId)
 	return &emptypb.Empty{}, nil
 }
 
 func (h *KnowledgeBaseHandler) ListBindings(ctx context.Context, req *pb.ListBindingsReq) (*pb.ListBindingsRsp, error) {
+	if getCallerID(ctx) == "" {
+		return nil, errors.ErrUnauthorized
+	}
+	if err := validateBindingTarget(req.TargetType, req.TargetId); err != nil {
+		return nil, err
+	}
 	bindings, err := h.KBRepo.ListBindingsByTarget(ctx, req.TargetType, req.TargetId)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "list bindings failed", err)
 	}
-	items := make([]*pb.BindingItem, len(bindings))
-	for i, b := range bindings {
-		mode := "rag"
-		if kb, err := h.KBRepo.Get(ctx, b.KBID); err == nil {
-			mode = kb.Mode
+	items := make([]*pb.BindingItem, 0, len(bindings))
+	for _, b := range bindings {
+		kb, err := h.loadKnowledgeBase(ctx, b.KBID, false)
+		if err != nil {
+			if stderrors.Is(err, domain.ErrForbidden) {
+				continue
+			}
+			return nil, err
 		}
-		items[i] = &pb.BindingItem{
+		items = append(items, &pb.BindingItem{
 			Id:         b.ID,
 			KbId:       b.KBID,
 			KbName:     b.KBName,
-			Mode:       mode,
+			Mode:       kb.Mode,
 			TargetType: b.TargetType,
 			TargetId:   b.TargetID,
 			CreatedAt:  b.CreatedAt.Unix(),
-		}
+		})
 	}
 	return &pb.ListBindingsRsp{Items: items}, nil
 }
 
 func (h *KnowledgeBaseHandler) ListBoundTargets(ctx context.Context, req *pb.ListBoundTargetsReq) (*pb.ListBoundTargetsRsp, error) {
+	if _, err := h.loadKnowledgeBase(ctx, req.KbId, false); err != nil {
+		return nil, err
+	}
 	bindings, err := h.KBRepo.ListBindingsByKB(ctx, req.KbId)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "list bound targets failed", err)
@@ -624,14 +689,121 @@ func ownsKnowledgeBase(kb *domain.KnowledgeBase, callerID string) bool {
 	return callerID != "" && kb.OwnerType == "user" && kb.OwnerID != nil && *kb.OwnerID == callerID
 }
 
-func getKBIDFromContext(ctx context.Context) int64 {
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if vals := md.Get("kb-id"); len(vals) > 0 {
-			id, _ := strconv.ParseInt(vals[0], 10, 64)
-			return id
+func (h *KnowledgeBaseHandler) loadKnowledgeBase(ctx context.Context, id string, write bool) (*domain.KnowledgeBase, error) {
+	if err := identity.Validate(id); err != nil {
+		return nil, errors.Wrap(errors.CodeInvalidParam, "invalid kb_id", err)
+	}
+	callerID := getCallerID(ctx)
+	if callerID == "" {
+		return nil, errors.ErrUnauthorized
+	}
+	kb, err := h.KBRepo.Get(ctx, id)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, domain.ErrKBNotFound
+	}
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "get knowledge base failed", err)
+	}
+	if err := kb.ValidateOwner(); err != nil {
+		return nil, domain.ErrForbidden
+	}
+	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) && (write || kb.OwnerType != "platform") {
+		return nil, domain.ErrForbidden
+	}
+	return kb, nil
+}
+
+func (h *KnowledgeBaseHandler) loadDocument(ctx context.Context, id string, write bool) (*domain.Document, error) {
+	if err := identity.Validate(id); err != nil {
+		return nil, errors.Wrap(errors.CodeInvalidParam, "invalid doc_id", err)
+	}
+	if getCallerID(ctx) == "" {
+		return nil, errors.ErrUnauthorized
+	}
+	doc, err := h.DocRepo.Get(ctx, id)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, domain.ErrDocNotFound
+	}
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeDBError, "get document failed", err)
+	}
+	if _, err := h.loadKnowledgeBase(ctx, doc.KBID, write); err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+
+func validateBindingTarget(targetType, targetID string) error {
+	if targetType != "bot" && targetType != "conv" {
+		return errors.ErrInvalidParam
+	}
+	if err := identity.Validate(targetID); err != nil {
+		return errors.Wrap(errors.CodeInvalidParam, "invalid target_id", err)
+	}
+	return nil
+}
+
+// The caller holds the document lock. Invalidating readiness first ensures any
+// failed external cleanup cannot leave old vector results visible to retrieval.
+func (h *KnowledgeBaseHandler) deleteDocumentData(ctx context.Context, doc *domain.Document) error {
+	if err := h.DocRepo.UpdateStatus(ctx, doc.ID, domain.DocStatusFailed, "document deletion in progress"); err != nil {
+		return errors.Wrap(errors.CodeDBError, "invalidate document before deletion failed", err)
+	}
+	if err := h.DocRepo.DeleteChunksByDoc(ctx, doc.ID); err != nil {
+		return errors.Wrap(errors.CodeDBError, "delete document chunks failed", err)
+	}
+	if h.VectorStore == nil {
+		return errors.New(errors.CodeInternal, "vector store unavailable")
+	}
+	if err := h.VectorStore.DeleteByDoc(ctx, doc.ID); err != nil {
+		return errors.Wrap(errors.CodeIOError, "delete document vectors failed", err)
+	}
+	prefix := "knowledge/" + doc.KBID + "/" + doc.ID + "/images/"
+	deleteImage := func(raw any) error {
+		key, ok := raw.(string)
+		if !ok || !strings.HasPrefix(key, prefix) || len(key) == len(prefix) || strings.Contains(key[len(prefix):], "/") {
+			return errors.New(errors.CodeInvalidParam, "invalid document image object reference")
+		}
+		if err := h.FileStore.Delete(ctx, key); err != nil {
+			return errors.Wrap(errors.CodeIOError, "delete document image failed", err)
+		}
+		return nil
+	}
+	switch keys := doc.Metadata["image_keys"].(type) {
+	case nil:
+	case []string:
+		for _, key := range keys {
+			if err := deleteImage(key); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, key := range keys {
+			if err := deleteImage(key); err != nil {
+				return err
+			}
+		}
+	default:
+		return errors.New(errors.CodeInvalidParam, "invalid document image object references")
+	}
+	if doc.MinioKey != "" {
+		if err := h.FileStore.Delete(ctx, doc.MinioKey); err != nil {
+			return errors.Wrap(errors.CodeIOError, "delete document object failed", err)
 		}
 	}
-	return 0
+	if err := h.DocRepo.Delete(ctx, doc.ID); err != nil {
+		return errors.Wrap(errors.CodeDBError, "delete document failed", err)
+	}
+	return nil
+}
+
+func getKBIDFromContext(ctx context.Context) string {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if vals := md.Get("kb-id"); len(vals) > 0 && identity.Validate(vals[0]) == nil {
+			return vals[0]
+		}
+	}
+	return ""
 }
 
 func isAdmin(ctx context.Context) bool {
@@ -697,6 +869,18 @@ func toDocumentRsp(doc *domain.Document) *pb.DocumentRsp {
 		ErrorMessage:     doc.ErrorMessage,
 		CreatedAt:        doc.CreatedAt.Unix(),
 		UpdatedAt:        doc.UpdatedAt.Unix(),
+	}
+	rsp.Stages = make([]*pb.StageInfo, len(doc.Stages))
+	for i, stage := range doc.Stages {
+		rsp.Stages[i] = &pb.StageInfo{
+			Name: stage.Name, Status: stage.Status, Retries: int32(stage.Retries),
+			Error: stage.Error, StartedAt: stage.StartedAt, EndedAt: stage.EndedAt,
+		}
+	}
+	if len(doc.Metadata) > 0 {
+		if raw, err := json.Marshal(doc.Metadata); err == nil {
+			rsp.Metadata = string(raw)
+		}
 	}
 	return rsp
 }

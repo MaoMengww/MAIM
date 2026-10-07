@@ -304,6 +304,16 @@ func buildBody(modelName string, msgs []*schema.Message, opts *model.Options, st
 	return body
 }
 
+// HTTPError preserves a provider rejection separately from a transport failure.
+type HTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("api error %d: %s", e.StatusCode, e.Body)
+}
+
 func DoRequest(ctx context.Context, url, apiKey string, body map[string]any) ([]byte, error) {
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
@@ -316,7 +326,7 @@ func DoRequest(ctx context.Context, url, apiKey string, body map[string]any) ([]
 	defer resp.Body.Close()
 	b, _ = io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("api error %d: %s", resp.StatusCode, string(b))
+		return nil, &HTTPError{StatusCode: resp.StatusCode, Body: string(b)}
 	}
 	return b, nil
 }

@@ -64,8 +64,5 @@ MinerU:
   URL: ${MINERU_URL}
   Timeout: 60
 
-Snowflake:
-  WorkerId: 3
-
 MaxFileSize: 10485760
 RetryLimit: 3

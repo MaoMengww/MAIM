@@ -12,6 +12,7 @@ import (
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	"github.com/maomeng/aim/app/knowledge-base/internal/metrics"
 	"github.com/maomeng/aim/app/knowledge-base/internal/pipeline"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 	"golang.org/x/time/rate"
@@ -23,7 +24,6 @@ import (
 // and the Kafka session waits for in-flight work before committing offsets.
 type DocumentUploadedHandler struct {
 	DocRepo        domain.DocumentRepo
-	KBRepo         domain.KBRepo
 	IngestPipe     *pipeline.IngestPipeline
 	Logger         logx.Logger
 	Ready          atomic.Bool
@@ -33,12 +33,12 @@ type DocumentUploadedHandler struct {
 }
 
 type DocumentUploadedEvent struct {
-	DocID int64 `json:"doc_id"`
+	DocID string `json:"doc_id"`
 }
 
-func NewDocumentUploadedHandler(docs domain.DocumentRepo, kbs domain.KBRepo, pipe *pipeline.IngestPipeline, logger logx.Logger, cfg config.IngestConfig) *DocumentUploadedHandler {
+func NewDocumentUploadedHandler(docs domain.DocumentRepo, pipe *pipeline.IngestPipeline, logger logx.Logger, cfg config.IngestConfig) *DocumentUploadedHandler {
 	return &DocumentUploadedHandler{
-		DocRepo: docs, KBRepo: kbs, IngestPipe: pipe, Logger: logger,
+		DocRepo: docs, IngestPipe: pipe, Logger: logger,
 		slots: make(chan struct{}, cfg.Concurrency), limiter: rate.NewLimiter(rate.Limit(cfg.RequestsPerSecond), 1),
 		embeddingToken: cfg.EmbeddingToken,
 	}
@@ -90,7 +90,7 @@ func (h *DocumentUploadedHandler) ConsumeClaim(sess sarama.ConsumerGroupSession,
 func (h *DocumentUploadedHandler) Handle(ctx context.Context, key, value []byte) error {
 	var event DocumentUploadedEvent
 	logger := h.Logger.WithContext(ctx)
-	if err := json.Unmarshal(value, &event); err != nil || event.DocID <= 0 {
+	if err := json.Unmarshal(value, &event); err != nil || identity.Validate(event.DocID) != nil || string(key) != event.DocID {
 		metrics.KbIngestConsumerErrors.Inc("invalid_event")
 		logger.Errorf("invalid document.uploaded event")
 		return nil // Poison events cannot identify a document to process.
@@ -114,41 +114,18 @@ func (h *DocumentUploadedHandler) Handle(ctx context.Context, key, value []byte)
 	if err != nil {
 		return err
 	}
-	if doc.Status == domain.DocStatusReady {
+	if doc.Status == domain.DocStatusReady || doc.Status == domain.DocStatusFailed {
 		return nil
-	}
-	kb, err := h.KBRepo.Get(pipeCtx, doc.KBID)
-	if err != nil {
-		statusCtx, statusCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer statusCancel()
-		if updateErr := h.DocRepo.UpdateStatus(statusCtx, doc.ID, domain.DocStatusFailed, "knowledge base unavailable: "+err.Error()); updateErr != nil {
-			return updateErr
-		}
-		metrics.KbIngestTotal.Inc("failed")
-		return nil
-	}
-	embedID, err := kb.ResolveEmbeddingModelID(pipeCtx, h.KBRepo)
-	if err != nil {
-		statusCtx, statusCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer statusCancel()
-		return h.DocRepo.UpdateStatus(statusCtx, doc.ID, domain.DocStatusFailed, "embedding model unavailable: "+err.Error())
-	}
-	cfg := kb.PipelineConfig
-	if doc.PipelineOverride != nil {
-		cfg = *doc.PipelineOverride
 	}
 	metrics.KbIngestActive.Add(1)
 	defer metrics.KbIngestActive.Add(-1)
-	logger.Infof("ingest started: doc_id=%d kb_id=%d", doc.ID, doc.KBID)
-	if err := h.IngestPipe.Run(pipeCtx, doc, cfg, embedID, kb.OwnerID); err != nil {
-		logger.Errorf("ingest failed: doc_id=%d error=%v", doc.ID, err)
-		// A failed document is durable and retryable through RetryDocument. If
-		// persistence failed, retain the Kafka offset rather than losing the task.
-		statusCtx, statusCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer statusCancel()
-		if updateErr := h.DocRepo.UpdateStatus(statusCtx, doc.ID, domain.DocStatusFailed, err.Error()); updateErr != nil {
-			return updateErr
-		}
+	logger.Infof("ingest started: doc_id=%s kb_id=%s", doc.ID, doc.KBID)
+	if err := h.IngestPipe.Run(pipeCtx, doc); err != nil {
+		logger.Errorf("ingest failed: doc_id=%s error=%v", doc.ID, err)
+		// Run persists failures while holding the document lock. Retry the
+		// Kafka message only to recover storage failures; a durable failed
+		// document is skipped and stays retryable through RetryDocument.
+		return err
 	}
 	return nil
 }

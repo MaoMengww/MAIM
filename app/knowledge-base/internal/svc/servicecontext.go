@@ -12,7 +12,6 @@ import (
 	pkgkafka "github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
 	pkgminio "github.com/maomeng/aim/pkg/minio"
-	"github.com/maomeng/aim/pkg/snowflake"
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
@@ -25,7 +24,6 @@ type ServiceContext struct {
 	Producer          *pkgkafka.Producer
 	DeliveryPublisher *delivery.Publisher
 	LLMGatewayClient  zrpc.Client
-	Snowflake         *snowflake.Node
 }
 
 func NewServiceContext(c config.Config, role string) *ServiceContext {
@@ -59,16 +57,8 @@ func NewServiceContext(c config.Config, role string) *ServiceContext {
 	}
 	fileStore := infraMinio.NewFileStore(minioClient)
 
-	var snowNode *snowflake.Node
-	if role == "online" {
-		snowNode, err = snowflake.NewNode(c.Snowflake.WorkerID)
-		if err != nil {
-			panic(fmt.Sprintf("init snowflake failed: %v", err))
-		}
-	}
-
-	kbRepo := repo.NewKBRepo(db).WithSnow(snowNode)
-	docRepo := repo.NewDocumentRepo(db).WithSnow(snowNode)
+	kbRepo := repo.NewKBRepo(db)
+	docRepo := repo.NewDocumentRepo(db)
 	llmGatewayClient := zrpc.MustNewClient(c.LLMGateway)
 
 	return &ServiceContext{
@@ -80,7 +70,6 @@ func NewServiceContext(c config.Config, role string) *ServiceContext {
 		Producer:          kafkaProducer,
 		DeliveryPublisher: deliveryPublisher,
 		LLMGatewayClient:  llmGatewayClient,
-		Snowflake:         snowNode,
 	}
 }
 

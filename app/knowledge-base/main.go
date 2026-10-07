@@ -73,35 +73,30 @@ func main() {
 		ingestPipe := &pipeline.IngestPipeline{
 			Embedder: embed, VectorStore: vecStore, FileStore: resources.FileStore,
 			DocRepo: resources.DocRepo, KBRepo: resources.KBRepo,
-			NextChunkID: func(ctx context.Context) (int64, error) {
-				var id int64
-				err := resources.DB.WithContext(ctx).Raw("SELECT nextval('knowledge.ingest_chunk_ids')").Scan(&id).Error
-				return id, err
-			},
 			LLMGatewayClient: resources.LLMGatewayClient, RetryLimit: c.RetryLimit,
 			MaxFileSize: c.MaxFileSize, Logger: logger,
 			Progress: func(ctx context.Context, doc *domain.Document, evt event.RealtimeEvent) {
 				kb, err := resources.KBRepo.Get(ctx, doc.KBID)
 				if err != nil {
-					logger.Errorf("progress owner lookup failed: doc_id=%d err=%v", doc.ID, err)
+					logger.Errorf("progress owner lookup failed: doc_id=%s err=%v", doc.ID, err)
 					return
 				}
 				if kb.OwnerType != "user" || kb.OwnerID == nil {
 					return
 				}
 				evt.UserID = kb.OwnerID
-				evt.DocID, evt.KBID = doc.ID, doc.KBID
+				evt.DocID, evt.KBID = &doc.ID, &doc.KBID
 				evt.Source, evt.CreatedAt = "knowledge-base", time.Now().Unix()
 				raw, err := event.MarshalRealtimeEvent(evt)
 				if err == nil {
 					err = resources.DeliveryPublisher.Publish(ctx, *kb.OwnerID, delivery.Intent{UserIDs: []string{*kb.OwnerID}, Payload: raw})
 				}
 				if err != nil {
-					logger.Errorf("progress publish failed: doc_id=%d err=%v", doc.ID, err)
+					logger.Errorf("progress publish failed: doc_id=%s err=%v", doc.ID, err)
 				}
 			},
 		}
-		docHandler := handler.NewDocumentUploadedHandler(resources.DocRepo, resources.KBRepo, ingestPipe, logger, c.Ingest)
+		docHandler := handler.NewDocumentUploadedHandler(resources.DocRepo, ingestPipe, logger, c.Ingest)
 		if err := runIngest(c, docHandler, logger); err != nil {
 			panic(err)
 		}
@@ -112,10 +107,10 @@ func main() {
 		KBRepo: resources.KBRepo, DocRepo: resources.DocRepo, FileStore: resources.FileStore,
 		VectorStore: vecStore, Producer: resources.Producer,
 		RetrievePipe: &pipeline.RetrievePipeline{
-			KBRepo: resources.KBRepo, Embedder: embed, VectorStore: vecStore,
+			KBRepo: resources.KBRepo, DocRepo: resources.DocRepo, Embedder: embed, VectorStore: vecStore,
 			Reranker: reranker.NewLLMGatewayReranker(resources.LLMGatewayClient), Logger: logger,
 		},
-		Snowflake: resources.Snowflake, Logger: logger,
+		Logger: logger,
 	}
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
 		pb.RegisterKnowledgeBaseServer(grpcServer, h)
@@ -124,6 +119,7 @@ func main() {
 		}
 	})
 	s.AddUnaryInterceptors(interceptor.UnaryRequestIDInterceptor(), interceptor.UnaryUserIDInterceptor(), interceptor.UnaryErrorInterceptor())
+	s.AddStreamInterceptors(interceptor.StreamErrorInterceptor())
 	defer s.Stop()
 	fmt.Printf("Starting knowledge-base online rpc server at %s...\n", c.ListenOn)
 	s.Start()
