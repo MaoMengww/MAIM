@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/pkg/logx"
+	"google.golang.org/grpc/metadata"
 )
 
 // BuildContextNode gathers all context before LLM inference.
@@ -85,7 +86,10 @@ func (n *BuildContextNode) Invoke(ctx context.Context, event *model.BotEvent) (*
 	if err != nil {
 		return nil, err
 	}
-	knowledge, kbSources := n.loadKnowledge(ctx, msgText, event)
+	knowledge, kbSources, err := n.loadKnowledge(ctx, msgText, event)
+	if err != nil {
+		return nil, err
+	}
 	if knowledge != "" {
 		contextMsgs = append(contextMsgs, &schema.Message{Role: schema.Assistant, Content: knowledge})
 	}
@@ -163,15 +167,16 @@ func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEven
 	return result, nil
 }
 
-func (n *BuildContextNode) loadKnowledge(ctx context.Context, query string, event *model.BotEvent) (string, []KnowledgeSource) {
-	if !n.bot.EnableKnowledge || n.resolver == nil || query == "" {
-		return "", nil
+func (n *BuildContextNode) loadKnowledge(ctx context.Context, query string, event *model.BotEvent) (string, []KnowledgeSource, error) {
+	if !n.bot.EnableKnowledge || n.resolver == nil || query == "" || event == nil || event.Sender == nil || event.Sender.UserID == nil {
+		return "", nil, nil
 	}
-	var convID string
-	if event != nil {
-		convID = event.ConvID
-	}
-	return n.resolver.Query(ctx, query, n.bot.ID, convID)
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	md.Delete("x-user-id")
+	md.Set("user-id", *event.Sender.UserID)
+	ctx = metadata.NewOutgoingContext(ctx, md)
+	return n.resolver.Query(ctx, query, n.bot.ID, event.ConvID)
 }
 
 // renderTemplate replaces {key} placeholders with values.

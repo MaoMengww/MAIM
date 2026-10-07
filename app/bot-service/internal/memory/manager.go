@@ -1,20 +1,17 @@
 package memory
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/logx"
 )
-
-// IDGenerator generates unique IDs for episodes and facts.
-type IDGenerator interface {
-	Generate() (int64, error)
-}
 
 // ProfileChatFunc sends a prompt to an LLM and returns the generated text.
 // The caller binds the model selection logic (modelID, modelName, ownerID).
@@ -25,7 +22,6 @@ type Manager struct {
 	logger      logx.Logger
 	store       Store
 	extractor   *Extractor
-	idGen       IDGenerator
 	embedder    Embedder
 	vector      *MemoryVectorStore
 	vectorTopK  int
@@ -33,12 +29,11 @@ type Manager struct {
 }
 
 // NewManager creates a new memory Manager.
-func NewManager(logger logx.Logger, store Store, extractor *Extractor, idGen IDGenerator, embedder Embedder, vector *MemoryVectorStore) *Manager {
+func NewManager(logger logx.Logger, store Store, extractor *Extractor, embedder Embedder, vector *MemoryVectorStore) *Manager {
 	m := &Manager{
 		logger:     logger,
 		store:      store,
 		extractor:  extractor,
-		idGen:      idGen,
 		embedder:   embedder,
 		vector:     vector,
 		vectorTopK: 3,
@@ -60,7 +55,7 @@ func (m *Manager) SetProfileChat(fn ProfileChatFunc) {
 	}
 }
 
-// WithExtractor returns a manager view using the same store, embedder, vector, and ID generator.
+// WithExtractor returns a manager view using the same store, embedder, and vector store.
 func (m *Manager) WithExtractor(extractor *Extractor) *Manager {
 	if m == nil {
 		return nil
@@ -69,7 +64,6 @@ func (m *Manager) WithExtractor(extractor *Extractor) *Manager {
 		logger:      m.logger,
 		store:       m.store,
 		extractor:   extractor,
-		idGen:       m.idGen,
 		embedder:    m.embedder,
 		vector:      m.vector,
 		vectorTopK:  m.vectorTopK,
@@ -90,7 +84,7 @@ func (m *Manager) RememberAsync(extractCtx context.Context, input ExtractInput) 
 		if input.SentAt.IsZero() {
 			input.SentAt = time.Now()
 		}
-		episodeID, err := m.nextID()
+		episodeID, err := identity.New()
 		if err != nil {
 			m.withLogger(extractCtx).Errorf("memory episode id failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, err)
 			return
@@ -107,6 +101,7 @@ func (m *Manager) RememberAsync(extractCtx context.Context, input ExtractInput) 
 		}
 		if err := m.store.SaveEpisode(extractCtx, episode); err != nil {
 			m.withLogger(extractCtx).Errorf("memory episode save failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, err)
+			return
 		}
 
 		result, err := m.extractor.Extract(extractCtx, input)
@@ -121,7 +116,7 @@ func (m *Manager) RememberAsync(extractCtx context.Context, input ExtractInput) 
 		facts := make([]Fact, 0, len(result.Facts))
 		now := time.Now()
 		for _, extracted := range result.Facts {
-			factID, err := m.nextID()
+			factID, err := identity.New()
 			if err != nil {
 				m.withLogger(extractCtx).Errorf("memory fact id failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, err)
 				continue
@@ -129,6 +124,7 @@ func (m *Manager) RememberAsync(extractCtx context.Context, input ExtractInput) 
 			validAt, invalidAt := resolveTemporal(input.SentAt, extracted.TemporalHint)
 			fact := Fact{
 				ID:           factID,
+				EpisodeID:    episodeID,
 				BotID:        input.BotID,
 				UserID:       input.UserID,
 				ConvID:       input.ConvID,
@@ -158,8 +154,31 @@ func (m *Manager) RememberAsync(extractCtx context.Context, input ExtractInput) 
 			return
 		}
 
-		// Optional: index facts in vector store.
+		// Only persisted graph facts may be indexed; deduplication can discard candidates.
 		if m.embedder != nil && m.vector != nil && input.EmbeddingModelID != nil {
+			ids := make([]string, len(facts))
+			for i, fact := range facts {
+				ids[i] = fact.ID
+			}
+			persisted, err := m.store.SearchByIDs(extractCtx, Scope{BotID: input.BotID, UserID: input.UserID}, ids, true)
+			if err != nil {
+				m.withLogger(extractCtx).Errorf("memory persisted facts lookup failed: bot_id=%s user_id=%s error=%v", input.BotID, input.UserID, err)
+				return
+			}
+			persistedIDs := make(map[string]bool, len(persisted))
+			for _, fact := range persisted {
+				persistedIDs[fact.ID] = true
+			}
+			indexed := facts[:0]
+			for _, fact := range facts {
+				if persistedIDs[fact.ID] {
+					indexed = append(indexed, fact)
+				}
+			}
+			facts = indexed
+			if len(facts) == 0 {
+				return
+			}
 			texts := make([]string, len(facts))
 			for i, f := range facts {
 				texts[i] = f.Content
@@ -196,7 +215,7 @@ func (m *Manager) Search(ctx context.Context, query MemoryQuery) ([]Memory, erro
 	scope := Scope{BotID: query.BotID, UserID: query.UserID}
 	historical := isHistoricalQuery(query.Query)
 	var directItems []Memory
-	scoreMap := make(map[int64]float64)
+	scoreMap := make(map[string]float64)
 
 	// Step 1: hybrid vector search for direct facts.
 	if m.embedder != nil && m.vector != nil && query.EmbeddingModelID != nil {
@@ -211,7 +230,7 @@ func (m *Manager) Search(ctx context.Context, query MemoryQuery) ([]Memory, erro
 			if vecErr != nil {
 				m.withLogger(ctx).Errorf("memory vector search failed: error=%v", vecErr)
 			} else if len(hits) > 0 {
-				ids := make([]int64, len(hits))
+				ids := make([]string, len(hits))
 				for i, h := range hits {
 					ids[i] = h.FactID
 					scoreMap[h.FactID] = h.Score
@@ -310,13 +329,6 @@ func (m *Manager) GenerateProfile(ctx context.Context, botID, userID string, mod
 	}
 }
 
-func (m *Manager) nextID() (int64, error) {
-	if m.idGen == nil {
-		return time.Now().UnixNano(), nil
-	}
-	return m.idGen.Generate()
-}
-
 func (m *Manager) withLogger(ctx context.Context) logx.Logger {
 	if m.logger != nil {
 		return m.logger.WithContext(ctx)
@@ -325,16 +337,12 @@ func (m *Manager) withLogger(ctx context.Context) logx.Logger {
 }
 
 // rerank reorders items by vector score (primary), with fact quality as tiebreaker.
-func rerank(items []Memory, scoreMap map[int64]float64) {
-	sort.SliceStable(items, func(i, j int) bool {
-		si := scoreMap[items[i].ID]
-		sj := scoreMap[items[j].ID]
-		if si != sj {
-			return si > sj
+func rerank(items []Memory, scoreMap map[string]float64) {
+	slices.SortStableFunc(items, func(a, b Memory) int {
+		if score := cmp.Compare(scoreMap[b.ID], scoreMap[a.ID]); score != 0 {
+			return score
 		}
-		qi := memoryQuality(items[i])
-		qj := memoryQuality(items[j])
-		return qi > qj
+		return cmp.Compare(memoryQuality(b), memoryQuality(a))
 	})
 }
 
@@ -352,11 +360,11 @@ func graphTraversalLimit(limit, directCount int) int {
 	return candidateLimit
 }
 
-func fuseMemoryResults(directItems []Memory, directScores map[int64]float64, graphItems []Memory, limit int) []Memory {
+func fuseMemoryResults(directItems []Memory, directScores map[string]float64, graphItems []Memory, limit int) []Memory {
 	if limit <= 0 {
 		limit = 5
 	}
-	best := make(map[int64]Memory, len(directItems)+len(graphItems))
+	best := make(map[string]Memory, len(directItems)+len(graphItems))
 	for i, item := range directItems {
 		item.Source = "direct"
 		item.SourceScore = directScores[item.ID]
@@ -381,16 +389,14 @@ func fuseMemoryResults(directItems []Memory, directScores map[int64]float64, gra
 	for _, item := range best {
 		out = append(out, item)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].FinalScore != out[j].FinalScore {
-			return out[i].FinalScore > out[j].FinalScore
+	slices.SortStableFunc(out, func(a, b Memory) int {
+		if score := cmp.Compare(b.FinalScore, a.FinalScore); score != 0 {
+			return score
 		}
-		qi := memoryQuality(out[i])
-		qj := memoryQuality(out[j])
-		if qi != qj {
-			return qi > qj
+		if quality := cmp.Compare(memoryQuality(b), memoryQuality(a)); quality != 0 {
+			return quality
 		}
-		return out[i].CreatedAt.After(out[j].CreatedAt)
+		return b.CreatedAt.Compare(a.CreatedAt)
 	})
 	if len(out) > limit {
 		out = out[:limit]
@@ -398,8 +404,8 @@ func fuseMemoryResults(directItems []Memory, directScores map[int64]float64, gra
 	return out
 }
 
-func keepBestMemory(best map[int64]Memory, item Memory) {
-	if item.ID == 0 {
+func keepBestMemory(best map[string]Memory, item Memory) {
+	if item.ID == "" {
 		return
 	}
 	if existing, ok := best[item.ID]; !ok || item.FinalScore > existing.FinalScore {
@@ -434,7 +440,7 @@ func (m *Manager) logSearchResults(ctx context.Context, query MemoryQuery, direc
 		if i >= 5 {
 			break
 		}
-		parts = append(parts, fmt.Sprintf("{id:%d source:%s rank:%d source_score:%.4f hops:%d rank_score:%.4f final:%.4f quality:%.4f content:%q}",
+		parts = append(parts, fmt.Sprintf("{id:%s source:%s rank:%d source_score:%.4f hops:%d rank_score:%.4f final:%.4f quality:%.4f content:%q}",
 			item.ID, item.Source, item.Rank, item.SourceScore, item.Hops, item.RankScore, item.FinalScore, memoryQuality(item), previewMemoryContent(item.Content, 80)))
 	}
 	m.withLogger(ctx).Infof("memory search finished: bot_id=%s user_id=%s limit=%d query=%q direct_count=%d graph_count=%d fallback_used=%t result_count=%d results=[%s]",

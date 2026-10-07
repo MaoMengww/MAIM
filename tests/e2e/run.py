@@ -35,7 +35,7 @@ APPLICATIONS = {
 USER_IDENTITY_APPLICATIONS = {"user-service", "realtime-service", "gateway"}
 MESSAGING_APPLICATIONS = USER_IDENTITY_APPLICATIONS | {"message-service"}
 ATTACHMENT_APPLICATIONS = MESSAGING_APPLICATIONS | {"file-service"}
-BOT_RUNTIME_APPLICATIONS = MESSAGING_APPLICATIONS | {"llm-gateway", "bot-service", "bot-runtime"}
+BOT_RUNTIME_APPLICATIONS = MESSAGING_APPLICATIONS | {"llm-gateway", "bot-service", "bot-runtime", "knowledge-base", "knowledge-ingest", "file-service"}
 BOT_RUNTIME_SCENARIOS = {"bot-runtime", "bot-runtime-cross-instance"}
 MESSAGING_SCENARIOS = {"messaging", "conversations", "conversation-unread", "broadcasts",
                        "user-sync", "same-instance-a", "same-instance-b", "cross-instance"}
@@ -275,8 +275,8 @@ class Runner:
                 for name in self.applications:
                     services[name].setdefault("environment", {})["MINIO_PUBLIC_ENDPOINT"] = "minio:9000"
             if self.args.scenario in BOT_RUNTIME_SCENARIOS:
-                # Runtime memory initializes real graph/vector middleware even
-                # when this scenario uses no knowledge-base or ingest service.
+                # Knowledge composition and memory use the real ingest, graph,
+                # vector and object stores; only the external provider is simulated.
                 keep.update({"e2e-provider", "neo4j", "milvus", "minio"})
             for name in set(services) - keep:
                 del services[name]

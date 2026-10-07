@@ -21,12 +21,18 @@ import (
 )
 
 type providerObservations struct {
-	MCPLists     int      `json:"mcp_lists"`
-	ToolTexts    []string `json:"tool_texts"`
-	ChatModels   []string `json:"chat_models"`
-	EmbedModels  []string `json:"embed_models"`
-	RerankModels []string `json:"rerank_models"`
-	ActiveIngest int      `json:"active_ingest"`
+	MCPLists          int      `json:"mcp_lists"`
+	ToolTexts         []string `json:"tool_texts"`
+	ChatModels        []string `json:"chat_models"`
+	EmbedModels       []string `json:"embed_models"`
+	RerankModels      []string `json:"rerank_models"`
+	ActiveIngest      int      `json:"active_ingest"`
+	MemoryExtractions []struct {
+		Model   string   `json:"model"`
+		UserID  entityID `json:"user_id"`
+		Message string   `json:"message"`
+	} `json:"memory_extractions"`
+	ToolCallIDs []string `json:"tool_call_ids"`
 }
 
 func (d *driver) observeProvider() (providerObservations, error) {
@@ -397,6 +403,9 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 		return err
 	}
 	if err := d.runtimeConversationTools(owner, outsider, address, secondAddress, conv.ID, sent, toolsModelID); err != nil {
+		return err
+	}
+	if err := d.runtimeKnowledgeMemory(owner, outsider, address, mcp.ID, embeddingID, suffix); err != nil {
 		return err
 	}
 	if err := d.runtimePrivateBotConversation(owner, outsider, secondAddress, bot.ID, suffix); err != nil {

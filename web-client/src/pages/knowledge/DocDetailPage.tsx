@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Spin, Descriptions, Table, Tag, Modal, message } from 'antd';
+import { Alert, Button, Spin, Descriptions, Table, Tag, Modal, message } from 'antd';
 import { kbApi } from '@/services/knowledge';
 import { wsOn } from '@/services/ws';
 import type { ChunkInfo } from '@/types/model';
 import { MarkdownContent } from './MarkdownContent';
+import { entityId } from '@/utils/json';
 
 export function DocDetailPage() {
   const { kbId, docId } = useParams<{ kbId: string; docId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const sourceChunkID = searchParams.get('chunk');
   const [contentOpen, setContentOpen] = useState(false);
   const [contentData, setContentData] = useState<{ content: string; download_url: string } | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
@@ -24,6 +27,7 @@ export function DocDetailPage() {
       if (payload.kb_id !== kbId || payload.doc_id !== docId) return;
       queryClient.invalidateQueries({ queryKey: ['kb-doc', docId] });
       queryClient.invalidateQueries({ queryKey: ['kb-doc-chunks', docId] });
+      queryClient.invalidateQueries({ queryKey: ['kb-source-chunk', docId] });
     }));
     return () => unsubs.forEach((fn) => fn());
   }, [kbId, docId, queryClient]);
@@ -38,6 +42,25 @@ export function DocDetailPage() {
     queryKey: ['kb-doc-chunks', docId, page, pageSize],
     queryFn: () => kbApi.listChunks(docId!, { offset: (page - 1) * pageSize, limit: pageSize }),
     enabled: !!docId && doc?.kb_id === kbId,
+  });
+
+  const { data: sourceChunk, isLoading: sourceChunkLoading, isError: sourceChunkError } = useQuery({
+    queryKey: ['kb-source-chunk', docId, sourceChunkID],
+    enabled: !!sourceChunkID && !!docId && doc?.kb_id === kbId,
+    queryFn: async () => {
+      const chunkID = entityId(sourceChunkID, 'chunk');
+      let offset = 0;
+      let total = Infinity;
+      while (offset < total) {
+        const result = await kbApi.listChunks(docId!, { offset, limit: 100 });
+        const chunk = result.list.find((item) => item.id === chunkID && item.doc_id === docId);
+        if (chunk) return chunk;
+        if (result.list.length === 0) break;
+        offset += result.list.length;
+        total = result.total;
+      }
+      return null;
+    },
   });
 
   const handleDelete = () => {
@@ -128,6 +151,20 @@ export function DocDetailPage() {
           </Descriptions.Item>
         )}
       </Descriptions>
+
+      {sourceChunkID && (
+        <section aria-label="引用切片" style={{ marginBottom: 24 }}>
+          <h3 style={{ color: 'var(--aim-text)', marginBottom: 8, fontSize: 16 }}>引用切片</h3>
+          <div style={{ overflowWrap: 'anywhere', color: 'var(--aim-text-secondary)', marginBottom: 8 }}>{sourceChunkID}</div>
+          {sourceChunkLoading ? <Spin /> : sourceChunkError ? (
+            <Alert type="error" showIcon message="无法读取引用切片" />
+          ) : sourceChunk ? (
+            <MarkdownContent content={sourceChunk.content} />
+          ) : (
+            <Alert type="info" showIcon message="引用切片已失效或删除，文档可能已重新处理。" />
+          )}
+        </section>
+      )}
 
       <h3 style={{ color: 'var(--aim-text)', marginBottom: 12, fontSize: 16 }}>切片列表</h3>
       <Table

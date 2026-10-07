@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"time"
 
@@ -52,12 +53,9 @@ func extractChatCaller(ctx context.Context) (string, string, string) {
 // StreamChat implements single-chat streaming conversation using ReAct agent.
 func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStreamingServer[pb.StreamChatResp]) error {
 	ctx := stream.Context()
-	userID, _, language := extractChatCaller(ctx)
+	userID, username, language := extractChatCaller(ctx)
 	if identity.Validate(req.BotId) != nil || identity.Validate(req.ConvId) != nil || (req.ReplyToMsgId != nil && identity.Validate(*req.ReplyToMsgId) != nil) {
 		return errors.New(errors.CodeInvalidParam, "invalid chat identity")
-	}
-	if err := NewConversationToolServer(s.svcCtx).requireConversation(ctx, userID, req.ConvId); err != nil {
-		return err
 	}
 	if s.svcCtx.RuntimeClient != nil {
 		upstream, err := s.svcCtx.RuntimeClient.StreamChat(forwardRuntimeContext(ctx), req)
@@ -77,10 +75,13 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 			}
 		}
 	}
+	if err := NewConversationToolServer(s.svcCtx).requireConversation(ctx, userID, req.ConvId); err != nil {
+		return err
+	}
 	logger := s.svcCtx.Logger.WithContext(ctx)
 
 	botRepo := s.svcCtx.BotRepo
-	bot, _, err := botRepo.FindByIDWithConvBot(ctx, req.BotId, req.ConvId)
+	bot, convBot, err := botRepo.FindByIDWithConvBot(ctx, req.BotId, req.ConvId)
 	if err != nil {
 		logger.Errorf("bot not found: bot_id=%s error=%v", req.BotId, err)
 		return errors.New(errors.CodeNotFound, "bot not found")
@@ -95,6 +96,25 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 	llmClient := client.NewLlmGatewayClient(s.svcCtx.LlmGatewayConn)
 	msgClient := client.NewMessageClient(s.svcCtx.MessageSvcConn)
 	einoChatModel := llmClient.NewEinoChatModel(*bot.ModelID, bot.ModelName, bot.OwnerID, bot.ID)
+	resolver := graph.NewKnowledgeResolver(client.NewKnowledgeClient(s.svcCtx.KnowledgeConn))
+	ctxNode := graph.NewBuildContextNode(bot, convBot, msgClient, resolver, memory.NewGraphStoreAdapter(s.svcCtx.MemoryManager), s.svcCtx.Logger)
+	ctxResult, err := ctxNode.Invoke(ctx, &model.BotEvent{
+		BotID:   req.BotId,
+		ConvID:  req.ConvId,
+		Message: &model.EventMessage{Text: req.Message},
+		Sender:  &model.EventSender{UserID: &userID, Username: username, Language: language},
+	})
+	if err != nil {
+		return errors.Wrap(errors.CodeRPCError, "load conversation context failed", err)
+	}
+	sourcesJSON := ""
+	if len(ctxResult.KbSources) > 0 {
+		raw, err := json.Marshal(ctxResult.KbSources)
+		if err != nil {
+			return err
+		}
+		sourcesJSON = string(raw)
+	}
 
 	// MCP tools
 	var mcpTools []tool.BaseTool
@@ -115,10 +135,7 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 		},
 	}
 	// Build system prompt with locale instruction
-	systemPrompt := bot.SystemPrompt
-	if systemPrompt == "" {
-		systemPrompt = "You are a helpful AI assistant."
-	}
+	systemPrompt := ctxResult.RenderedPrompt
 	if loc := graph.LocalePrompt(language); loc != "" {
 		systemPrompt = loc + "\n\n" + systemPrompt
 	}
@@ -130,9 +147,10 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 			ToolCallMiddlewares: []compose.ToolMiddleware{toolMw},
 		},
 		MessageModifier: func(_ context.Context, msgs []*schema.Message) []*schema.Message {
-			return append([]*schema.Message{
-				{Role: schema.System, Content: systemPrompt},
-			}, msgs...)
+			result := make([]*schema.Message, 0, 1+len(ctxResult.ContextMsgs)+len(msgs))
+			result = append(result, &schema.Message{Role: schema.System, Content: systemPrompt})
+			result = append(result, ctxResult.ContextMsgs...)
+			return append(result, msgs...)
 		},
 		MaxStep: bot.MaxStep,
 	})
@@ -172,13 +190,18 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 
 		var messageID *string
 		if fullText != "" {
-			id, err := msgClient.SendBotReply(ctx, req.BotId, req.ConvId, fullText, req.ReplyToMsgId)
+			if sourcesJSON != "" {
+				if err := stream.Send(&pb.StreamChatResp{Type: "sources", Content: sourcesJSON, ConvId: req.ConvId}); err != nil {
+					return err
+				}
+			}
+			id, err := msgClient.SendBotReply(ctx, req.BotId, req.ConvId, fullText, req.ReplyToMsgId, graph.BuildRawPayload(ctxResult.KbSources, usedTools))
 			if err != nil {
 				return errors.Wrap(errors.CodeRPCError, "send bot reply failed", err)
 			}
 			messageID = &id
 		}
-		s.triggerMemoryExtraction(ctx, bot, userID, req.Message, fullText)
+		s.triggerMemoryExtraction(ctx, bot, userID, req.ConvId, req.Message, fullText)
 		return stream.Send(&pb.StreamChatResp{Type: "done", Content: fullText, ConvId: req.ConvId, MessageId: messageID})
 	}
 
@@ -190,13 +213,18 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 
 	var messageID *string
 	if msg.Content != "" {
-		id, err := msgClient.SendBotReply(ctx, req.BotId, req.ConvId, msg.Content, req.ReplyToMsgId)
+		if sourcesJSON != "" {
+			if err := stream.Send(&pb.StreamChatResp{Type: "sources", Content: sourcesJSON, ConvId: req.ConvId}); err != nil {
+				return err
+			}
+		}
+		id, err := msgClient.SendBotReply(ctx, req.BotId, req.ConvId, msg.Content, req.ReplyToMsgId, graph.BuildRawPayload(ctxResult.KbSources, usedTools))
 		if err != nil {
 			return errors.Wrap(errors.CodeRPCError, "send bot reply failed", err)
 		}
 		messageID = &id
 	}
-	s.triggerMemoryExtraction(ctx, bot, userID, req.Message, msg.Content)
+	s.triggerMemoryExtraction(ctx, bot, userID, req.ConvId, req.Message, msg.Content)
 	return stream.Send(&pb.StreamChatResp{Type: "done", Content: msg.Content, ConvId: req.ConvId, MessageId: messageID})
 }
 
@@ -223,7 +251,7 @@ func loadBotMcpServers(ctx context.Context, botRepo *repo.BotRepo, botID string)
 	return configs
 }
 
-func (s *RuntimeServer) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, userID string, userMsg string, botResponse string) {
+func (s *RuntimeServer) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, userID, convID, userMsg, botResponse string) {
 	if s.svcCtx.MemoryManager == nil || userMsg == "" || botResponse == "" {
 		return
 	}
@@ -236,6 +264,7 @@ func (s *RuntimeServer) triggerMemoryExtraction(ctx context.Context, bot *model.
 	s.svcCtx.MemoryManager.WithExtractor(extractor).RememberAsync(ctx, memory.ExtractInput{
 		BotID:            bot.ID,
 		UserID:           userID,
+		ConvID:           &convID,
 		Message:          userMsg,
 		SentAt:           time.Now(),
 		OwnerID:          bot.OwnerID,

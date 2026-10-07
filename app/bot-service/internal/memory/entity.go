@@ -38,7 +38,7 @@ type Entity struct {
 
 // Episode stores the original user message that memory facts are extracted from.
 type Episode struct {
-	ID        int64
+	ID        string
 	BotID     string
 	UserID    string
 	ConvID    *string
@@ -50,7 +50,8 @@ type Episode struct {
 
 // Fact is a temporal memory fact extracted from an episode.
 type Fact struct {
-	ID           int64
+	ID           string
+	EpisodeID    string
 	BotID        string
 	UserID       string
 	ConvID       *string
@@ -74,7 +75,8 @@ type Fact struct {
 
 // Memory is a fact returned for prompt injection.
 type Memory struct {
-	ID           int64
+	ID           string
+	EpisodeID    string
 	Content      string
 	Category     string
 	Importance   float64
@@ -99,7 +101,7 @@ type Store interface {
 	SaveEpisode(ctx context.Context, episode *Episode) error
 	AddFacts(ctx context.Context, facts []Fact) error
 	Search(ctx context.Context, scope Scope, query string, limit int) ([]Memory, error)
-	SearchByIDs(ctx context.Context, scope Scope, ids []int64, historical bool) ([]Memory, error)
+	SearchByIDs(ctx context.Context, scope Scope, ids []string, historical bool) ([]Memory, error)
 	SearchWithTraversal(ctx context.Context, scope Scope, query string, limit int, maxHops int) ([]Memory, error)
 	GetProfileData(ctx context.Context, botID, userID string) (profileText string, updatedAt time.Time, err error)
 	CountNewFactsSince(ctx context.Context, botID, userID string, since time.Time) (int, error)

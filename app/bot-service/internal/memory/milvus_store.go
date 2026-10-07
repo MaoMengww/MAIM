@@ -10,10 +10,11 @@ import (
 	client "github.com/milvus-io/milvus/client/v2/milvusclient"
 
 	"github.com/maomeng/aim/app/bot-service/internal/config"
+	"github.com/maomeng/aim/pkg/identity"
 )
 
 const (
-	memoryCollection = "bot_memory_facts_v1"
+	memoryCollection = "bot_memory_facts_uuid_v1"
 	denseFieldName   = "dense_vector"
 	sparseFieldName  = "sparse_vector"
 	defaultDimSize   = 1536
@@ -21,7 +22,7 @@ const (
 
 // VectorHit is a fact id returned from vector search.
 type VectorHit struct {
-	FactID int64
+	FactID string
 	Score  float64
 }
 
@@ -79,7 +80,7 @@ func (s *MemoryVectorStore) EnsureCollection(ctx context.Context) error {
 		Description:    "AIM bot memory facts for hybrid retrieval",
 		AutoID:         false,
 		Fields: []*entity.Field{
-			entity.NewField().WithName("id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(64).WithIsPrimaryKey(true),
+			entity.NewField().WithName("id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36).WithIsPrimaryKey(true),
 			entity.NewField().WithName("bot_id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36),
 			entity.NewField().WithName("user_id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36),
 			entity.NewField().WithName("content").WithDataType(entity.FieldTypeVarChar).WithMaxLength(65535).WithEnableAnalyzer(true).WithEnableMatch(true),
@@ -164,6 +165,13 @@ func (s *MemoryVectorStore) UpsertFacts(ctx context.Context, facts []Fact, vecto
 	if s == nil || s.cli == nil || len(facts) == 0 {
 		return nil
 	}
+	for _, fact := range facts {
+		for _, id := range []string{fact.ID, fact.BotID, fact.UserID} {
+			if err := identity.Validate(id); err != nil {
+				return fmt.Errorf("invalid memory vector identity: %w", err)
+			}
+		}
+	}
 	if err := s.EnsureCollection(ctx); err != nil {
 		return fmt.Errorf("ensure memory collection: %w", err)
 	}
@@ -181,9 +189,9 @@ func (s *MemoryVectorStore) UpsertFacts(ctx context.Context, facts []Fact, vecto
 	createdAts := make([]int64, n)
 	metas := make([]string, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		f := facts[i]
-		ids[i] = fmt.Sprintf("%d", f.ID)
+		ids[i] = f.ID
 		botIDs[i] = f.BotID
 		userIDs[i] = f.UserID
 		contents[i] = f.Content
@@ -211,10 +219,6 @@ func (s *MemoryVectorStore) UpsertFacts(ctx context.Context, facts []Fact, vecto
 
 	if _, err := s.cli.Upsert(ctx, opt); err != nil {
 		return fmt.Errorf("milvus memory upsert: %w", err)
-	}
-
-	if _, err := s.cli.Flush(ctx, client.NewFlushOption(s.collection)); err != nil {
-		return fmt.Errorf("milvus memory flush: %w", err)
 	}
 
 	loadTask, err := s.cli.LoadCollection(ctx, client.NewLoadCollectionOption(s.collection))
@@ -251,14 +255,15 @@ func (s *MemoryVectorStore) HybridSearch(ctx context.Context, vector []float32, 
 
 	hybridOpt := client.NewHybridSearchOption(s.collection, topK, annReqs...).
 		WithReranker(client.NewRRFReranker()).
-		WithOutputFields("id")
+		WithOutputFields("id").
+		WithConsistencyLevel(entity.ClStrong)
 
 	resultSet, err := s.cli.HybridSearch(ctx, hybridOpt)
 	if err != nil {
 		return nil, fmt.Errorf("milvus memory hybrid search: %w", err)
 	}
 
-	return convertMemoryHits(resultSet), nil
+	return convertMemoryHits(resultSet)
 }
 
 func (s *MemoryVectorStore) Close(ctx context.Context) error {
@@ -289,32 +294,35 @@ func buildMemoryFilterExpr(filter MemoryVectorFilter) string {
 	return expr
 }
 
-func convertMemoryHits(resultSet []client.ResultSet) []VectorHit {
+func convertMemoryHits(resultSet []client.ResultSet) ([]VectorHit, error) {
 	var out []VectorHit
-	if len(resultSet) == 0 {
-		return out
+	for _, set := range resultSet {
+		if set.Err != nil {
+			return nil, set.Err
+		}
+		idColumn := set.IDs
+		if idColumn == nil {
+			idColumn = set.GetColumn("id")
+		}
+		for i := range set.Len() {
+			id, err := getColumnString(idColumn, i)
+			if err != nil {
+				return nil, fmt.Errorf("read memory fact identity: %w", err)
+			}
+			if err := identity.Validate(id); err != nil {
+				return nil, fmt.Errorf("invalid memory fact identity: %w", err)
+			}
+			if i >= len(set.Scores) {
+				return nil, fmt.Errorf("memory search result is missing score")
+			}
+			out = append(out, VectorHit{FactID: id, Score: float64(set.Scores[i])})
+		}
 	}
-	set := resultSet[0]
-	for i := 0; i < set.Len(); i++ {
-		score := float64(0)
-		if i < len(set.Scores) {
-			score = float64(set.Scores[i])
-		}
-		id, err := getColumnString(set.GetColumn("id"), i)
-		if err != nil || id == "" {
-			continue
-		}
-		var factID int64
-		fmt.Sscanf(id, "%d", &factID)
-		if factID > 0 {
-			out = append(out, VectorHit{FactID: factID, Score: score})
-		}
-	}
-	return out
+	return out, nil
 }
 
 func getColumnString(col column.Column, idx int) (string, error) {
-	if col == nil || col.Len() <= idx {
+	if col == nil || idx < 0 || col.Len() <= idx {
 		return "", fmt.Errorf("column index out of range")
 	}
 	return col.GetAsString(idx)

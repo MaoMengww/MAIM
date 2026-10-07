@@ -249,6 +249,8 @@ python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifact
 
 `stage-p5` 在 P4 场景上追加 Bot 配置/令牌、真实网络 MCP 工具发现与调用、Kafka 回复及 WS/REST 精确内容核对，以及四个大文档并发入库期间的检索和失败隔离。OpenAI/MCP 外部协议由 `e2e-provider` 提供；AIM 内部 RPC、Kafka、PostgreSQL、Milvus 不替换。在线查询每次硬截止 5 秒；入库总截止 10 分钟，容纳默认 20 RPM 预算，不提高配额或缩小文档负载。
 
+`bot-runtime` / `bot-runtime-cross-instance` 运行真实 knowledge online/ingest、文件、Neo4j 与 Milvus：覆盖 Bot/会话绑定与解绑、反向目标列表、UUID 来源在 WS/SSE 和持久消息正文中一致、跨会话记忆恢复及跨用户/跨 Bot 隔离。外部 provider fixture 只决定模型/MCP 响应；图与向量身份往返还需在既有 memory 存储边界验证，不能由普通回复自动宣称覆盖。
+
 `stage-p6` 覆盖 P3/P4 主链路、跨实例 Bot 回复和流式输出、发送方其它设备回显、非成员隔离、撤回/编辑/删除与未读同步。验收通过 `presence.query` 查询设备所在实例，并真实执行强制终止、TTL 自然失效、TTL 内投递失败负反馈、重启恢复，以及 readiness 摘流量后的多连接平滑排空；故障期间遗漏的消息按用户同步位点补拉。`--artifacts` 保留检查点与服务日志。
 
 Bot 使用同一镜像：`bot-service -role control` 提供外部入口，运行时调用转发到 `BOT_RUNTIME_ADDR`；`bot-runtime -role runtime` 消费消息并执行 Agent，直接读取同域配置，不依赖控制面 RPC。两个工作负载分别暴露 9109/9119 指标，可独立调整副本。Knowledge 使用同一镜像：`-role online` 仅提供查询/管理 RPC，`-role ingest` 仅消费上传事件，只监听一个 `9118` HTTP 端口同时服务 `/health` 与 `/metrics`。Compose 与 Helm 都把两者作为独立工作负载配置资源，可单独设置 `replicaCount`；Helm 侧不另建 values 文件，由同域 values 覆盖生成。
@@ -403,11 +405,13 @@ agent, err := react.NewAgent(ctx, &react.AgentConfig{
 
 `kbClient.Retrieve()` 向量检索，返回 top-5 文档片段，用于精确文档片段检索。
 
-检索结果生成 `KnowledgeSource`（包含 type/kb_name/kb_id/title/content），最终注入到 LLM 上下文中。
+检索结果生成 `KnowledgeSource`（包含 type/kb_name/kb_id/doc_id/chunk_id/title/content），最终注入到 LLM 上下文中。KB、文档和 chunk UUID 原样进入 sources 流与持久消息 raw payload；页面按 KB UUID 分组，按文档/chunk UUID 跳转，失效切片不会按同名内容替代。检索权限使用触发者身份，不冒用 Bot 所有者。
 
 #### 记忆管理系统
 
 记忆系统实现 AI Bot 的**长期记忆**能力，采用 **Neo4j（图谱/时序）+ Milvus（向量语义 + BM25）** 双存储。LLM 只参与事实提取和用户画像生成，在线读取阶段走确定性检索与排序。
+
+Fact 和 Episode 由 bot domain 应用侧生成 UUIDv7；Milvus `bot_memory_facts_uuid_v1` 的主键就是 Neo4j `HAS_FACT.id`，关系 `episodeID` 引用原始 Episode，来源会话/消息保持原 UUID。复合 Entity 与关系键保留，不新增 PostgreSQL 记忆副本；PostgreSQL 保存 Bot 配置及原消息/回复。去重丢弃的候选不写入向量，同一 fact UUID 重放不重新激活过期事实。向量检索使用强一致性，不逐事实 Flush。
 
 ##### 整体流程
 

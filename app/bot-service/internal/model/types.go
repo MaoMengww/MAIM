@@ -23,6 +23,7 @@ type EventMessage struct {
 	MsgID        string  `json:"msg_id"`
 	Text         string  `json:"text"`
 	MsgType      int32   `json:"msg_type"`
+	CreatedAt    int64   `json:"created_at"`
 	ReplyToMsgID *string `json:"reply_to_msg_id,omitempty"`
 }
 
@@ -69,7 +70,8 @@ func validateEntityJSONValue(value any) error {
 				"model_id", "modelId", "memory_model_id", "memoryModelId",
 				"memory_embedding_model_id", "memoryEmbeddingModelId", "mcp_server_id", "mcpServerId",
 				"mcp_tool_id", "mcpToolId", "summary_id", "summaryId", "todo_id", "todoId",
-				"official_template_id", "officialTemplateId", "knowledge_base_id", "knowledgeBaseId", "kb_id", "kbId":
+				"official_template_id", "officialTemplateId", "knowledge_base_id", "knowledgeBaseId", "kb_id", "kbId",
+				"doc_id", "docId", "chunk_id", "chunkId":
 				if child != nil {
 					id, ok := child.(string)
 					if !ok || identity.Validate(id) != nil {

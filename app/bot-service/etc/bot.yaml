@@ -38,7 +38,7 @@ Milvus:
 
 Memory:
   embeddingDim: 1536
-  vectorCollection: bot_memory_facts_v1
+  vectorCollection: bot_memory_facts_uuid_v1
   vectorTopKMult: 4
   Neo4j:
     uri: ${NEO4J_URI}

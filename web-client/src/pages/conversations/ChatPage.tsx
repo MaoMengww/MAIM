@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { message, Button, Input, Tag, Modal as AntModal, Image, Spin } from 'antd';
 import {
@@ -7,6 +7,7 @@ import {
   InfoCircleOutlined,
   SearchOutlined,
   CloseOutlined,
+  RightOutlined,
   PictureOutlined, PaperClipOutlined,
   AudioOutlined, PlayCircleOutlined,
   PauseCircleOutlined, MoreOutlined,
@@ -31,7 +32,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource } from '@/types/model';
 import type { SendMsgContent, SearchMessagesReq } from '@/types/api';
-import { sequence } from '@/utils/json';
+import { entityId, sequence } from '@/utils/json';
 
 import './ChatPage.css';
 
@@ -239,12 +240,30 @@ function renderContent(content: MsgContentOneof, onFilePreview?: (file: FileCont
   return <span>[未知消息]</span>;
 }
 
+function knowledgeSources(value: unknown): KnowledgeSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((source) => {
+    if (!source || source.type !== 'rag' || typeof source.kb_name !== 'string' || typeof source.title !== 'string' || typeof source.content !== 'string') {
+      throw new Error('知识来源格式无效');
+    }
+    return {
+      type: 'rag',
+      kb_id: entityId(source.kb_id, 'source.kb_id'),
+      doc_id: entityId(source.doc_id, 'source.doc_id'),
+      chunk_id: entityId(source.chunk_id, 'source.chunk_id'),
+      kb_name: source.kb_name,
+      title: source.title,
+      content: source.content,
+    };
+  });
+}
+
 /** Parse KnowledgeSource[] from BotContent.raw_payload */
 function parseSources(b: any): KnowledgeSource[] {
   if (!b?.raw_payload) return [];
   try {
     const parsed = JSON.parse(b.raw_payload);
-    return Array.isArray(parsed?.kb_sources) ? parsed.kb_sources : [];
+    return knowledgeSources(parsed?.kb_sources);
   } catch {
     return [];
   }
@@ -267,41 +286,44 @@ function SourceSection({ sources }: { sources: KnowledgeSource[] }) {
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({});
   if (!sources.length) return null;
 
-  // Group by kb_name, preserve original order
-  const groups: { kbName: string; type: string; sources: KnowledgeSource[] }[] = [];
+  // Display names are labels only; distinct KBs retain distinct source groups.
+  const groups: { kbID: string; kbName: string; type: string; sources: KnowledgeSource[] }[] = [];
   const seen = new Map<string, number>();
   for (const s of sources) {
-    const key = s.kb_name || s.type;
+    const key = s.kb_id;
     const idx = seen.get(key);
     if (idx !== undefined) {
       groups[idx].sources.push(s);
     } else {
       seen.set(key, groups.length);
-      groups.push({ kbName: s.kb_name, type: s.type, sources: [s] });
+      groups.push({ kbID: s.kb_id, kbName: s.kb_name, type: s.type, sources: [s] });
     }
   }
 
   return (
     <div style={{ marginTop: 8, borderTop: '1px solid var(--aim-border)', paddingTop: 6 }}>
-      <div
+      <Button
+        type="text"
+        size="small"
+        className="chat-source-toggle"
+        aria-expanded={open}
         onClick={() => setOpen(!open)}
-        style={{ cursor: 'pointer', fontSize: 12, color: 'var(--aim-text-tertiary)', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
+        icon={<RightOutlined rotate={open ? 90 : 0} />}
       >
-        <span style={{ transform: `rotate(${open ? 90 : 0}deg)`, transition: 'transform 0.15s', fontSize: 10 }}>▶</span>
-        消息来源<span style={{ marginLeft: 4, opacity: 0.6 }}>({sources.length})</span>
-      </div>
+        消息来源 ({sources.length})
+      </Button>
       {open && (
         <div style={{ marginTop: 4, fontSize: 12 }}>
-          {groups.map((g, gi) => (
-            <div key={gi} style={{ marginTop: 4 }}>
+          {groups.map((g) => (
+            <div key={g.kbID} style={{ marginTop: 4 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                <span style={{ fontWeight: 500, color: 'var(--aim-text-secondary)' }}>{g.kbName || '知识库'}</span>
+                <Link to={`/knowledge/${g.kbID}`} style={{ fontWeight: 500 }}>{g.kbName || `知识库 ${g.kbID}`}</Link>
                 <span style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', borderRadius: 3, background: '#fff7e6', color: '#d48806', border: '1px solid #ffe58f' }}>
                   {g.type.toUpperCase()}
                 </span>
               </div>
-              {g.sources.map((s, i) => (
-                <SourceItem key={`${gi}-${i}`} source={s} expandedMap={expandedMap} setExpandedMap={setExpandedMap} itemKey={`${gi}-${i}`} />
+              {g.sources.map((s) => (
+                <SourceItem key={s.chunk_id} source={s} expandedMap={expandedMap} setExpandedMap={setExpandedMap} itemKey={s.chunk_id} />
               ))}
             </div>
           ))}
@@ -345,16 +367,25 @@ function SourceItem({ source, expandedMap, setExpandedMap, itemKey }: {
   const expanded = !!expandedMap[itemKey];
   return (
     <div style={{ marginTop: 2 }}>
-      <div
-        onClick={() => setExpandedMap((prev: Record<string, boolean>) => ({ ...prev, [itemKey]: !prev[itemKey] }))}
-        style={{ cursor: 'pointer', padding: '2px 6px', borderRadius: 4, background: 'var(--aim-bg-tertiary)', display: 'flex', alignItems: 'center', gap: 4, userSelect: 'none' }}
-      >
-        <span style={{ transform: `rotate(${expanded ? 90 : 0}deg)`, transition: 'transform 0.15s', fontSize: 10 }}>▶</span>
-        <span style={{ color: 'var(--aim-text-secondary)' }}>{source.title || '未命名'}</span>
+      <div className="chat-source-header">
+        <Button
+          type="text"
+          size="small"
+          className="chat-source-toggle chat-source-title"
+          aria-expanded={expanded}
+          onClick={() => setExpandedMap((prev) => ({ ...prev, [itemKey]: !prev[itemKey] }))}
+          icon={<RightOutlined rotate={expanded ? 90 : 0} />}
+        >
+          {source.title || '未命名文档'}
+        </Button>
+        <Link to={`/knowledge/${source.kb_id}/documents/${source.doc_id}?chunk=${source.chunk_id}`} aria-label={`查看来源文档：${source.title || source.doc_id}`}>
+          查看文档
+        </Link>
       </div>
-      {expanded && source.content && (
-        <div style={{ padding: '4px 6px 4px 20px', color: 'var(--aim-text-tertiary)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          {source.content.length > 200 ? source.content.slice(0, 200) + '...' : source.content}
+      {expanded && (
+        <div className="chat-source-content">
+          <div className="chat-source-identity">文档：{source.doc_id}<br />切片：{source.chunk_id}</div>
+          {source.content}
         </div>
       )}
     </div>
@@ -732,6 +763,7 @@ export function ChatPage() {
         return {
           ...prev,
           [key]: {
+            ...existing,
             text: (existing?.text || '') + (payload.content || ''),
             createdAt: existing?.createdAt ?? Math.floor(Date.now() / 1000),
             ...(replyToMsgId ? { replyToMsgId } : {}),
@@ -751,7 +783,7 @@ export function ChatPage() {
       const key = `${id}:${payload.bot_id}`;
       let sources: KnowledgeSource[] = [];
       try {
-        sources = JSON.parse(payload.content || '[]') as KnowledgeSource[];
+        sources = knowledgeSources(JSON.parse(payload.content || '[]'));
       } catch { /* ignore parse errors */ }
       if (sources.length === 0) return;
       setStreamingMap((prev) => {

@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 	"unicode/utf8"
@@ -12,8 +13,26 @@ type KnowledgeSource struct {
 	Type    string `json:"type"` // "rag"
 	KbName  string `json:"kb_name"`
 	KbID    string `json:"kb_id"`
+	DocID   string `json:"doc_id"`
+	ChunkID string `json:"chunk_id"`
 	Title   string `json:"title"`
 	Content string `json:"content"`
+}
+
+// BuildRawPayload preserves reply sources and tool usage in the persisted body.
+func BuildRawPayload(kbSources []KnowledgeSource, usedTools []string) string {
+	if len(kbSources) == 0 && len(usedTools) == 0 {
+		return ""
+	}
+	payload := map[string]any{"kb_sources": kbSources}
+	if len(usedTools) > 0 {
+		payload["tool_names"] = usedTools
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // StreamChunk is a streaming output chunk.
@@ -31,7 +50,7 @@ type MemoryStore interface {
 
 // MemoryItem is a retrieved memory fact.
 type MemoryItem struct {
-	ID         int64
+	ID         string
 	Content    string
 	Type       string
 	Importance float64
@@ -66,6 +85,7 @@ type Message struct {
 
 // KbDocument is a knowledge base document snippet.
 type KbDocument struct {
+	ChunkID        string
 	DocID          string
 	Title          string
 	Content        string

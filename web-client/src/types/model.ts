@@ -212,6 +212,8 @@ export interface KnowledgeSource {
   type: 'rag';
   kb_name: string;
   kb_id: string;
+  doc_id: string;
+  chunk_id: string;
   title: string;
   content: string;
 }

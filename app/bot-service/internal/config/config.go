@@ -41,7 +41,7 @@ type MilvusConfig struct {
 type MemoryConfig struct {
 	Neo4j            Neo4jConfig `json:"neo4j"`
 	EmbeddingDim     int         `json:"embeddingDim,default=1536"`
-	VectorCollection string      `json:"vectorCollection,default=bot_memory_facts_v1"`
+	VectorCollection string      `json:"vectorCollection,default=bot_memory_facts_uuid_v1"`
 	VectorTopKMult   int         `json:"vectorTopKMult,default=3"`
 }
 

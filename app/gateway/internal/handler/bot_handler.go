@@ -295,17 +295,24 @@ func (h *BotHandler) StreamChat(c *gin.Context) {
 	if !requirePathIdentities(c, "id") {
 		return
 	}
-	var req botpb.StreamChatReq
-	if err := bindJSON(c, &req); err != nil {
-		response.BadRequest(c, err.Error())
+	req := botpb.StreamChatReq{BotId: c.Param("id"), ConvId: c.Query("conv_id"), Message: c.Query("message")}
+	if req.Message == "" {
+		response.BadRequest(c, "message is required")
 		return
 	}
-	req.BotId = c.Param("id")
+	if replyID, supplied := c.GetQuery("reply_to_msg_id"); supplied {
+		req.ReplyToMsgId = &replyID
+	}
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, &req) {
 		return
 	}
 	stream, err := h.botClient.StreamChat(ctx, &req)
+	if err != nil {
+		response.GRPCError(c, err)
+		return
+	}
+	resp, err := stream.Recv()
 	if err != nil {
 		response.GRPCError(c, err)
 		return
@@ -316,19 +323,21 @@ func (h *BotHandler) StreamChat(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 
 	for {
-		resp, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			break
-		}
 		data, err := protocol.Marshal(resp)
 		if err != nil {
 			return
 		}
 		c.SSEvent("message", string(data))
 		c.Writer.Flush()
+		resp, err = stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			c.SSEvent("error", "bot stream failed")
+			c.Writer.Flush()
+			return
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import math
+import re
 import os
 import queue
 import threading
@@ -14,7 +15,8 @@ HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8099"))
 LOCK = threading.Lock()
 SESSIONS = {}
-OBSERVATIONS = {"mcp_lists": 0, "tool_texts": [], "chat_models": [], "embed_models": [], "active_ingest": 0}
+OBSERVATIONS = {"mcp_lists": 0, "tool_texts": [], "chat_models": [], "embed_models": [], "active_ingest": 0,
+                "memory_extractions": [], "tool_call_ids": []}
 TOOL = {"name": "fixture_echo", "description": "Echo text over the MCP network", "inputSchema": {
     "type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]
 }}
@@ -77,6 +79,52 @@ def conversation_tool_reply(model, messages):
         return "fixture-translation:" + source
     raise ValueError("unknown conversation tool prompt")
 
+
+def memory_extract_reply(model, messages):
+    if not model.startswith("fixture-memory-extract-"):
+        return None
+    prompt = next((item.get("content", "") for item in messages if item.get("role") == "user"), "")
+    if prompt.startswith(("Distill a concise user profile", "Current version of the user profile:")):
+        values = re.findall(r"P7 durable preference: ([a-z0-9-]+)", prompt)
+        if not values:
+            raise ValueError("profile fixture requires real persisted facts")
+        return "The user has a durable preference for " + ", ".join(sorted(set(values))) + "."
+    if not prompt.startswith("Extract long-term user memories from one user message."):
+        raise ValueError("memory fixture requires the real extraction prompt")
+    source = prompt.split("User message:\n", 1)[1].split("\n\nOutput JSON only:", 1)[0]
+    user_id = prompt.split("Target user_id: ", 1)[1].split("\n", 1)[0]
+    facts = []
+    match = re.fullmatch(r"P7_MEMORY_STORE ([a-z0-9-]+)", source)
+    if match:
+        value = match.group(1)
+        facts = [{"subject": "user", "predicate": "likes", "object": value,
+                  "entity_type": "interest", "category": "preference", "content": "P7 durable preference: " + value,
+                  "evidence": source, "importance": 0.8, "confidence": 0.99, "temporal_hint": "current"}]
+    with LOCK:
+        OBSERVATIONS["memory_extractions"].append({"model": model, "user_id": user_id, "message": source})
+    return json.dumps({"facts": facts})
+
+
+def composition_reply(model, messages, text):
+    if not model.startswith("fixture-composition-"):
+        return "fixture-reply:" + text
+    # Never recall from provider state, history or a query token: only the actual
+    # memory/knowledge contexts assembled by AIM can determine these answers.
+    knowledge = [str(item.get("content", "")) for item in messages
+                 if item.get("role") == "assistant" and str(item.get("content", "")).startswith("【参考资料 ")]
+    memories = [str(item.get("content", "")).partition("What I know about you:\n")[2] for item in messages
+                if item.get("role") == "assistant" and str(item.get("content", "")).startswith(("What I know about you:\n", "User Profile:\n"))]
+    if text.startswith("P7_KNOWLEDGE_QUERY"):
+        value = "cobalt-47" if any("P5_KNOWN_ANCHOR: the launch code is cobalt-47" in item for item in knowledge) else "none"
+        return "fixture-reply:" + text + "|knowledge:" + value
+    if text.startswith("P7_MEMORY_QUERY"):
+        values = [value for item in memories for value in re.findall(r"P7 durable preference: ([a-z0-9-]+)", item)]
+        reply = "fixture-reply:" + text + "|memory:" + (",".join(sorted(set(values))) if values else "none")
+        if "P5_KNOWN_ANCHOR" in text:
+            value = "cobalt-47" if any("P5_KNOWN_ANCHOR: the launch code is cobalt-47" in item for item in knowledge) else "none"
+            reply += "|knowledge:" + value
+        return reply
+    return "fixture-reply:" + text
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -170,11 +218,12 @@ class Handler(BaseHTTPRequestHandler):
             tool_messages = [item for item in messages if item.get("role") == "tool"]
             try:
                 tool_reply = conversation_tool_reply(model, messages)
+                extraction_reply = memory_extract_reply(model, messages)
             except ValueError as exc:
                 self._json(400, {"error": {"message": str(exc), "type": "invalid_request_error"}})
                 return
-            if tool_reply is not None:
-                message = {"role": "assistant", "content": tool_reply}
+            if extraction_reply is not None or tool_reply is not None:
+                message = {"role": "assistant", "content": extraction_reply if extraction_reply is not None else tool_reply}
                 reason = "stop"
             elif not tool_messages:
                 tools = body.get("tools") or []
@@ -186,10 +235,15 @@ class Handler(BaseHTTPRequestHandler):
                     "name": echo, "arguments": json.dumps({"text": text})}}]}
                 reason = "tool_calls"
             else:
+                if any(item.get("tool_call_id") != "fixture-call" for item in tool_messages):
+                    self._json(400, {"error": {"message": "provider tool-call identity was rewritten"}})
+                    return
+                with LOCK:
+                    OBSERVATIONS["tool_call_ids"].extend(item.get("tool_call_id") for item in tool_messages)
                 if not any("fixture-tool:" + text in str(item.get("content", "")) for item in tool_messages):
                     self._json(400, {"error": {"message": "network tool result mismatch"}})
                     return
-                message = {"role": "assistant", "content": "fixture-reply:" + text}
+                message = {"role": "assistant", "content": composition_reply(model, messages, text)}
                 reason = "stop"
             if body.get("stream"):
                 self.send_response(200)

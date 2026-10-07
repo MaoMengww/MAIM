@@ -2,7 +2,6 @@ package graph
 
 import (
 	"context"
-	"strings"
 )
 
 // KnowledgeResolver resolves knowledge from bound RAG KBs.
@@ -17,43 +16,50 @@ func NewKnowledgeResolver(kbClient KbClient) *KnowledgeResolver {
 }
 
 // Query retrieves knowledge from all bound KBs and returns formatted context + structured sources.
-func (r *KnowledgeResolver) Query(ctx context.Context, query string, botID, convID string) (string, []KnowledgeSource) {
+func (r *KnowledgeResolver) Query(ctx context.Context, query string, botID, convID string) (string, []KnowledgeSource, error) {
 	if r.kbClient == nil || query == "" {
-		return "", nil
+		return "", nil, nil
 	}
 
 	boundKBs, err := r.kbClient.ListBoundKBs(ctx, botID, convID)
-	if err != nil || len(boundKBs) == 0 {
-		return "", nil
+	if err != nil {
+		return "", nil, err
 	}
-
 	ragKBIDs := make([]string, 0, len(boundKBs))
+	kbNames := make(map[string]string, len(boundKBs))
 	for _, kb := range boundKBs {
-		ragKBIDs = append(ragKBIDs, kb.KBID)
-	}
-
-	var parts []string
-	var sources []KnowledgeSource
-
-	if len(ragKBIDs) > 0 {
-		docs, err := r.kbClient.Retrieve(ctx, query, botID, convID, 5, ragKBIDs)
-		if err == nil && len(docs) > 0 {
-			parts = append(parts, FormatKnowledge(docs))
-			for _, d := range docs {
-				content := d.MatchedContent
-				if content == "" {
-					content = d.Content
-				}
-				sources = append(sources, KnowledgeSource{
-					Type:    "rag",
-					KbName:  d.KbName,
-					KbID:    d.KbID,
-					Title:   d.Title,
-					Content: content,
-				})
-			}
+		if kb.Mode != "rag" {
+			continue
 		}
+		ragKBIDs = append(ragKBIDs, kb.KBID)
+		kbNames[kb.KBID] = kb.Name
 	}
-
-	return strings.Join(parts, "\n\n"), sources
+	if len(ragKBIDs) == 0 {
+		return "", nil, nil
+	}
+	docs, err := r.kbClient.Retrieve(ctx, query, botID, convID, 5, ragKBIDs)
+	if err != nil {
+		return "", nil, err
+	}
+	sources := make([]KnowledgeSource, 0, len(docs))
+	for _, d := range docs {
+		content := d.MatchedContent
+		if content == "" {
+			content = d.Content
+		}
+		kbName := d.KbName
+		if kbName == "" {
+			kbName = kbNames[d.KbID]
+		}
+		sources = append(sources, KnowledgeSource{
+			Type:    "rag",
+			KbName:  kbName,
+			KbID:    d.KbID,
+			DocID:   d.DocID,
+			ChunkID: d.ChunkID,
+			Title:   d.Title,
+			Content: content,
+		})
+	}
+	return FormatKnowledge(docs), sources, nil
 }

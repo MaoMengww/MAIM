@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
@@ -57,8 +58,20 @@ func (s *Neo4jStore) InitSchema(ctx context.Context) error {
 }
 
 func (s *Neo4jStore) SaveEpisode(ctx context.Context, episode *Episode) error {
-	if episode == nil || episode.ID == 0 {
+	if episode == nil {
 		return nil
+	}
+	for _, id := range []string{episode.ID, episode.BotID, episode.UserID} {
+		if err := identity.Validate(id); err != nil {
+			return fmt.Errorf("invalid memory episode identity: %w", err)
+		}
+	}
+	for _, id := range []*string{episode.ConvID, episode.MsgID} {
+		if id != nil {
+			if err := identity.Validate(*id); err != nil {
+				return fmt.Errorf("invalid memory episode source identity: %w", err)
+			}
+		}
 	}
 	_, err := s.write(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
 		_, err := tx.Run(ctx, `
@@ -101,8 +114,52 @@ func (s *Neo4jStore) AddFacts(ctx context.Context, facts []Fact) error {
 }
 
 func (s *Neo4jStore) addFact(ctx context.Context, tx neo4j.ManagedTransaction, fact Fact) error {
-	if fact.ID == 0 || fact.BotID == "" || fact.UserID == "" || fact.Object == "" || fact.Predicate == "" {
-		return nil
+	for _, id := range []string{fact.ID, fact.EpisodeID, fact.BotID, fact.UserID} {
+		if err := identity.Validate(id); err != nil {
+			return fmt.Errorf("invalid memory fact identity: %w", err)
+		}
+	}
+	if fact.Object == "" || fact.Predicate == "" {
+		return fmt.Errorf("memory fact object and predicate are required")
+	}
+	for _, id := range []*string{fact.ConvID, fact.MsgID} {
+		if id != nil {
+			if err := identity.Validate(*id); err != nil {
+				return fmt.Errorf("invalid memory fact source identity: %w", err)
+			}
+		}
+	}
+	// Replaying an existing identity must not reactivate it or expire its replacement.
+	existing, err := tx.Run(ctx, `
+	MATCH (:UserProfile {botID: $botID, userID: $userID})-[r:HAS_FACT {id: $id}]->(:Entity)
+	RETURN r.id AS id
+	LIMIT 1
+	`, map[string]any{"id": fact.ID, "botID": fact.BotID, "userID": fact.UserID})
+	if err != nil {
+		return err
+	}
+	if existing.Next(ctx) {
+		_, err := existing.Consume(ctx)
+		return err
+	}
+	if err := existing.Err(); err != nil {
+		return err
+	}
+	episode, err := tx.Run(ctx, `
+	MATCH (ep:Episode {id: $episodeID, botID: $botID, userID: $userID})
+	RETURN ep.id AS id
+	`, map[string]any{"episodeID": fact.EpisodeID, "botID": fact.BotID, "userID": fact.UserID})
+	if err != nil {
+		return err
+	}
+	if !episode.Next(ctx) {
+		if err := episode.Err(); err != nil {
+			return err
+		}
+		return fmt.Errorf("memory fact episode does not exist in scope")
+	}
+	if _, err := episode.Consume(ctx); err != nil {
+		return err
 	}
 	now := time.Now()
 	if fact.CreatedAt.IsZero() {
@@ -145,7 +202,7 @@ func (s *Neo4jStore) addFact(ctx context.Context, tx neo4j.ManagedTransaction, f
 	}
 
 	// --- Create HAS_FACT edge (User→Entity) ---
-	_, err := tx.Run(ctx, `
+	created, err := tx.Run(ctx, `
 	MERGE (u:UserProfile {botID: $botID, userID: $userID})
 	ON CREATE SET u.createdAt = datetime($createdAt)
 	SET u.updatedAt = datetime($createdAt)
@@ -161,8 +218,9 @@ func (s *Neo4jStore) addFact(ctx context.Context, tx neo4j.ManagedTransaction, f
 	    AND existing.expiredAt IS NULL
 	    AND existing.invalidAt IS NULL
 	}
-	CREATE (u)-[:HAS_FACT {
+	CREATE (u)-[r:HAS_FACT {
 	    id: $id,
+	    episodeID: $episodeID,
 	    predicate: $predicate,
 	    category: $category,
 	    content: $content,
@@ -170,16 +228,18 @@ func (s *Neo4jStore) addFact(ctx context.Context, tx neo4j.ManagedTransaction, f
 	    confidence: $confidence,
 	    importance: $importance,
 	    validAt: datetime($validAt),
-	    invalidAt: $invalidAt,
+	    invalidAt: CASE WHEN $invalidAt IS NULL THEN NULL ELSE datetime($invalidAt) END,
 	    createdAt: datetime($createdAt),
-	    expiredAt: $expiredAt,
+	    expiredAt: CASE WHEN $expiredAt IS NULL THEN NULL ELSE datetime($expiredAt) END,
 	    temporalHint: $temporalHint,
 	    sourceConvID: $convID,
 	    sourceMsgID: $msgID,
 	    accessCount: 0
 	}]->(e)
+	RETURN r.id AS id
 	`, map[string]any{
 		"id":             fact.ID,
+		"episodeID":      fact.EpisodeID,
 		"botID":          fact.BotID,
 		"userID":         fact.UserID,
 		"convID":         fact.ConvID,
@@ -201,6 +261,12 @@ func (s *Neo4jStore) addFact(ctx context.Context, tx neo4j.ManagedTransaction, f
 		"searchText":     fact.SearchText,
 	})
 	if err != nil {
+		return err
+	}
+	if !created.Next(ctx) {
+		return created.Err()
+	}
+	if _, err := created.Consume(ctx); err != nil {
 		return err
 	}
 
@@ -253,6 +319,8 @@ func (s *Neo4jStore) addFact(ctx context.Context, tx neo4j.ManagedTransaction, f
 		MATCH (obj:Entity {botID: $botID, userID: $userID, normalizedName: $objName, entityType: $objType})
 		MERGE (subj)-[r:`+cfg.EdgeLabel+`]->(obj)
 		SET r.fact = $content,
+		    r.factID = $factID,
+		    r.episodeID = $episodeID,
 		    r.confidence = $confidence,
 		    r.importance = $importance,
 		    r.validFrom = datetime($validAt),
@@ -267,6 +335,8 @@ func (s *Neo4jStore) addFact(ctx context.Context, tx neo4j.ManagedTransaction, f
 			"objName":    normalizedObject,
 			"objType":    objectType,
 			"content":    fact.Content,
+			"factID":     fact.ID,
+			"episodeID":  fact.EpisodeID,
 			"confidence": fact.Confidence,
 			"importance": fact.Importance,
 			"validAt":    validAtStr,
@@ -396,6 +466,7 @@ func (s *Neo4jStore) searchFulltext(ctx context.Context, scope Scope, query stri
 	WHERE %s
 	SET r.accessCount = coalesce(r.accessCount, 0) + 1
 	RETURN r.id AS id,
+	       r.episodeID AS episodeID,
 	       r.content AS content,
 	       r.category AS category,
 	       r.importance AS importance,
@@ -423,6 +494,7 @@ func (s *Neo4jStore) searchFallback(ctx context.Context, scope Scope, limit int,
 	WHERE %s
 	SET r.accessCount = coalesce(r.accessCount, 0) + 1
 	RETURN r.id AS id,
+	       r.episodeID AS episodeID,
 	       r.content AS content,
 	       r.category AS category,
 	       r.importance AS importance,
@@ -439,7 +511,7 @@ func (s *Neo4jStore) searchFallback(ctx context.Context, scope Scope, limit int,
 }
 
 func (s *Neo4jStore) readMemories(ctx context.Context, cypher string, params map[string]any) ([]Memory, error) {
-	value, err := s.read(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+	value, err := s.write(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
 		result, err := tx.Run(ctx, cypher, params)
 		if err != nil {
 			return nil, err
@@ -447,8 +519,16 @@ func (s *Neo4jStore) readMemories(ctx context.Context, cypher string, params map
 		items := make([]Memory, 0)
 		for result.Next(ctx) {
 			record := result.Record()
+			id := getString(record, "id")
+			episodeID := getString(record, "episodeID")
+			for _, value := range []string{id, episodeID} {
+				if err := identity.Validate(value); err != nil {
+					return nil, fmt.Errorf("invalid persisted memory identity: %w", err)
+				}
+			}
 			items = append(items, Memory{
-				ID:           getInt64(record, "id"),
+				ID:           id,
+				EpisodeID:    episodeID,
 				Content:      getString(record, "content"),
 				Category:     getString(record, "category"),
 				Importance:   getFloat64(record, "importance"),
@@ -474,7 +554,7 @@ func (s *Neo4jStore) readMemories(ctx context.Context, cypher string, params map
 }
 
 // SearchByIDs loads memories by fact ids, applying temporal filters.
-func (s *Neo4jStore) SearchByIDs(ctx context.Context, scope Scope, ids []int64, historical bool) ([]Memory, error) {
+func (s *Neo4jStore) SearchByIDs(ctx context.Context, scope Scope, ids []string, historical bool) ([]Memory, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -487,6 +567,7 @@ func (s *Neo4jStore) SearchByIDs(ctx context.Context, scope Scope, ids []int64, 
 	WHERE r.id IN $ids AND %s
 	SET r.accessCount = coalesce(r.accessCount, 0) + 1
 	RETURN r.id AS id,
+	       r.episodeID AS episodeID,
 	       r.content AS content,
 	       r.category AS category,
 	       r.importance AS importance,
@@ -516,9 +597,11 @@ func (s *Neo4jStore) SearchWithTraversal(ctx context.Context, scope Scope, query
 	}
 
 	historical := isHistoricalQuery(query)
-	whereClause := "r.invalidAt IS NULL AND r.expiredAt IS NULL"
+	directWhere := "direct.invalidAt IS NULL AND direct.expiredAt IS NULL"
+	indirectWhere := "indirect.invalidAt IS NULL AND indirect.expiredAt IS NULL"
 	if historical {
-		whereClause = "true"
+		directWhere = "true"
+		indirectWhere = "true"
 	}
 
 	cypher := fmt.Sprintf(`
@@ -527,12 +610,12 @@ func (s *Neo4jStore) SearchWithTraversal(ctx context.Context, scope Scope, query
 	WHERE entry.botID = $botID AND entry.userID = $userID
 
 	// Step 2: 0-hop — direct HAS_FACT on the matched entity
-	OPTIONAL MATCH (u:UserProfile {botID: $botID, userID: $userID})
-	              -[direct:HAS_FACT]->(entry)
+	MATCH (u:UserProfile {botID: $botID, userID: $userID})
+	OPTIONAL MATCH (u)-[direct:HAS_FACT]->(entry)
 	WHERE %s
 	SET direct.accessCount = coalesce(direct.accessCount, 0) + 1
 	WITH entry, score, u, collect({
-	    id: direct.id, content: direct.content, category: direct.category,
+	    id: direct.id, episodeID: direct.episodeID, content: direct.content, category: direct.category,
 	    importance: direct.importance, confidence: direct.confidence,
 	    validAt: direct.validAt, invalidAt: direct.invalidAt,
 	    createdAt: direct.createdAt, expiredAt: direct.expiredAt,
@@ -551,7 +634,7 @@ func (s *Neo4jStore) SearchWithTraversal(ctx context.Context, scope Scope, query
 	SET indirect.accessCount = coalesce(indirect.accessCount, 0) + 1
 
 	WITH directResults, collect({
-	    id: indirect.id, content: indirect.content, category: indirect.category,
+	    id: indirect.id, episodeID: indirect.episodeID, content: indirect.content, category: indirect.category,
 	    importance: indirect.importance, confidence: indirect.confidence,
 	    validAt: indirect.validAt, invalidAt: indirect.invalidAt,
 	    createdAt: indirect.createdAt, expiredAt: indirect.expiredAt,
@@ -563,6 +646,7 @@ func (s *Neo4jStore) SearchWithTraversal(ctx context.Context, scope Scope, query
 	UNWIND allResults AS result
 	WITH result WHERE result.id IS NOT NULL
 	RETURN result.id AS id,
+	       result.episodeID AS episodeID,
 	       result.content AS content,
 	       result.category AS category,
 	       result.importance AS importance,
@@ -576,7 +660,7 @@ func (s *Neo4jStore) SearchWithTraversal(ctx context.Context, scope Scope, query
 	       result.weight AS sourceScore
 	ORDER BY result.weight DESC, result.importance * result.confidence DESC
 	LIMIT $limit
-	`, whereClause, entityTraversalRelTypes, maxHops, whereClause)
+	`, directWhere, entityTraversalRelTypes, maxHops, indirectWhere)
 
 	return s.readMemories(ctx, cypher, map[string]any{
 		"botID":  scope.BotID,

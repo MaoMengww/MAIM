@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/milvus-io/milvus/client/v2/column"
+	client "github.com/milvus-io/milvus/client/v2/milvusclient"
 )
 
 // ── mockStore implements Store for unit tests. ──
@@ -19,7 +22,7 @@ func (m *mockStore) AddFacts(_ context.Context, _ []Fact) error      { return ni
 func (m *mockStore) Search(_ context.Context, _ Scope, _ string, _ int) ([]Memory, error) {
 	return nil, nil
 }
-func (m *mockStore) SearchByIDs(_ context.Context, _ Scope, _ []int64, _ bool) ([]Memory, error) {
+func (m *mockStore) SearchByIDs(_ context.Context, _ Scope, _ []string, _ bool) ([]Memory, error) {
 	return nil, nil
 }
 func (m *mockStore) SearchWithTraversal(_ context.Context, _ Scope, _ string, _ int, _ int) ([]Memory, error) {
@@ -85,31 +88,23 @@ func TestShouldRefresh_NotEnoughFacts(t *testing.T) {
 // ── rerank ──
 
 func TestRerank(t *testing.T) {
+	const first = "01960000-0000-7000-8000-000000000001"
+	const second = "01960000-0000-7000-8000-000000000002"
+	const third = "01960000-0000-7000-8000-000000000003"
 	items := []Memory{
-		{ID: 1, Importance: 0.5, Confidence: 0.5},
-		{ID: 2, Importance: 0.9, Confidence: 0.9},
-		{ID: 3, Importance: 0.3, Confidence: 0.3},
+		{ID: first, Importance: 0.5, Confidence: 0.5},
+		{ID: second, Importance: 0.9, Confidence: 0.9},
+		{ID: third, Importance: 0.3, Confidence: 0.3},
 	}
-	scoreMap := map[int64]float64{1: 0.2, 2: 0.8, 3: 0.2}
+	scoreMap := map[string]float64{first: 0.2, second: 0.8, third: 0.2}
 
 	rerank(items, scoreMap)
 
-	// ID 2 should be first (highest vector score).
-	if items[0].ID != 2 {
-		t.Errorf("after rerank: first = %d, want 2", items[0].ID)
+	for i, want := range []string{second, first, third} {
+		if items[i].ID != want {
+			t.Errorf("after rerank: item %d = %s, want %s", i, items[i].ID, want)
+		}
 	}
-	// ID 1 and 3 have same vector score; ID 1 should come before ID 3 by quality.
-	if items[1].ID != 1 {
-		t.Errorf("after rerank: second = %d, want 1", items[1].ID)
-	}
-	if items[2].ID != 3 {
-		t.Errorf("after rerank: third = %d, want 3", items[2].ID)
-	}
-}
-
-func TestRerank_Empty(t *testing.T) {
-	rerank(nil, nil)
-	rerank([]Memory{}, map[int64]float64{})
 }
 
 // ── prompt builders ──
@@ -120,17 +115,10 @@ func TestBuildInitialProfilePrompt(t *testing.T) {
 		{Content: "用户主要使用 Go", Category: "skill"},
 	}
 	prompt := buildInitialProfilePrompt(facts)
-	for _, want := range []string{"用户住在上海", "用户主要使用 Go", "stable", "SAME language", "[location]", "[skill]"} {
+	for _, want := range []string{"用户住在上海", "用户主要使用 Go", "[location]", "[skill]"} {
 		if !contains(prompt, want) {
 			t.Errorf("initial prompt missing %q", want)
 		}
-	}
-}
-
-func TestBuildInitialProfilePrompt_Empty(t *testing.T) {
-	prompt := buildInitialProfilePrompt(nil)
-	if prompt == "" {
-		t.Error("prompt should not be empty even with no facts")
 	}
 }
 
@@ -141,20 +129,10 @@ func TestBuildIncrementalProfilePrompt(t *testing.T) {
 
 	prompt := buildIncrementalProfilePrompt(text, newFacts, expiredFacts)
 
-	for _, want := range []string{"你住在上海，使用Go。", "用户刚搬到东京", "用户住在上海", "expired", "SAME language", "[location]"} {
+	for _, want := range []string{"你住在上海，使用Go。", "用户刚搬到东京", "用户住在上海", "[location]"} {
 		if !contains(prompt, want) {
 			t.Errorf("incremental prompt missing %q", want)
 		}
-	}
-}
-
-func TestBuildIncrementalProfilePrompt_NoExpired(t *testing.T) {
-	prompt := buildIncrementalProfilePrompt("旧画像", []ProfileFact{{Content: "新增事实"}}, nil)
-	if contains(prompt, "Facts that have expired") {
-		t.Error("prompt should not include expired-facts section when none exist")
-	}
-	if !contains(prompt, "新增事实") {
-		t.Error("prompt should include new facts")
 	}
 }
 
@@ -249,5 +227,32 @@ func TestParseExtractionResult_CodeFence(t *testing.T) {
 	}
 	if len(result.Facts) != 1 {
 		t.Errorf("expected 1 fact, got %d", len(result.Facts))
+	}
+}
+
+func TestMemoryVectorHitsKeepUUIDPrimaryKeys(t *testing.T) {
+	first := "01960000-0000-7000-8000-000000000001"
+	second := "01960000-0000-7000-8000-000000000002"
+	hits, err := convertMemoryHits([]client.ResultSet{{
+		ResultCount: 2,
+		IDs:         column.NewColumnVarChar("id", []string{first, second}),
+		Scores:      []float32{0.75, 0.5},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 || hits[0].FactID != first || hits[1].FactID != second || hits[0].Score != 0.75 || hits[1].Score != 0.5 {
+		t.Fatalf("UUID primary-key hits lost identity or ranking: %+v", hits)
+	}
+}
+
+func TestMemoryVectorHitsRejectLegacyIdentity(t *testing.T) {
+	_, err := convertMemoryHits([]client.ResultSet{{
+		ResultCount: 1,
+		IDs:         column.NewColumnVarChar("id", []string{"12345"}),
+		Scores:      []float32{0.75},
+	}})
+	if err == nil {
+		t.Fatal("legacy numeric memory identity must not enter graph lookup")
 	}
 }

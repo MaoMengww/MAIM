@@ -113,10 +113,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err := memoryStore.InitSchema(context.Background()); err != nil {
 		panic(fmt.Sprintf("neo4j memory schema init failed: %v", err))
 	}
-	if err := db.Exec("CREATE SEQUENCE IF NOT EXISTS bot.memory_id_seq").Error; err != nil {
-		panic(fmt.Sprintf("memory sequence init failed: %v", err))
-	}
-	memoryIDGen := &memoryIDSequence{db: db}
 
 	memoryEmbedder := memory.NewGatewayEmbedder(llmGatewayConn)
 
@@ -132,7 +128,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		}
 	}
 
-	memoryManager := memory.NewManager(logger, memoryStore, nil, memoryIDGen, memoryEmbedder, memoryVector)
+	memoryManager := memory.NewManager(logger, memoryStore, nil, memoryEmbedder, memoryVector)
 	memoryManager.SetVectorTopK(c.Memory.VectorTopKMult)
 	memoryManager.SetProfileChat(func(ctx context.Context, modelID string, modelName string, ownerID *string, botID string, prompt string) (string, error) {
 		llmClient := client.NewLlmGatewayClient(llmGatewayConn)
@@ -171,14 +167,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	return base
 }
 
-// PostgreSQL owns memory IDs so runtime replicas never share a local worker counter.
-type memoryIDSequence struct{ db *database.DB }
-
-func (s *memoryIDSequence) Generate() (int64, error) {
-	var id int64
-	err := s.db.Raw("SELECT nextval('bot.memory_id_seq')").Scan(&id).Error
-	return id, err
-}
 func ensureSeedTemplates(ctx context.Context, r repo.BotRepoInterface, log logx.Logger) {
 	bots, err := r.ListOfficialTemplates(ctx)
 	if err != nil {

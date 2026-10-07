@@ -1766,3 +1766,44 @@
   from { opacity: 0; transform: translateX(-50%) translateY(10px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+.chat-source-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--aim-bg-tertiary);
+}
+
+.chat-source-header a {
+  flex-shrink: 0;
+}
+
+.chat-source-toggle.ant-btn {
+  height: auto;
+  min-height: 28px;
+  padding: 4px 0;
+  color: var(--aim-text-secondary);
+  white-space: normal;
+  text-align: left;
+}
+
+.chat-source-title {
+  min-width: 0;
+}
+
+.chat-source-content {
+  padding: 4px 6px 4px 20px;
+  color: var(--aim-text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-source-identity {
+  margin-bottom: 4px;
+  color: var(--aim-text-tertiary);
+  font-size: 11px;
+}

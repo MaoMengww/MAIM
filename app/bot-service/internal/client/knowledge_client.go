@@ -35,6 +35,7 @@ func (c *KnowledgeClient) Retrieve(ctx context.Context, query string, botID, con
 	docs := make([]graph.KbDocument, 0, len(resp.Items))
 	for _, item := range resp.Items {
 		docs = append(docs, graph.KbDocument{
+			ChunkID:        item.ChunkId,
 			DocID:          item.DocId,
 			Title:          item.DocTitle,
 			Content:        item.Content,
@@ -52,16 +53,16 @@ func (c *KnowledgeClient) ListBoundKBs(ctx context.Context, botID, convID string
 	var seen = make(map[string]bool)
 	var result []graph.BoundKB
 
-	addBindings := func(targetType string, targetID string) {
+	addBindings := func(targetType string, targetID string) error {
 		if targetID == "" {
-			return
+			return nil
 		}
 		resp, err := c.cli.ListBindings(ctx, &knowledgebase.ListBindingsReq{
 			TargetType: targetType,
 			TargetId:   targetID,
 		})
 		if err != nil {
-			return
+			return err
 		}
 		for _, item := range resp.Items {
 			if seen[item.KbId] {
@@ -78,9 +79,14 @@ func (c *KnowledgeClient) ListBoundKBs(ctx context.Context, botID, convID string
 				Name: item.KbName,
 			})
 		}
+		return nil
 	}
 
-	addBindings("bot", botID)
-	addBindings("conv", convID)
+	if err := addBindings("bot", botID); err != nil {
+		return nil, err
+	}
+	if err := addBindings("conv", convID); err != nil {
+		return nil, err
+	}
 	return result, nil
 }

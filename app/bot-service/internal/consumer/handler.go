@@ -249,6 +249,10 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 			h.logger.WithContext(ctx).Errorf("agent stream failed: event_id=%s duration=%.3fs error=%v", eventID, time.Since(start).Seconds(), streamErr)
 
 			fallbackText := h.tryDirectGenerate(ctx, bot, ctxResult, msgText)
+			rawPayload := ""
+			if fallbackText != "" {
+				rawPayload = graph.BuildRawPayload(ctxResult.KbSources, usedTools)
+			}
 			if fallbackText == "" {
 				h.logger.WithContext(ctx).Infof("direct generate fallback also failed: event_id=%s", eventID)
 				fallbackText = fallbackForLanguage(event.Sender)
@@ -257,7 +261,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 			if event.Message != nil {
 				replyTo = &event.Message.MsgID
 			}
-			if _, fbErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, fallbackText, replyTo); fbErr != nil {
+			if _, fbErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, fallbackText, replyTo, rawPayload); fbErr != nil {
 				h.logger.WithContext(ctx).Errorf("send fallback failed: event_id=%s error=%v", eventID, fbErr)
 			}
 			return fmt.Errorf("agent stream: %w", streamErr)
@@ -292,16 +296,21 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 			return nil
 		}
 
-		rawPayload := buildRawPayload(ctxResult.KbSources, usedTools)
+		rawPayload := graph.BuildRawPayload(ctxResult.KbSources, usedTools)
 
 		// Send knowledge sources
 		if len(ctxResult.KbSources) > 0 {
-			sourcesJSON, _ := json.Marshal(ctxResult.KbSources)
-			_ = pusher.Send(&model.StreamChunk{
+			sourcesJSON, err := json.Marshal(ctxResult.KbSources)
+			if err != nil {
+				return err
+			}
+			if err := pusher.Send(&model.StreamChunk{
 				Type:    "sources",
 				Content: string(sourcesJSON),
 				ConvID:  event.ConvID,
-			})
+			}); err != nil {
+				return err
+			}
 		}
 
 		// Send tool_used notification
@@ -325,7 +334,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		h.logger.WithContext(ctx).Infof("stream reply sent: event_id=%s bot_id=%s conv_id=%s msg_id=%s", eventID, event.BotID, event.ConvID, respMsgID)
 		metrics.BotReplyMessagesTotal.Inc(botIDStr)
 		if event.Message != nil && event.Sender != nil && event.Sender.UserID != nil {
-			h.triggerMemoryExtraction(ctx, bot, *event.Sender.UserID, event.Message.Text, fullText)
+			h.triggerMemoryExtraction(ctx, bot, event, fullText)
 		}
 		return nil
 	}
@@ -340,6 +349,10 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		metrics.BotResponseSeconds.Observe(duration, botIDStr)
 		h.logger.WithContext(ctx).Errorf("agent generate failed: event_id=%s duration=%.3fs error=%v", eventID, duration, genErr)
 		fallbackText := h.tryDirectGenerate(ctx, bot, ctxResult, msgText)
+		rawPayload := ""
+		if fallbackText != "" {
+			rawPayload = graph.BuildRawPayload(ctxResult.KbSources, usedTools)
+		}
 		if fallbackText == "" {
 			h.logger.WithContext(ctx).Infof("direct generate fallback also failed: event_id=%s", eventID)
 			fallbackText = fallbackForLanguage(event.Sender)
@@ -348,7 +361,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		if event.Message != nil {
 			replyTo = &event.Message.MsgID
 		}
-		if _, fbErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, fallbackText, replyTo); fbErr != nil {
+		if _, fbErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, fallbackText, replyTo, rawPayload); fbErr != nil {
 			h.logger.WithContext(ctx).Errorf("send fallback failed: event_id=%s error=%v", eventID, fbErr)
 		}
 		return fmt.Errorf("agent generate: %w", genErr)
@@ -366,7 +379,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 	if event.Message != nil {
 		replyTo = &event.Message.MsgID
 	}
-	rawPayload := buildRawPayload(ctxResult.KbSources, usedTools)
+	rawPayload := graph.BuildRawPayload(ctxResult.KbSources, usedTools)
 
 	if _, sendErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, finalText, replyTo, rawPayload); sendErr != nil {
 		h.logger.WithContext(ctx).Errorf("send reply failed: event_id=%s error=%v", eventID, sendErr)
@@ -376,7 +389,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 	h.logger.WithContext(ctx).Infof("reply sent: event_id=%s bot_id=%s conv_id=%s", eventID, event.BotID, event.ConvID)
 	metrics.BotReplyMessagesTotal.Inc(botIDStr)
 	if event.Message != nil && event.Sender != nil && event.Sender.UserID != nil {
-		h.triggerMemoryExtraction(ctx, bot, *event.Sender.UserID, event.Message.Text, finalText)
+		h.triggerMemoryExtraction(ctx, bot, event, finalText)
 	}
 	return nil
 }
@@ -399,40 +412,31 @@ func (h *Handler) tryDirectGenerate(ctx context.Context, bot *model.Bot, ctxResu
 	}
 	return result.Content
 }
-func (h *Handler) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, userID string, userMsg, botResponse string) {
-	if h.memoryManager == nil || h.llmClient == nil || userMsg == "" || botResponse == "" {
+func (h *Handler) triggerMemoryExtraction(ctx context.Context, bot *model.Bot, event *model.BotEvent, botResponse string) {
+	if h.memoryManager == nil || h.llmClient == nil || event == nil || event.Message == nil || event.Sender == nil || event.Sender.UserID == nil || event.Message.Text == "" || botResponse == "" {
 		return
 	}
 	if bot.MemoryModelID == nil {
 		return
 	}
+	sentAt := time.Now()
+	if event.Message.CreatedAt > 0 {
+		sentAt = time.Unix(event.Message.CreatedAt, 0)
+	}
 	einoChatModel := h.llmClient.NewEinoChatModel(*bot.MemoryModelID, bot.MemoryModelName, bot.OwnerID, bot.ID)
 	extractor := memory.NewExtractor(einoChatModel, memory.ExtractorConfig{Temperature: 0.3})
 	h.memoryManager.WithExtractor(extractor).RememberAsync(ctx, memory.ExtractInput{
 		BotID:            bot.ID,
-		UserID:           userID,
-		Message:          userMsg,
-		SentAt:           time.Now(),
+		UserID:           *event.Sender.UserID,
+		ConvID:           &event.ConvID,
+		MsgID:            &event.Message.MsgID,
+		Message:          event.Message.Text,
+		SentAt:           sentAt,
 		OwnerID:          bot.OwnerID,
 		EmbeddingModelID: bot.MemoryEmbeddingModelID,
 		MemoryModelID:    bot.MemoryModelID,
 		MemoryModelName:  bot.MemoryModelName,
 	})
-}
-
-func buildRawPayload(kbSources []graph.KnowledgeSource, usedTools []string) string {
-	if len(kbSources) == 0 && len(usedTools) == 0 {
-		return ""
-	}
-	payload := map[string]any{"kb_sources": kbSources}
-	if len(usedTools) > 0 {
-		payload["tool_names"] = usedTools
-	}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	return string(b)
 }
 
 // parseEvent parses a Kafka message.created event, handling both nested (BotEvent)
@@ -448,6 +452,7 @@ func parseEvent(raw []byte) (*model.BotEvent, string, error) {
 			SenderID     *string `json:"sender_id"`
 			SenderName   string  `json:"sender_name"`
 			MsgType      int32   `json:"msg_type"`
+			CreatedAt    int64   `json:"created_at"`
 			ReplyToMsgID *string `json:"reply_to_msg_id"`
 			Content      struct {
 				Text     string   `json:"text"`
@@ -460,7 +465,7 @@ func parseEvent(raw []byte) (*model.BotEvent, string, error) {
 		if evt.EventType == "" {
 			evt.EventType = "message.created"
 		}
-		evt.Message = &model.EventMessage{MsgID: flat.MessageID, Text: flat.Content.Text, MsgType: flat.MsgType, ReplyToMsgID: flat.ReplyToMsgID}
+		evt.Message = &model.EventMessage{MsgID: flat.MessageID, Text: flat.Content.Text, MsgType: flat.MsgType, ReplyToMsgID: flat.ReplyToMsgID, CreatedAt: flat.CreatedAt}
 		evt.Sender = &model.EventSender{UserID: flat.SenderID, Username: flat.SenderName}
 		evt.MentionedUserIDs = flat.Content.Mentions
 	}
