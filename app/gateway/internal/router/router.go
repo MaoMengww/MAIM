@@ -190,6 +190,7 @@ func New(
 	// Single-run work and authoritative readback.
 	bots.POST("/:id/runs", botH.StartRun)
 	protected.GET("/runs/:id", botH.GetRun)
+	protected.POST("/runs/:id/control", botH.ControlRun)
 	protected.GET("/conversations/:id/runs", botH.ListRuns)
 
 	// Global MCP Server Management
@@ -252,7 +253,7 @@ func New(
 	r.POST("/api/v1/webhook", botH.Webhook)
 	botApp := api.Group("/bot-app")
 	botApp.GET("/convs/:id/messages", botHistoryH.Read)
-	botApp.POST("/messages", botHistoryH.Send)
+	botApp.POST("/runs/update", botHistoryH.ExecutorUpdate)
 
 	return r
 }

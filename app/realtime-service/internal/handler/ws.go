@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,7 +20,6 @@ import (
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/identity"
-	"github.com/maomeng/aim/pkg/protocol"
 	"github.com/maomeng/aim/pkg/sequence"
 	"google.golang.org/grpc/metadata"
 )
@@ -33,19 +33,13 @@ type WSHandler struct {
 	Upgrader      websocket.Upgrader
 }
 type clientEvent struct {
-	Type        string          `json:"type"`
-	UserID      string          `json:"user_id"`
-	UserIDs     []string        `json:"user_ids"`
-	ConvID      string          `json:"conv_id"`
-	Seq         int64           `json:"seq"`
-	StreamID    string          `json:"stream_id"`
-	FromSeq     *int64          `json:"from_seq"`
-	BindingID   string          `json:"binding_id"`
-	RequesterID *string         `json:"requester_id"`
-	MsgType     string          `json:"msg_type"`
-	Content     json.RawMessage `json:"content"`
-	RawPayload  string          `json:"raw_payload"`
-	ReplyToID   *string         `json:"reply_to_id"`
+	Type     string   `json:"type"`
+	UserID   string   `json:"user_id"`
+	UserIDs  []string `json:"user_ids"`
+	ConvID   string   `json:"conv_id"`
+	Seq      int64    `json:"seq"`
+	StreamID string   `json:"stream_id"`
+	FromSeq  *int64   `json:"from_seq"`
 }
 
 func (event *clientEvent) UnmarshalJSON(raw []byte) error {
@@ -131,7 +125,11 @@ func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id string) {
 	device := c.Query("device_id")
 	token := c.Query("token")
 	authenticate := func(ctx context.Context) error {
-		if kind != registry.User {
+		if kind == registry.Bot {
+			resp, err := h.BotClient.ValidateBotToken(ctx, &botpb.ValidateBotTokenReq{Token: token})
+			if err != nil || !resp.GetValid() || resp.GetBotId() != id {
+				return errors.New("invalid bot connection credential")
+			}
 			return nil
 		}
 		uid, err := h.authenticateUser(ctx, token, device)
@@ -231,7 +229,7 @@ func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id string) {
 			cancel()
 			return
 		}
-		err = h.handle(ctx, s, raw)
+		err = h.handle(ctx, s, raw, token)
 		cancel()
 		if err != nil {
 			h.Router.Logger.Errorf("ws event failed: kind=%s id=%s err=%v", kind, id, err)
@@ -248,7 +246,10 @@ func reply(s *session.Session, value any) error {
 	}
 	return s.WriteMessage(raw)
 }
-func (h *WSHandler) handle(ctx context.Context, s *session.Session, raw []byte) error {
+func (h *WSHandler) handle(ctx context.Context, s *session.Session, raw []byte, token string) error {
+	if s.Route.Kind == registry.Bot {
+		return h.handleBot(ctx, s, raw, token)
+	}
 	var e clientEvent
 	if err := json.Unmarshal(raw, &e); err != nil {
 		return err
@@ -264,9 +265,6 @@ func (h *WSHandler) handle(ctx context.Context, s *session.Session, raw []byte) 
 	r := s.Route
 	if e.Type == consts.EventPing {
 		return s.WriteMessage([]byte(`{"type":"pong"}`))
-	}
-	if r.Kind == registry.Bot {
-		return h.handleBot(ctx, s, e)
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "user-id", r.ID, "device-id", r.DeviceID)
 	switch e.Type {
@@ -349,54 +347,35 @@ func (h *WSHandler) handle(ctx context.Context, s *session.Session, raw []byte) 
 	}
 	return nil
 }
-func (h *WSHandler) handleBot(ctx context.Context, s *session.Session, e clientEvent) error {
-	if e.Type != "message.send" {
-		return nil
+func (h *WSHandler) handleBot(ctx context.Context, s *session.Session, raw []byte, token string) error {
+	var event struct {
+		Type string `json:"type"`
 	}
-	conv := e.ConvID
-	if identity.Validate(conv) != nil || identity.Validate(e.BindingID) != nil || (e.RequesterID != nil && identity.Validate(*e.RequesterID) != nil) {
-		return errors.New("invalid bot output identity")
+	if err := json.Unmarshal(raw, &event); err != nil {
+		return err
 	}
-	req := &message.SendBotReplyReq{BotId: s.Route.ID, ConversationId: conv, BindingId: e.BindingID, RequesterId: e.RequesterID, ReplyToId: e.ReplyToID, RawPayload: e.RawPayload}
-	if e.ReplyToID != nil && identity.Validate(*e.ReplyToID) != nil {
-		return errors.New("invalid reply")
-	}
-	switch e.MsgType {
-	case "text":
-		content := &message.TextContent{}
-		if err := protocol.Unmarshal(e.Content, content); err != nil {
-			return err
-		}
-		req.Type, req.Text = message.MessageType_MESSAGE_TYPE_TEXT, content.Text
-	case "file":
-		req.File = &message.FileContent{}
-		if err := protocol.Unmarshal(e.Content, req.File); err != nil {
-			return err
-		}
-		req.Type = message.MessageType_MESSAGE_TYPE_FILE
-	case "result":
-		req.Result = &message.CustomContent{}
-		if err := protocol.Unmarshal(e.Content, req.Result); err != nil {
-			return err
-		}
-		req.Type = message.MessageType_MESSAGE_TYPE_RESULT
+	switch event.Type {
+	case consts.EventPing:
+		return s.WriteMessage([]byte(`{"type":"pong"}`))
+	case "message.send":
+		return reply(s, map[string]any{"type": "error", "error": "message.send is not supported; submit run updates"})
+	case "run.delivery_ack", "run.claim", "run.update":
 	default:
-		return errors.New("unsupported bot content type")
+		return errors.New("unsupported bot event")
 	}
 	md, _ := metadata.FromOutgoingContext(ctx)
 	md = md.Copy()
 	md.Delete("user-id")
 	md.Delete("x-user-id")
 	ctx = metadata.NewOutgoingContext(ctx, md)
-	response, err := h.MessageClient.SendBotReply(ctx, req)
+	resp, err := h.BotClient.ExecutorUpdate(ctx, &botpb.ExecutorUpdateReq{BotId: s.Route.ID, Token: token, Body: raw})
 	if err != nil {
 		return err
 	}
-	if err := identity.Validate(response.MessageId); err != nil {
-		return err
+	run := json.RawMessage(resp.GetRunJson())
+	trimmed := strings.TrimSpace(resp.GetRunJson())
+	if !json.Valid(run) || trimmed == "" || trimmed[0] != '{' {
+		return errors.New("invalid run response contract")
 	}
-	if err := sequence.Validate(response.Seq); err != nil {
-		return err
-	}
-	return reply(s, map[string]any{"type": "message.sent", "message_id": response.MessageId, "seq": response.Seq, "created_at": response.CreatedAt})
+	return reply(s, map[string]any{"type": "bot.run.receipt", "run": run})
 }

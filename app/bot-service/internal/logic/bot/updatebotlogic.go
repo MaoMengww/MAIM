@@ -85,6 +85,13 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 			updates["enable_knowledge"] = in.EnableKnowledge
 		}
 	case consts.BotTypeThirdParty:
+		capabilities := bot.Capabilities
+		if in.Capabilities != "" {
+			capabilities = []byte(in.Capabilities)
+		}
+		if _, err := model.ParseExecutorCapabilities(capabilities); err != nil {
+			return nil, ErrBotInvalid
+		}
 		subType := bot.SubType
 		if in.SubType != "" {
 			subType = in.SubType

@@ -32,6 +32,9 @@ export const botApi = {
   getRun: (runId: string): Promise<BotRun> =>
     client.get<APIResponse<unknown>>(`/runs/${runId}`).then((r) => normalizeRun(unwrap(r))),
 
+  controlRun: (runId: string, operation: 'input' | 'stop' | 'resume', submissionKey: string, message = ''): Promise<BotRun> =>
+    client.post<APIResponse<unknown>>(`/runs/${runId}/control`, { operation, submission_key: submissionKey, message }).then((r) => normalizeRun(unwrap(r))),
+
   listRuns: (convId: string): Promise<BotRun[]> =>
     client.get<APIResponse<unknown>>(`/conversations/${convId}/runs`, { params: { limit: 100 } }).then((r) => {
       const data = unwrap(r);
@@ -85,7 +88,7 @@ export function normalizeRun(value: unknown): BotRun {
   const run = value as Record<string, unknown>;
   const status = run.status;
   const output = run.output_status;
-  if (status !== 'accepted' && status !== 'running' && status !== 'succeeded' && status !== 'failed') throw new Error('执行状态无效');
+  if (!['accepted', 'running', 'waiting_input', 'stopping', 'stopped', 'succeeded', 'failed'].includes(String(status))) throw new Error('执行状态无效');
   if (output !== 'none' && output !== 'generated' && output !== 'pending' && output !== 'committed' && output !== 'failed') throw new Error('结果提交状态无效');
   const text = (value: unknown, field: string): string => {
     if (typeof value !== 'string') throw new Error(`${field} 必须是文本`);
@@ -93,14 +96,35 @@ export function normalizeRun(value: unknown): BotRun {
   };
   if (!Array.isArray(run.steps)) throw new Error('执行阶段必须是数组');
   if (!Array.isArray(run.sources)) throw new Error('执行来源必须是数组');
+  if (!Array.isArray(run.input_sources)) throw new Error('输入来源必须是数组');
   if ((output === 'committed' && !run.message_id) || (status === 'succeeded' && output !== 'committed')) throw new Error('执行提交结果缺少最终消息确认');
+  if (run.executor_type !== 'builtin' && run.executor_type !== 'third_party') throw new Error('执行器类型无效');
+  if (!['pending', 'delivered', 'acknowledged'].includes(String(run.delivery_status))) throw new Error('投递状态无效');
+  if (!['pending', 'accepted', 'completed'].includes(String(run.executor_status))) throw new Error('执行器接受状态无效');
+  const capabilities = run.executor_capabilities;
+  if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)) throw new Error('执行器能力无效');
+  const caps = capabilities as Record<string, unknown>;
+  if (!Array.isArray(caps.input_types) || !caps.input_types.every((type) => typeof type === 'string')
+    || typeof caps.supports_input !== 'boolean' || typeof caps.supports_stop !== 'boolean' || typeof caps.supports_resume !== 'boolean') throw new Error('执行器能力声明无效');
+  if (run.result_type != null && run.result_type !== '' && !['text', 'file', 'result'].includes(String(run.result_type))) throw new Error('结果类型无效');
+  if (run.result_content != null && (typeof run.result_content !== 'object' || Array.isArray(run.result_content))) throw new Error('结果内容无效');
   return {
     id: entityId(run.id, 'run.id'), interaction_id: entityId(run.interaction_id, 'run.interaction_id'),
     bot_id: entityId(run.bot_id, 'run.bot_id'), conv_id: entityId(run.conv_id, 'run.conv_id'),
     binding_id: entityId(run.binding_id, 'run.binding_id'), requester_id: entityId(run.requester_id, 'run.requester_id'),
     input_key: text(run.input_key, 'run.input_key'), source_message_id: optionalEntityId(run.source_message_id, 'run.source_message_id'),
     input_version: sequence(run.input_version, 'run.input_version', true), version: sequence(run.version, 'run.version', true),
-    status, stage: text(run.stage, 'run.stage'), result_text: text(run.result_text, 'run.result_text'), output_status: output,
+    generation: sequence(run.generation, 'run.generation'),
+    input_sources: run.input_sources.map((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('输入来源格式无效');
+      const source = value as Record<string, unknown>;
+      return { version: sequence(source.version, 'input_source.version', true), requester_id: entityId(source.requester_id, 'input_source.requester_id'), source_message_id: optionalEntityId(source.source_message_id, 'input_source.source_message_id') };
+    }),
+    status: status as BotRun['status'], stage: text(run.stage, 'run.stage'), result_text: text(run.result_text, 'run.result_text'), output_status: output,
+    executor_type: run.executor_type, executor_capabilities: { input_types: caps.input_types, supports_input: caps.supports_input, supports_stop: caps.supports_stop, supports_resume: caps.supports_resume },
+    delivery_status: run.delivery_status as BotRun['delivery_status'], executor_status: run.executor_status as BotRun['executor_status'],
+    result_type: run.result_type ? run.result_type as BotRun['result_type'] : undefined,
+    result_content: run.result_content == null ? undefined : run.result_content as Record<string, unknown>,
     message_id: optionalEntityId(run.message_id, 'run.message_id'), error: run.error == null ? undefined : text(run.error, 'run.error'),
     sources: run.sources.map((value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('执行来源格式无效');

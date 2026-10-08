@@ -1,20 +1,13 @@
 package main
 
 import (
-	"bytes"
-	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -149,39 +142,6 @@ func (d *driver) identityBotSocket(address, token, device string) (*websocket.Co
 	return d.connect(u.String(), account{token: token, device: device})
 }
 
-func (d *driver) identityBotExchange(conn *websocket.Conn, input any, reject bool) (entityID, error) {
-	if err := conn.SetWriteDeadline(time.Now().Add(d.timeout)); err != nil {
-		return "", err
-	}
-	if err := conn.WriteJSON(input); err != nil {
-		return "", err
-	}
-	if err := conn.SetReadDeadline(time.Now().Add(d.timeout)); err != nil {
-		return "", err
-	}
-	for {
-		var response struct {
-			Type      string   `json:"type"`
-			MessageID entityID `json:"message_id"`
-		}
-		if err := conn.ReadJSON(&response); err != nil {
-			return "", err
-		}
-		if response.Type == "error" {
-			if reject {
-				return "", nil
-			}
-			return "", errors.New("bot-identity.bot-ws: 合法Bot输出被拒绝")
-		}
-		if response.Type == "message.sent" {
-			if reject || response.MessageID == "" {
-				return "", errors.New("bot-identity.bot-ws: 无权限输出成功或ACK无实体ID")
-			}
-			return response.MessageID, nil
-		}
-	}
-}
-
 func identityHistoryPath(conv, binding, grant entityID, cursor sequenceNumber) string {
 	query := url.Values{"binding_id": {binding.String()}, "cursor": {cursor.String()}, "limit": {"30"}}
 	if grant != "" {
@@ -281,7 +241,7 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 	}
 	var bot botView
 	name := "identity-bot-" + suffix
-	if err := d.request(http.MethodPost, "/bots", owner.token, map[string]any{"name": name, "avatar": d.provider + "/identity-avatar-" + suffix, "type": "third_party", "sub_type": "ws", "conn_mode": "ws", "response_triggers": []string{"always"}}, &bot); err != nil {
+	if err := d.request(http.MethodPost, "/bots", owner.token, map[string]any{"name": name, "avatar": d.provider + "/identity-avatar-" + suffix, "type": "third_party", "sub_type": "ws", "conn_mode": "ws", "response_triggers": []string{"mention"}, "capabilities": executorCapabilities}, &bot); err != nil {
 		return err
 	}
 	defer func() {
@@ -368,45 +328,21 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 	if err != nil {
 		return err
 	}
-	first, err := d.sendMessage(requester, convs[0], "CURRENT_REQUEST_ONLY_"+suffix, seeds[0].Seq)
+	first, err := d.sendBotMention(requester, bot.ID, convs[0], "CURRENT_REQUEST_ONLY_"+suffix)
 	if err != nil {
 		return err
 	}
-	if err := conn.SetReadDeadline(time.Now().Add(d.timeout)); err != nil {
+	executor := &controlledExecutor{d: d, bot: bot.ID, conn: conn, token: issued.Token}
+	request, err := executor.request("")
+	if err != nil {
 		return err
 	}
-	for {
-		_, raw, err := conn.ReadMessage()
-		if err != nil {
-			return fmt.Errorf("bot-identity.bot-request: %w", err)
-		}
-		var event struct {
-			Type      string   `json:"type"`
-			BindingID entityID `json:"binding_id"`
-			Message   struct {
-				ID      entityID        `json:"message_id"`
-				Content json.RawMessage `json:"content"`
-			} `json:"message"`
-			Sender struct {
-				ID *entityID `json:"sender_id"`
-			} `json:"sender"`
-		}
-		if err := json.Unmarshal(raw, &event); err != nil {
-			return err
-		}
-		if event.Message.ID != first.MessageID {
-			continue
-		}
-		var content struct {
-			Text string `json:"text"`
-		}
-		if err := json.Unmarshal(event.Message.Content, &content); err != nil {
-			return err
-		}
-		if event.BindingID != bindings[0].BindingID || !hasEntityID(event.Sender.ID, requester.id) || content.Text != first.Content.Text || strings.Contains(string(raw), seeds[0].Content.Text) {
-			return errors.New("bot-identity.request: 邀请者冒充请求者、binding丢失或默认泄漏群recent-history")
-		}
-		break
+	raw, err := json.Marshal(request.Input)
+	if err != nil {
+		return err
+	}
+	if request.Run.BindingID != bindings[0].BindingID || request.Run.RequesterID != requester.id || !hasEntityID(request.Run.SourceMessageID, first.MessageID) || request.Input.Text != first.Content.Text || strings.Contains(string(raw), seeds[0].Content.Text) {
+		return errors.New("bot-identity.request: 邀请者冒充请求者、binding丢失或默认泄漏群recent-history")
 	}
 	second, err := d.sendMessage(inviter, convs[0], "AUTHORIZED_SECOND_"+suffix, first.Seq)
 	if err != nil {
@@ -446,22 +382,6 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 		return err
 	}
 	fmt.Println("Bot identity PASS: request-only WS内容；指定seq grant仅返回授权两条；无grant/越界cursor/跨群/非成员owner/超MaxSeq拒读；个人删除不可重新授权或复活")
-	for _, raw := range []string{"not-json", "null", `{"kb_sources":[{"type":"rag","kb_name":"name","title":"title","content":"content","kb_id":7,"doc_id":"01960000-0000-7000-8000-000000000001","chunk_id":"01960000-0000-7000-8000-000000000002"}]}`} {
-		input := map[string]any{"conversation_id": convs[0], "binding_id": bindings[0].BindingID, "type": 1, "text": "invalid metadata", "raw_payload": raw}
-		if err := d.runtimeReject(http.MethodPost, "/bot-app/messages", botCaller, input, http.StatusBadRequest); err != nil {
-			return err
-		}
-		ws := map[string]any{"type": "message.send", "conv_id": convs[0], "binding_id": bindings[0].BindingID, "msg_type": "text", "content": map[string]string{"text": "invalid metadata"}, "raw_payload": raw}
-		if _, err := d.identityBotExchange(conn, ws, true); err != nil {
-			return err
-		}
-	}
-	// A rejected executor payload cannot strand the human's durable sync position.
-	if _, err := d.inboxRead("bot-identity.metadata-rejected", requester, initial.NextPosition, 50); err != nil {
-		return err
-	}
-	fmt.Println("Bot identity PASS: REST/WS非法元数据和数字知识来源拒写，用户同步继续可读")
-
 	file, err := d.attachmentUpload(inviter, "identity-"+suffix+".txt", "text/plain", []byte("identity-public-"+suffix), 3)
 	if err != nil {
 		return err
@@ -469,60 +389,111 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 	defer func() {
 		result = errors.Join(result, d.request(http.MethodDelete, "/files/"+file.info.FileID.String(), inviter.token, nil, nil))
 	}()
+	private, err := d.attachmentUpload(inviter, "identity-private-"+suffix+".txt", "text/plain", []byte("private-resource-"+suffix), 1)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		result = errors.Join(result, d.request(http.MethodDelete, "/files/"+private.info.FileID.String(), inviter.token, nil, nil))
+	}()
 	var outputs []identityOutput
 	var firstPublication map[string]any
-	for i, conv := range convs {
-		for _, kind := range []int32{1, 3, 10} {
-			raw := fmt.Sprintf(`{"origin":"identity","group":%d,"kind":%d}`, i, kind)
-			input := map[string]any{"conversation_id": conv, "binding_id": bindings[i].BindingID, "requester_id": requester.id, "type": kind, "raw_payload": raw}
-			input["output_key"] = fmt.Sprintf("identity:%s:%d:%d", suffix, i, kind)
-			expected := identityOutput{text: "机器人身份消息" + suffix + fmt.Sprint(i), file: file.info.FileID, resultType: "identity.result", resultData: fmt.Sprintf(`{"group":%d,"ok":true}`, i)}
-			switch kind {
-			case 1:
-				input["text"] = expected.text
-			case 3:
-				input["file"] = map[string]any{"file_id": file.info.FileID}
-			case 10:
-				input["result"] = map[string]string{"type": expected.resultType, "data": expected.resultData}
-			}
-			var ack struct {
-				ID  entityID       `json:"message_id"`
-				Seq sequenceNumber `json:"seq"`
-			}
-			if err := d.request(http.MethodPost, "/bot-app/messages", issued.Token, input, &ack); err != nil {
+	for _, mode := range []string{"ws", "webhook"} {
+		if mode == "webhook" {
+			if err := d.request(http.MethodPut, "/bots/"+bot.ID.String(), owner.token, map[string]string{"sub_type": "webhook", "conn_mode": "webhook", "callback_url": d.provider + "/external-webhook"}, nil); err != nil {
 				return err
 			}
-			if ack.ID == "" || ack.Seq <= 0 {
-				return errors.New("bot-identity.rest: 输出没有持久消息UUID/seq")
-			}
-			retry := maps.Clone(input)
-			retry["raw_payload"] = fmt.Sprintf(`{"kind":%d,"group":%d,"origin":"identity"}`, kind, i)
-			if kind == 10 {
-				retry["result"] = map[string]string{"type": expected.resultType, "data": fmt.Sprintf(`{"ok":true,"group":%d.0}`, i)}
-			}
-			var replay struct {
-				ID  entityID       `json:"message_id"`
-				Seq sequenceNumber `json:"seq"`
-			}
-			if err := d.request(http.MethodPost, "/bot-app/messages", issued.Token, retry, &replay); err != nil {
+			executor, err = d.webhookExecutor(owner, bot.ID)
+			if err != nil {
 				return err
 			}
-			if replay.ID != ack.ID || replay.Seq != ack.Seq {
-				return errors.New("bot-output.retry: 同键同语义重复生成消息")
+		}
+		for i, conv := range convs {
+			for _, kind := range []int32{1, 3, 10} {
+				if mode != "ws" || i != 0 || kind != 1 {
+					accepted, err := d.startRun(requester, bot.ID, conv, "typed-result-"+mode+suffix, uuid.NewString(), nil)
+					if err != nil {
+						return err
+					}
+					request, err = executor.request(accepted.ID)
+					if err != nil {
+						return err
+					}
+				}
+				expected := identityOutput{text: executorText(request.Input.Text), file: file.info.FileID, resultType: "identity.result", resultData: fmt.Sprintf(`{"group":%d,"ok":true}`, i)}
+				label := "text"
+				content := map[string]any{"text": expected.text}
+				switch kind {
+				case 3:
+					label = "file"
+					content = map[string]any{"file_id": expected.file}
+				case 10:
+					label = "result"
+					content = map[string]any{"type": expected.resultType, "data": expected.resultData}
+				}
+				publisher := *executor
+				if mode == "ws" && i == 1 {
+					publisher.rest = true
+				}
+				publication, err := publisher.complete(request, label, content, expected.text)
+				if err != nil {
+					return err
+				}
+				replay, err := publisher.update(publication, false, false)
+				if err != nil {
+					return err
+				}
+				changed := maps.Clone(publication)
+				changed["result_text"] = "contradictory result"
+				if _, err := publisher.update(changed, true, false); err != nil {
+					return err
+				}
+				done, err := d.publishedRun(requester, request.Run.ID)
+				if err != nil {
+					return err
+				}
+				if replay.ID != done.ID || done.BindingID != bindings[i].BindingID || done.RequesterID != requester.id {
+					return errors.New("bot-identity.run: 重试改变Run或权威身份")
+				}
+				stored, err := d.identityMessage(requester, *done.MessageID)
+				if err != nil {
+					return err
+				}
+				expected.message = storedMessage{MessageID: *done.MessageID, ConvID: conv, Seq: stored.Seq, Type: kind, SenderID: &bot.ID, SenderType: "bot", SenderName: name, SenderAvatar: bot.Avatar, BindingID: &bindings[i].BindingID, RequesterID: &requester.id, RawPayload: stored.RawPayload, ReplyToID: request.Run.SourceMessageID}
+				if err := d.identityObserve(humanSocket, requester, expected); err != nil {
+					return err
+				}
+				outputs = append(outputs, expected)
+				if mode == "webhook" && i == 0 && kind == 1 {
+					firstPublication = publication
+				}
 			}
-			changed := maps.Clone(input)
-			changed["raw_payload"] = `{"origin":"changed"}`
-			if err := d.runtimeReject(http.MethodPost, "/bot-app/messages", botCaller, changed, http.StatusConflict); err != nil {
+		}
+		// A rejected private result must never enter the public Run or its receipts.
+		denied, err := d.startRun(requester, bot.ID, convs[0], "private-file-"+mode+suffix, uuid.NewString(), nil)
+		if err != nil {
+			return err
+		}
+		deniedRequest, err := executor.request(denied.ID)
+		if err != nil {
+			return err
+		}
+		for _, payload := range []map[string]any{executorPayload(deniedRequest, "run.claim", "accepted", 0), executorPayload(deniedRequest, "run.update", "running", 1)} {
+			if _, err := executor.update(payload, false, false); err != nil {
 				return err
 			}
-			if i == 0 && kind == 1 {
-				firstPublication = maps.Clone(input)
-			}
-			expected.message = storedMessage{MessageID: ack.ID, ConvID: conv, Seq: ack.Seq, Type: kind, SenderID: &bot.ID, SenderType: "bot", SenderName: name, SenderAvatar: bot.Avatar, BindingID: &bindings[i].BindingID, RequesterID: &requester.id, RawPayload: raw}
-			if err := d.identityObserve(humanSocket, requester, expected); err != nil {
-				return err
-			}
-			outputs = append(outputs, expected)
+		}
+		privateResult := executorPayload(deniedRequest, "run.update", "completed", 2)
+		privateResult["msg_type"], privateResult["content"], privateResult["result_text"] = "file", map[string]any{"file_id": private.info.FileID, "name": "PRIVATE_UNSHAREABLE_NAME", "url": "https://private.invalid/secret"}, "PRIVATE_UNSHAREABLE_SUMMARY"
+		if _, err := executor.update(privateResult, true, false); err != nil {
+			return err
+		}
+		unchanged, err := d.readRun(requester, denied.ID)
+		if err != nil {
+			return err
+		}
+		if unchanged.Status != "running" || unchanged.OutputStatus != "none" || unchanged.MessageID != nil || unchanged.ResultText != "" || len(unchanged.ResultContent) != 0 {
+			return errors.New("bot-identity.file: 私有文件或伪造元信息进入公开执行结果")
 		}
 	}
 	if err := d.identitySync(requester, initial.NextPosition, outputs); err != nil {
@@ -531,61 +502,20 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 	if err := d.identityReferences(requester, outputs[0], suffix); err != nil {
 		return err
 	}
-	if err := d.identityWSOutputs(conn, humanSocket, requester, bot, bindings[0], convs[0], name, file.info.FileID, suffix); err != nil {
+	if err := d.runtimeReject(http.MethodGet, identityHistoryPath(convs[0], bindings[0].BindingID, grant, 0), botCaller, nil, http.StatusUnauthorized); err != nil {
 		return err
 	}
-	webhookSecret, err := d.identityWebhookOutputs(owner, requester, bot, bindings[0], convs[0], humanSocket, file.info.FileID, suffix)
-	if err != nil {
+	if err := d.request(http.MethodPost, "/bots/"+bot.ID.String()+"/token", owner.token, map[string]int{"ttl_seconds": 300}, &issued); err != nil {
 		return err
 	}
-	fmt.Println("Bot identity PASS: 同Bot两群REST text=1/file=3/result=10与人类WS/history/byID/用户增量sync显式身份一致；Bot WS三种输出成功；search/引用识别Bot")
-
-	body := map[string]any{"conversation_id": convs[0], "binding_id": bindings[0].BindingID, "type": 1, "text": "rejected-" + suffix}
-	for _, change := range []struct {
-		binding any
-		status  int
-	}{{nil, http.StatusBadRequest}, {bindings[1].BindingID, http.StatusForbidden}} {
-		if change.binding == nil {
-			delete(body, "binding_id")
-		} else {
-			body["binding_id"] = change.binding
-		}
-		if err := d.runtimeReject(http.MethodPost, "/bot-app/messages", botCaller, body, change.status); err != nil {
-			return err
-		}
-	}
-	if _, err := d.identityBotExchange(conn, map[string]any{"type": "message.send", "conv_id": convs[0], "msg_type": "text", "content": map[string]string{"text": "missing-binding"}}, true); err != nil {
-		return err
-	}
-	body["binding_id"] = bindings[0].BindingID
-	body["requester_id"] = owner.id
-	if err := d.runtimeReject(http.MethodPost, "/bot-app/messages", botCaller, body, http.StatusForbidden); err != nil {
-		return err
-	}
-	delete(body, "requester_id")
-	before, err := d.conversationList("bot-identity.before-remove", inviter, convs[0], true)
-	if err != nil {
-		return err
-	}
+	botCaller.token = issued.Token
 	if err := d.request(http.MethodDelete, "/convs/"+convs[0].String()+"/bots/"+bot.ID.String(), inviter.token, nil, nil); err != nil {
 		return err
 	}
-	if err := d.runtimeReject(http.MethodPost, "/bot-app/messages", botCaller, firstPublication, http.StatusForbidden); err != nil {
-		return err
-	}
-	if err := d.identityHumans(inviter, convs[0], inviter.id, requester.id); err != nil {
-		return err
-	}
-	if err := d.runtimeReject(http.MethodPost, "/bot-app/messages", botCaller, body, http.StatusForbidden); err != nil {
+	if _, err := executor.update(firstPublication, true, false); err != nil {
 		return err
 	}
 	if err := d.runtimeReject(http.MethodGet, identityHistoryPath(convs[0], bindings[0].BindingID, grant, 0), botCaller, nil, http.StatusForbidden); err != nil {
-		return err
-	}
-	if _, err := d.identityBotExchange(conn, map[string]any{"type": "message.send", "conv_id": convs[0], "binding_id": bindings[0].BindingID, "msg_type": "text", "content": map[string]string{"text": "stale-binding"}}, true); err != nil {
-		return err
-	}
-	if _, err := d.identityWebhook(webhookSecret, map[string]any{"type": "message.send", "conversation_id": convs[0], "binding_id": bindings[0].BindingID, "msg_type": "text", "content": map[string]string{"text": "stale-webhook-binding"}}, true); err != nil {
 		return err
 	}
 	if err := d.request(http.MethodPost, "/convs/"+convs[0].String()+"/bots", inviter.token, map[string]any{"bot_id": bot.ID}, nil); err != nil {
@@ -598,19 +528,10 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 	if rejoined.BindingID == bindings[0].BindingID || rejoined.OwnerType != bindings[0].OwnerType || !sameEntityID(rejoined.OwnerID, bindings[0].OwnerID) {
 		return errors.New("bot-identity.rejoin: 复用了旧binding或改变稳定Bot所有权")
 	}
-	if err := d.runtimeReject(http.MethodPost, "/bot-app/messages", botCaller, body, http.StatusForbidden); err != nil {
+	if _, err := executor.update(firstPublication, true, false); err != nil {
 		return err
 	}
 	if err := d.runtimeReject(http.MethodGet, identityHistoryPath(convs[0], rejoined.BindingID, grant, 0), botCaller, nil, http.StatusForbidden); err != nil {
-		return err
-	}
-	if _, err := d.identityWebhook(webhookSecret, map[string]any{"type": "message.send", "conversation_id": convs[0], "binding_id": bindings[0].BindingID, "msg_type": "text", "content": map[string]string{"text": "rejoined-old-webhook-binding"}}, true); err != nil {
-		return err
-	}
-	if _, err := d.identityBotExchange(conn, map[string]any{"type": "message.send", "conv_id": convs[0], "binding_id": bindings[0].BindingID, "msg_type": "text", "content": map[string]string{"text": "rejoined-old-ws-binding"}}, true); err != nil {
-		return err
-	}
-	if err := d.runtimeReject(http.MethodGet, identityHistoryPath(convs[0], rejoined.BindingID, "", 0), botCaller, nil, http.StatusBadRequest); err != nil {
 		return err
 	}
 	freshGrant, err := d.identityGrant(inviter, convs[0], bot.ID, rejoined.BindingID, seeds[0].Seq, seeds[0].Seq)
@@ -625,47 +546,47 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 		return err
 	}
 	if other.BindingID != bindings[1].BindingID {
-		return errors.New("bot-identity.rejoin: 第一群生命周期改变了第二群binding")
+		return errors.New("bot-identity.rejoin: 第一群生命周期改变第二群binding")
 	}
-	body["binding_id"] = rejoined.BindingID
-	body["text"] = "fresh-lifecycle-" + suffix
-	var fresh struct {
-		ID  entityID       `json:"message_id"`
-		Seq sequenceNumber `json:"seq"`
-	}
-	if err := d.request(http.MethodPost, "/bot-app/messages", issued.Token, body, &fresh); err != nil {
-		return err
-	}
-	if fresh.ID == "" || fresh.Seq <= before.MaxSeq {
-		return errors.New("bot-identity.rejoin: 新binding未复用普通会话seq")
-	}
-	expected := identityOutput{text: body["text"].(string), message: storedMessage{MessageID: fresh.ID, ConvID: convs[0], Seq: fresh.Seq, Type: 1, SenderID: &bot.ID, SenderType: "bot", SenderName: name, SenderAvatar: bot.Avatar, BindingID: &rejoined.BindingID}}
-	if err := d.identityObserve(humanSocket, requester, expected); err != nil {
-		return err
-	}
-	body["conversation_id"] = convs[1]
-	body["binding_id"] = bindings[1].BindingID
-	body["text"] = "other-binding-still-active-" + suffix
-	var unaffected struct {
-		ID  entityID       `json:"message_id"`
-		Seq sequenceNumber `json:"seq"`
-	}
-	if err := d.request(http.MethodPost, "/bot-app/messages", issued.Token, body, &unaffected); err != nil {
-		return err
-	}
-	if unaffected.ID == "" || unaffected.Seq <= outputs[5].message.Seq {
-		return errors.New("bot-identity.independent: 第二群独立binding无法继续发言")
-	}
-	stillActive := identityOutput{text: body["text"].(string), message: storedMessage{MessageID: unaffected.ID, ConvID: convs[1], Seq: unaffected.Seq, Type: 1, SenderID: &bot.ID, SenderType: "bot", SenderName: name, SenderAvatar: bot.Avatar, BindingID: &bindings[1].BindingID}}
-	if err := d.identityObserve(humanSocket, requester, stillActive); err != nil {
-		return err
-	}
-	for _, conv := range convs {
+	for i, conv := range convs {
+		accepted, err := d.startRun(requester, bot.ID, conv, "fresh-lifecycle-"+suffix, uuid.NewString(), nil)
+		if err != nil {
+			return err
+		}
+		freshRequest, err := executor.request(accepted.ID)
+		if err != nil {
+			return err
+		}
+		text := executorText(freshRequest.Input.Text)
+		if _, err := executor.complete(freshRequest, "text", map[string]any{"text": text}, text); err != nil {
+			return err
+		}
+		done, err := d.publishedRun(requester, accepted.ID)
+		if err != nil {
+			return err
+		}
+		expectedBinding := bindings[i].BindingID
+		if i == 0 {
+			expectedBinding = rejoined.BindingID
+		}
+		if done.BindingID != expectedBinding {
+			return errors.New("bot-identity.rejoin: 新Run未绑定当前生命周期")
+		}
+		stored, err := d.identityMessage(requester, *done.MessageID)
+		if err != nil {
+			return err
+		}
+		if stored.Seq <= outputs[0].message.Seq {
+			return errors.New("bot-identity.rejoin: 会话seq发生回退")
+		}
+		expected := identityOutput{text: text, message: storedMessage{MessageID: *done.MessageID, ConvID: conv, Seq: stored.Seq, Type: 1, SenderID: &bot.ID, SenderType: "bot", SenderName: name, SenderAvatar: bot.Avatar, BindingID: &expectedBinding, RequesterID: &requester.id, RawPayload: stored.RawPayload}}
+		if err := d.identityObserve(humanSocket, requester, expected); err != nil {
+			return err
+		}
 		if err := d.identityHumans(inviter, conv, inviter.id, requester.id); err != nil {
 			return err
 		}
 	}
-	fmt.Printf("Bot identity PASS: missing/cross binding与非成员requester拒写；移出旧binding/旧grant失效；rejoin %s -> %s，新grant/新输出成功且第二群%s不变\n", bindings[0].BindingID, rejoined.BindingID, other.BindingID)
 	return nil
 }
 
@@ -698,124 +619,4 @@ func (d *driver) identityReferences(caller account, output identityOutput, suffi
 		return errors.New("bot-identity.search: 搜索引用丢失Bot身份")
 	}
 	return nil
-}
-
-func (d *driver) identityWSOutputs(conn *websocket.Conn, socket *p6Socket, caller account, bot botView, binding identityBinding, conv entityID, name string, file entityID, suffix string) error {
-	for _, kind := range []int32{1, 3, 10} {
-		label := "text"
-		expected := identityOutput{text: "ws-bot-" + suffix, file: file, resultType: "ws.result", resultData: `{"ok":true}`}
-		content := map[string]any{"text": expected.text}
-		switch kind {
-		case 3:
-			label = "file"
-			content = map[string]any{"file_id": file}
-		case 10:
-			label = "result"
-			content = map[string]any{"type": expected.resultType, "data": expected.resultData}
-		}
-		id, err := d.identityBotExchange(conn, map[string]any{"type": "message.send", "conv_id": conv, "binding_id": binding.BindingID, "requester_id": caller.id, "msg_type": label, "content": content}, false)
-		if err != nil {
-			return err
-		}
-		stored, err := d.identityMessage(caller, id)
-		if err != nil {
-			return err
-		}
-		expected.message = storedMessage{MessageID: id, ConvID: conv, Seq: stored.Seq, Type: kind, SenderID: &bot.ID, SenderType: "bot", SenderName: name, SenderAvatar: bot.Avatar, BindingID: &binding.BindingID, RequesterID: &caller.id}
-		if err := d.identityObserve(socket, caller, expected); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (d *driver) identityWebhook(secret string, input any, reject bool) (entityID, error) {
-	raw, err := json.Marshal(input)
-	if err != nil {
-		return "", err
-	}
-	mac := hmac.New(sha256.New, []byte(secret))
-	if _, err := mac.Write(raw); err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.gateway+"/api/v1/webhook", bytes.NewReader(raw))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-AIM-Signature", hex.EncodeToString(mac.Sum(nil)))
-	req.Header.Set("X-AIM-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("bot-identity.webhook: %s", transportFailure(err))
-	}
-	defer resp.Body.Close()
-	var envelope struct {
-		Code *int `json:"code"`
-		Data struct {
-			ID entityID `json:"message_id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&envelope); err != nil {
-		return "", err
-	}
-	if reject {
-		if (resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusForbidden) || envelope.Code == nil || *envelope.Code == 0 {
-			return "", fmt.Errorf("bot-identity.webhook: 越权输出未被拒绝 HTTP%d", resp.StatusCode)
-		}
-		return "", nil
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 || envelope.Code == nil || *envelope.Code != 0 || envelope.Data.ID == "" {
-		return "", fmt.Errorf("bot-identity.webhook: 合法输出无成功消息ACK HTTP%d", resp.StatusCode)
-	}
-	return envelope.Data.ID, nil
-}
-
-func (d *driver) identityWebhookOutputs(owner, requester account, bot botView, binding identityBinding, conv entityID, socket *p6Socket, file entityID, suffix string) (string, error) {
-	path := "/bots/" + bot.ID.String()
-	if err := d.request(http.MethodPut, path, owner.token, map[string]string{"sub_type": "webhook", "conn_mode": "webhook", "callback_url": d.provider + "/external-webhook"}, nil); err != nil {
-		return "", err
-	}
-	var secrets struct {
-		Webhook string `json:"webhook_secret"`
-	}
-	if err := d.request(http.MethodPost, path+"/secret/rotate", owner.token, map[string]any{}, &secrets); err != nil {
-		return "", err
-	}
-	if secrets.Webhook == "" {
-		return "", errors.New("bot-identity.webhook: 没有签名凭据")
-	}
-	for _, kind := range []int32{1, 3, 10} {
-		label := "text"
-		expected := identityOutput{text: "webhook-bot-" + suffix, file: file, resultType: "webhook.result", resultData: `{"ok":true}`}
-		content := map[string]any{"text": expected.text}
-		switch kind {
-		case 3:
-			label = "file"
-			content = map[string]any{"file_id": file}
-		case 10:
-			label = "result"
-			content = map[string]any{"type": expected.resultType, "data": expected.resultData}
-		}
-		input := map[string]any{"type": "message.send", "conversation_id": conv, "binding_id": binding.BindingID, "requester_id": requester.id, "msg_type": label, "content": content}
-		id, err := d.identityWebhook(secrets.Webhook, input, false)
-		if err != nil {
-			return "", err
-		}
-		stored, err := d.identityMessage(requester, id)
-		if err != nil {
-			return "", err
-		}
-		expected.message = storedMessage{MessageID: id, ConvID: conv, Seq: stored.Seq, Type: kind, SenderID: &bot.ID, SenderType: "bot", SenderName: bot.Name, SenderAvatar: bot.Avatar, BindingID: &binding.BindingID, RequesterID: &requester.id}
-		if err := d.identityObserve(socket, requester, expected); err != nil {
-			return "", err
-		}
-	}
-	if _, err := d.identityWebhook(secrets.Webhook, map[string]any{"type": "message.send", "conversation_id": conv, "msg_type": "text", "content": map[string]string{"text": "no-webhook-binding"}}, true); err != nil {
-		return "", err
-	}
-	fmt.Println("Bot identity PASS: HMAC签名公开webhook text/file/result与REST/WS身份一致；无binding拒绝")
-	return secrets.Webhook, nil
 }

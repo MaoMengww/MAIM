@@ -132,6 +132,10 @@ func run(cfg config.Config) error {
 		return err
 	}
 	defer node.Close()
+	// Bot credentials and executor bodies must never enter RPC content logs.
+	// Preserve the framework's error and slow-call diagnostics without payloads.
+	zrpc.DontLogClientContentForMethod(botpb.BotService_ValidateBotToken_FullMethodName)
+	zrpc.DontLogClientContentForMethod(botpb.BotService_ExecutorUpdate_FullMethodName)
 	botRPC, err := zrpc.NewClient(cfg.BotService)
 	if err != nil {
 		return err

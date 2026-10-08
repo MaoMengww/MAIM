@@ -382,10 +382,14 @@ function SourceItem({ source, expandedMap, setExpandedMap, itemKey }: {
 const RUN_STATUS: Record<BotRun['status'], { label: string; color: string }> = {
   accepted: { label: '已接受', color: 'default' }, running: { label: '运行中', color: 'processing' },
   succeeded: { label: '成功', color: 'success' }, failed: { label: '失败', color: 'error' },
+  waiting_input: { label: '等待补充', color: 'warning' }, stopping: { label: '停止待确认', color: 'warning' },
+  stopped: { label: '已停止', color: 'default' },
 };
 const RUN_STAGE: Record<string, string> = {
   accepted: '接受请求', preparing: '准备获准上下文', model: '模型生成', tool: '工具执行',
   generated: '结果已生成', pending: '等待提交消息', committed: '消息已提交', failed: '执行失败',
+  delivered: '工作已投递', executor_accepted: '执行器已接受', waiting_input: '等待补充输入',
+  stopping: '等待执行器确认停止', stopped: '执行器确认停止', resumed: '恢复工作',
 };
 const RUN_OUTPUT: Record<BotRun['output_status'], string> = {
   none: '尚无结果', generated: '结果已生成 · 尚未发送', pending: '结果待提交 · 尚未发送',
@@ -399,6 +403,28 @@ function RunCard({ run, botName, requesterName, onLocate, onRefresh }: {
   onLocate: (messageId: string) => Promise<void>; onRefresh: (runId: string) => Promise<void>;
 }) {
   const [refreshing, setRefreshing] = useState(false);
+  const [controlling, setControlling] = useState(false);
+  const [input, setInput] = useState('');
+  const [controlError, setControlError] = useState('');
+  const controlKey = useRef<{ operation: string; input: string; key: string }>();
+  const terminal = run.status === 'succeeded' || run.status === 'failed' || run.status === 'stopped';
+  const control = async (operation: 'input' | 'stop' | 'resume') => {
+    if (!controlKey.current || controlKey.current.operation !== operation || controlKey.current.input !== input) {
+      controlKey.current = { operation, input, key: crypto.randomUUID() };
+    }
+    setControlling(true);
+    setControlError('');
+    try {
+      await botApi.controlRun(run.id, operation, controlKey.current.key, operation === 'input' ? input : '');
+      controlKey.current = undefined;
+      setInput('');
+      await onRefresh(run.id);
+    } catch (error) {
+      const rejection = error as { response?: { data?: { message?: unknown } }; message?: unknown };
+      setControlError(typeof rejection?.response?.data?.message === 'string' ? rejection.response.data.message
+        : typeof rejection?.message === 'string' ? rejection.message : '执行操作未被接受，请查询当前状态后重试');
+    } finally { setControlling(false); }
+  };
   const state = RUN_STATUS[run.status];
   return <article className="chat-run-card" data-run-id={run.id} data-run-version={run.version} data-run-status={run.status} data-output-status={run.output_status} aria-label={`${botName} 执行：${state.label}`}>
     <div className="chat-run-header">
@@ -419,10 +445,38 @@ function RunCard({ run, botName, requesterName, onLocate, onRefresh }: {
         : <span>输入来源：明确操作</span>}
     </div>
     <div className="chat-run-stage" role="status">当前阶段：{RUN_STAGE[run.stage] || run.stage} · {RUN_OUTPUT[run.output_status]}</div>
+    {run.input_sources.length > 1 && <details className="chat-run-details"><summary>输入补充来源</summary>
+      <ul className="chat-run-steps">{run.input_sources.map((source) => <li key={source.version}>输入 v{source.version} · <span title={source.requester_id}>{source.requester_id}</span></li>)}</ul>
+    </details>}
+    {run.executor_type === 'third_party' && <>
+      <div className="chat-run-meta" role="status">
+        <span>第三方执行器</span>
+        <span>送达：{{ pending: '等待投递', delivered: '传输已送达', acknowledged: '执行器确认收到' }[run.delivery_status]}</span>
+        <span>工作：{{ pending: '执行器尚未接受', accepted: '执行器已接受', completed: '执行器已完成' }[run.executor_status]}</span>
+      </div>
+      <details className="chat-run-details"><summary>执行器实际能力</summary>
+        <p>输入类型：{run.executor_capabilities.input_types.join('、')}。传输确认不表示工作完成。</p>
+        <p>补充输入：{run.executor_capabilities.supports_input ? '支持' : '不支持'} · 停止：{run.executor_capabilities.supports_stop ? '支持，须等待执行器确认' : '不支持，AIM 无法强制停止外部进程'} · 恢复：{run.executor_capabilities.supports_resume ? '支持' : '不支持，不自动重新执行'}</p>
+      </details>
+      {!terminal && run.output_status === 'none' && <div className="chat-run-controls">
+        {run.executor_capabilities.supports_input && run.status === 'waiting_input' && <>
+          <label htmlFor={`run-input-${run.id}`}>补充工作输入</label>
+          <Input.TextArea id={`run-input-${run.id}`} value={input} onChange={(event) => setInput(event.target.value)} maxLength={65536} disabled={controlling} />
+          <Button loading={controlling} disabled={!input.trim()} onClick={() => void control('input')}>提交补充</Button>
+        </>}
+        {run.executor_capabilities.supports_stop && run.status !== 'stopping' && <Button danger loading={controlling} onClick={() => void control('stop')}>请求停止</Button>}
+        {run.executor_capabilities.supports_resume && run.status === 'waiting_input' && <Button loading={controlling} onClick={() => void control('resume')}>请求恢复</Button>}
+      </div>}
+      {controlError && <div className="chat-run-error" role="alert">{controlError}</div>}
+    </>}
     {run.error && <div className="chat-run-error" role="alert">{run.error}</div>}
     {run.result_text && <details className="chat-run-result" open={run.output_status !== 'committed'}>
       <summary>执行结果{run.output_status === 'committed' ? '（已进入消息历史）' : '（尚未发送）'}</summary>
       <div className="chat-msg-bubble"><ChatMarkdown>{run.result_text}</ChatMarkdown></div>
+    </details>}
+    {run.result_type && run.result_type !== 'text' && run.result_content && <details className="chat-run-result">
+      <summary>{run.result_type === 'file' ? '文件结果' : '结构化结果'}{run.output_status === 'committed' ? '（已进入消息历史）' : '（尚未发送）'}</summary>
+      <pre>{JSON.stringify(run.result_content, null, 2)}</pre>
     </details>}
     <SourceSection sources={run.sources.filter((source) => source.type === 'rag')} />
     <ToolUsage tools={run.sources.filter((source) => source.type === 'tool').map((source) => source.tool_name)} />
@@ -440,6 +494,7 @@ function RunCard({ run, botName, requesterName, onLocate, onRefresh }: {
       <dl className="chat-run-identities">
         <dt>Run ID</dt><dd>{run.id}</dd><dt>交互 ID</dt><dd>{run.interaction_id}</dd>
         <dt>输入版本</dt><dd>{run.input_version}</dd><dt>绑定 ID</dt><dd>{run.binding_id}</dd>
+        <dt>认领代次</dt><dd>{run.generation}</dd>
         {run.source_message_id && <><dt>来源消息 ID</dt><dd>{run.source_message_id}</dd></>}
         {run.message_id && <><dt>最终消息 ID</dt><dd>{run.message_id}</dd></>}
       </dl>
@@ -984,7 +1039,7 @@ export function ChatPage() {
     queryKey: ['conv-bots', id], queryFn: () => botApi.listConvBots(id!), enabled: !!id,
   });
   const privateBot = conv?.type === 'private' ? convBots[0] : undefined;
-  const builtinBots = convBots.filter((bot) => bot.type !== 'third_party');
+  const runnableBots = convBots;
 
   const mentionTargets = useMemo(() => [
     ...members.map((member) => ({ id: member.user_id, name: member.username, avatar: member.avatar, isBot: false })),
@@ -1806,14 +1861,14 @@ export function ChatPage() {
         })}
 
           <section className="chat-run-list" aria-label="Bot 执行记录">
-            {(builtinBots.length > 0 || runQuery.runs.length > 0 || runQuery.isError) && <div className="chat-run-list-header">
+            {(runnableBots.length > 0 || runQuery.runs.length > 0 || runQuery.isError) && <div className="chat-run-list-header">
               <strong>Bot 执行记录</strong>
               <Button size="small" loading={runQuery.isFetching} onClick={() => void runQuery.refetch()}>刷新执行</Button>
             </div>}
-            {runQuery.isPending && builtinBots.length > 0 && <div role="status">正在读取执行记录…</div>}
+            {runQuery.isPending && runnableBots.length > 0 && <div role="status">正在读取执行记录…</div>}
             {runQuery.connection !== 'connected' && runQuery.runs.length > 0 && <div className="chat-run-notice" role="status">实时连接已断开；执行不因此结束，查询将恢复最新状态。</div>}
             {runQuery.isError && <div className="chat-run-error" role="alert">执行记录读取失败，请刷新重试。</div>}
-            {!runQuery.isError && !runQuery.isPending && builtinBots.length > 0 && runQuery.runs.length === 0 && <div className="chat-run-notice">尚无执行。选择 Bot 并明确发起工作，或在消息中提及它。</div>}
+            {!runQuery.isError && !runQuery.isPending && runnableBots.length > 0 && runQuery.runs.length === 0 && <div className="chat-run-notice">尚无执行。选择 Bot 并明确发起工作，或在消息中提及它。</div>}
             {!runQuery.isError && runQuery.runs.map((run) => <RunCard key={run.id} run={run}
               botName={convBots.find((bot) => bot.bot_id === run.bot_id)?.name || `Bot ${run.bot_id}`}
               requesterName={userMap.get(run.requester_id)?.username || run.requester_id}
@@ -1867,11 +1922,11 @@ export function ChatPage() {
         <input type="file" ref={imageInputRef} accept="image/*" style={{ display: 'none' }} onChange={handleImageChange} />
         <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
 
-        {builtinBots.length > 0 && <div className="chat-run-composer">
+        {runnableBots.length > 0 && <div className="chat-run-composer">
           <label htmlFor="chat-run-target">发送方式</label>
           <Select id="chat-run-target" aria-label="工作执行 Bot" value={runTarget} allowClear placeholder="普通消息"
             disabled={creatingRun || requestingKey !== null} onChange={(value) => setRunTarget(value)}
-            options={builtinBots.map((bot) => ({ value: bot.bot_id, label: `交给 ${bot.name} 开展工作` }))} />
+            options={runnableBots.map((bot) => ({ value: bot.bot_id, label: `交给 ${bot.name} 开展工作` }))} />
           <span>{runTarget ? '仅提交本次输入与明确引用，不自动读取群最近消息' : '选择 Bot 可发起独立执行'}</span>
         </div>}
         <div className="chat-input-wrapper">

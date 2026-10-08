@@ -76,10 +76,11 @@ export function BotListPage() {
       };
 
       // Build capabilities from switches
-      const caps: { builtin_tools?: string[] } = {};
+      const caps: { builtin_tools?: string[]; input_types?: string[]; supports_input?: boolean; supports_stop?: boolean; supports_resume?: boolean } = {};
       if (vals.enable_web_search) {
         caps.builtin_tools = ['web_search'];
       }
+      if (selectedType === 'third_party') Object.assign(caps, { input_types: ['text'], supports_input: !!vals.supports_input, supports_stop: !!vals.supports_stop, supports_resume: !!vals.supports_resume });
       if (Object.keys(caps).length > 0) {
         basePayload.capabilities = JSON.stringify(caps);
       }
@@ -395,7 +396,7 @@ export function BotListPage() {
                     <div className="bot-guide">
                       <div className="bot-guide-section">
                         <p className="bot-guide-desc">
-                          第三方 Bot 是在<strong>你自己的服务器</strong>上运行的服务程序。AIM 只负责将用户消息转发给你的服务，消息的处理和响应完全由你的服务决定。
+                          第三方执行器在<strong>你自己的服务器</strong>上开展工作。AIM 分配 Run 身份并保存获准输入、状态与结果；执行器只能更新已认领的工作。
                         </p>
                       </div>
 
@@ -406,7 +407,7 @@ export function BotListPage() {
                         <div className="bot-guide-steps">
                           <div className="bot-guide-step"><span className="bot-guide-step-num">1</span><span>调用 <code>POST /api/v1/bots/&#123;id&#125;/token</code> 获取 JWT Token</span></div>
                           <div className="bot-guide-step"><span className="bot-guide-step-num">2</span><span>连接 <code>ws://host:8081/ws/bot?token=&lt;jwt&gt;&device_id=&lt;id&gt;</code></span></div>
-                          <div className="bot-guide-step"><span className="bot-guide-step-num">3</span><span>接收推送事件 → 处理 → 通过 WebSocket 发送 <code>message.send</code> 回复消息</span></div>
+                          <div className="bot-guide-step"><span className="bot-guide-step-num">3</span><span>接收 <code>bot.run.request</code> → 确认送达 → 认领工作 → 通过 <code>run.update</code> 报告进展与结果</span></div>
                         </div>
                         <div className="bot-guide-note">WS 心跳：每 30s 发送 <code>&#123;"type":"ping"&#125;</code>，收到 <code>&#123;"type":"pong"&#125;</code>。Token 过期后需重新获取。</div>
                       </div>
@@ -418,7 +419,7 @@ export function BotListPage() {
                         <div className="bot-guide-steps">
                           <div className="bot-guide-step"><span className="bot-guide-step-num">1</span><span>在下方填写你的回调地址（<code>callback_url</code>），AIM 会 POST 事件到此地址</span></div>
                           <div className="bot-guide-step"><span className="bot-guide-step-num">2</span><span>用 <code>webhook_secret</code> 验证 Headers: <code>X-AIM-Signature</code>（HMAC-SHA256）、<code>X-AIM-Timestamp</code>（Unix秒）</span></div>
-                          <div className="bot-guide-step"><span className="bot-guide-step-num">3</span><span>处理事件 → 通过 AIM Webhook 接口回复消息（同样需要 HMAC 签名）</span></div>
+                          <div className="bot-guide-step"><span className="bot-guide-step-num">3</span><span>向 AIM Webhook 接口提交运行更新（同样需要 HMAC 签名）；回调 2xx 只代表送达，不代表接受或完成工作</span></div>
                         </div>
                         <div className="bot-guide-code">
                           <div className="bot-guide-code-title">验签示例 (Go)</div>
@@ -431,66 +432,27 @@ export function BotListPage() {
                         </div>
                       </div>
 
-                      {/* AIM → Bot 消息格式（两种模式一致） */}
                       <div className="bot-guide-mode">
-                        <div className="bot-guide-mode-title">📥 AIM 推送给你的事件格式</div>
-                        <p className="bot-guide-mode-desc">无论 WebSocket 还是 Webhook，你收到的事件格式相同。实体 ID 使用标准 UUID 字符串，seq 保持安全整数。</p>
-                        <div className="bot-guide-code">
-                          <pre>{`{
-  "type": "message.created",
-  "conv_id": "0198abcd-0000-7000-8000-000000000001",
-  "bot_id": "0198abcd-0000-7000-8000-000000000002",
-  "event": { "ts": 1717370000, "version": "1.0" },
-  "message": {
-    "message_id": "0198abcd-0000-7000-8000-000000000003",
-    "msg_type": 1,
-    "content": { "text": "你好" },
-    "seq": 42,
-    "created_at": 1717370000
-  }
-}`}</pre>
-                        </div>
-                        <div className="bot-guide-note">msg_type: 1=文本 2=图片 3=文件 4=视频 5=语音 6=位置 9=Bot消息</div>
-                      </div>
-
-                      {/* Bot → AIM: WS 模式 */}
-                      <div className="bot-guide-mode">
-                        <div className="bot-guide-mode-title">📤 你回复 AIM 的请求格式（WebSocket 模式）</div>
-                        <p className="bot-guide-mode-desc">通过已建立的 WebSocket 连接直接发送，无需额外认证。</p>
-                        <div className="bot-guide-code">
-                          <div className="bot-guide-code-title">WS 发送</div>
-                          <pre>{`{
-  "type": "message.send",
-  "conv_id": "0198abcd-0000-7000-8000-000000000001",
-  "text": "你好，我收到了你的消息！",
-  "reply_to_id": "0198abcd-0000-7000-8000-000000000003"
-}`}</pre>
-                        </div>
-                        <div className="bot-guide-code" style={{ marginTop: 8 }}>
-                          <div className="bot-guide-code-title">AIM 回复</div>
-                          <pre>{`{"type":"message.sent","message_id":"0198abcd-0000-7000-8000-000000000004","seq":10,"created_at":1717500000}`}</pre>
-                        </div>
-                      </div>
-
-                      {/* Bot → AIM: Webhook 模式 */}
-                      <div className="bot-guide-mode">
-                        <div className="bot-guide-mode-title">📤 你回复 AIM 的请求格式（Webhook 模式）</div>
-                        <p className="bot-guide-mode-desc">向 AIM 发送 <code>POST /api/v1/webhook</code>，带上 HMAC 签名。Bot 身份由签名中的 webhook_secret 自动解析。</p>
-                        <div className="bot-guide-code">
-                          <div className="bot-guide-code-title">Request Headers</div>
-                          <pre>{`X-AIM-Signature: <hex(HMAC-SHA256(body, webhook_secret))>
-X-AIM-Timestamp: <unix_seconds>
-Content-Type: application/json`}</pre>
-                        </div>
-                        <div className="bot-guide-code" style={{ marginTop: 8 }}>
-                          <div className="bot-guide-code-title">Request Body</div>
-                          <pre>{`{
-  "type": "message.send",
-  "conversation_id": "0198abcd-0000-7000-8000-000000000001",
-  "text": "你好，我收到了你的消息！",
-  "reply_to_id": "0198abcd-0000-7000-8000-000000000003"
-}`}</pre>
-                        </div>
+                        <div className="bot-guide-mode-title">共同 Run 合同</div>
+                        <p className="bot-guide-mode-desc">WS 和 Webhook 接收相同的工作输入；模型、记忆和工具框架由执行器自己选择。</p>
+                        <div className="bot-guide-code"><pre>{`{
+  "type": "bot.run.request",
+  "run": { "id": "0198abcd-0000-7000-8000-000000000001", "bot_id": "0198abcd-0000-7000-8000-000000000002", "requester_id": "0198abcd-0000-7000-8000-000000000003" },
+  "generation": 1,
+  "input_version": 1,
+  "input": { "text": "整理这份材料", "materials": [] }
+}`}</pre></div>
+                        <p>分开提交 <code>run.delivery_ack</code> 和 <code>run.claim</code>，使用独立的稳定 <code>update_key</code>。认领后更新从 sequence=1 连续推进。</p>
+                        <div className="bot-guide-code"><pre>{`{
+  "type": "run.update",
+  "run_id": "0198abcd-0000-7000-8000-000000000001",
+  "generation": 1, "input_version": 1,
+  "sequence": 1, "update_key": "result-1",
+  "status": "completed", "result_text": "整理后的结果"
+}`}</pre></div>
+                        <p>WS 返回 <code>bot.run.receipt</code>；Webhook 使用 <code>POST /api/v1/webhook</code> 与既有 HMAC 头。相同键、相同内容可重试；异义键、旧代次、乱序与终态后推进被拒绝。</p>
+                        <p>结果由 AIM 校验当前资格后进入消息历史。不得指定 Bot、请求者、绑定、来源或授权，不再支持直接 <code>message.send</code>。</p>
+                        <p>未获准的会话活动不会投递给执行器；获准的 <code>bot.activity</code> 仅供观察，不是 Run 行动输入，也不授予资源或结果发布权限。只有 AIM 接受的 Run 才能提交行动结果。</p>
                       </div>
 
                       {/* Credentials table */}
@@ -504,9 +466,7 @@ Content-Type: application/json`}</pre>
                             <tr><td><code>app_secret</code></td><td>调用 AIM 开放 API</td><td>通用</td><td>创建时自动生成，详情页可轮换</td></tr>
                           </tbody>
                         </table>
-                        <div className="bot-guide-note" style={{ marginTop: 8 }}>
-                          测试 Bot 工具：<code>go run tools/test-webhook-bot/main.go -mode webhook -secret &lt;webhook_secret&gt;</code>
-                        </div>
+                        <div className="bot-guide-note" style={{ marginTop: 8 }}>连接凭据不是资源授权或 Run 认领凭据；每次更新仍检查当前参与资格。</div>
                       </div>
                     </div>
                   )}
@@ -524,6 +484,10 @@ Content-Type: application/json`}</pre>
                     <Input placeholder="https://your-service.com/webhook" />
                   </Form.Item>
                 )}
+                <div className="bot-guide-note">最低能力：接受文本请求并提交结果。仅勾选外部程序实际实现的操作，不支持的操作将被明确拒绝。</div>
+                <Form.Item name="supports_input" label="支持补充输入" valuePropName="checked"><Switch /></Form.Item>
+                <Form.Item name="supports_stop" label="支持停止确认" valuePropName="checked"><Switch /></Form.Item>
+                <Form.Item name="supports_resume" label="支持安全恢复" valuePropName="checked"><Switch /></Form.Item>
 
                 {subTypeValue !== 'webhook' && (
                   <Form.Item name="callback_url" label=" " colon={false}>

@@ -51,6 +51,9 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 	// capture normalized subType for third-party bot construction below
 	var subType string
 	if botType == consts.BotTypeThirdParty {
+		if _, err := model.ParseExecutorCapabilities([]byte(in.Capabilities)); err != nil {
+			return nil, ErrBotInvalid
+		}
 		subType = in.SubType
 		if subType == "" {
 			// Derive subtype from the configured transport when not provided.
@@ -61,6 +64,9 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 		}
 		if subType == SubTypeWebhook && in.CallbackUrl == "" {
 			return nil, fmt.Errorf("callback_url is required for webhook mode")
+		}
+		if in.ConnMode != "" && NormalizeConnMode(in.ConnMode) != subType {
+			return nil, ErrBotInvalid
 		}
 	}
 
@@ -115,6 +121,9 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 		BotTags:            in.BotTags,
 		ResponseTriggers:   in.ResponseTriggers,
 	}
+	if botType == consts.BotTypeThirdParty {
+		bot.ConnMode = subType
+	}
 
 	if len(bot.ResponseTriggers) == 0 {
 		bot.ResponseTriggers = []string{"mention"}
@@ -135,9 +144,11 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 		bot.APIKeyEncrypted = encrypted
 	}
 
-	bot.ModelID, bot.UsePlatformModel, err = selectModel(l.ctx, l.svcCtx.Repo, in.ModelId, in.ModelName, *in.OwnerId, in.UsePlatformModel)
-	if err != nil {
-		return nil, err
+	if botType != consts.BotTypeThirdParty {
+		bot.ModelID, bot.UsePlatformModel, err = selectModel(l.ctx, l.svcCtx.Repo, in.ModelId, in.ModelName, *in.OwnerId, in.UsePlatformModel)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if err := l.svcCtx.Repo.CreateBot(l.ctx, bot); err != nil {

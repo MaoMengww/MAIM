@@ -29,6 +29,18 @@ func (l *ValidateBotTokenLogic) ValidateBotToken(in *pb.ValidateBotTokenReq) (*p
 	if err != nil || bot.Status != "active" || bot.OwnerType != claims.OwnerType || bot.Type != claims.Type || !sameOwner(bot.OwnerID, claims.OwnerID) {
 		return &pb.ValidateBotTokenResp{Valid: false}, nil
 	}
+	if bot.CredentialsRevokedAt != nil {
+		if l.svcCtx.DB == nil {
+			return &pb.ValidateBotTokenResp{Valid: false}, nil
+		}
+		var count int64
+		if err := l.svcCtx.DB.WithContext(l.ctx).Table("bot.issued_tokens").Where("token_id = ? AND bot_id = ? AND issued_at > ?", claims.ID, bot.ID, *bot.CredentialsRevokedAt).Count(&count).Error; err != nil {
+			return nil, err
+		}
+		if count != 1 {
+			return &pb.ValidateBotTokenResp{Valid: false}, nil
+		}
+	}
 
 	return &pb.ValidateBotTokenResp{
 		Valid:     true,

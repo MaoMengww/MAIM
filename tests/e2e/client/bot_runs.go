@@ -14,22 +14,40 @@ import (
 
 // Run observations come only from authenticated REST/WS and the external provider.
 type publicRun struct {
-	ID              entityID                 `json:"id"`
-	InteractionID   entityID                 `json:"interaction_id"`
-	BotID           entityID                 `json:"bot_id"`
-	ConvID          entityID                 `json:"conv_id"`
-	BindingID       entityID                 `json:"binding_id"`
-	RequesterID     entityID                 `json:"requester_id"`
-	SourceMessageID *entityID                `json:"source_message_id"`
-	Version         int64                    `json:"version"`
-	Status          string                   `json:"status"`
-	Stage           string                   `json:"stage"`
-	ResultText      string                   `json:"result_text"`
-	OutputStatus    string                   `json:"output_status"`
-	MessageID       *entityID                `json:"message_id"`
-	Error           string                   `json:"error"`
-	Sources         []runtimeKnowledgeSource `json:"sources"`
-	Steps           []struct {
+	ID              entityID        `json:"id"`
+	InteractionID   entityID        `json:"interaction_id"`
+	BotID           entityID        `json:"bot_id"`
+	ConvID          entityID        `json:"conv_id"`
+	BindingID       entityID        `json:"binding_id"`
+	RequesterID     entityID        `json:"requester_id"`
+	SourceMessageID *entityID       `json:"source_message_id"`
+	Version         int64           `json:"version"`
+	Status          string          `json:"status"`
+	Stage           string          `json:"stage"`
+	ResultText      string          `json:"result_text"`
+	ResultContent   json.RawMessage `json:"result_content"`
+	OutputStatus    string          `json:"output_status"`
+	MessageID       *entityID       `json:"message_id"`
+	Error           string          `json:"error"`
+	Generation      int64           `json:"generation"`
+	InputVersion    int64           `json:"input_version"`
+	InputSources    []struct {
+		Version         int64     `json:"version"`
+		RequesterID     entityID  `json:"requester_id"`
+		SourceMessageID *entityID `json:"source_message_id"`
+	} `json:"input_sources"`
+	TriggerKind          string `json:"trigger_kind"`
+	ExecutorType         string `json:"executor_type"`
+	DeliveryStatus       string `json:"delivery_status"`
+	ExecutorStatus       string `json:"executor_status"`
+	ExecutorCapabilities struct {
+		InputTypes     []string `json:"input_types"`
+		SupportsInput  bool     `json:"supports_input"`
+		SupportsStop   bool     `json:"supports_stop"`
+		SupportsResume bool     `json:"supports_resume"`
+	} `json:"executor_capabilities"`
+	Sources []runtimeKnowledgeSource `json:"sources"`
+	Steps   []struct {
 		Stage string `json:"stage"`
 	} `json:"steps"`
 }

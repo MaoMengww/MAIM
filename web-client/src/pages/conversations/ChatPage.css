@@ -1692,6 +1692,19 @@
   padding: 8px 0;
   max-width: 100%;
 }
+.chat-run-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.chat-run-controls label, .chat-run-controls textarea { flex-basis: 100%; }
+.chat-run-result pre {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .chat-run-steps {
   padding-left: 20px;
   margin: 8px 0;

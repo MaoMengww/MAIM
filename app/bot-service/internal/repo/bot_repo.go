@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/pkg/database"
@@ -54,6 +55,9 @@ func (r *BotRepo) CreateBot(ctx context.Context, bot *model.Bot) error {
 }
 
 func (r *BotRepo) UpdateBot(ctx context.Context, botID string, updates map[string]any) error {
+	if _, ok := updates["app_secret_hash"]; ok {
+		updates["credentials_revoked_at"] = time.Now()
+	}
 	return r.DB.WithContext(ctx).Model(&model.Bot{}).Where("id = ?", botID).Updates(updates).Error
 }
 

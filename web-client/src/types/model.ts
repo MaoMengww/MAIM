@@ -151,9 +151,17 @@ export interface BotRun {
   source_message_id?: string;
   input_version: number;
   version: number;
-  status: 'accepted' | 'running' | 'succeeded' | 'failed';
+  input_sources: { version: number; requester_id: string; source_message_id?: string }[];
+  generation: number;
+  status: 'accepted' | 'running' | 'waiting_input' | 'stopping' | 'stopped' | 'succeeded' | 'failed';
   stage: string;
   result_text: string;
+  result_type?: 'text' | 'file' | 'result';
+  result_content?: Record<string, unknown>;
+  executor_type: 'builtin' | 'third_party';
+  executor_capabilities: { input_types: string[]; supports_input: boolean; supports_stop: boolean; supports_resume: boolean };
+  delivery_status: 'pending' | 'delivered' | 'acknowledged';
+  executor_status: 'pending' | 'accepted' | 'completed';
   output_status: 'none' | 'generated' | 'pending' | 'committed' | 'failed';
   message_id?: string;
   error?: string;

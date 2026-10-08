@@ -69,6 +69,9 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 			return err
 		}
 		cb.StartSeq = conv.MaxSeq
+		if cb.BotSettings != nil {
+			cb.BotSettings["activity_start_seq"] = conv.MaxSeq
+		}
 		if err := r.AddBot(l.ctx, cb); err != nil {
 			return err
 		}

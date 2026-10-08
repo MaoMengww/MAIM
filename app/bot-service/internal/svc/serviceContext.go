@@ -43,6 +43,10 @@ type ServiceContext struct {
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
+	// Keep failure and duration diagnostics while excluding executor credentials
+	// and callback work bodies from the client interceptor's request formatting.
+	zrpc.DontLogClientContentForMethod(botpb.BotService_ExecutorUpdate_FullMethodName)
+	zrpc.DontLogClientContentForMethod(botpb.BotService_HandleIncomingWebhook_FullMethodName)
 	logger := logx.DefaultLogger()
 
 	db, err := database.NewDB(c.Database, logger)

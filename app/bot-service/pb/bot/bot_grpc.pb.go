@@ -23,6 +23,8 @@ const (
 	BotService_StartRun_FullMethodName              = "/bot.BotService/StartRun"
 	BotService_GetRun_FullMethodName                = "/bot.BotService/GetRun"
 	BotService_ListRuns_FullMethodName              = "/bot.BotService/ListRuns"
+	BotService_ExecutorUpdate_FullMethodName        = "/bot.BotService/ExecutorUpdate"
+	BotService_ControlRun_FullMethodName            = "/bot.BotService/ControlRun"
 	BotService_CreateBot_FullMethodName             = "/bot.BotService/CreateBot"
 	BotService_UpdateBot_FullMethodName             = "/bot.BotService/UpdateBot"
 	BotService_DeleteBot_FullMethodName             = "/bot.BotService/DeleteBot"
@@ -54,6 +56,8 @@ type BotServiceClient interface {
 	StartRun(ctx context.Context, in *StartRunReq, opts ...grpc.CallOption) (*RunResponse, error)
 	GetRun(ctx context.Context, in *GetRunReq, opts ...grpc.CallOption) (*RunResponse, error)
 	ListRuns(ctx context.Context, in *ListRunsReq, opts ...grpc.CallOption) (*ListRunsResponse, error)
+	ExecutorUpdate(ctx context.Context, in *ExecutorUpdateReq, opts ...grpc.CallOption) (*RunResponse, error)
+	ControlRun(ctx context.Context, in *ControlRunReq, opts ...grpc.CallOption) (*RunResponse, error)
 	// Bot CRUD
 	CreateBot(ctx context.Context, in *CreateBotReq, opts ...grpc.CallOption) (*Bot, error)
 	UpdateBot(ctx context.Context, in *UpdateBotReq, opts ...grpc.CallOption) (*Bot, error)
@@ -63,7 +67,7 @@ type BotServiceClient interface {
 	// Secret management
 	RotateSecret(ctx context.Context, in *RotateSecretReq, opts ...grpc.CallOption) (*RotateSecretResp, error)
 	// Webhook
-	HandleIncomingWebhook(ctx context.Context, in *WebhookReq, opts ...grpc.CallOption) (*WebhookResp, error)
+	HandleIncomingWebhook(ctx context.Context, in *WebhookReq, opts ...grpc.CallOption) (*RunResponse, error)
 	// Bot Token
 	IssueBotToken(ctx context.Context, in *IssueBotTokenReq, opts ...grpc.CallOption) (*IssueBotTokenResp, error)
 	ValidateBotToken(ctx context.Context, in *ValidateBotTokenReq, opts ...grpc.CallOption) (*ValidateBotTokenResp, error)
@@ -118,6 +122,26 @@ func (c *botServiceClient) ListRuns(ctx context.Context, in *ListRunsReq, opts .
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListRunsResponse)
 	err := c.cc.Invoke(ctx, BotService_ListRuns_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *botServiceClient) ExecutorUpdate(ctx context.Context, in *ExecutorUpdateReq, opts ...grpc.CallOption) (*RunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunResponse)
+	err := c.cc.Invoke(ctx, BotService_ExecutorUpdate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *botServiceClient) ControlRun(ctx context.Context, in *ControlRunReq, opts ...grpc.CallOption) (*RunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunResponse)
+	err := c.cc.Invoke(ctx, BotService_ControlRun_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -184,9 +208,9 @@ func (c *botServiceClient) RotateSecret(ctx context.Context, in *RotateSecretReq
 	return out, nil
 }
 
-func (c *botServiceClient) HandleIncomingWebhook(ctx context.Context, in *WebhookReq, opts ...grpc.CallOption) (*WebhookResp, error) {
+func (c *botServiceClient) HandleIncomingWebhook(ctx context.Context, in *WebhookReq, opts ...grpc.CallOption) (*RunResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(WebhookResp)
+	out := new(RunResponse)
 	err := c.cc.Invoke(ctx, BotService_HandleIncomingWebhook_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -351,6 +375,8 @@ type BotServiceServer interface {
 	StartRun(context.Context, *StartRunReq) (*RunResponse, error)
 	GetRun(context.Context, *GetRunReq) (*RunResponse, error)
 	ListRuns(context.Context, *ListRunsReq) (*ListRunsResponse, error)
+	ExecutorUpdate(context.Context, *ExecutorUpdateReq) (*RunResponse, error)
+	ControlRun(context.Context, *ControlRunReq) (*RunResponse, error)
 	// Bot CRUD
 	CreateBot(context.Context, *CreateBotReq) (*Bot, error)
 	UpdateBot(context.Context, *UpdateBotReq) (*Bot, error)
@@ -360,7 +386,7 @@ type BotServiceServer interface {
 	// Secret management
 	RotateSecret(context.Context, *RotateSecretReq) (*RotateSecretResp, error)
 	// Webhook
-	HandleIncomingWebhook(context.Context, *WebhookReq) (*WebhookResp, error)
+	HandleIncomingWebhook(context.Context, *WebhookReq) (*RunResponse, error)
 	// Bot Token
 	IssueBotToken(context.Context, *IssueBotTokenReq) (*IssueBotTokenResp, error)
 	ValidateBotToken(context.Context, *ValidateBotTokenReq) (*ValidateBotTokenResp, error)
@@ -400,6 +426,12 @@ func (UnimplementedBotServiceServer) GetRun(context.Context, *GetRunReq) (*RunRe
 func (UnimplementedBotServiceServer) ListRuns(context.Context, *ListRunsReq) (*ListRunsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListRuns not implemented")
 }
+func (UnimplementedBotServiceServer) ExecutorUpdate(context.Context, *ExecutorUpdateReq) (*RunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExecutorUpdate not implemented")
+}
+func (UnimplementedBotServiceServer) ControlRun(context.Context, *ControlRunReq) (*RunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ControlRun not implemented")
+}
 func (UnimplementedBotServiceServer) CreateBot(context.Context, *CreateBotReq) (*Bot, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateBot not implemented")
 }
@@ -418,7 +450,7 @@ func (UnimplementedBotServiceServer) ListBots(context.Context, *ListBotsReq) (*L
 func (UnimplementedBotServiceServer) RotateSecret(context.Context, *RotateSecretReq) (*RotateSecretResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method RotateSecret not implemented")
 }
-func (UnimplementedBotServiceServer) HandleIncomingWebhook(context.Context, *WebhookReq) (*WebhookResp, error) {
+func (UnimplementedBotServiceServer) HandleIncomingWebhook(context.Context, *WebhookReq) (*RunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method HandleIncomingWebhook not implemented")
 }
 func (UnimplementedBotServiceServer) IssueBotToken(context.Context, *IssueBotTokenReq) (*IssueBotTokenResp, error) {
@@ -537,6 +569,42 @@ func _BotService_ListRuns_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(BotServiceServer).ListRuns(ctx, req.(*ListRunsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BotService_ExecutorUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExecutorUpdateReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BotServiceServer).ExecutorUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BotService_ExecutorUpdate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BotServiceServer).ExecutorUpdate(ctx, req.(*ExecutorUpdateReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BotService_ControlRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ControlRunReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BotServiceServer).ControlRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BotService_ControlRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BotServiceServer).ControlRun(ctx, req.(*ControlRunReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -955,6 +1023,14 @@ var BotService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListRuns",
 			Handler:    _BotService_ListRuns_Handler,
+		},
+		{
+			MethodName: "ExecutorUpdate",
+			Handler:    _BotService_ExecutorUpdate_Handler,
+		},
+		{
+			MethodName: "ControlRun",
+			Handler:    _BotService_ControlRun_Handler,
 		},
 		{
 			MethodName: "CreateBot",

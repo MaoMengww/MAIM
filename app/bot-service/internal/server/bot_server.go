@@ -73,9 +73,9 @@ func (s *BotServer) RotateSecret(ctx context.Context, in *pb.RotateSecretReq) (*
 	return l.RotateSecret(in)
 }
 
-func (s *BotServer) HandleIncomingWebhook(ctx context.Context, in *pb.WebhookReq) (*pb.WebhookResp, error) {
-	if s.svcCtx.Config.Role == "runtime" {
-		return nil, status.Error(codes.Unimplemented, "control API is not served by a runtime replica")
+func (s *BotServer) HandleIncomingWebhook(ctx context.Context, in *pb.WebhookReq) (*pb.RunResponse, error) {
+	if s.svcCtx.RuntimeClient != nil {
+		return s.svcCtx.RuntimeClient.HandleIncomingWebhook(forwardRuntimeContext(ctx), in)
 	}
 	l := bot.NewHandleIncomingWebhookLogic(ctx, s.svcCtx)
 	return l.HandleIncomingWebhook(in)
@@ -236,4 +236,11 @@ func (s *BotServer) GetRun(ctx context.Context, req *pb.GetRunReq) (*pb.RunRespo
 
 func (s *BotServer) ListRuns(ctx context.Context, req *pb.ListRunsReq) (*pb.ListRunsResponse, error) {
 	return s.runtime.ListRuns(ctx, req)
+}
+
+func (s *BotServer) ExecutorUpdate(ctx context.Context, req *pb.ExecutorUpdateReq) (*pb.RunResponse, error) {
+	return s.runtime.ExecutorUpdate(ctx, req)
+}
+func (s *BotServer) ControlRun(ctx context.Context, req *pb.ControlRunReq) (*pb.RunResponse, error) {
+	return s.runtime.ControlRun(ctx, req)
 }

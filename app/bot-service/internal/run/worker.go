@@ -16,6 +16,7 @@ import (
 	msg "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -32,6 +33,9 @@ func (s *Service) Start(ctx context.Context) {
 	}
 	for range 2 {
 		go s.worker(ctx, []string{"output"})
+	}
+	for range 4 {
+		go s.worker(ctx, []string{"deliver"})
 	}
 	go s.worker(ctx, []string{"updated"})
 }
@@ -72,6 +76,8 @@ func (s *Service) worker(ctx context.Context, kinds []string) {
 			err = s.publishOutput(workCtx, item)
 		case "updated":
 			err = s.publishUpdate(workCtx, item)
+		case "deliver":
+			err = s.deliverRun(workCtx, item)
 		}
 		cancel()
 		<-done
@@ -165,6 +171,8 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 			}
 			current.Status = "running"
 			current.Stage = "preparing"
+			current.DeliveryStatus = "acknowledged"
+			current.ExecutorStatus = "accepted"
 			if err := repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "system", Content: config.SystemPrompt}); err != nil {
 				return err
 			}
@@ -250,6 +258,8 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 			r, err = s.repo.Change(ctx, r.ID, generation, func(_ *gorm.DB, current *model.Run) error {
 				current.Stage = "generated"
 				current.ResultText = last.Content
+				current.ResultType = "text"
+				current.ExecutorStatus = "completed"
 				current.OutputStatus = "generated"
 				return nil
 			})
@@ -641,10 +651,27 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	if replyTo == nil {
 		replyTo = r.ReplyToMsgID
 	}
-	response, err := s.messages.SendBotReply(serviceContext(ctx), &msg.SendBotReplyReq{BotId: r.BotID, ConversationId: r.ConvID, BindingId: r.BindingID, RequesterId: &r.RequesterID, Type: msg.MessageType_MESSAGE_TYPE_TEXT, Text: r.ResultText, ReplyToId: replyTo, RawPayload: string(raw), OutputKey: &key})
+	request := &msg.SendBotReplyReq{BotId: r.BotID, ConversationId: r.ConvID, BindingId: r.BindingID, RequesterId: &r.RequesterID, Type: msg.MessageType_MESSAGE_TYPE_TEXT, Text: r.ResultText, ReplyToId: replyTo, RawPayload: string(raw), OutputKey: &key}
+	switch r.ResultType {
+	case "file":
+		request.Type = msg.MessageType_MESSAGE_TYPE_FILE
+		request.Text = ""
+		request.File = &msg.FileContent{}
+		if err := protocol.Unmarshal(r.ResultContent, request.File); err != nil {
+			return err
+		}
+	case "result":
+		request.Type = msg.MessageType_MESSAGE_TYPE_RESULT
+		request.Text = ""
+		request.Result = &msg.CustomContent{}
+		if err := protocol.Unmarshal(r.ResultContent, request.Result); err != nil {
+			return err
+		}
+	}
+	response, err := s.messages.SendBotReply(serviceContext(ctx), request)
 	if err != nil {
 		code := status.Code(err)
-		if code == codes.PermissionDenied || code == codes.Unauthenticated || code == codes.NotFound || code == codes.AlreadyExists || code == codes.FailedPrecondition {
+		if code == codes.PermissionDenied || code == codes.Unauthenticated || code == codes.NotFound || code == codes.AlreadyExists || code == codes.FailedPrecondition || code == codes.InvalidArgument {
 			return s.fail(ctx, r, 0, "final message submission failed", true)
 		}
 		return err

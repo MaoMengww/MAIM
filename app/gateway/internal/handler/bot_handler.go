@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/maomeng/aim/app/gateway/internal/response"
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/consts"
-	"github.com/maomeng/aim/pkg/identity"
 	common "github.com/maomeng/aim/pkg/pb/common"
 	"github.com/maomeng/aim/pkg/protocol"
 	"google.golang.org/grpc"
@@ -212,28 +212,10 @@ func (h *BotHandler) RotateSecret(c *gin.Context) {
 }
 
 func (h *BotHandler) Webhook(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 	body, err := c.GetRawData()
 	if err != nil {
 		response.BadRequest(c, "failed to read body")
-		return
-	}
-	var payload struct {
-		Type           string  `json:"type"`
-		ConversationID string  `json:"conversation_id"`
-		BindingID      string  `json:"binding_id"`
-		RequesterID    *string `json:"requester_id"`
-		ReplyToID      *string `json:"reply_to_id"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		response.BadRequest(c, "invalid webhook payload")
-		return
-	}
-	if payload.Type == "message.send" && (identity.Validate(payload.ConversationID) != nil || identity.Validate(payload.BindingID) != nil || (payload.RequesterID != nil && identity.Validate(*payload.RequesterID) != nil)) {
-		response.BadRequest(c, "invalid bot output identity")
-		return
-	}
-	if payload.ReplyToID != nil && identity.Validate(*payload.ReplyToID) != nil {
-		response.BadRequest(c, "invalid reply identity")
 		return
 	}
 	req := &botpb.WebhookReq{
@@ -242,15 +224,12 @@ func (h *BotHandler) Webhook(c *gin.Context) {
 		Timestamp: parseInt64(c.GetHeader(consts.HeaderAIMTimestamp)),
 	}
 	ctx := middleware.WithGRPCMetadata(c)
-	if !requireRequestIdentities(c, req) {
-		return
-	}
 	resp, err := h.botClient.HandleIncomingWebhook(ctx, req)
 	if err != nil {
-		response.GRPCError(c, err)
+		runRPCError(c, err)
 		return
 	}
-	response.Success(c, resp)
+	writeRunJSON(c, resp.GetRunJson(), false)
 }
 
 func (h *BotHandler) IssueToken(c *gin.Context) {
@@ -336,6 +315,35 @@ func (h *BotHandler) GetRun(c *gin.Context) {
 	writeRunJSON(c, resp.GetRunJson(), false)
 }
 
+func (h *BotHandler) ControlRun(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	var req botpb.ControlRunReq
+	if err := bindJSON(c, &req); err != nil {
+		response.BadRequest(c, "invalid run control request")
+		return
+	}
+	if req.RunId != "" && req.RunId != c.Param("id") {
+		response.BadRequest(c, "run identity does not match path")
+		return
+	}
+	req.RunId = c.Param("id")
+	if !requireRequestIdentities(c, &req) {
+		return
+	}
+	if len(req.Message) > 65536 {
+		response.BadRequest(c, "message must not exceed 65536 bytes")
+		return
+	}
+	resp, err := h.botClient.ControlRun(middleware.WithGRPCMetadata(c), &req)
+	if err != nil {
+		runRPCError(c, err)
+		return
+	}
+	writeRunJSON(c, resp.GetRunJson(), false)
+}
+
 func (h *BotHandler) ListRuns(c *gin.Context) {
 	if !requirePathIdentities(c, "id") {
 		return
@@ -368,7 +376,7 @@ func writeRunJSON(c *gin.Context, value string, list bool) {
 }
 
 func runRPCError(c *gin.Context, err error) {
-	if status.Code(err) == codes.FailedPrecondition {
+	if status.Code(err) == codes.Aborted || status.Code(err) == codes.FailedPrecondition || status.Code(err) == codes.Unimplemented {
 		response.Conflict(c, status.Convert(err).Message())
 		return
 	}

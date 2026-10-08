@@ -19,6 +19,51 @@ components:
       description: 登录后获取的 access_token
 
   schemas:
+    ExecutorUpdate:
+      type: object
+      additionalProperties: false
+      required: [type, run_id, generation, input_version, update_key]
+      properties:
+        type:
+          type: string
+          enum: [run.delivery_ack, run.claim, run.update]
+        run_id:
+          type: string
+          format: uuid
+        generation:
+          type: integer
+          minimum: 1
+        input_version:
+          type: integer
+          minimum: 1
+        sequence:
+          type: integer
+          minimum: 0
+          description: ACK/claim为0，认领后的更新从1严格连续
+        update_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+        operation:
+          type: string
+          enum: ['', input, stop, resume]
+          description: 仅delivery_ack使用，原样确认收到的投递operation
+        status:
+          type: string
+          enum: ['', accepted, running, waiting_input, stopped, failed, completed]
+        stage:
+          type: string
+          maxLength: 128
+        result_text:
+          type: string
+          description: completed的文本结果；最大262144字节
+        msg_type:
+          type: string
+          enum: [text, file, result]
+        content:
+          type: object
+          description: completed的对应文本、文件或结构化结果；文件权限与元信息由AIM校验
+
     # ========== Common ==========
     Response:
       type: object
@@ -6867,41 +6912,98 @@ paths:
     post:
       tags:
         - Bot
-      summary: Bot Webhook 回调
-      description: 第三方平台向 Bot 推送消息的 Webhook 入口。无 JWT 认证，通过请求签名校验身份。
+      summary: 第三方执行器签名 Run 更新
+      description: 复用WS共同运行合同，通过当前Webhook密钥验证执行器；送达、接受、完成分别确认，不能直接发送聊天消息。
       operationId: botWebhook
       parameters:
-        - name: X-Bot-Token
+        - name: X-AIM-Signature
           in: header
           required: true
           schema:
             type: string
-          description: Bot Token
-        - name: X-Signature
+          description: 原始body的HMAC-SHA256十六进制签名
+        - name: X-AIM-Timestamp
           in: header
+          required: true
           schema:
-            type: string
-          description: HMAC 签名
+            type: integer
+          description: Unix秒，超出允许时间窗口拒绝
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecutorUpdate'
+      responses:
+        "200":
+          description: 返回权威公开Run接受receipt，不表示工作完成或最终消息已发送
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+        "409":
+          description: 旧代次、输入版本、乱序、异义重复键或终态冲突
+        "403":
+          description: 不属于该执行器或当前参与、资源、结果发布资格已撤销
+        "404":
+          description: Run不存在，活动消息不能冒充Run
+
+  /bot-app/runs/update:
+    post:
+      tags: [Bot]
+      summary: 第三方执行器Bearer Run更新
+      security:
+        - BearerAuth: []
+      description: Bot token重新验证执行器主体，再验证该Run当前认领、输入版本、顺序及授权。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecutorUpdate'
+      responses:
+        "200":
+          description: 权威公开Run receipt
+        "401":
+          description: Bot凭据缺失、过期或已撤销
+        "403":
+          description: Run或结果资源无权
+        "409":
+          description: 当前代次、输入版本、顺序或幂等冲突
+        "404":
+          description: Run不存在
+
+  /runs/{id}/control:
+    post:
+      tags: [Bot]
+      summary: 补充、停止或安全恢复未结束Run
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [operation, submission_key]
               properties:
-                event:
-                  type: string
-                  description: 事件类型
-                data:
-                  type: object
-                  description: 事件数据
+                operation: { type: string, enum: [input, stop, resume] }
+                submission_key: { type: string, minLength: 1, maxLength: 256 }
+                message: { type: string, description: 仅input使用，最大65536字节 }
       responses:
         "200":
-          description: 回调处理成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Response'
+          description: 操作接受receipt；停止请求仅变stopping，执行器确认后才stopped
+        "403":
+          description: 当前工作不可见，或无停止/恢复控制权
+        "409":
+          description: 能力不支持、状态不允许或异义提交键；不改变权威状态
+        "404":
+          description: Run不存在
 
   /convs/{id}/messages:
     get:

@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/maomeng/aim/app/bot-service/internal/logic/bot"
 	"github.com/maomeng/aim/app/bot-service/internal/run"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-service/pb/bot"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type RuntimeServer struct {
@@ -73,4 +76,47 @@ func (s *RuntimeServer) ListRuns(ctx context.Context, req *pb.ListRunsReq) (*pb.
 		return nil, err
 	}
 	return &pb.ListRunsResponse{RunsJson: string(raw)}, nil
+}
+
+func (s *RuntimeServer) ExecutorUpdate(ctx context.Context, req *pb.ExecutorUpdateReq) (*pb.RunResponse, error) {
+	if s.svcCtx.RuntimeClient != nil {
+		return s.svcCtx.RuntimeClient.ExecutorUpdate(forwardRuntimeContext(ctx), req)
+	}
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "executor update required")
+	}
+	authenticated, err := bot.NewValidateBotTokenLogic(ctx, s.svcCtx).ValidateBotToken(&pb.ValidateBotTokenReq{Token: req.Token})
+	if err != nil {
+		return nil, err
+	}
+	if !authenticated.Valid || authenticated.GetBotId() != req.BotId || authenticated.Type != "third_party" {
+		return nil, status.Error(codes.Unauthenticated, "invalid executor credential")
+	}
+	receipt, err := s.runs.ExecutorUpdate(ctx, req.BotId, req.Body)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.RunResponse{RunJson: string(raw)}, nil
+}
+
+func (s *RuntimeServer) ControlRun(ctx context.Context, req *pb.ControlRunReq) (*pb.RunResponse, error) {
+	if s.svcCtx.RuntimeClient != nil {
+		return s.svcCtx.RuntimeClient.ControlRun(forwardRuntimeContext(ctx), req)
+	}
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "Run command required")
+	}
+	receipt, err := s.runs.Control(ctx, req.RunId, runtimeUserID(ctx), req.Operation, req.Message, req.SubmissionKey)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.RunResponse{RunJson: string(raw)}, nil
 }

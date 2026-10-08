@@ -603,8 +603,8 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 
 - 用户 JWT：`POST /api/v1/convs/:id/bots/:bot_id/history-grants`，提交 `{binding_id,start_seq,end_seq}`，返回 `grant_id`。授权者必须仍是当前人类成员，范围不得超过已提交历史或包含其不可见来源。
 - Bot bearer：`GET /api/v1/bot-app/convs/:id/messages?binding_id=…&history_grant_id=…&cursor=0&limit=30`。没有默认全群历史；查询校验当前绑定、授权者资格和来源可见性，持久记录实际读取范围。cursor 不得越过授权范围，引用不扩张权限。
-- Bot bearer：`POST /api/v1/bot-app/messages`，提交 `{conversation_id,binding_id,requester_id?,type,text?|file?|result?,raw_payload?}`；Bot 身份来自凭据而非调用者自报。文件仅允许已确认且公开可分享的对象，不借用请求者身份读取私有文件。
-- Bot WS / 签名 Webhook：`type=message.send`、`binding_id`、可选 `requester_id`、`msg_type=text|file|result` 与对应 `content`；WS 用 `conv_id`，Webhook 用 `conversation_id`。第三方输入携带获准绑定和来源发送者；送达不代表取得其它历史权限。
+- Bot bearer：`POST /api/v1/bot-app/runs/update`，与 WS 和签名 Webhook 使用同一 Run 更新 JSON。凭据只决定执行器身份，不赋予会话、资源或结果发布许可；旧 `/bot-app/messages` 和 `message.send` 直接输出路径已删除。
+- Bot WS / 签名 Webhook：工作输入为 `bot.run.request`，携带平台分配的 Run、认领 `generation`、`input_version`、`operation` 及获准输入；执行器不能自报 Bot、请求者、绑定或授权。结果 `msg_type=text|file|result` 由 AIM 校验后进入同一消息事务；私有文件在进入公开 Run 前拒绝，文件元信息采用权威记录，不信执行器 URL/名称。
 
 移出设置 `revoked_at`，重新加入产生新绑定 UUID；旧授权、旧输出和旧工作关系不能借重入恢复。绑定在邀请事务中记录会话 `start_seq`，异步输入按 seq 水位而非秒级时间过滤，避免同秒重入接收迟到旧输入。普通消息事务、seq、outbox、收件箱、扇出和实时投递继续复用，消息热路径不调用 Bot 控制进程。
 
@@ -622,6 +622,17 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 - 固定指令、真实 assistant/tool 往返只追加；模型调用保留输入上界、轨迹版本、实际请求/输出和 nullable usage/首 token 延迟。支持的官方 OpenAI 端点使用原生 `prompt_cache_key`；不支持缓存照常执行，缺失缓存字段不推断命中，不自建 KV 状态。
 
 验收入口：`python3 tests/e2e/run.py --scenario bot-runs`，覆盖明确操作/目标提及、同键并发重试/冲突、真实网络工具、稳定前缀、模型失败、配置冻结/撤权、最终历史与 WS/断线恢复。外部 fixture 证明协议与输入，不代表真实远端 KV 命中。
+
+#### 第三方执行器的共同运行合同
+
+- 创建或更新第三方 Bot 必须在 `capabilities` JSON 中明确声明 `input_types:["text"]`、`supports_input`、`supports_stop`、`supports_resume`。无需采用 AIM 的模型、记忆或工具框架；最低能力为接受文本工作并提交结果。
+- 工作投递和 Webhook 回报归 `bot-runtime`，控制面只管理配置/凭据并转发运行请求。`006_third_party_run.sql` 保存执行器事实、补充输入来源、报告重试 receipt 和凭据签发/撤销事实。
+- `run.delivery_ack` 只确认收到，`run.claim`（`status=accepted`）确认接受工作，`run.update` 报告 `running/waiting_input/failed/completed/stopped`。三者均包含 `run_id,generation,input_version,sequence,update_key`；ACK 还须原样携带该投递的 `operation`，认领 sequence=0，更新从1严格连续。同键同内容返回原 receipt，异义冲突；重试重新鉴权，错误代次/版本、回退及终态后推进被拒绝。
+- WS 回报返回 `bot.run.receipt`；Webhook 回报使用 `POST /api/v1/webhook`、`X-AIM-Signature`（原始 body HMAC-SHA256）与 `X-AIM-Timestamp`（Unix 秒），返回公开 Run。Webhook 2xx 只表示传输送达，WS 入 Kafka 不标为已送达；未认领工作持久重投同一代次。只有消息提交后 Run 才成功。
+- 用户 `POST /api/v1/runs/:id/control` 提交 `{operation:input|stop|resume,submission_key,message?}`。有权查看工作的当前成员可补充；停止/恢复限请求者和管理员。不支持的操作明确409且不改变状态。补充保留作者与顺序；安全恢复只针对未结束等待工作并更新代次；停止请求只表示 `stopping`，执行器明确确认后才 `stopped`，不能强杀外部进程或撤销外部副作用。
+- 最低活动订阅通过管理员的会话绑定 `bot_settings.activity_types:["message.created"]` 显式启用，平台写入安全整数 `activity_start_seq`，不补授此前历史。当前绑定/来源可见性复核后独立投递 `bot.activity`，不带 Run、不创建工作、不授权输出；默认无订阅。更完整订阅/自动规则仍由后续票处理。
+- 公开卡片展示投递、执行器接受/完成、实际能力、输入来源、认领代次、结果和最终消息；断线后以权威查询恢复。验收 `python3 tests/e2e/run.py --scenario bot-executor-runs` 覆盖真实 WS/Webhook 计算、凭据隔离、顺序/幂等、补充/停止/恢复、获准活动、跨实例输出和历史。
+
 
 ---
 

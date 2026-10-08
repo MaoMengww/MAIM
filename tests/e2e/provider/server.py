@@ -2,6 +2,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import base64
 import hashlib
 import json
+import hmac
 import math
 import os
 import queue
@@ -9,13 +10,16 @@ import threading
 import time
 import uuid
 from urllib.parse import urlparse, parse_qs
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8099"))
 LOCK = threading.Lock()
 SESSIONS = {}
+EXECUTORS = {}
 OBSERVATIONS = {"mcp_lists": 0, "tool_texts": [], "chat_models": [], "embed_models": [], "active_ingest": 0,
-                "tool_call_ids": [], "chat_requests": []}
+                "tool_call_ids": [], "chat_requests": [], "executor_requests": [], "executor_activities": []}
 TOOL = {"name": "fixture_echo", "description": "Echo text over the MCP network", "inputSchema": {
     "type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]
 }, "annotations": {"readOnlyHint": True, "destructiveHint": False}}
@@ -76,6 +80,32 @@ def composition_reply(model, messages, text):
         value = "cobalt-47" if any("P5_KNOWN_ANCHOR: the launch code is cobalt-47" in item for item in knowledge) else "none"
         return "fixture-reply:" + text + "|knowledge:" + value
     return "fixture-reply:" + text
+
+
+def executor_result(text):
+    return "words=" + str(len(text.split())) + ";sha256=" + hashlib.sha256(text.encode()).hexdigest()
+
+
+def executor_update(body):
+    with LOCK:
+        config = dict(EXECUTORS[body["bot_id"]])
+        requests = list(OBSERVATIONS["executor_requests"])
+    update = dict(body["update"])
+    if body.get("compute"):
+        request = next(item["request"] for item in reversed(requests)
+                       if item["request"].get("run", {}).get("id") == update["run_id"])
+        update["result_text"] = executor_result(request["input"]["text"])
+    raw = json.dumps(update, separators=(",", ":"), ensure_ascii=False).encode()
+    signature = hmac.new(body.get("secret", config["secret"]).encode(), raw, hashlib.sha256).hexdigest()
+    request = Request(config["gateway"] + "/api/v1/webhook", data=raw,
+                      headers={"Content-Type": "application/json", "X-AIM-Signature": signature,
+                               "X-AIM-Timestamp": str(int(time.time()))}, method="POST")
+    try:
+        response = urlopen(request, timeout=15)
+    except HTTPError as error:
+        response = error
+    with response:
+        return {"status": response.status, "body": json.loads(response.read(1024 * 1024))}
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -144,12 +174,41 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > 8 * 1024 * 1024:
             self._json(413, {"error": "request size"})
             return
+        raw = self.rfile.read(length)
         try:
-            body = json.loads(self.rfile.read(length))
+            body = json.loads(raw)
         except json.JSONDecodeError:
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path == "/executor/register":
+            with LOCK:
+                EXECUTORS[body["bot_id"]] = {"secret": body["secret"], "gateway": body["gateway"]}
+            self._json(200, {"registered": True})
+            return
+        if path == "/executor/update":
+            try:
+                self._json(200, executor_update(body))
+            except (KeyError, StopIteration, ValueError, OSError) as error:
+                self._json(502, {"error": type(error).__name__})
+            return
+        if path == "/external-webhook":
+            bot_id = body.get("run", {}).get("bot_id", body.get("bot_id"))
+            with LOCK:
+                config = EXECUTORS.get(bot_id)
+            signature = self.headers.get("X-AIM-Signature", "")
+            timestamp = self.headers.get("X-AIM-Timestamp", "")
+            valid = bool(config) and hmac.compare_digest(signature, hmac.new(config["secret"].encode(), raw, hashlib.sha256).hexdigest())
+            try:
+                valid = valid and abs(time.time() - int(timestamp)) < 300
+            except ValueError:
+                valid = False
+            with LOCK:
+                key = "executor_activities" if body.get("type") == "bot.activity" else "executor_requests"
+                OBSERVATIONS[key].append({"request": body, "signature_valid": valid,
+                                          "timestamp": timestamp})
+            self._json(200 if valid else 403, {"delivered": valid})
+            return
         if path == "/v1/chat/completions":
             messages = body.get("messages") or []
             text = next((str(item.get("content", "")) for item in reversed(messages) if item.get("role") == "user"), "")

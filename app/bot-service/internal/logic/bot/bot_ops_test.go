@@ -238,7 +238,7 @@ func TestUpdateBot_Normal_SelfDeployed(t *testing.T) {
 }
 func TestUpdateBot_Normal_ThirdParty(t *testing.T) {
 	r := newEnhancedMockRepo()
-	r.bots[testBotID] = &model.Bot{ID: testBotID, OwnerType: "user", OwnerID: stringPtr(testOwnerID), Type: "third_party", SubType: "ws", ConnMode: "ws"}
+	r.bots[testBotID] = &model.Bot{ID: testBotID, OwnerType: "user", OwnerID: stringPtr(testOwnerID), Type: "third_party", SubType: "ws", ConnMode: "ws", Capabilities: []byte(`{"input_types":["text"],"supports_input":false,"supports_stop":false,"supports_resume":false}`)}
 	updated, err := NewUpdateBotLogic(testCaller(t), &svc.ServiceContext{Repo: r}).UpdateBot(&pb.UpdateBotReq{BotId: testBotID, UserId: testOwnerID, CallbackUrl: "https://new-cb.example.com", SubType: "webhook"})
 	require.NoError(t, err)
 	assert.Equal(t, "webhook", updated.ConnMode)

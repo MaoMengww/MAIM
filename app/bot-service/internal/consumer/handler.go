@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/IBM/sarama"
 	"slices"
@@ -12,8 +13,10 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/app/bot-service/internal/run"
 	"github.com/maomeng/aim/pkg/identity"
+	"github.com/zeromicro/go-zero/core/logx"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 )
 
 type Handler struct {
@@ -33,6 +36,8 @@ func (h *Handler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama
 		for {
 			if err := h.Handle(session.Context(), message.Value); err == nil {
 				break
+			} else {
+				logx.Errorf("Bot input handling retry: topic=%s partition=%d offset=%d code=%s", message.Topic, message.Partition, message.Offset, status.Code(err))
 			}
 			select {
 			case <-session.Context().Done():
@@ -83,21 +88,38 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 			continue
 		}
 		bot, err := h.bots.GetBot(ctx, binding.BotID)
+		// A deleted Bot can leave a stale messaging binding. It has no authority
+		// to observe or accept work, and must not poison this Kafka partition.
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			continue
+		}
 		if err != nil {
 			return err
 		}
-		if bot.Type == "third_party" || bot.Status != "active" || !shouldRespond(event, bot) {
+		if bot.Status != "active" {
 			continue
 		}
 		source := event.Message.MsgID
-		_, err = h.runs.Accept(ctx, run.Input{BotID: binding.BotID, ConvID: event.ConvID, BindingID: binding.ID, RequesterID: *event.Sender.UserID, SubmissionKey: "message:" + source, Message: event.Message.Text, SourceMessageID: &source, ReplyToMsgID: event.Message.ReplyToMsgID, Language: event.Sender.Language})
-		if err != nil {
-			switch status.Code(err) {
-			case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.InvalidArgument, codes.FailedPrecondition, codes.AlreadyExists:
-				continue
-			default:
-				return err
+		input := run.Input{BotID: binding.BotID, ConvID: event.ConvID, BindingID: binding.ID, RequesterID: *event.Sender.UserID, SubmissionKey: "message:" + source, Message: event.Message.Text, SourceMessageID: &source, ReplyToMsgID: event.Message.ReplyToMsgID, Language: event.Sender.Language}
+		observationErr := h.runs.Observe(ctx, input)
+		switch status.Code(observationErr) {
+		case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.InvalidArgument, codes.FailedPrecondition:
+			observationErr = nil
+		}
+		// Observation transport failure never authorizes or prevents accepting work.
+		// On a transport retry, Accept retains the message submission identity.
+		if shouldRespond(event, bot) {
+			_, err = h.runs.Accept(ctx, input)
+			if err != nil {
+				switch status.Code(err) {
+				case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.InvalidArgument, codes.FailedPrecondition, codes.AlreadyExists:
+				default:
+					return err
+				}
 			}
+		}
+		if observationErr != nil {
+			return observationErr
 		}
 	}
 	return nil
@@ -155,7 +177,7 @@ func parseEvent(raw []byte) (*model.BotEvent, string, error) {
 	return &evt, evt.Message.MsgID, nil
 }
 
-// Only a mention of this Bot accepts new builtin work; merely observing activity
+// Only a mention of this Bot accepts work; merely observing activity
 // or arbitrary mentions, keywords and Bot replies cannot authorize execution.
 func shouldRespond(event *model.BotEvent, bot *model.Bot) bool {
 	return bot != nil && event != nil && event.Message != nil && slices.Contains(event.MentionedUserIDs, bot.ID)

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -10,7 +11,6 @@ import (
 	"github.com/maomeng/aim/app/gateway/internal/response"
 	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/identity"
-	"github.com/maomeng/aim/pkg/protocol"
 	"github.com/maomeng/aim/pkg/sequence"
 )
 
@@ -98,34 +98,23 @@ func (h *BotHistoryHandler) Read(c *gin.Context) {
 	response.Success(c, resp)
 }
 
-// Only the credential determines the sender; a request cannot select another Bot.
-func (h *BotHistoryHandler) Send(c *gin.Context) {
+// ExecutorUpdate forwards the original update for runtime-owned validation.
+func (h *BotHistoryHandler) ExecutorUpdate(c *gin.Context) {
 	botID := h.authenticatedBot(c)
 	if botID == "" {
 		return
 	}
+	_, token, _ := strings.Cut(c.GetHeader("Authorization"), " ")
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 	raw, err := c.GetRawData()
 	if err != nil {
-		response.BadRequest(c, "invalid bot message")
+		response.BadRequest(c, "invalid executor update body")
 		return
 	}
-	req := new(msgpb.SendBotReplyReq)
-	if err := protocol.Unmarshal(raw, req); err != nil {
-		response.BadRequest(c, "invalid bot message")
-		return
-	}
-	if req.BotId != "" && req.BotId != botID {
-		response.Forbidden(c, "sender does not match bot credential")
-		return
-	}
-	req.BotId = botID
-	if !requireRequestIdentities(c, req) {
-		return
-	}
-	resp, err := h.messages.SendBotReply(c.Request.Context(), req)
+	resp, err := h.bots.ExecutorUpdate(c.Request.Context(), &botpb.ExecutorUpdateReq{BotId: botID, Token: token, Body: raw})
 	if err != nil {
-		response.GRPCError(c, err)
+		runRPCError(c, err)
 		return
 	}
-	response.Created(c, resp)
+	writeRunJSON(c, resp.GetRunJson(), false)
 }

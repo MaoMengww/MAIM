@@ -1323,50 +1323,6 @@ func (x *WebhookReq) GetTimestamp() int64 {
 	return 0
 }
 
-type WebhookResp struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MessageId     *string                `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3,oneof" json:"message_id,omitempty"` // 无消息创建的 webhook 类型不提供
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *WebhookResp) Reset() {
-	*x = WebhookResp{}
-	mi := &file_bot_bot_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *WebhookResp) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*WebhookResp) ProtoMessage() {}
-
-func (x *WebhookResp) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use WebhookResp.ProtoReflect.Descriptor instead.
-func (*WebhookResp) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *WebhookResp) GetMessageId() string {
-	if x != nil && x.MessageId != nil {
-		return *x.MessageId
-	}
-	return ""
-}
-
 type IssueBotTokenReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
@@ -1378,7 +1334,7 @@ type IssueBotTokenReq struct {
 
 func (x *IssueBotTokenReq) Reset() {
 	*x = IssueBotTokenReq{}
-	mi := &file_bot_bot_proto_msgTypes[11]
+	mi := &file_bot_bot_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1390,7 +1346,7 @@ func (x *IssueBotTokenReq) String() string {
 func (*IssueBotTokenReq) ProtoMessage() {}
 
 func (x *IssueBotTokenReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[11]
+	mi := &file_bot_bot_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1403,7 +1359,7 @@ func (x *IssueBotTokenReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssueBotTokenReq.ProtoReflect.Descriptor instead.
 func (*IssueBotTokenReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{11}
+	return file_bot_bot_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *IssueBotTokenReq) GetBotId() string {
@@ -1437,7 +1393,7 @@ type IssueBotTokenResp struct {
 
 func (x *IssueBotTokenResp) Reset() {
 	*x = IssueBotTokenResp{}
-	mi := &file_bot_bot_proto_msgTypes[12]
+	mi := &file_bot_bot_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1449,7 +1405,7 @@ func (x *IssueBotTokenResp) String() string {
 func (*IssueBotTokenResp) ProtoMessage() {}
 
 func (x *IssueBotTokenResp) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[12]
+	mi := &file_bot_bot_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1462,7 +1418,7 @@ func (x *IssueBotTokenResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssueBotTokenResp.ProtoReflect.Descriptor instead.
 func (*IssueBotTokenResp) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{12}
+	return file_bot_bot_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *IssueBotTokenResp) GetToken() string {
@@ -1488,7 +1444,7 @@ type ValidateBotTokenReq struct {
 
 func (x *ValidateBotTokenReq) Reset() {
 	*x = ValidateBotTokenReq{}
-	mi := &file_bot_bot_proto_msgTypes[13]
+	mi := &file_bot_bot_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1500,7 +1456,7 @@ func (x *ValidateBotTokenReq) String() string {
 func (*ValidateBotTokenReq) ProtoMessage() {}
 
 func (x *ValidateBotTokenReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[13]
+	mi := &file_bot_bot_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1513,7 +1469,7 @@ func (x *ValidateBotTokenReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateBotTokenReq.ProtoReflect.Descriptor instead.
 func (*ValidateBotTokenReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{13}
+	return file_bot_bot_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ValidateBotTokenReq) GetToken() string {
@@ -1536,7 +1492,7 @@ type ValidateBotTokenResp struct {
 
 func (x *ValidateBotTokenResp) Reset() {
 	*x = ValidateBotTokenResp{}
-	mi := &file_bot_bot_proto_msgTypes[14]
+	mi := &file_bot_bot_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1548,7 +1504,7 @@ func (x *ValidateBotTokenResp) String() string {
 func (*ValidateBotTokenResp) ProtoMessage() {}
 
 func (x *ValidateBotTokenResp) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[14]
+	mi := &file_bot_bot_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1561,7 +1517,7 @@ func (x *ValidateBotTokenResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateBotTokenResp.ProtoReflect.Descriptor instead.
 func (*ValidateBotTokenResp) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{14}
+	return file_bot_bot_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ValidateBotTokenResp) GetValid() bool {
@@ -1627,7 +1583,7 @@ type McpServerInfo struct {
 
 func (x *McpServerInfo) Reset() {
 	*x = McpServerInfo{}
-	mi := &file_bot_bot_proto_msgTypes[15]
+	mi := &file_bot_bot_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1639,7 +1595,7 @@ func (x *McpServerInfo) String() string {
 func (*McpServerInfo) ProtoMessage() {}
 
 func (x *McpServerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[15]
+	mi := &file_bot_bot_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1652,7 +1608,7 @@ func (x *McpServerInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use McpServerInfo.ProtoReflect.Descriptor instead.
 func (*McpServerInfo) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{15}
+	return file_bot_bot_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *McpServerInfo) GetId() string {
@@ -1804,7 +1760,7 @@ type CreateMcpServerReq struct {
 
 func (x *CreateMcpServerReq) Reset() {
 	*x = CreateMcpServerReq{}
-	mi := &file_bot_bot_proto_msgTypes[16]
+	mi := &file_bot_bot_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1816,7 +1772,7 @@ func (x *CreateMcpServerReq) String() string {
 func (*CreateMcpServerReq) ProtoMessage() {}
 
 func (x *CreateMcpServerReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[16]
+	mi := &file_bot_bot_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1829,7 +1785,7 @@ func (x *CreateMcpServerReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMcpServerReq.ProtoReflect.Descriptor instead.
 func (*CreateMcpServerReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{16}
+	return file_bot_bot_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *CreateMcpServerReq) GetUserId() string {
@@ -1953,7 +1909,7 @@ type UpdateMcpServerReq struct {
 
 func (x *UpdateMcpServerReq) Reset() {
 	*x = UpdateMcpServerReq{}
-	mi := &file_bot_bot_proto_msgTypes[17]
+	mi := &file_bot_bot_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1965,7 +1921,7 @@ func (x *UpdateMcpServerReq) String() string {
 func (*UpdateMcpServerReq) ProtoMessage() {}
 
 func (x *UpdateMcpServerReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[17]
+	mi := &file_bot_bot_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1978,7 +1934,7 @@ func (x *UpdateMcpServerReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMcpServerReq.ProtoReflect.Descriptor instead.
 func (*UpdateMcpServerReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{17}
+	return file_bot_bot_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *UpdateMcpServerReq) GetId() string {
@@ -2089,7 +2045,7 @@ type DeleteMcpServerReq struct {
 
 func (x *DeleteMcpServerReq) Reset() {
 	*x = DeleteMcpServerReq{}
-	mi := &file_bot_bot_proto_msgTypes[18]
+	mi := &file_bot_bot_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2101,7 +2057,7 @@ func (x *DeleteMcpServerReq) String() string {
 func (*DeleteMcpServerReq) ProtoMessage() {}
 
 func (x *DeleteMcpServerReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[18]
+	mi := &file_bot_bot_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2114,7 +2070,7 @@ func (x *DeleteMcpServerReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMcpServerReq.ProtoReflect.Descriptor instead.
 func (*DeleteMcpServerReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{18}
+	return file_bot_bot_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *DeleteMcpServerReq) GetId() string {
@@ -2141,7 +2097,7 @@ type GetMcpServerReq struct {
 
 func (x *GetMcpServerReq) Reset() {
 	*x = GetMcpServerReq{}
-	mi := &file_bot_bot_proto_msgTypes[19]
+	mi := &file_bot_bot_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2153,7 +2109,7 @@ func (x *GetMcpServerReq) String() string {
 func (*GetMcpServerReq) ProtoMessage() {}
 
 func (x *GetMcpServerReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[19]
+	mi := &file_bot_bot_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2166,7 +2122,7 @@ func (x *GetMcpServerReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMcpServerReq.ProtoReflect.Descriptor instead.
 func (*GetMcpServerReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{19}
+	return file_bot_bot_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *GetMcpServerReq) GetId() string {
@@ -2194,7 +2150,7 @@ type ListMcpServersReq struct {
 
 func (x *ListMcpServersReq) Reset() {
 	*x = ListMcpServersReq{}
-	mi := &file_bot_bot_proto_msgTypes[20]
+	mi := &file_bot_bot_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2206,7 +2162,7 @@ func (x *ListMcpServersReq) String() string {
 func (*ListMcpServersReq) ProtoMessage() {}
 
 func (x *ListMcpServersReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[20]
+	mi := &file_bot_bot_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2219,7 +2175,7 @@ func (x *ListMcpServersReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMcpServersReq.ProtoReflect.Descriptor instead.
 func (*ListMcpServersReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{20}
+	return file_bot_bot_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListMcpServersReq) GetUserId() string {
@@ -2253,7 +2209,7 @@ type ListMcpServersResp struct {
 
 func (x *ListMcpServersResp) Reset() {
 	*x = ListMcpServersResp{}
-	mi := &file_bot_bot_proto_msgTypes[21]
+	mi := &file_bot_bot_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2265,7 +2221,7 @@ func (x *ListMcpServersResp) String() string {
 func (*ListMcpServersResp) ProtoMessage() {}
 
 func (x *ListMcpServersResp) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[21]
+	mi := &file_bot_bot_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2278,7 +2234,7 @@ func (x *ListMcpServersResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMcpServersResp.ProtoReflect.Descriptor instead.
 func (*ListMcpServersResp) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{21}
+	return file_bot_bot_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListMcpServersResp) GetServers() []*McpServerInfo {
@@ -2306,7 +2262,7 @@ type AssignMcpToBotReq struct {
 
 func (x *AssignMcpToBotReq) Reset() {
 	*x = AssignMcpToBotReq{}
-	mi := &file_bot_bot_proto_msgTypes[22]
+	mi := &file_bot_bot_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2318,7 +2274,7 @@ func (x *AssignMcpToBotReq) String() string {
 func (*AssignMcpToBotReq) ProtoMessage() {}
 
 func (x *AssignMcpToBotReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[22]
+	mi := &file_bot_bot_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2331,7 +2287,7 @@ func (x *AssignMcpToBotReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssignMcpToBotReq.ProtoReflect.Descriptor instead.
 func (*AssignMcpToBotReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{22}
+	return file_bot_bot_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AssignMcpToBotReq) GetBotId() string {
@@ -2366,7 +2322,7 @@ type UnassignMcpFromBotReq struct {
 
 func (x *UnassignMcpFromBotReq) Reset() {
 	*x = UnassignMcpFromBotReq{}
-	mi := &file_bot_bot_proto_msgTypes[23]
+	mi := &file_bot_bot_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2378,7 +2334,7 @@ func (x *UnassignMcpFromBotReq) String() string {
 func (*UnassignMcpFromBotReq) ProtoMessage() {}
 
 func (x *UnassignMcpFromBotReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[23]
+	mi := &file_bot_bot_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2391,7 +2347,7 @@ func (x *UnassignMcpFromBotReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnassignMcpFromBotReq.ProtoReflect.Descriptor instead.
 func (*UnassignMcpFromBotReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{23}
+	return file_bot_bot_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *UnassignMcpFromBotReq) GetBotId() string {
@@ -2424,7 +2380,7 @@ type ListBotMcpServersReq struct {
 
 func (x *ListBotMcpServersReq) Reset() {
 	*x = ListBotMcpServersReq{}
-	mi := &file_bot_bot_proto_msgTypes[24]
+	mi := &file_bot_bot_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2436,7 +2392,7 @@ func (x *ListBotMcpServersReq) String() string {
 func (*ListBotMcpServersReq) ProtoMessage() {}
 
 func (x *ListBotMcpServersReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[24]
+	mi := &file_bot_bot_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2449,7 +2405,7 @@ func (x *ListBotMcpServersReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBotMcpServersReq.ProtoReflect.Descriptor instead.
 func (*ListBotMcpServersReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{24}
+	return file_bot_bot_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ListBotMcpServersReq) GetBotId() string {
@@ -2478,7 +2434,7 @@ type BotMcpServerInfo struct {
 
 func (x *BotMcpServerInfo) Reset() {
 	*x = BotMcpServerInfo{}
-	mi := &file_bot_bot_proto_msgTypes[25]
+	mi := &file_bot_bot_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2490,7 +2446,7 @@ func (x *BotMcpServerInfo) String() string {
 func (*BotMcpServerInfo) ProtoMessage() {}
 
 func (x *BotMcpServerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[25]
+	mi := &file_bot_bot_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2503,7 +2459,7 @@ func (x *BotMcpServerInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BotMcpServerInfo.ProtoReflect.Descriptor instead.
 func (*BotMcpServerInfo) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{25}
+	return file_bot_bot_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *BotMcpServerInfo) GetId() string {
@@ -2592,7 +2548,7 @@ type ListBotMcpServersResp struct {
 
 func (x *ListBotMcpServersResp) Reset() {
 	*x = ListBotMcpServersResp{}
-	mi := &file_bot_bot_proto_msgTypes[26]
+	mi := &file_bot_bot_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2604,7 +2560,7 @@ func (x *ListBotMcpServersResp) String() string {
 func (*ListBotMcpServersResp) ProtoMessage() {}
 
 func (x *ListBotMcpServersResp) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[26]
+	mi := &file_bot_bot_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2617,7 +2573,7 @@ func (x *ListBotMcpServersResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBotMcpServersResp.ProtoReflect.Descriptor instead.
 func (*ListBotMcpServersResp) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{26}
+	return file_bot_bot_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ListBotMcpServersResp) GetServers() []*BotMcpServerInfo {
@@ -2639,7 +2595,7 @@ type UpdateBotMcpServerReq struct {
 
 func (x *UpdateBotMcpServerReq) Reset() {
 	*x = UpdateBotMcpServerReq{}
-	mi := &file_bot_bot_proto_msgTypes[27]
+	mi := &file_bot_bot_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2651,7 +2607,7 @@ func (x *UpdateBotMcpServerReq) String() string {
 func (*UpdateBotMcpServerReq) ProtoMessage() {}
 
 func (x *UpdateBotMcpServerReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[27]
+	mi := &file_bot_bot_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2664,7 +2620,7 @@ func (x *UpdateBotMcpServerReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateBotMcpServerReq.ProtoReflect.Descriptor instead.
 func (*UpdateBotMcpServerReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{27}
+	return file_bot_bot_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *UpdateBotMcpServerReq) GetBotId() string {
@@ -2709,7 +2665,7 @@ type McpToolInfo struct {
 
 func (x *McpToolInfo) Reset() {
 	*x = McpToolInfo{}
-	mi := &file_bot_bot_proto_msgTypes[28]
+	mi := &file_bot_bot_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2721,7 +2677,7 @@ func (x *McpToolInfo) String() string {
 func (*McpToolInfo) ProtoMessage() {}
 
 func (x *McpToolInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[28]
+	mi := &file_bot_bot_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2734,7 +2690,7 @@ func (x *McpToolInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use McpToolInfo.ProtoReflect.Descriptor instead.
 func (*McpToolInfo) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{28}
+	return file_bot_bot_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *McpToolInfo) GetId() string {
@@ -2789,7 +2745,7 @@ type DiscoverMcpToolsReq struct {
 
 func (x *DiscoverMcpToolsReq) Reset() {
 	*x = DiscoverMcpToolsReq{}
-	mi := &file_bot_bot_proto_msgTypes[29]
+	mi := &file_bot_bot_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2801,7 +2757,7 @@ func (x *DiscoverMcpToolsReq) String() string {
 func (*DiscoverMcpToolsReq) ProtoMessage() {}
 
 func (x *DiscoverMcpToolsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[29]
+	mi := &file_bot_bot_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2814,7 +2770,7 @@ func (x *DiscoverMcpToolsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscoverMcpToolsReq.ProtoReflect.Descriptor instead.
 func (*DiscoverMcpToolsReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{29}
+	return file_bot_bot_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *DiscoverMcpToolsReq) GetUserId() string {
@@ -2840,7 +2796,7 @@ type DiscoverMcpToolsResp struct {
 
 func (x *DiscoverMcpToolsResp) Reset() {
 	*x = DiscoverMcpToolsResp{}
-	mi := &file_bot_bot_proto_msgTypes[30]
+	mi := &file_bot_bot_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2852,7 +2808,7 @@ func (x *DiscoverMcpToolsResp) String() string {
 func (*DiscoverMcpToolsResp) ProtoMessage() {}
 
 func (x *DiscoverMcpToolsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[30]
+	mi := &file_bot_bot_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2865,7 +2821,7 @@ func (x *DiscoverMcpToolsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscoverMcpToolsResp.ProtoReflect.Descriptor instead.
 func (*DiscoverMcpToolsResp) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{30}
+	return file_bot_bot_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *DiscoverMcpToolsResp) GetTools() []*McpToolInfo {
@@ -2885,7 +2841,7 @@ type ListMcpToolsReq struct {
 
 func (x *ListMcpToolsReq) Reset() {
 	*x = ListMcpToolsReq{}
-	mi := &file_bot_bot_proto_msgTypes[31]
+	mi := &file_bot_bot_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2897,7 +2853,7 @@ func (x *ListMcpToolsReq) String() string {
 func (*ListMcpToolsReq) ProtoMessage() {}
 
 func (x *ListMcpToolsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[31]
+	mi := &file_bot_bot_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2910,7 +2866,7 @@ func (x *ListMcpToolsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMcpToolsReq.ProtoReflect.Descriptor instead.
 func (*ListMcpToolsReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{31}
+	return file_bot_bot_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListMcpToolsReq) GetUserId() string {
@@ -2936,7 +2892,7 @@ type ListMcpToolsResp struct {
 
 func (x *ListMcpToolsResp) Reset() {
 	*x = ListMcpToolsResp{}
-	mi := &file_bot_bot_proto_msgTypes[32]
+	mi := &file_bot_bot_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2948,7 +2904,7 @@ func (x *ListMcpToolsResp) String() string {
 func (*ListMcpToolsResp) ProtoMessage() {}
 
 func (x *ListMcpToolsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[32]
+	mi := &file_bot_bot_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2961,7 +2917,7 @@ func (x *ListMcpToolsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMcpToolsResp.ProtoReflect.Descriptor instead.
 func (*ListMcpToolsResp) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{32}
+	return file_bot_bot_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ListMcpToolsResp) GetTools() []*McpToolInfo {
@@ -2980,7 +2936,7 @@ type BatchGetBotsReq struct {
 
 func (x *BatchGetBotsReq) Reset() {
 	*x = BatchGetBotsReq{}
-	mi := &file_bot_bot_proto_msgTypes[33]
+	mi := &file_bot_bot_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2992,7 +2948,7 @@ func (x *BatchGetBotsReq) String() string {
 func (*BatchGetBotsReq) ProtoMessage() {}
 
 func (x *BatchGetBotsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[33]
+	mi := &file_bot_bot_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3005,7 +2961,7 @@ func (x *BatchGetBotsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchGetBotsReq.ProtoReflect.Descriptor instead.
 func (*BatchGetBotsReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{33}
+	return file_bot_bot_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *BatchGetBotsReq) GetBotIds() []string {
@@ -3024,7 +2980,7 @@ type BatchGetBotsResp struct {
 
 func (x *BatchGetBotsResp) Reset() {
 	*x = BatchGetBotsResp{}
-	mi := &file_bot_bot_proto_msgTypes[34]
+	mi := &file_bot_bot_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3036,7 +2992,7 @@ func (x *BatchGetBotsResp) String() string {
 func (*BatchGetBotsResp) ProtoMessage() {}
 
 func (x *BatchGetBotsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[34]
+	mi := &file_bot_bot_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3049,7 +3005,7 @@ func (x *BatchGetBotsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchGetBotsResp.ProtoReflect.Descriptor instead.
 func (*BatchGetBotsResp) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{34}
+	return file_bot_bot_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *BatchGetBotsResp) GetBots() []*Bot {
@@ -3068,7 +3024,7 @@ type GetBotWebhookConfigReq struct {
 
 func (x *GetBotWebhookConfigReq) Reset() {
 	*x = GetBotWebhookConfigReq{}
-	mi := &file_bot_bot_proto_msgTypes[35]
+	mi := &file_bot_bot_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3080,7 +3036,7 @@ func (x *GetBotWebhookConfigReq) String() string {
 func (*GetBotWebhookConfigReq) ProtoMessage() {}
 
 func (x *GetBotWebhookConfigReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[35]
+	mi := &file_bot_bot_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3093,7 +3049,7 @@ func (x *GetBotWebhookConfigReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBotWebhookConfigReq.ProtoReflect.Descriptor instead.
 func (*GetBotWebhookConfigReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{35}
+	return file_bot_bot_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *GetBotWebhookConfigReq) GetBotId() string {
@@ -3116,7 +3072,7 @@ type GetBotWebhookConfigResp struct {
 
 func (x *GetBotWebhookConfigResp) Reset() {
 	*x = GetBotWebhookConfigResp{}
-	mi := &file_bot_bot_proto_msgTypes[36]
+	mi := &file_bot_bot_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3128,7 +3084,7 @@ func (x *GetBotWebhookConfigResp) String() string {
 func (*GetBotWebhookConfigResp) ProtoMessage() {}
 
 func (x *GetBotWebhookConfigResp) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[36]
+	mi := &file_bot_bot_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3141,7 +3097,7 @@ func (x *GetBotWebhookConfigResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBotWebhookConfigResp.ProtoReflect.Descriptor instead.
 func (*GetBotWebhookConfigResp) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{36}
+	return file_bot_bot_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *GetBotWebhookConfigResp) GetConnMode() string {
@@ -3193,7 +3149,7 @@ type StartRunReq struct {
 
 func (x *StartRunReq) Reset() {
 	*x = StartRunReq{}
-	mi := &file_bot_bot_proto_msgTypes[37]
+	mi := &file_bot_bot_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3205,7 +3161,7 @@ func (x *StartRunReq) String() string {
 func (*StartRunReq) ProtoMessage() {}
 
 func (x *StartRunReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[37]
+	mi := &file_bot_bot_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3218,7 +3174,7 @@ func (x *StartRunReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartRunReq.ProtoReflect.Descriptor instead.
 func (*StartRunReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{37}
+	return file_bot_bot_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *StartRunReq) GetBotId() string {
@@ -3272,7 +3228,7 @@ type GetRunReq struct {
 
 func (x *GetRunReq) Reset() {
 	*x = GetRunReq{}
-	mi := &file_bot_bot_proto_msgTypes[38]
+	mi := &file_bot_bot_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3284,7 +3240,7 @@ func (x *GetRunReq) String() string {
 func (*GetRunReq) ProtoMessage() {}
 
 func (x *GetRunReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[38]
+	mi := &file_bot_bot_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3297,7 +3253,7 @@ func (x *GetRunReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunReq.ProtoReflect.Descriptor instead.
 func (*GetRunReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{38}
+	return file_bot_bot_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *GetRunReq) GetRunId() string {
@@ -3317,7 +3273,7 @@ type ListRunsReq struct {
 
 func (x *ListRunsReq) Reset() {
 	*x = ListRunsReq{}
-	mi := &file_bot_bot_proto_msgTypes[39]
+	mi := &file_bot_bot_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3329,7 +3285,7 @@ func (x *ListRunsReq) String() string {
 func (*ListRunsReq) ProtoMessage() {}
 
 func (x *ListRunsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[39]
+	mi := &file_bot_bot_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3342,7 +3298,7 @@ func (x *ListRunsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsReq.ProtoReflect.Descriptor instead.
 func (*ListRunsReq) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{39}
+	return file_bot_bot_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ListRunsReq) GetConvId() string {
@@ -3368,7 +3324,7 @@ type RunResponse struct {
 
 func (x *RunResponse) Reset() {
 	*x = RunResponse{}
-	mi := &file_bot_bot_proto_msgTypes[40]
+	mi := &file_bot_bot_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3380,7 +3336,7 @@ func (x *RunResponse) String() string {
 func (*RunResponse) ProtoMessage() {}
 
 func (x *RunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[40]
+	mi := &file_bot_bot_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3393,7 +3349,7 @@ func (x *RunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunResponse.ProtoReflect.Descriptor instead.
 func (*RunResponse) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{40}
+	return file_bot_bot_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *RunResponse) GetRunJson() string {
@@ -3412,7 +3368,7 @@ type ListRunsResponse struct {
 
 func (x *ListRunsResponse) Reset() {
 	*x = ListRunsResponse{}
-	mi := &file_bot_bot_proto_msgTypes[41]
+	mi := &file_bot_bot_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3424,7 +3380,7 @@ func (x *ListRunsResponse) String() string {
 func (*ListRunsResponse) ProtoMessage() {}
 
 func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bot_bot_proto_msgTypes[41]
+	mi := &file_bot_bot_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3437,12 +3393,140 @@ func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListRunsResponse) Descriptor() ([]byte, []int) {
-	return file_bot_bot_proto_rawDescGZIP(), []int{41}
+	return file_bot_bot_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ListRunsResponse) GetRunsJson() string {
 	if x != nil {
 		return x.RunsJson
+	}
+	return ""
+}
+
+type ExecutorUpdateReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	Token         string                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	Body          []byte                 `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecutorUpdateReq) Reset() {
+	*x = ExecutorUpdateReq{}
+	mi := &file_bot_bot_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutorUpdateReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutorUpdateReq) ProtoMessage() {}
+
+func (x *ExecutorUpdateReq) ProtoReflect() protoreflect.Message {
+	mi := &file_bot_bot_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutorUpdateReq.ProtoReflect.Descriptor instead.
+func (*ExecutorUpdateReq) Descriptor() ([]byte, []int) {
+	return file_bot_bot_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *ExecutorUpdateReq) GetBotId() string {
+	if x != nil {
+		return x.BotId
+	}
+	return ""
+}
+
+func (x *ExecutorUpdateReq) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *ExecutorUpdateReq) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+type ControlRunReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Operation     string                 `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	SubmissionKey string                 `protobuf:"bytes,4,opt,name=submission_key,json=submissionKey,proto3" json:"submission_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ControlRunReq) Reset() {
+	*x = ControlRunReq{}
+	mi := &file_bot_bot_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ControlRunReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ControlRunReq) ProtoMessage() {}
+
+func (x *ControlRunReq) ProtoReflect() protoreflect.Message {
+	mi := &file_bot_bot_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ControlRunReq.ProtoReflect.Descriptor instead.
+func (*ControlRunReq) Descriptor() ([]byte, []int) {
+	return file_bot_bot_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *ControlRunReq) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *ControlRunReq) GetOperation() string {
+	if x != nil {
+		return x.Operation
+	}
+	return ""
+}
+
+func (x *ControlRunReq) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ControlRunReq) GetSubmissionKey() string {
+	if x != nil {
+		return x.SubmissionKey
 	}
 	return ""
 }
@@ -3586,11 +3670,7 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\x04body\x18\x02 \x01(\fR\x04body\x12\x1c\n" +
 	"\tsignature\x18\x03 \x01(\tR\tsignature\x12\x1c\n" +
 	"\ttimestamp\x18\x04 \x01(\x03R\ttimestampB\t\n" +
-	"\a_bot_id\"H\n" +
-	"\vWebhookResp\x12*\n" +
-	"\n" +
-	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\tmessageId\x88\x01\x01B\r\n" +
-	"\v_message_id\"s\n" +
+	"\a_bot_id\"s\n" +
 	"\x10IssueBotTokenReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
 	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x1f\n" +
@@ -3770,7 +3850,16 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\vRunResponse\x12\x19\n" +
 	"\brun_json\x18\x01 \x01(\tR\arunJson\"/\n" +
 	"\x10ListRunsResponse\x12\x1b\n" +
-	"\truns_json\x18\x01 \x01(\tR\brunsJson*p\n" +
+	"\truns_json\x18\x01 \x01(\tR\brunsJson\"\\\n" +
+	"\x11ExecutorUpdateReq\x12\x1d\n" +
+	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\x12\x12\n" +
+	"\x04body\x18\x03 \x01(\fR\x04body\"\x95\x01\n" +
+	"\rControlRunReq\x12\x1d\n" +
+	"\x06run_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05runId\x12\x1c\n" +
+	"\toperation\x18\x02 \x01(\tR\toperation\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12-\n" +
+	"\x0esubmission_key\x18\x04 \x01(\tB\x06\x98\xb8\xbf\x99\x0f\x01R\rsubmissionKey*p\n" +
 	"\aBotType\x12\x18\n" +
 	"\x14BOT_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11BOT_TYPE_OFFICIAL\x10\x01\x12\x1a\n" +
@@ -3783,19 +3872,22 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\bConnMode\x12\x19\n" +
 	"\x15CONN_MODE_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fCONN_MODE_WS\x10\x01\x12\x15\n" +
-	"\x11CONN_MODE_WEBHOOK\x10\x022\xee\v\n" +
+	"\x11CONN_MODE_WEBHOOK\x10\x022\xde\f\n" +
 	"\n" +
 	"BotService\x12.\n" +
 	"\bStartRun\x12\x10.bot.StartRunReq\x1a\x10.bot.RunResponse\x12*\n" +
 	"\x06GetRun\x12\x0e.bot.GetRunReq\x1a\x10.bot.RunResponse\x123\n" +
-	"\bListRuns\x12\x10.bot.ListRunsReq\x1a\x15.bot.ListRunsResponse\x12(\n" +
+	"\bListRuns\x12\x10.bot.ListRunsReq\x1a\x15.bot.ListRunsResponse\x12:\n" +
+	"\x0eExecutorUpdate\x12\x16.bot.ExecutorUpdateReq\x1a\x10.bot.RunResponse\x122\n" +
+	"\n" +
+	"ControlRun\x12\x12.bot.ControlRunReq\x1a\x10.bot.RunResponse\x12(\n" +
 	"\tCreateBot\x12\x11.bot.CreateBotReq\x1a\b.bot.Bot\x12(\n" +
 	"\tUpdateBot\x12\x11.bot.UpdateBotReq\x1a\b.bot.Bot\x124\n" +
 	"\tDeleteBot\x12\x11.bot.DeleteBotReq\x1a\x14.common.BaseResponse\x12\"\n" +
 	"\x06GetBot\x12\x0e.bot.GetBotReq\x1a\b.bot.Bot\x12/\n" +
 	"\bListBots\x12\x10.bot.ListBotsReq\x1a\x11.bot.ListBotsResp\x12;\n" +
 	"\fRotateSecret\x12\x14.bot.RotateSecretReq\x1a\x15.bot.RotateSecretResp\x12:\n" +
-	"\x15HandleIncomingWebhook\x12\x0f.bot.WebhookReq\x1a\x10.bot.WebhookResp\x12>\n" +
+	"\x15HandleIncomingWebhook\x12\x0f.bot.WebhookReq\x1a\x10.bot.RunResponse\x12>\n" +
 	"\rIssueBotToken\x12\x15.bot.IssueBotTokenReq\x1a\x16.bot.IssueBotTokenResp\x12G\n" +
 	"\x10ValidateBotToken\x12\x18.bot.ValidateBotTokenReq\x1a\x19.bot.ValidateBotTokenResp\x12>\n" +
 	"\x0fCreateMcpServer\x12\x17.bot.CreateMcpServerReq\x1a\x12.bot.McpServerInfo\x12>\n" +
@@ -3825,7 +3917,7 @@ func file_bot_bot_proto_rawDescGZIP() []byte {
 }
 
 var file_bot_bot_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_bot_bot_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
+var file_bot_bot_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_bot_bot_proto_goTypes = []any{
 	(BotType)(0),                    // 0: bot.BotType
 	(BotStatus)(0),                  // 1: bot.BotStatus
@@ -3840,105 +3932,110 @@ var file_bot_bot_proto_goTypes = []any{
 	(*RotateSecretReq)(nil),         // 10: bot.RotateSecretReq
 	(*RotateSecretResp)(nil),        // 11: bot.RotateSecretResp
 	(*WebhookReq)(nil),              // 12: bot.WebhookReq
-	(*WebhookResp)(nil),             // 13: bot.WebhookResp
-	(*IssueBotTokenReq)(nil),        // 14: bot.IssueBotTokenReq
-	(*IssueBotTokenResp)(nil),       // 15: bot.IssueBotTokenResp
-	(*ValidateBotTokenReq)(nil),     // 16: bot.ValidateBotTokenReq
-	(*ValidateBotTokenResp)(nil),    // 17: bot.ValidateBotTokenResp
-	(*McpServerInfo)(nil),           // 18: bot.McpServerInfo
-	(*CreateMcpServerReq)(nil),      // 19: bot.CreateMcpServerReq
-	(*UpdateMcpServerReq)(nil),      // 20: bot.UpdateMcpServerReq
-	(*DeleteMcpServerReq)(nil),      // 21: bot.DeleteMcpServerReq
-	(*GetMcpServerReq)(nil),         // 22: bot.GetMcpServerReq
-	(*ListMcpServersReq)(nil),       // 23: bot.ListMcpServersReq
-	(*ListMcpServersResp)(nil),      // 24: bot.ListMcpServersResp
-	(*AssignMcpToBotReq)(nil),       // 25: bot.AssignMcpToBotReq
-	(*UnassignMcpFromBotReq)(nil),   // 26: bot.UnassignMcpFromBotReq
-	(*ListBotMcpServersReq)(nil),    // 27: bot.ListBotMcpServersReq
-	(*BotMcpServerInfo)(nil),        // 28: bot.BotMcpServerInfo
-	(*ListBotMcpServersResp)(nil),   // 29: bot.ListBotMcpServersResp
-	(*UpdateBotMcpServerReq)(nil),   // 30: bot.UpdateBotMcpServerReq
-	(*McpToolInfo)(nil),             // 31: bot.McpToolInfo
-	(*DiscoverMcpToolsReq)(nil),     // 32: bot.DiscoverMcpToolsReq
-	(*DiscoverMcpToolsResp)(nil),    // 33: bot.DiscoverMcpToolsResp
-	(*ListMcpToolsReq)(nil),         // 34: bot.ListMcpToolsReq
-	(*ListMcpToolsResp)(nil),        // 35: bot.ListMcpToolsResp
-	(*BatchGetBotsReq)(nil),         // 36: bot.BatchGetBotsReq
-	(*BatchGetBotsResp)(nil),        // 37: bot.BatchGetBotsResp
-	(*GetBotWebhookConfigReq)(nil),  // 38: bot.GetBotWebhookConfigReq
-	(*GetBotWebhookConfigResp)(nil), // 39: bot.GetBotWebhookConfigResp
-	(*StartRunReq)(nil),             // 40: bot.StartRunReq
-	(*GetRunReq)(nil),               // 41: bot.GetRunReq
-	(*ListRunsReq)(nil),             // 42: bot.ListRunsReq
-	(*RunResponse)(nil),             // 43: bot.RunResponse
-	(*ListRunsResponse)(nil),        // 44: bot.ListRunsResponse
-	(*common.Pagination)(nil),       // 45: common.Pagination
-	(*common.PaginationResp)(nil),   // 46: common.PaginationResp
-	(*common.BaseResponse)(nil),     // 47: common.BaseResponse
+	(*IssueBotTokenReq)(nil),        // 13: bot.IssueBotTokenReq
+	(*IssueBotTokenResp)(nil),       // 14: bot.IssueBotTokenResp
+	(*ValidateBotTokenReq)(nil),     // 15: bot.ValidateBotTokenReq
+	(*ValidateBotTokenResp)(nil),    // 16: bot.ValidateBotTokenResp
+	(*McpServerInfo)(nil),           // 17: bot.McpServerInfo
+	(*CreateMcpServerReq)(nil),      // 18: bot.CreateMcpServerReq
+	(*UpdateMcpServerReq)(nil),      // 19: bot.UpdateMcpServerReq
+	(*DeleteMcpServerReq)(nil),      // 20: bot.DeleteMcpServerReq
+	(*GetMcpServerReq)(nil),         // 21: bot.GetMcpServerReq
+	(*ListMcpServersReq)(nil),       // 22: bot.ListMcpServersReq
+	(*ListMcpServersResp)(nil),      // 23: bot.ListMcpServersResp
+	(*AssignMcpToBotReq)(nil),       // 24: bot.AssignMcpToBotReq
+	(*UnassignMcpFromBotReq)(nil),   // 25: bot.UnassignMcpFromBotReq
+	(*ListBotMcpServersReq)(nil),    // 26: bot.ListBotMcpServersReq
+	(*BotMcpServerInfo)(nil),        // 27: bot.BotMcpServerInfo
+	(*ListBotMcpServersResp)(nil),   // 28: bot.ListBotMcpServersResp
+	(*UpdateBotMcpServerReq)(nil),   // 29: bot.UpdateBotMcpServerReq
+	(*McpToolInfo)(nil),             // 30: bot.McpToolInfo
+	(*DiscoverMcpToolsReq)(nil),     // 31: bot.DiscoverMcpToolsReq
+	(*DiscoverMcpToolsResp)(nil),    // 32: bot.DiscoverMcpToolsResp
+	(*ListMcpToolsReq)(nil),         // 33: bot.ListMcpToolsReq
+	(*ListMcpToolsResp)(nil),        // 34: bot.ListMcpToolsResp
+	(*BatchGetBotsReq)(nil),         // 35: bot.BatchGetBotsReq
+	(*BatchGetBotsResp)(nil),        // 36: bot.BatchGetBotsResp
+	(*GetBotWebhookConfigReq)(nil),  // 37: bot.GetBotWebhookConfigReq
+	(*GetBotWebhookConfigResp)(nil), // 38: bot.GetBotWebhookConfigResp
+	(*StartRunReq)(nil),             // 39: bot.StartRunReq
+	(*GetRunReq)(nil),               // 40: bot.GetRunReq
+	(*ListRunsReq)(nil),             // 41: bot.ListRunsReq
+	(*RunResponse)(nil),             // 42: bot.RunResponse
+	(*ListRunsResponse)(nil),        // 43: bot.ListRunsResponse
+	(*ExecutorUpdateReq)(nil),       // 44: bot.ExecutorUpdateReq
+	(*ControlRunReq)(nil),           // 45: bot.ControlRunReq
+	(*common.Pagination)(nil),       // 46: common.Pagination
+	(*common.PaginationResp)(nil),   // 47: common.PaginationResp
+	(*common.BaseResponse)(nil),     // 48: common.BaseResponse
 }
 var file_bot_bot_proto_depIdxs = []int32{
-	45, // 0: bot.ListBotsReq.pagination:type_name -> common.Pagination
+	46, // 0: bot.ListBotsReq.pagination:type_name -> common.Pagination
 	3,  // 1: bot.ListBotsResp.bots:type_name -> bot.Bot
-	46, // 2: bot.ListBotsResp.pagination:type_name -> common.PaginationResp
-	45, // 3: bot.ListMcpServersReq.pagination:type_name -> common.Pagination
-	18, // 4: bot.ListMcpServersResp.servers:type_name -> bot.McpServerInfo
-	46, // 5: bot.ListMcpServersResp.pagination:type_name -> common.PaginationResp
-	28, // 6: bot.ListBotMcpServersResp.servers:type_name -> bot.BotMcpServerInfo
-	31, // 7: bot.DiscoverMcpToolsResp.tools:type_name -> bot.McpToolInfo
-	31, // 8: bot.ListMcpToolsResp.tools:type_name -> bot.McpToolInfo
+	47, // 2: bot.ListBotsResp.pagination:type_name -> common.PaginationResp
+	46, // 3: bot.ListMcpServersReq.pagination:type_name -> common.Pagination
+	17, // 4: bot.ListMcpServersResp.servers:type_name -> bot.McpServerInfo
+	47, // 5: bot.ListMcpServersResp.pagination:type_name -> common.PaginationResp
+	27, // 6: bot.ListBotMcpServersResp.servers:type_name -> bot.BotMcpServerInfo
+	30, // 7: bot.DiscoverMcpToolsResp.tools:type_name -> bot.McpToolInfo
+	30, // 8: bot.ListMcpToolsResp.tools:type_name -> bot.McpToolInfo
 	3,  // 9: bot.BatchGetBotsResp.bots:type_name -> bot.Bot
-	40, // 10: bot.BotService.StartRun:input_type -> bot.StartRunReq
-	41, // 11: bot.BotService.GetRun:input_type -> bot.GetRunReq
-	42, // 12: bot.BotService.ListRuns:input_type -> bot.ListRunsReq
-	4,  // 13: bot.BotService.CreateBot:input_type -> bot.CreateBotReq
-	5,  // 14: bot.BotService.UpdateBot:input_type -> bot.UpdateBotReq
-	6,  // 15: bot.BotService.DeleteBot:input_type -> bot.DeleteBotReq
-	7,  // 16: bot.BotService.GetBot:input_type -> bot.GetBotReq
-	8,  // 17: bot.BotService.ListBots:input_type -> bot.ListBotsReq
-	10, // 18: bot.BotService.RotateSecret:input_type -> bot.RotateSecretReq
-	12, // 19: bot.BotService.HandleIncomingWebhook:input_type -> bot.WebhookReq
-	14, // 20: bot.BotService.IssueBotToken:input_type -> bot.IssueBotTokenReq
-	16, // 21: bot.BotService.ValidateBotToken:input_type -> bot.ValidateBotTokenReq
-	19, // 22: bot.BotService.CreateMcpServer:input_type -> bot.CreateMcpServerReq
-	20, // 23: bot.BotService.UpdateMcpServer:input_type -> bot.UpdateMcpServerReq
-	21, // 24: bot.BotService.DeleteMcpServer:input_type -> bot.DeleteMcpServerReq
-	22, // 25: bot.BotService.GetMcpServer:input_type -> bot.GetMcpServerReq
-	23, // 26: bot.BotService.ListMcpServers:input_type -> bot.ListMcpServersReq
-	25, // 27: bot.BotService.AssignMcpToBot:input_type -> bot.AssignMcpToBotReq
-	26, // 28: bot.BotService.UnassignMcpFromBot:input_type -> bot.UnassignMcpFromBotReq
-	27, // 29: bot.BotService.ListBotMcpServers:input_type -> bot.ListBotMcpServersReq
-	30, // 30: bot.BotService.UpdateBotMcpServer:input_type -> bot.UpdateBotMcpServerReq
-	32, // 31: bot.BotService.DiscoverMcpTools:input_type -> bot.DiscoverMcpToolsReq
-	34, // 32: bot.BotService.ListMcpTools:input_type -> bot.ListMcpToolsReq
-	36, // 33: bot.BotService.BatchGetBots:input_type -> bot.BatchGetBotsReq
-	38, // 34: bot.BotService.GetBotWebhookConfig:input_type -> bot.GetBotWebhookConfigReq
-	43, // 35: bot.BotService.StartRun:output_type -> bot.RunResponse
-	43, // 36: bot.BotService.GetRun:output_type -> bot.RunResponse
-	44, // 37: bot.BotService.ListRuns:output_type -> bot.ListRunsResponse
-	3,  // 38: bot.BotService.CreateBot:output_type -> bot.Bot
-	3,  // 39: bot.BotService.UpdateBot:output_type -> bot.Bot
-	47, // 40: bot.BotService.DeleteBot:output_type -> common.BaseResponse
-	3,  // 41: bot.BotService.GetBot:output_type -> bot.Bot
-	9,  // 42: bot.BotService.ListBots:output_type -> bot.ListBotsResp
-	11, // 43: bot.BotService.RotateSecret:output_type -> bot.RotateSecretResp
-	13, // 44: bot.BotService.HandleIncomingWebhook:output_type -> bot.WebhookResp
-	15, // 45: bot.BotService.IssueBotToken:output_type -> bot.IssueBotTokenResp
-	17, // 46: bot.BotService.ValidateBotToken:output_type -> bot.ValidateBotTokenResp
-	18, // 47: bot.BotService.CreateMcpServer:output_type -> bot.McpServerInfo
-	18, // 48: bot.BotService.UpdateMcpServer:output_type -> bot.McpServerInfo
-	47, // 49: bot.BotService.DeleteMcpServer:output_type -> common.BaseResponse
-	18, // 50: bot.BotService.GetMcpServer:output_type -> bot.McpServerInfo
-	24, // 51: bot.BotService.ListMcpServers:output_type -> bot.ListMcpServersResp
-	47, // 52: bot.BotService.AssignMcpToBot:output_type -> common.BaseResponse
-	47, // 53: bot.BotService.UnassignMcpFromBot:output_type -> common.BaseResponse
-	29, // 54: bot.BotService.ListBotMcpServers:output_type -> bot.ListBotMcpServersResp
-	47, // 55: bot.BotService.UpdateBotMcpServer:output_type -> common.BaseResponse
-	33, // 56: bot.BotService.DiscoverMcpTools:output_type -> bot.DiscoverMcpToolsResp
-	35, // 57: bot.BotService.ListMcpTools:output_type -> bot.ListMcpToolsResp
-	37, // 58: bot.BotService.BatchGetBots:output_type -> bot.BatchGetBotsResp
-	39, // 59: bot.BotService.GetBotWebhookConfig:output_type -> bot.GetBotWebhookConfigResp
-	35, // [35:60] is the sub-list for method output_type
-	10, // [10:35] is the sub-list for method input_type
+	39, // 10: bot.BotService.StartRun:input_type -> bot.StartRunReq
+	40, // 11: bot.BotService.GetRun:input_type -> bot.GetRunReq
+	41, // 12: bot.BotService.ListRuns:input_type -> bot.ListRunsReq
+	44, // 13: bot.BotService.ExecutorUpdate:input_type -> bot.ExecutorUpdateReq
+	45, // 14: bot.BotService.ControlRun:input_type -> bot.ControlRunReq
+	4,  // 15: bot.BotService.CreateBot:input_type -> bot.CreateBotReq
+	5,  // 16: bot.BotService.UpdateBot:input_type -> bot.UpdateBotReq
+	6,  // 17: bot.BotService.DeleteBot:input_type -> bot.DeleteBotReq
+	7,  // 18: bot.BotService.GetBot:input_type -> bot.GetBotReq
+	8,  // 19: bot.BotService.ListBots:input_type -> bot.ListBotsReq
+	10, // 20: bot.BotService.RotateSecret:input_type -> bot.RotateSecretReq
+	12, // 21: bot.BotService.HandleIncomingWebhook:input_type -> bot.WebhookReq
+	13, // 22: bot.BotService.IssueBotToken:input_type -> bot.IssueBotTokenReq
+	15, // 23: bot.BotService.ValidateBotToken:input_type -> bot.ValidateBotTokenReq
+	18, // 24: bot.BotService.CreateMcpServer:input_type -> bot.CreateMcpServerReq
+	19, // 25: bot.BotService.UpdateMcpServer:input_type -> bot.UpdateMcpServerReq
+	20, // 26: bot.BotService.DeleteMcpServer:input_type -> bot.DeleteMcpServerReq
+	21, // 27: bot.BotService.GetMcpServer:input_type -> bot.GetMcpServerReq
+	22, // 28: bot.BotService.ListMcpServers:input_type -> bot.ListMcpServersReq
+	24, // 29: bot.BotService.AssignMcpToBot:input_type -> bot.AssignMcpToBotReq
+	25, // 30: bot.BotService.UnassignMcpFromBot:input_type -> bot.UnassignMcpFromBotReq
+	26, // 31: bot.BotService.ListBotMcpServers:input_type -> bot.ListBotMcpServersReq
+	29, // 32: bot.BotService.UpdateBotMcpServer:input_type -> bot.UpdateBotMcpServerReq
+	31, // 33: bot.BotService.DiscoverMcpTools:input_type -> bot.DiscoverMcpToolsReq
+	33, // 34: bot.BotService.ListMcpTools:input_type -> bot.ListMcpToolsReq
+	35, // 35: bot.BotService.BatchGetBots:input_type -> bot.BatchGetBotsReq
+	37, // 36: bot.BotService.GetBotWebhookConfig:input_type -> bot.GetBotWebhookConfigReq
+	42, // 37: bot.BotService.StartRun:output_type -> bot.RunResponse
+	42, // 38: bot.BotService.GetRun:output_type -> bot.RunResponse
+	43, // 39: bot.BotService.ListRuns:output_type -> bot.ListRunsResponse
+	42, // 40: bot.BotService.ExecutorUpdate:output_type -> bot.RunResponse
+	42, // 41: bot.BotService.ControlRun:output_type -> bot.RunResponse
+	3,  // 42: bot.BotService.CreateBot:output_type -> bot.Bot
+	3,  // 43: bot.BotService.UpdateBot:output_type -> bot.Bot
+	48, // 44: bot.BotService.DeleteBot:output_type -> common.BaseResponse
+	3,  // 45: bot.BotService.GetBot:output_type -> bot.Bot
+	9,  // 46: bot.BotService.ListBots:output_type -> bot.ListBotsResp
+	11, // 47: bot.BotService.RotateSecret:output_type -> bot.RotateSecretResp
+	42, // 48: bot.BotService.HandleIncomingWebhook:output_type -> bot.RunResponse
+	14, // 49: bot.BotService.IssueBotToken:output_type -> bot.IssueBotTokenResp
+	16, // 50: bot.BotService.ValidateBotToken:output_type -> bot.ValidateBotTokenResp
+	17, // 51: bot.BotService.CreateMcpServer:output_type -> bot.McpServerInfo
+	17, // 52: bot.BotService.UpdateMcpServer:output_type -> bot.McpServerInfo
+	48, // 53: bot.BotService.DeleteMcpServer:output_type -> common.BaseResponse
+	17, // 54: bot.BotService.GetMcpServer:output_type -> bot.McpServerInfo
+	23, // 55: bot.BotService.ListMcpServers:output_type -> bot.ListMcpServersResp
+	48, // 56: bot.BotService.AssignMcpToBot:output_type -> common.BaseResponse
+	48, // 57: bot.BotService.UnassignMcpFromBot:output_type -> common.BaseResponse
+	28, // 58: bot.BotService.ListBotMcpServers:output_type -> bot.ListBotMcpServersResp
+	48, // 59: bot.BotService.UpdateBotMcpServer:output_type -> common.BaseResponse
+	32, // 60: bot.BotService.DiscoverMcpTools:output_type -> bot.DiscoverMcpToolsResp
+	34, // 61: bot.BotService.ListMcpTools:output_type -> bot.ListMcpToolsResp
+	36, // 62: bot.BotService.BatchGetBots:output_type -> bot.BatchGetBotsResp
+	38, // 63: bot.BotService.GetBotWebhookConfig:output_type -> bot.GetBotWebhookConfigResp
+	37, // [37:64] is the sub-list for method output_type
+	10, // [10:37] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
 	10, // [10:10] is the sub-list for extension extendee
 	0,  // [0:10] is the sub-list for field type_name
@@ -3954,18 +4051,17 @@ func file_bot_bot_proto_init() {
 	file_bot_bot_proto_msgTypes[2].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[5].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[9].OneofWrappers = []any{}
-	file_bot_bot_proto_msgTypes[10].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[13].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[14].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[15].OneofWrappers = []any{}
-	file_bot_bot_proto_msgTypes[16].OneofWrappers = []any{}
-	file_bot_bot_proto_msgTypes[37].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[36].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bot_bot_proto_rawDesc), len(file_bot_bot_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   42,
+			NumMessages:   43,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

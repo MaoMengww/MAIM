@@ -109,6 +109,9 @@ export function BotDetailPage() {
       ...bot,
       model_id: bot.model_id ?? undefined,
       enable_web_search: caps.builtin_tools?.includes('web_search') ?? false,
+      supports_input: caps.supports_input ?? false,
+      supports_stop: caps.supports_stop ?? false,
+      supports_resume: caps.supports_resume ?? false,
       response_triggers: triggers.length > 0 ? triggers : ['mention'],
       keywords: keywords.join(', '),
     });
@@ -353,6 +356,12 @@ export function BotDetailPage() {
             caps.builtin_tools = caps.builtin_tools.filter((t: string) => t !== 'web_search');
           }
           delete vals.enable_web_search;
+          const capabilities = bot.type === 'third_party'
+            ? { input_types: ['text'], supports_input: !!vals.supports_input, supports_stop: !!vals.supports_stop, supports_resume: !!vals.supports_resume }
+            : caps;
+          delete vals.supports_input;
+          delete vals.supports_stop;
+          delete vals.supports_resume;
           // Build response_triggers as top-level field (keyword → keyword:xxx format)
           const triggers: string[] = [];
           if (vals.response_triggers) {
@@ -373,7 +382,7 @@ export function BotDetailPage() {
           if (vals.temperature != null) vals.temperature = Number(vals.temperature);
           if (vals.max_context_messages != null) vals.max_context_messages = Number(vals.max_context_messages);
           if (vals.max_context_tokens != null) vals.max_context_tokens = Number(vals.max_context_tokens);
-          vals.capabilities = JSON.stringify(caps);
+          vals.capabilities = JSON.stringify(capabilities);
           if (!changedModelFields.has('model_id')) {
             delete vals.model_id;
             delete vals.model_name;
@@ -539,37 +548,20 @@ export function BotDetailPage() {
                 </Form.Item>
               )}
 
-              {/* 回复消息到 AIM */}
               <div className="bot-guide-mode" style={{ marginBottom: 12 }}>
-                <div className="bot-guide-mode-title">📤 回复消息到 AIM</div>
-                {bot.sub_type === 'ws' ? (
-                  <>
-                    <div style={{ fontSize: 12, color: 'var(--aim-text-secondary)', lineHeight: 1.6, marginTop: 4 }}>
-                      通过已建立的 WebSocket 连接直接发送，无需额外认证：
-                    </div>
-                    <div className="bot-guide-code" style={{ marginTop: 6 }}>
-                      <pre style={{ fontSize: 11, margin: 0 }}>{`{"type":"message.send","conv_id":"0198abcd-0000-7000-8000-000000000001","text":"回复内容","reply_to_id":"0198abcd-0000-7000-8000-000000000003"}`}</pre>
-                    </div>
-                    <div className="bot-guide-note" style={{ marginTop: 6, fontSize: 11 }}>
-                      AIM 回复：{`{"type":"message.sent","message_id":"0198abcd-0000-7000-8000-000000000004","seq":43,"created_at":1717370000}`}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 12, color: 'var(--aim-text-secondary)', lineHeight: 1.6, marginTop: 4 }}>
-                      <code style={{ background: 'var(--aim-border)', padding: '2px 6px', borderRadius: 3 }}>
-                        POST /api/v1/webhook
-                      </code>
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--aim-text-tertiary)', marginTop: 6 }}>
-                      Headers: <code>X-AIM-Signature</code>（HMAC-SHA256(body, webhook_secret)）、<code>X-AIM-Timestamp</code>（Unix秒）
-                    </div>
-                    <div className="bot-guide-note" style={{ marginTop: 6, fontSize: 11 }}>
-                      消息体：{`{"type":"message.send","conversation_id":"0198abcd-0000-7000-8000-000000000001","text":"回复内容","reply_to_id":"0198abcd-0000-7000-8000-000000000003"}`} — Bot 身份由签名自动解析
-                    </div>
-                  </>
-                )}
+                <div className="bot-guide-mode-title">共同 Run 运行合同</div>
+                <p>接收 <code>bot.run.request</code> 后分别提交送达 ACK、工作认领与有序更新。传输成功不代表工作完成。</p>
+                <div className="bot-guide-code"><pre>{`{"type":"run.update","run_id":"0198abcd-0000-7000-8000-000000000001","generation":1,"input_version":1,"sequence":1,"update_key":"result-1","status":"completed","result_text":"工作结果"}`}</pre></div>
+                {bot.sub_type === 'ws'
+                  ? <p>使用已认证的 WebSocket；返回 <code>bot.run.receipt</code>。不能直接发送聊天消息。</p>
+                  : <p><code>POST /api/v1/webhook</code>，Headers：<code>X-AIM-Signature</code>（HMAC-SHA256 原始 body）、<code>X-AIM-Timestamp</code>（Unix 秒）。Bot 身份由签名解析。</p>}
+                <p>认领使用 <code>run.claim</code>，送达确认使用 <code>run.delivery_ack</code>；各自带稳定 update_key、当前 generation 与 input_version。认领后 sequence 从 1 连续推进，重试复用原键与内容。</p>
+                <p>结果发布由 AIM 重新校验身份、参与范围和来源。活动观察不构成 Run 行动或资源授权。</p>
               </div>
+              <div className="bot-guide-note">最低能力：文本输入与结果提交。以下声明必须与外部程序实际实现一致；停止请求仍须执行器明确确认。</div>
+              <Form.Item name="supports_input" label="支持补充输入" valuePropName="checked"><Switch /></Form.Item>
+              <Form.Item name="supports_stop" label="支持停止确认" valuePropName="checked"><Switch /></Form.Item>
+              <Form.Item name="supports_resume" label="支持安全恢复" valuePropName="checked"><Switch /></Form.Item>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 {bot.sub_type === 'webhook' && (

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/config"
 	"github.com/maomeng/aim/app/bot-service/internal/consumer"
@@ -37,6 +36,11 @@ func main() {
 
 	var c config.Config
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
+	// Runtime ingress contains credentials and work content, never request logs.
+	c.Middlewares.StatConf.IgnoreContentMethods = append(c.Middlewares.StatConf.IgnoreContentMethods,
+		botpb.BotService_ExecutorUpdate_FullMethodName,
+		botpb.BotService_HandleIncomingWebhook_FullMethodName,
+	)
 	if *role != "all" && *role != "control" && *role != "runtime" {
 		panic("invalid -role: " + *role)
 	}
@@ -61,27 +65,6 @@ func main() {
 
 	var eventConsumer *kafka.Consumer
 	kafkaCtx, kafkaCancel := context.WithCancel(context.Background())
-	var thirdPartyConsumer *kafka.Consumer
-	if c.Role != "runtime" {
-		var err error
-		thirdPartyConsumer, err = kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated, consts.KafkaTopicConvBotAdded}, c.Kafka.ConsumerGroup+"-third-party", logger)
-		if err != nil {
-			panic(fmt.Sprintf("third-party consumer init failed: %v", err))
-		}
-		h := consumer.NewThirdPartyHandler(ctx.BotRepo, repo.NewConvBotRepo(ctx.DB), ctx.DeliveryPublisher, logger)
-		go func() {
-			for kafkaCtx.Err() == nil {
-				if err := thirdPartyConsumer.Consume(kafkaCtx, h); err != nil && kafkaCtx.Err() == nil {
-					logger.Errorf("third-party consumer: %v", err)
-					select {
-					case <-kafkaCtx.Done():
-						return
-					case <-time.After(time.Second):
-					}
-				}
-			}
-		}()
-	}
 	if c.Role != "control" {
 		// Kafka consumer for message.created events
 		var err error
@@ -118,9 +101,6 @@ func main() {
 		kafkaCancel()
 		if eventConsumer != nil {
 			eventConsumer.Close()
-		}
-		if thirdPartyConsumer != nil {
-			_ = thirdPartyConsumer.Close()
 		}
 		s.Stop()
 	}()

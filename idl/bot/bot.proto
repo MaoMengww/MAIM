@@ -10,6 +10,8 @@ service BotService {
   rpc StartRun(StartRunReq) returns (RunResponse);
   rpc GetRun(GetRunReq) returns (RunResponse);
   rpc ListRuns(ListRunsReq) returns (ListRunsResponse);
+  rpc ExecutorUpdate(ExecutorUpdateReq) returns (RunResponse);
+  rpc ControlRun(ControlRunReq) returns (RunResponse);
 
   // Bot CRUD
   rpc CreateBot(CreateBotReq) returns (Bot);
@@ -22,7 +24,7 @@ service BotService {
   rpc RotateSecret(RotateSecretReq) returns (RotateSecretResp);
 
   // Webhook
-  rpc HandleIncomingWebhook(WebhookReq) returns (WebhookResp);
+  rpc HandleIncomingWebhook(WebhookReq) returns (RunResponse);
 
   // Bot Token
   rpc IssueBotToken(IssueBotTokenReq) returns (IssueBotTokenResp);
@@ -247,9 +249,6 @@ message WebhookReq {
   int64 timestamp = 4;
 }
 
-message WebhookResp {
-  optional string message_id = 1 [(common.entity_id) = true]; // 无消息创建的 webhook 类型不提供
-}
 
 // ========== Bot Token ==========
 
@@ -470,4 +469,16 @@ message ListRunsReq {
 }
 message RunResponse { string run_json = 1; }
 message ListRunsResponse { string runs_json = 1; }
+
+message ExecutorUpdateReq {
+  string bot_id = 1 [(common.entity_id) = true];
+  string token = 2;
+  bytes body = 3;
+}
+message ControlRunReq {
+  string run_id = 1 [(common.entity_id) = true];
+  string operation = 2;
+  string message = 3;
+  string submission_key = 4 [(common.submission_key) = true];
+}
 

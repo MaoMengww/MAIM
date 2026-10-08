@@ -38,6 +38,9 @@ func (l *UpdateBotLogic) UpdateBot(in *conversation.UpdateBotReq) (*common.BaseR
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
 			return err
 		}
+		if settings != nil {
+			settings["activity_start_seq"] = conv.MaxSeq
+		}
 		if _, err := r.GetBotInConv(l.ctx, conv.ID, in.BotId); err != nil {
 			return err
 		}

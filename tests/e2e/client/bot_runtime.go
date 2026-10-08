@@ -437,6 +437,7 @@ func (d *driver) webhookConfig(owner account, suffix string) (result error) {
 	callback := d.provider + "/external-webhook"
 	if err := d.request(http.MethodPost, "/bots", owner.token, map[string]any{
 		"name": "p5-webhook-" + suffix, "type": "third_party", "sub_type": "webhook", "conn_mode": "webhook", "callback_url": callback,
+		"capabilities": executorCapabilities,
 	}, &created); err != nil {
 		return err
 	}
