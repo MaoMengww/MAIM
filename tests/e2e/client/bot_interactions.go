@@ -120,6 +120,13 @@ func (d *driver) interactionRequests(token string) ([]map[string]json.RawMessage
 	}
 	var requests []map[string]json.RawMessage
 	for _, request := range observed.ChatRequests {
+		var model string
+		if err := json.Unmarshal(request["model"], &model); err != nil {
+			return nil, err
+		}
+		if !strings.HasPrefix(model, "fixture-interaction-") {
+			continue
+		}
 		inputs, _, err := interactionInputs(request)
 		if err != nil {
 			return nil, err

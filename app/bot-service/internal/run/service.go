@@ -204,9 +204,11 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 		return nil, status.Error(codes.FailedPrecondition, "Bot model is not configured")
 	}
 	fingerprint, err := hash(struct {
-		Message                      string
-		Source, Reply, Grant, Parent *string
-		Messages, Files              []string
+		Message              string
+		Source, Reply, Grant *string
+		Parent               *string  `json:",omitempty"`
+		Messages             []string `json:",omitempty"`
+		Files                []string `json:",omitempty"`
 	}{input.Message, input.SourceMessageID, input.ReplyToMsgID, input.HistoryGrantID, input.ParentRunID, input.MessageIDs, input.FileIDs})
 	if err != nil {
 		return nil, err
@@ -637,7 +639,21 @@ func (s *Service) visible(ctx context.Context, user string, r *model.Run) error 
 	if err := json.Unmarshal(r.Config, &config); err != nil {
 		return err
 	}
-	for _, id := range config.KnowledgeIDs {
+	knowledgeIDs := slices.Clone(config.KnowledgeIDs)
+	var sources []map[string]any
+	if err := json.Unmarshal(r.Sources, &sources); err != nil {
+		return err
+	}
+	for _, source := range sources {
+		if source["type"] == "rag" {
+			if id, ok := source["kb_id"].(string); ok {
+				knowledgeIDs = append(knowledgeIDs, id)
+			}
+		}
+	}
+	slices.Sort(knowledgeIDs)
+	knowledgeIDs = slices.Compact(knowledgeIDs)
+	for _, id := range knowledgeIDs {
 		if _, err := s.kb.GetKB(userContext(ctx, user), &kb.GetKBReq{KbId: id}); err != nil {
 			return err
 		}

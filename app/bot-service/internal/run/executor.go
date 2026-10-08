@@ -311,7 +311,19 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 	if operation != "input" && (command.Message != "" || command.SourceMessageID != nil || command.ReplyToMsgID != nil || command.HistoryGrantID != nil || len(command.MessageIDs) != 0 || len(command.FileIDs) != 0) {
 		return nil, status.Error(codes.InvalidArgument, "control operation does not accept input materials")
 	}
-	digest, err := hash(command)
+	// Empty optional material selections do not change a command's identity.
+	content := []string{operation, command.Message}
+	if command.SourceMessageID != nil || command.ReplyToMsgID != nil || command.HistoryGrantID != nil || len(command.MessageIDs) != 0 || len(command.FileIDs) != 0 {
+		selection, err := hash(struct {
+			Source, Reply, Grant *string
+			Messages, Files      []string
+		}{command.SourceMessageID, command.ReplyToMsgID, command.HistoryGrantID, command.MessageIDs, command.FileIDs})
+		if err != nil {
+			return nil, err
+		}
+		content = append(content, selection)
+	}
+	digest, err := hash(content)
 	if err != nil {
 		return nil, err
 	}
