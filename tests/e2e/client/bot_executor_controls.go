@@ -42,7 +42,7 @@ func (d *driver) executorControls(owner, admin, requester, member account, bot b
 	if err != nil {
 		return err
 	}
-	if request.Run.ID != started.ID || request.Generation != started.Generation || request.Input.Text != "sum the supplied words "+suffix {
+	if request.Run.ID != started.ID || request.Generation != started.Generation || request.Text() != "sum the supplied words "+suffix {
 		return errors.New("executor reconnect: unclaimed request lost or replaced")
 	}
 	caps := request.Run.ExecutorCapabilities
@@ -80,7 +80,7 @@ func (d *driver) executorControls(owner, admin, requester, member account, bot b
 	if err != nil {
 		return err
 	}
-	if deliveredInput.InputVersion != supplemented.InputVersion || !strings.Contains(deliveredInput.Input.Text, "additional words to count") {
+	if deliveredInput.InputVersion != supplemented.InputVersion || !strings.Contains(deliveredInput.Text(), "additional words to count") {
 		return errors.New("executor controls: accepted input version/body not delivered")
 	}
 	if len(deliveredInput.Run.InputSources) != 2 || deliveredInput.Run.InputSources[0].RequesterID != requester.id || deliveredInput.Run.InputSources[1].RequesterID != member.id || deliveredInput.Run.InputSources[1].Version != supplemented.InputVersion || deliveredInput.Run.InputSources[1].SourceMessageID != nil {

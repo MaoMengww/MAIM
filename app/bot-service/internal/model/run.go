@@ -7,8 +7,10 @@ import (
 
 // Run owns work facts. Private snapshots and trajectory are never serialized publicly.
 type Run struct {
-	ID                   string `gorm:"type:uuid;primaryKey"`
-	InteractionID        string `gorm:"type:uuid"`
+	ID                   string  `gorm:"type:uuid;primaryKey"`
+	InteractionID        string  `gorm:"type:uuid"`
+	ParentRunID          *string `gorm:"type:uuid"`
+	InteractionStatus    string
 	BotID                string `gorm:"type:uuid"`
 	ConvID               string `gorm:"type:uuid"`
 	BindingID            string `gorm:"type:uuid"`
@@ -19,6 +21,7 @@ type Run struct {
 	ReplyToMsgID         *string `gorm:"type:uuid"`
 	HistoryGrantID       *string `gorm:"type:uuid"`
 	InputVersion         int64
+	AppliedInputVersion  int64
 	InputSources         []InputSource `gorm:"type:jsonb;serializer:json"`
 	Version              int64
 	TrajectoryVersion    int64
@@ -32,6 +35,7 @@ type Run struct {
 	TriggerKind          string
 	Status               string
 	Stage                string
+	WaitingReason        string
 	ResultText           string
 	ResultType           string
 	ResultContent        json.RawMessage `gorm:"type:jsonb"`
@@ -61,9 +65,14 @@ type ExecutorCapabilities struct {
 	SupportsResume bool     `json:"supports_resume"`
 }
 type InputSource struct {
-	Version         int64   `json:"version"`
-	RequesterID     string  `json:"requester_id"`
-	SourceMessageID *string `json:"source_message_id,omitempty"`
+	Version         int64    `json:"version"`
+	RequesterID     string   `json:"requester_id"`
+	SourceMessageID *string  `json:"source_message_id,omitempty"`
+	SenderType      string   `json:"sender_type"`
+	MessageIDs      []string `json:"message_ids"`
+	FileIDs         []string `json:"file_ids"`
+	HistoryGrantID  *string  `json:"history_grant_id,omitempty"`
+	ParentRunID     *string  `json:"parent_run_id,omitempty"`
 }
 
 type RunReceipt struct {
@@ -80,6 +89,8 @@ func (RunReceipt) TableName() string { return "bot.run_receipts" }
 type PublicRun struct {
 	ID                   string               `json:"id"`
 	InteractionID        string               `json:"interaction_id"`
+	ParentRunID          *string              `json:"parent_run_id,omitempty"`
+	InteractionStatus    string               `json:"interaction_status"`
 	BotID                string               `json:"bot_id"`
 	ConvID               string               `json:"conv_id"`
 	BindingID            string               `json:"binding_id"`
@@ -97,6 +108,7 @@ type PublicRun struct {
 	TriggerKind          string               `json:"trigger_kind"`
 	Status               string               `json:"status"`
 	Stage                string               `json:"stage"`
+	WaitingReason        string               `json:"waiting_reason"`
 	ResultText           string               `json:"result_text"`
 	ResultType           string               `json:"result_type"`
 	ResultContent        json.RawMessage      `json:"result_content,omitempty"`
@@ -117,7 +129,7 @@ func (r *Run) Public() PublicRun {
 	_ = json.Unmarshal(r.Sources, &private)
 	for _, source := range private {
 		public := make(map[string]string)
-		for _, key := range []string{"type", "kb_name", "kb_id", "doc_id", "chunk_id", "title", "message_id", "sender_type", "sender_id", "tool_name"} {
+		for _, key := range []string{"type", "kind", "kb_name", "kb_id", "doc_id", "chunk_id", "title", "message_id", "file_id", "parent_run_id", "requester_id", "history_grant_id", "sender_type", "sender_id", "tool_name"} {
 			if value, ok := source[key].(string); ok {
 				public[key] = value
 			}
@@ -129,6 +141,7 @@ func (r *Run) Public() PublicRun {
 		steps = []RunStep{}
 	}
 	return PublicRun{ID: r.ID, InteractionID: r.InteractionID, BotID: r.BotID, ConvID: r.ConvID,
+		ParentRunID: r.ParentRunID, InteractionStatus: r.InteractionStatus, WaitingReason: r.WaitingReason,
 		BindingID: r.BindingID, RequesterID: r.RequesterID, InputKey: r.InputKey, SourceMessageID: r.SourceMessageID,
 		InputVersion: r.InputVersion, Version: r.Version, Status: r.Status, Stage: r.Stage,
 		InputSources: r.InputSources,
@@ -146,6 +159,8 @@ type RunInput struct {
 	InputKey        string
 	Content         string
 	ContentHash     string
+	Materials       json.RawMessage `gorm:"type:jsonb"`
+	Sources         json.RawMessage `gorm:"type:jsonb"`
 	CreatedAt       time.Time
 }
 
@@ -157,6 +172,8 @@ type Interaction struct {
 	ConvID      string `gorm:"type:uuid"`
 	BindingID   string `gorm:"type:uuid"`
 	RequesterID string `gorm:"type:uuid"`
+	Status      string
+	ClosedAt    *time.Time
 	CreatedAt   time.Time
 }
 

@@ -133,16 +133,24 @@ export interface BotInConv {
   added_at: number;
 }
 
-export type RunSource = Omit<KnowledgeSource, 'content'> | {
+export type RunSource = (Omit<KnowledgeSource, 'content'> | {
   type: 'request_source' | 'reference' | 'history';
   message_id: string;
   sender_type: 'user' | 'bot' | 'system';
   sender_id?: string;
-} | { type: 'tool'; tool_name: string };
+} | { type: 'tool'; tool_name: string }
+  | { type: 'file'; file_id: string; sender_type: 'user' | 'bot' | 'system'; sender_id?: string }
+  | { type: 'parent_run'; parent_run_id: string; sender_type: 'user' | 'bot' | 'system'; sender_id?: string }) & {
+  kind?: string;
+  requester_id?: string;
+  history_grant_id?: string;
+};
 
 export interface BotRun {
   id: string;
   interaction_id: string;
+  parent_run_id?: string;
+  interaction_status: 'active' | 'closed';
   bot_id: string;
   conv_id: string;
   binding_id: string;
@@ -151,10 +159,20 @@ export interface BotRun {
   source_message_id?: string;
   input_version: number;
   version: number;
-  input_sources: { version: number; requester_id: string; source_message_id?: string }[];
+  input_sources: {
+    version: number;
+    requester_id: string;
+    sender_type: 'user' | 'bot' | 'system';
+    source_message_id?: string;
+    message_ids: string[];
+    file_ids: string[];
+    history_grant_id?: string;
+    parent_run_id?: string;
+  }[];
   generation: number;
   status: 'accepted' | 'running' | 'waiting_input' | 'stopping' | 'stopped' | 'succeeded' | 'failed';
   stage: string;
+  waiting_reason: string;
   result_text: string;
   result_type?: 'text' | 'file' | 'result';
   result_content?: Record<string, unknown>;

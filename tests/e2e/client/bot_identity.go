@@ -46,10 +46,20 @@ func (d *driver) identityBinding(caller account, conv, bot entityID) (identityBi
 	if err := d.request(http.MethodGet, "/convs/"+conv.String()+"/bots", caller.token, nil, &response); err != nil {
 		return identityBinding{}, err
 	}
-	if len(response.Bots) != 1 || response.Bots[0].BotID != bot || response.Bots[0].BindingID == "" {
-		return identityBinding{}, errors.New("bot-identity.binding: 独立Bot列表缺失唯一有效binding")
+	var found identityBinding
+	for _, binding := range response.Bots {
+		if binding.BotID != bot {
+			continue
+		}
+		if found.BindingID != "" || binding.BindingID == "" {
+			return identityBinding{}, errors.New("bot-identity.binding: 目标Bot缺失唯一有效binding")
+		}
+		found = binding
 	}
-	return response.Bots[0], nil
+	if found.BindingID == "" {
+		return identityBinding{}, errors.New("bot-identity.binding: 目标Bot缺失唯一有效binding")
+	}
+	return found, nil
 }
 
 func (d *driver) identityHumans(caller account, conv entityID, humans ...entityID) error {
@@ -337,11 +347,11 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(request.Input)
+	raw, err := json.Marshal(request.Inputs)
 	if err != nil {
 		return err
 	}
-	if request.Run.BindingID != bindings[0].BindingID || request.Run.RequesterID != requester.id || !hasEntityID(request.Run.SourceMessageID, first.MessageID) || request.Input.Text != first.Content.Text || strings.Contains(string(raw), seeds[0].Content.Text) {
+	if request.Run.BindingID != bindings[0].BindingID || request.Run.RequesterID != requester.id || !hasEntityID(request.Run.SourceMessageID, first.MessageID) || request.Text() != first.Content.Text || strings.Contains(string(raw), seeds[0].Content.Text) {
 		return errors.New("bot-identity.request: 邀请者冒充请求者、binding丢失或默认泄漏群recent-history")
 	}
 	second, err := d.sendMessage(inviter, convs[0], "AUTHORIZED_SECOND_"+suffix, first.Seq)
@@ -420,7 +430,7 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 						return err
 					}
 				}
-				expected := identityOutput{text: executorText(request.Input.Text), file: file.info.FileID, resultType: "identity.result", resultData: fmt.Sprintf(`{"group":%d,"ok":true}`, i)}
+				expected := identityOutput{text: executorText(request.Text()), file: file.info.FileID, resultType: "identity.result", resultData: fmt.Sprintf(`{"group":%d,"ok":true}`, i)}
 				label := "text"
 				content := map[string]any{"text": expected.text}
 				switch kind {
@@ -557,7 +567,7 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 		if err != nil {
 			return err
 		}
-		text := executorText(freshRequest.Input.Text)
+		text := executorText(freshRequest.Text())
 		if _, err := executor.complete(freshRequest, "text", map[string]any{"text": text}, text); err != nil {
 			return err
 		}

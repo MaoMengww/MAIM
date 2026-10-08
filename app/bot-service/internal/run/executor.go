@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,18 +23,19 @@ import (
 )
 
 type executorUpdate struct {
-	Type         string          `json:"type"`
-	RunID        string          `json:"run_id"`
-	Generation   int64           `json:"generation"`
-	InputVersion int64           `json:"input_version"`
-	Sequence     int64           `json:"sequence"`
-	UpdateKey    string          `json:"update_key"`
-	Operation    string          `json:"operation,omitempty"`
-	Status       string          `json:"status"`
-	Stage        string          `json:"stage"`
-	ResultText   string          `json:"result_text"`
-	MsgType      string          `json:"msg_type"`
-	Content      json.RawMessage `json:"content"`
+	Type          string          `json:"type"`
+	RunID         string          `json:"run_id"`
+	Generation    int64           `json:"generation"`
+	InputVersion  int64           `json:"input_version"`
+	Sequence      int64           `json:"sequence"`
+	UpdateKey     string          `json:"update_key"`
+	Operation     string          `json:"operation,omitempty"`
+	Status        string          `json:"status"`
+	Stage         string          `json:"stage"`
+	ResultText    string          `json:"result_text"`
+	WaitingReason string          `json:"waiting_reason,omitempty"`
+	MsgType       string          `json:"msg_type"`
+	Content       json.RawMessage `json:"content"`
 }
 
 func decodeUpdate(body []byte) (executorUpdate, error) {
@@ -52,6 +54,9 @@ func decodeUpdate(body []byte) (executorUpdate, error) {
 	}
 	if identity.Validate(update.RunID) != nil || update.Generation < 1 || update.InputVersion < 1 || update.Sequence < 0 || update.UpdateKey == "" || len(update.UpdateKey) > 256 || len(update.Stage) > 128 || len(update.ResultText) > 262144 {
 		return update, status.Error(codes.InvalidArgument, "invalid executor update fields")
+	}
+	if len(update.WaitingReason) > 2048 || (update.WaitingReason != "" && update.Status != "waiting_input") {
+		return update, status.Error(codes.InvalidArgument, "waiting reason requires waiting_input")
 	}
 	if update.Type != "run.delivery_ack" && update.Operation != "" {
 		return update, status.Error(codes.InvalidArgument, "operation belongs only to delivery acknowledgment")
@@ -259,30 +264,62 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 				return repo.QueueRunOutput(tx, &next)
 			}
 			r.Status = update.Status
+			r.WaitingReason = update.WaitingReason
 		}
 		return nil
 	})
 }
 
-// Control rechecks current visibility and explicit controller rights before replay.
-func (s *Service) Control(ctx context.Context, id, user, operation, message, key string) (*model.PublicRun, error) {
-	if identity.Validate(id) != nil || key == "" || len(key) > 256 || len(message) > 65536 {
+type ControlInput struct {
+	Operation       string
+	Message         string
+	SubmissionKey   string
+	SourceMessageID *string
+	ReplyToMsgID    *string
+	MessageIDs      []string
+	FileIDs         []string
+	HistoryGrantID  *string
+}
+
+// Control accepts explicit input independently of controller rights. Receipts
+// replay only after current membership, source and binding authorization.
+func (s *Service) Control(ctx context.Context, id, user string, command ControlInput) (*model.PublicRun, error) {
+	if identity.Validate(id) != nil || command.SubmissionKey == "" || len(command.SubmissionKey) > 256 || len(command.Message) > 65536 {
 		return nil, status.Error(codes.InvalidArgument, "invalid Run command")
 	}
-	if operation != "input" && operation != "stop" && operation != "resume" {
+	for _, source := range []*string{command.SourceMessageID, command.ReplyToMsgID, command.HistoryGrantID} {
+		if source != nil && identity.Validate(*source) != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid input source identity")
+		}
+	}
+	if err := validateMaterialIDs(command.MessageIDs, command.FileIDs); err != nil {
+		return nil, err
+	}
+	if command.MessageIDs == nil {
+		command.MessageIDs = []string{}
+	}
+	if command.FileIDs == nil {
+		command.FileIDs = []string{}
+	}
+	operation := command.Operation
+	if !slices.Contains([]string{"input", "stop", "resume", "close_interaction", "clear_context"}, operation) {
 		return nil, status.Error(codes.InvalidArgument, "unknown Run operation")
 	}
-	if operation == "input" && strings.TrimSpace(message) == "" {
+	if operation == "input" && strings.TrimSpace(command.Message) == "" {
 		return nil, status.Error(codes.InvalidArgument, "input message required")
 	}
-	if operation != "input" && message != "" {
-		return nil, status.Error(codes.InvalidArgument, "control operation does not accept input")
+	if operation != "input" && (command.Message != "" || command.SourceMessageID != nil || command.ReplyToMsgID != nil || command.HistoryGrantID != nil || len(command.MessageIDs) != 0 || len(command.FileIDs) != 0) {
+		return nil, status.Error(codes.InvalidArgument, "control operation does not accept input materials")
 	}
-	digest, err := hash([]string{operation, message})
+	digest, err := hash(command)
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.Report(ctx, id, "control:"+user+":"+key, digest, func(r *model.Run) error {
+	key := "control:" + user + ":" + command.SubmissionKey
+	var materials []Material
+	var sources []map[string]any
+	var sourceMismatch bool
+	authorize := func(r *model.Run) error {
 		if err := s.visible(ctx, user, r); err != nil {
 			return err
 		}
@@ -294,48 +331,116 @@ func (s *Service) Control(ctx context.Context, id, user, operation, message, key
 				return err
 			}
 		}
+		if operation == "input" {
+			input := Input{BotID: r.BotID, ConvID: r.ConvID, BindingID: r.BindingID, RequesterID: user, Message: command.Message, SourceMessageID: command.SourceMessageID, MessageIDs: command.MessageIDs, FileIDs: command.FileIDs, HistoryGrantID: command.HistoryGrantID, ReplyInput: true}
+			if command.SourceMessageID != nil {
+				m, err := s.source(ctx, input, *command.SourceMessageID, true)
+				if err != nil {
+					return err
+				}
+				_, binding, err := s.svc.BotRepo.FindByIDWithConvBot(ctx, r.BotID, r.ConvID)
+				if err != nil {
+					return err
+				}
+				if m.Seq <= binding.StartSeq || m.SenderType != "user" || m.GetSenderId() != user || m.GetText() == nil {
+					return status.Error(codes.PermissionDenied, "input source is not a current contributor message")
+				}
+				if command.ReplyToMsgID != nil && (r.MessageID == nil || *r.MessageID != *command.ReplyToMsgID || m.GetReplyToId() != *command.ReplyToMsgID) {
+					return status.Error(codes.PermissionDenied, "source does not reply to this Run card")
+				}
+				sourceMismatch = m.GetText().Text != command.Message
+				// Receipt replay checks visibility, not a later edit's replacement
+				// body. Only a new accepted input must match its current source.
+				input.Message = m.GetText().Text
+			}
+			var err error
+			materials, sources, err = s.collectMaterials(ctx, input, 100)
+			if err != nil {
+				return err
+			}
+		}
 		return nil
-	}, func(tx *gorm.DB, r *model.Run) error {
+	}
+	if operation == "close_interaction" || operation == "clear_context" {
+		return s.repo.CloseInteraction(ctx, id, key, digest, authorize)
+	}
+	return s.repo.Report(ctx, id, key, digest, authorize, func(tx *gorm.DB, r *model.Run) error {
 		caps := r.ExecutorCapabilities
-		if r.ExecutorType != "third_party" || (operation == "input" && !caps.SupportsInput) || (operation == "stop" && !caps.SupportsStop) || (operation == "resume" && !caps.SupportsResume) {
+		if (operation == "input" && !caps.SupportsInput) || (operation == "stop" && !caps.SupportsStop) || (operation == "resume" && !caps.SupportsResume) {
 			return status.Error(codes.FailedPrecondition, "executor does not support this operation")
 		}
 		if r.Status == "stopping" {
 			return status.Error(codes.FailedPrecondition, "Run is stopping")
 		}
+		wasWaiting := r.Status == "waiting_input"
 		switch operation {
 		case "input":
-			if r.Status != "waiting_input" {
-				return status.Error(codes.FailedPrecondition, "input requires waiting work")
+			if sourceMismatch {
+				return status.Error(codes.InvalidArgument, "input differs from its source message")
+			}
+			if (r.Status != "accepted" && r.Status != "running" && !wasWaiting) || r.OutputStatus != "none" {
+				return status.Error(codes.FailedPrecondition, "Run no longer accepts work input")
 			}
 			r.InputVersion++
-			r.InputSources = append(r.InputSources, model.InputSource{Version: r.InputVersion, RequesterID: user})
+			r.InputSources = append(r.InputSources, model.InputSource{Version: r.InputVersion, RequesterID: user, SourceMessageID: command.SourceMessageID, SenderType: "user", MessageIDs: command.MessageIDs, FileIDs: command.FileIDs, HistoryGrantID: command.HistoryGrantID})
 			inputID, err := identity.New()
 			if err != nil {
 				return err
 			}
-			if err := tx.Create(&model.RunInput{ID: inputID, RunID: r.ID, Version: r.InputVersion, RequesterID: user, InputKey: key, Content: message, ContentHash: digest, CreatedAt: time.Now()}).Error; err != nil {
+			materialRaw, err := json.Marshal(materials)
+			if err != nil {
 				return err
 			}
-			r.Status = "running"
-			r.Stage = "input_received"
+			sourcesRaw, err := json.Marshal(sources)
+			if err != nil {
+				return err
+			}
+			if err := tx.Create(&model.RunInput{ID: inputID, RunID: r.ID, Version: r.InputVersion, RequesterID: user, SourceMessageID: command.SourceMessageID, InputKey: command.SubmissionKey, Content: command.Message, ContentHash: digest, Materials: materialRaw, Sources: sourcesRaw, CreatedAt: time.Now()}).Error; err != nil {
+				return err
+			}
+			var cumulative []Material
+			if err := json.Unmarshal(r.Materials, &cumulative); err != nil {
+				return err
+			}
+			cumulative = append(cumulative, materials...)
+			r.Materials, err = json.Marshal(cumulative)
+			if err != nil {
+				return err
+			}
+			var cumulativeSources []map[string]any
+			if err := json.Unmarshal(r.Sources, &cumulativeSources); err != nil {
+				return err
+			}
+			cumulativeSources = append(cumulativeSources, sources...)
+			r.Sources, err = json.Marshal(cumulativeSources)
+			if err != nil {
+				return err
+			}
+			if wasWaiting {
+				r.Status, r.Stage, r.WaitingReason = "running", "input_received", ""
+			}
 		case "stop":
-			r.Status = "stopping"
-			r.Stage = "stop_requested"
+			r.Status, r.Stage, r.WaitingReason = "stopping", "stop_requested", ""
 		case "resume":
-			if r.Status != "waiting_input" {
+			if !wasWaiting {
 				return status.Error(codes.FailedPrecondition, "only unfinished waiting work may resume")
 			}
 			r.ExecutionGeneration++
-			r.ExecutorSequence = 0
-			r.ExecutorStatus = "pending"
-			r.Status = "accepted"
-			r.Stage = "resuming"
+			r.ExecutorSequence, r.ExecutorStatus, r.Status, r.Stage, r.WaitingReason = 0, "pending", "accepted", "resuming", ""
 		}
 		r.ControlOperation = operation
-		r.DeliveryStatus = "pending"
 		next := *r
 		next.Version++
+		if r.ExecutorType == "builtin" {
+			// Accepted/running work already has one live worker. Only wake a parked
+			// waiting Run; an additional queue item would supersede its current lease.
+			if wasWaiting {
+				return repo.QueueRunExecution(tx, &next)
+			}
+			return nil
+		}
+		r.DeliveryStatus = "pending"
+		next.DeliveryStatus = "pending"
 		return repo.QueueRunDelivery(tx, &next)
 	})
 }

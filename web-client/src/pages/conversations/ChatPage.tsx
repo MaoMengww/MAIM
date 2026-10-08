@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { message, Button, Input, Tag, Select, Modal as AntModal, Image, Spin } from 'antd';
+import { message, Button, Input, InputNumber, Tag, Select, Modal as AntModal, Image, Spin } from 'antd';
 import { isAxiosError } from 'axios';
 import {
   MessageOutlined, DownloadOutlined,
@@ -32,8 +32,8 @@ import { GroupInfoDrawer } from './GroupInfoDrawer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Message, MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource, BotRun, RunSource } from '@/types/model';
-import type { SendMsgContent, SearchMessagesReq } from '@/types/api';
-import { sequence, knowledgeSources } from '@/utils/json';
+import type { SendMsgContent, SearchMessagesReq, RunMaterialsReq, ControlRunReq } from '@/types/api';
+import { entityId, sequence, knowledgeSources } from '@/utils/json';
 
 import './ChatPage.css';
 
@@ -395,41 +395,124 @@ const RUN_OUTPUT: Record<BotRun['output_status'], string> = {
   none: '尚无结果', generated: '结果已生成 · 尚未发送', pending: '结果待提交 · 尚未发送',
   committed: '最终消息已提交', failed: '输出提交失败 · 未发送',
 };
-const RUN_SOURCE_LABEL: Record<string, string> = { request_source: '发起请求', reference: '明确引用', history: '获准历史' };
+const RUN_SOURCE_LABEL: Record<string, string> = { request_source: '发起请求', reference: '明确引用', history: '获准历史', file: '文件', parent_run: '承接结果' };
 const SOURCE_SENDER_LABEL: Record<string, string> = { user: '用户', bot: 'Bot', system: '系统' };
 
-function RunCard({ run, botName, requesterName, onLocate, onRefresh }: {
-  run: BotRun; botName: string; requesterName: string;
-  onLocate: (messageId: string) => Promise<void>; onRefresh: (runId: string) => Promise<void>;
+function isTerminalRun(run: BotRun): boolean {
+  return run.status === 'succeeded' || run.status === 'failed' || run.status === 'stopped';
+}
+
+function acceptsRunInput(run: BotRun): boolean {
+  return run.interaction_status === 'active' && run.output_status === 'none'
+    && (run.status === 'accepted' || run.status === 'running' || run.status === 'waiting_input')
+    && run.executor_capabilities.supports_input;
+}
+
+function runOperationError(error: unknown): string {
+  if (isAxiosError(error)) {
+    return typeof error.response?.data?.message === 'string' ? error.response.data.message
+      : '操作接受结果尚未确认，请查询状态或用原内容重试；重试保留提交键。';
+  }
+  return error instanceof Error ? error.message : '操作未被接受，请查询当前状态后重试';
+}
+
+type WorkRelation = { runId: string; mode: 'input' | 'continue' };
+type WorkMaterials = { messageIds: string[]; fileIds: string[]; startSeq: number | null; endSeq: number | null };
+function emptyWorkMaterials(): WorkMaterials {
+  return { messageIds: [], fileIds: [], startSeq: null, endSeq: null };
+}
+
+function WorkSourcePicker({ materials, onChange, messages, uploadedFiles, disabled, uploading, onUpload }: {
+  materials: WorkMaterials; onChange: (value: WorkMaterials) => void; messages: Message[];
+  uploadedFiles: { file_id: string; name: string }[]; disabled: boolean; uploading: boolean;
+  onUpload: (file: File) => Promise<void>;
+}) {
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const fileOptions = new Map<string, string>();
+  for (const msg of messages) {
+    if (msg.status === 2) continue;
+    const content = msg.content;
+    const attachment = 'file' in content ? content.file : 'image' in content ? content.image : 'audio' in content ? content.audio : 'video' in content ? content.video : undefined;
+    if (attachment) fileOptions.set(attachment.file_id, 'name' in attachment ? attachment.name : `${MSG_TYPE_LABELS[msg.type]} · 消息 #${msg.seq}`);
+  }
+  for (const file of uploadedFiles) fileOptions.set(file.file_id, file.name);
+  const count = materials.messageIds.length + materials.fileIds.length + (materials.startSeq !== null || materials.endSeq !== null ? 1 : 0);
+  return <details className="chat-work-sources">
+    <summary>选择工作来源{count > 0 ? ` · 已选 ${count} 项` : '（可选）'}</summary>
+    <div className="chat-work-source-fields">
+      <label htmlFor="chat-work-messages">引用消息</label>
+      <Select id="chat-work-messages" aria-label="引用消息" mode="multiple" value={materials.messageIds}
+        disabled={disabled} optionFilterProp="label" placeholder="选择当前会话中明确相关的消息" maxTagCount="responsive"
+        onChange={(messageIds: string[]) => onChange({ ...materials, messageIds })}
+        options={messages.filter((msg) => msg.status !== 2).map((msg) => ({ value: msg.message_id,
+          label: `#${msg.seq} · ${SOURCE_SENDER_LABEL[msg.sender_type]} ${msg.sender_name || msg.sender_id || ''} · ${extractTextPreview(msg.content).slice(0, 100)}` }))} />
+      <p className="chat-run-notice">这里只列出已加载消息；可加载更早消息或定位搜索结果后选择。引用是材料，不授予工具或行动权限。</p>
+      <fieldset className="chat-work-history" disabled={disabled}>
+        <legend>明确授权历史范围（会话消息序号，含两端）</legend>
+        <label htmlFor="chat-work-history-start">起始序号</label>
+        <InputNumber id="chat-work-history-start" aria-label="历史范围起始序号" min={1} precision={0} max={Number.MAX_SAFE_INTEGER} value={materials.startSeq}
+          onChange={(startSeq) => onChange({ ...materials, startSeq })} />
+        <label htmlFor="chat-work-history-end">结束序号</label>
+        <InputNumber id="chat-work-history-end" aria-label="历史范围结束序号" min={1} precision={0} max={Number.MAX_SAFE_INTEGER} value={materials.endSeq}
+          onChange={(endSeq) => onChange({ ...materials, endSeq })} />
+        <Button disabled={disabled || (materials.startSeq === null && materials.endSeq === null)} onClick={() => onChange({ ...materials, startSeq: null, endSeq: null })}>移除范围</Button>
+      </fieldset>
+      <p className="chat-run-notice">提交时为所选 Bot 的当前绑定申请该范围的历史授权；无权授权会明确失败，不自动读取最近消息。</p>
+      <label htmlFor="chat-work-files">引用文件</label>
+      <Select id="chat-work-files" aria-label="引用文件" mode="multiple" value={materials.fileIds} disabled={disabled || uploading}
+        optionFilterProp="label" placeholder="选择当前会话附件或上传文件" maxTagCount="responsive"
+        onChange={(fileIds: string[]) => onChange({ ...materials, fileIds })}
+        options={[...fileOptions].map(([value, label]) => ({ value, label }))} />
+      <input type="file" ref={uploadRef} hidden aria-label="上传工作来源文件" disabled={disabled || uploading} onChange={(event) => {
+        const file = event.target.files?.[0]; event.target.value = '';
+        if (file) void onUpload(file);
+      }} />
+      <Button icon={<PaperClipOutlined />} disabled={disabled} loading={uploading} onClick={() => uploadRef.current?.click()}>上传并选择文件</Button>
+      <p className="chat-run-notice">上传沿用聊天附件的公开文件权限。仅使用可分享且已确认的文件；支持的内容格式由服务端校验。</p>
+    </div>
+  </details>;
+}
+
+function RunCard({ run, botName, requesterName, nameForUser, canContinue, activeWork, canManage, onLocate, onLocateFile, onRefresh, onCompose, onNew, onUpdated }: {
+  run: BotRun; botName: string; requesterName: string; nameForUser: (id: string) => string;
+  canContinue: boolean; activeWork: boolean; canManage: boolean;
+  onLocate: (messageId: string) => Promise<void>; onLocateFile: (fileId: string) => Promise<void>;
+  onRefresh: (runId: string) => Promise<void>; onCompose: (run: BotRun, mode: WorkRelation['mode']) => void;
+  onNew: (run: BotRun) => void; onUpdated: (run: BotRun) => Promise<void>;
 }) {
   const [refreshing, setRefreshing] = useState(false);
   const [controlling, setControlling] = useState(false);
-  const [input, setInput] = useState('');
   const [controlError, setControlError] = useState('');
-  const controlKey = useRef<{ operation: string; input: string; key: string }>();
-  const terminal = run.status === 'succeeded' || run.status === 'failed' || run.status === 'stopped';
-  const control = async (operation: 'input' | 'stop' | 'resume') => {
-    if (!controlKey.current || controlKey.current.operation !== operation || controlKey.current.input !== input) {
-      controlKey.current = { operation, input, key: crypto.randomUUID() };
-    }
+  const controlKey = useRef<{ operation: ControlRunReq['operation']; key: string }>();
+  const controlLock = useRef(false);
+  const terminal = isTerminalRun(run);
+  const control = async (operation: Exclude<ControlRunReq['operation'], 'input'>) => {
+    if (controlLock.current) return;
+    controlLock.current = true;
+    if (!controlKey.current || controlKey.current.operation !== operation) controlKey.current = { operation, key: crypto.randomUUID() };
     setControlling(true);
     setControlError('');
     try {
-      await botApi.controlRun(run.id, operation, controlKey.current.key, operation === 'input' ? input : '');
+      const updated = await botApi.controlRun(run.id, { operation, submission_key: controlKey.current.key });
       controlKey.current = undefined;
-      setInput('');
-      await onRefresh(run.id);
-    } catch (error) {
-      const rejection = error as { response?: { data?: { message?: unknown } }; message?: unknown };
-      setControlError(typeof rejection?.response?.data?.message === 'string' ? rejection.response.data.message
-        : typeof rejection?.message === 'string' ? rejection.message : '执行操作未被接受，请查询当前状态后重试');
-    } finally { setControlling(false); }
+      await onUpdated(updated);
+    } catch (error) { setControlError(runOperationError(error)); }
+    finally { controlLock.current = false; setControlling(false); }
   };
+  const closeInteraction = (operation: 'close_interaction' | 'clear_context') => AntModal.confirm({
+    title: operation === 'clear_context' ? '清空此交互的工作上下文？' : '结束此交互？',
+    content: '此操作关闭继续关系，不删除聊天历史、执行记录或已发生的结果。该交互中的活动工作必须先结束；之后可发起独立新请求。',
+    okText: operation === 'clear_context' ? '清空上下文' : '结束交互', cancelText: '取消',
+    onOk: () => control(operation),
+  });
   const state = RUN_STATUS[run.status];
-  return <article className="chat-run-card" data-run-id={run.id} data-run-version={run.version} data-run-status={run.status} data-output-status={run.output_status} aria-label={`${botName} 执行：${state.label}`}>
+  const materialSources = run.sources.filter((source): source is Extract<RunSource, { type: 'request_source' | 'reference' | 'history' | 'file' | 'parent_run' }> => source.type !== 'rag' && source.type !== 'tool');
+  return <article className="chat-run-card" data-run-id={run.id} data-run-version={run.version} data-run-status={run.status}
+    data-output-status={run.output_status} data-interaction-status={run.interaction_status} aria-label={`${botName} 执行：${state.label}`}>
     <div className="chat-run-header">
       <strong>{botName} · 执行</strong>
       <Tag color={state.color}>{state.label}</Tag>
+      <Tag>{run.interaction_status === 'closed' ? '交互已关闭' : '交互开放'}</Tag>
       <span className="chat-run-updated">{formatTime(run.updated_at)}</span>
       <Button size="small" loading={refreshing} onClick={async () => {
         setRefreshing(true);
@@ -443,10 +526,20 @@ function RunCard({ run, botName, requesterName, onLocate, onRefresh }: {
       {run.source_message_id
         ? <Button type="link" size="small" onClick={() => void onLocate(run.source_message_id!).catch(() => message.error('来源消息无法读取'))}>查看输入来源消息</Button>
         : <span>输入来源：明确操作</span>}
+      {run.parent_run_id && <span>承接父执行：{run.parent_run_id}</span>}
     </div>
     <div className="chat-run-stage" role="status">当前阶段：{RUN_STAGE[run.stage] || run.stage} · {RUN_OUTPUT[run.output_status]}</div>
-    {run.input_sources.length > 1 && <details className="chat-run-details"><summary>输入补充来源</summary>
-      <ul className="chat-run-steps">{run.input_sources.map((source) => <li key={source.version}>输入 v{source.version} · <span title={source.requester_id}>{source.requester_id}</span></li>)}</ul>
+    {run.status === 'waiting_input' && <div className="chat-run-waiting" role="status">待补充事项：{run.waiting_reason || '执行器正在等待补充信息'}</div>}
+    {run.input_sources.length > 0 && <details className="chat-run-details"><summary>已接受输入与补充者 · {run.input_sources.length} 条</summary>
+      <ol className="chat-run-steps">{run.input_sources.map((source) => <li key={source.version}>
+        输入 v{source.version} · <span title={source.requester_id}>{SOURCE_SENDER_LABEL[source.sender_type]} {nameForUser(source.requester_id)}</span>
+        {source.source_message_id && <Button type="link" size="small" onClick={() => void onLocate(source.source_message_id!).catch(() => message.error('补充来源消息无法读取'))}>查看来源消息</Button>}
+        {(source.message_ids.length > 0 || source.file_ids.length > 0 || source.history_grant_id || source.parent_run_id) && <div className="chat-run-notice">
+          {source.message_ids.length > 0 && `消息引用 ${source.message_ids.length} 条 · `}
+          {source.file_ids.length > 0 && `文件引用 ${source.file_ids.length} 个 · `}
+          {source.history_grant_id && '明确历史范围 · '}{source.parent_run_id && `关联结果 ${source.parent_run_id}`}
+        </div>}
+      </li>)}</ol>
     </details>}
     {run.executor_type === 'third_party' && <>
       <div className="chat-run-meta" role="status">
@@ -458,17 +551,25 @@ function RunCard({ run, botName, requesterName, onLocate, onRefresh }: {
         <p>输入类型：{run.executor_capabilities.input_types.join('、')}。传输确认不表示工作完成。</p>
         <p>补充输入：{run.executor_capabilities.supports_input ? '支持' : '不支持'} · 停止：{run.executor_capabilities.supports_stop ? '支持，须等待执行器确认' : '不支持，AIM 无法强制停止外部进程'} · 恢复：{run.executor_capabilities.supports_resume ? '支持' : '不支持，不自动重新执行'}</p>
       </details>
-      {!terminal && run.output_status === 'none' && <div className="chat-run-controls">
-        {run.executor_capabilities.supports_input && run.status === 'waiting_input' && <>
-          <label htmlFor={`run-input-${run.id}`}>补充工作输入</label>
-          <Input.TextArea id={`run-input-${run.id}`} value={input} onChange={(event) => setInput(event.target.value)} maxLength={65536} disabled={controlling} />
-          <Button loading={controlling} disabled={!input.trim()} onClick={() => void control('input')}>提交补充</Button>
-        </>}
-        {run.executor_capabilities.supports_stop && run.status !== 'stopping' && <Button danger loading={controlling} onClick={() => void control('stop')}>请求停止</Button>}
-        {run.executor_capabilities.supports_resume && run.status === 'waiting_input' && <Button loading={controlling} onClick={() => void control('resume')}>请求恢复</Button>}
-      </div>}
-      {controlError && <div className="chat-run-error" role="alert">{controlError}</div>}
+      {!run.executor_capabilities.supports_input && <p className="chat-run-notice" role="status">此第三方执行器不支持补充输入，请发起独立新请求。</p>}
     </>}
+    <div className="chat-run-controls">
+      {acceptsRunInput(run) && <Button disabled={controlling} onClick={() => onCompose(run, 'input')}>补充输入</Button>}
+      {canContinue && <Button disabled={controlling} onClick={() => onCompose(run, 'continue')}>继续此结果</Button>}
+      <Button disabled={controlling} onClick={() => onNew(run)}>独立新话题</Button>
+      {!terminal && run.output_status === 'none' && run.executor_capabilities.supports_stop && run.status !== 'stopping'
+        && <Button danger disabled={!canManage} loading={controlling} onClick={() => void control('stop')}>请求停止</Button>}
+      {!terminal && run.output_status === 'none' && run.executor_capabilities.supports_resume && run.status === 'waiting_input'
+        && <Button disabled={!canManage} loading={controlling} onClick={() => void control('resume')}>请求恢复</Button>}
+      {run.interaction_status === 'active' && <>
+        <Button disabled={!canManage || activeWork || !terminal} loading={controlling} onClick={() => closeInteraction('close_interaction')}>结束交互</Button>
+        <Button disabled={!canManage || activeWork || !terminal} loading={controlling} onClick={() => closeInteraction('clear_context')}>清空上下文</Button>
+      </>}
+    </div>
+    {run.interaction_status === 'active' && activeWork && <p className="chat-run-notice">清空或结束交互须先结束其中所有活动工作；聊天历史与执行事实始终保留。</p>}
+    {run.interaction_status === 'active' && !canManage && <p className="chat-run-notice">补充不授予控制权；结束、清空及执行控制仅限请求者或会话管理员。</p>}
+    {run.interaction_status === 'closed' && <p className="chat-run-notice">继续关系已关闭。历史与结果仍可回看，新请求不会继承此交互。</p>}
+    {controlError && <div className="chat-run-error" role="alert">{controlError}</div>}
     {run.error && <div className="chat-run-error" role="alert">{run.error}</div>}
     {run.result_text && <details className="chat-run-result" open={run.output_status !== 'committed'}>
       <summary>执行结果{run.output_status === 'committed' ? '（已进入消息历史）' : '（尚未发送）'}</summary>
@@ -480,11 +581,14 @@ function RunCard({ run, botName, requesterName, onLocate, onRefresh }: {
     </details>}
     <SourceSection sources={run.sources.filter((source) => source.type === 'rag')} />
     <ToolUsage tools={run.sources.filter((source) => source.type === 'tool').map((source) => source.tool_name)} />
-    {run.sources.some((source) => source.type === 'request_source' || source.type === 'reference' || source.type === 'history') && <details className="chat-run-details">
-      <summary>请求与引用来源</summary>
-      <ul className="chat-run-steps">{run.sources.filter((source): source is Extract<RunSource, { type: 'request_source' | 'reference' | 'history' }> => source.type === 'request_source' || source.type === 'reference' || source.type === 'history').map((source) => <li key={`${source.type}:${source.message_id}`}>
-        <Button type="link" size="small" onClick={() => void onLocate(source.message_id).catch(() => message.error('引用来源消息无法读取'))}>{RUN_SOURCE_LABEL[source.type]}：查看消息</Button>
-        <span title={source.sender_id}>{SOURCE_SENDER_LABEL[source.sender_type]}{source.sender_id ? ` · ${source.sender_id}` : ''}</span>
+    {materialSources.length > 0 && <details className="chat-run-details">
+      <summary>实际使用的材料来源</summary>
+      <ul className="chat-run-steps">{materialSources.map((source, index) => <li key={index}>
+        {'message_id' in source && <Button type="link" size="small" onClick={() => void onLocate(source.message_id).catch(() => message.error('引用来源消息无法读取'))}>{RUN_SOURCE_LABEL[source.type]}：查看消息</Button>}
+        {'file_id' in source && <Button type="link" size="small" onClick={() => void onLocateFile(source.file_id).catch(() => message.error('引用文件无法读取'))}>文件：{source.file_id}</Button>}
+        {'parent_run_id' in source && <span>承接结果：{source.parent_run_id} · </span>}
+        <span title={source.sender_id}>{SOURCE_SENDER_LABEL[source.sender_type]}{source.sender_id ? ` · ${nameForUser(source.sender_id)}` : ''}</span>
+        {source.history_grant_id && <span title={source.history_grant_id}> · 限定历史授权</span>}
       </li>)}</ul>
     </details>}
     {run.output_status === 'committed' && run.message_id && <Button type="link" size="small" onClick={() => void onLocate(run.message_id!).catch(() => message.error('最终消息无法读取'))}>查看最终消息</Button>}
@@ -493,6 +597,8 @@ function RunCard({ run, botName, requesterName, onLocate, onRefresh }: {
       <ol className="chat-run-steps">{run.steps.map((step) => <li key={step.version}>{RUN_STAGE[step.stage] || step.stage} <span>v{step.version} · {formatTime(step.created_at)}</span></li>)}</ol>
       <dl className="chat-run-identities">
         <dt>Run ID</dt><dd>{run.id}</dd><dt>交互 ID</dt><dd>{run.interaction_id}</dd>
+        {run.parent_run_id && <><dt>父 Run ID</dt><dd>{run.parent_run_id}</dd></>}
+        <dt>交互状态</dt><dd>{run.interaction_status === 'active' ? '开放' : '已关闭'}</dd>
         <dt>输入版本</dt><dd>{run.input_version}</dd><dt>绑定 ID</dt><dd>{run.binding_id}</dd>
         <dt>认领代次</dt><dd>{run.generation}</dd>
         {run.source_message_id && <><dt>来源消息 ID</dt><dd>{run.source_message_id}</dd></>}
@@ -626,6 +732,12 @@ export function ChatPage() {
   const [requestingKey, setRequestingKey] = useState<string | null>(null);
   const [creatingRun, setCreatingRun] = useState(false);
   const [runTarget, setRunTarget] = useState<string>();
+  const [workRelation, setWorkRelation] = useState<WorkRelation>();
+  const [workMaterials, setWorkMaterials] = useState<WorkMaterials>(emptyWorkMaterials);
+  const [uploadedWorkFiles, setUploadedWorkFiles] = useState<{ file_id: string; name: string }[]>([]);
+  const [workError, setWorkError] = useState('');
+  const inputRetry = useRef<{ signature: string; runId: string; request: ControlRunReq }>();
+  const historyGrant = useRef<{ signature: string; id: string }>();
   const runRetryLock = useRef(false);
   pageConversation.current = id;
   const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
@@ -649,7 +761,17 @@ export function ChatPage() {
     setRequestingKey(null);
     void reloadRunSubmissions().catch(() => message.error('待确认执行请求读取失败'));
   }, [reloadRunSubmissions]);
-  useEffect(() => { setRunTarget(undefined); }, [id, authRevision]);
+  useEffect(() => {
+    setRunTarget(undefined);
+    setCreatingRun(false);
+    setWorkRelation(undefined);
+    setWorkMaterials(emptyWorkMaterials());
+    setUploadedWorkFiles([]);
+    setWorkError('');
+    setReplyTo(null);
+    inputRetry.current = undefined;
+    historyGrant.current = undefined;
+  }, [id, authRevision]);
   useEffect(() => {
     setPendingSends([]);
     setRetryingKey(null);
@@ -846,6 +968,74 @@ export function ChatPage() {
 
   const { messages, loading: msgsLoading, error: msgsError, reSync, loadOlder, hasOlder, loadingOlder } = useMessages(id);
   const runQuery = useRuns(id ?? '');
+  const relatedRun = workRelation ? runQuery.runs.find((run) => run.id === workRelation.runId) : undefined;
+  const handleUpdatedRun = async (run: BotRun) => {
+    if (pageConversation.current !== id || pageAccount.current !== currentUserId || authRevision !== useAuthStore.getState().revision) return;
+    runQuery.applyRun(run);
+    if (run.interaction_status === 'closed' && relatedRun?.interaction_id === run.interaction_id) {
+      setWorkRelation(undefined);
+      setWorkMaterials(emptyWorkMaterials());
+      setReplyTo(null);
+      setInput('');
+      inputRetry.current = undefined;
+      historyGrant.current = undefined;
+    }
+    await runQuery.refetch();
+  };
+  const beginWork = (run: BotRun, mode: WorkRelation['mode']) => {
+    if (creatingRun || requestingKey !== null) return;
+    setRunTarget(run.bot_id);
+    setWorkRelation({ runId: run.id, mode });
+    setWorkMaterials(emptyWorkMaterials());
+    setReplyTo(null);
+    setWorkError('');
+    inputRetry.current = undefined;
+    historyGrant.current = undefined;
+    requestAnimationFrame(() => chatInputRef.current?.focus());
+  };
+  const beginNewTopic = (botId?: string) => {
+    if (creatingRun || requestingKey !== null) return;
+    setRunTarget(botId);
+    setWorkRelation(undefined);
+    setWorkMaterials(emptyWorkMaterials());
+    setReplyTo(null);
+    setInput('');
+    setWorkError('');
+    inputRetry.current = undefined;
+    historyGrant.current = undefined;
+    requestAnimationFrame(() => chatInputRef.current?.focus());
+  };
+  const replyToMessage = async (msg: Message) => {
+    if (creatingRun || requestingKey !== null) return;
+    const conversation = id;
+    const revision = authRevision;
+    setMsgActions(null);
+    let run = runQuery.runs.find((candidate) => candidate.message_id === msg.message_id);
+    let publishedRunId: string | undefined;
+    if (!run && msg.sender_type === 'bot' && msg.raw_payload) {
+      try { publishedRunId = JSON.parse(msg.raw_payload).run_id; } catch { /* Ordinary Bot messages need not be execution cards. */ }
+    }
+    if (publishedRunId) {
+      try {
+        run = await botApi.getRun(entityId(publishedRunId, 'message.run_id'));
+        if (pageConversation.current !== conversation || revision !== useAuthStore.getState().revision) return;
+        if (run.conv_id !== conversation || run.message_id !== msg.message_id) throw new Error('执行卡片与当前会话消息不匹配');
+        runQuery.applyRun(run);
+      } catch (error) {
+        if (pageConversation.current === conversation && revision === useAuthStore.getState().revision) setWorkError(runOperationError(error));
+        return;
+      }
+    }
+    if (run) {
+      beginWork(run, 'input');
+      if (!acceptsRunInput(run)) setWorkError(isTerminalRun(run)
+        ? '这条回复明确指向已结束的 Run，不能继续推进原执行；请选择“继续此结果”创建关联新 Run，或“独立新话题”。'
+        : '此执行当前不接受补充输入；请查询状态或发起独立新请求。');
+    } else {
+      setReplyTo({ msg_id: msg.message_id, preview: extractTextPreview(msg.content) });
+      requestAnimationFrame(() => chatInputRef.current?.focus());
+    }
+  };
   const retryRunSubmission = async (pending: PendingRun) => {
     if (runRetryLock.current) return;
     const account = currentUserId;
@@ -868,22 +1058,80 @@ export function ChatPage() {
     }
   };
   const handleStartRun = async () => {
-    if (!id || !runTarget || !input.trim() || newSendLock.current || runRetryLock.current) return;
+    if (!id || !runTarget || !input.trim() || newSendLock.current || runRetryLock.current || uploading) return;
     const account = currentUserId;
+    if (account !== useAuthStore.getState().user?.id || authRevision !== useAuthStore.getState().revision) return;
     const text = input;
+    const signature = JSON.stringify({ botId: runTarget, relation: workRelation, text, materials: workMaterials, replyTo });
+    const retry = inputRetry.current?.signature === signature ? inputRetry.current : undefined;
     newSendLock.current = true;
     setCreatingRun(true);
+    setWorkError('');
     try {
-      const pending = await createPendingRun(account, runTarget, { conv_id: id, message: text, ...(replyTo ? { reply_to_msg_id: replyTo.msg_id } : {}) });
+      const bot = convBots.find((candidate) => candidate.bot_id === runTarget);
+      if (!bot) throw new Error('Bot 已不在当前会话中，请选择当前绑定的 Bot');
+      if (workRelation && (!relatedRun || relatedRun.binding_id !== bot.binding_id)) throw new Error('关联执行已不可见或不属于当前绑定，请发起独立新话题');
+      if (workRelation?.mode === 'continue' && (!relatedRun || !isTerminalRun(relatedRun) || relatedRun.interaction_status !== 'active')) {
+        throw new Error('仅可继续当前绑定中交互开放的已结束执行，请发起独立新话题');
+      }
+      if (workRelation?.mode === 'input' && !retry && (!relatedRun || !acceptsRunInput(relatedRun))) {
+        throw new Error(relatedRun?.executor_type === 'third_party' && !relatedRun.executor_capabilities.supports_input
+          ? '此第三方执行器不支持补充输入，请发起独立新请求'
+          : '此执行已结束或不再接受补充；请明确继续结果创建关联新 Run，或发起独立新话题');
+      }
+      const materials: RunMaterialsReq = {
+        ...(workMaterials.messageIds.length > 0 ? { message_ids: [...workMaterials.messageIds] } : {}),
+        ...(workMaterials.fileIds.length > 0 ? { file_ids: [...workMaterials.fileIds] } : {}),
+      };
+      if (!retry && (workMaterials.startSeq !== null || workMaterials.endSeq !== null)) {
+        const start = workMaterials.startSeq;
+        const end = workMaterials.endSeq;
+        if (start === null || end === null || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start) {
+          throw new Error('请填写有效的历史范围：起始与结束均为正整数，结束不小于起始');
+        }
+        const grantSignature = JSON.stringify({ conversation: id, bot: runTarget, binding: bot.binding_id, start, end });
+        if (historyGrant.current?.signature !== grantSignature) {
+          const grant = await botApi.grantHistory(id, runTarget, bot.binding_id, start, end);
+          if (pageAccount.current !== account || pageConversation.current !== id || authRevision !== useAuthStore.getState().revision) return;
+          historyGrant.current = { signature: grantSignature, id: grant.grant_id };
+        }
+        materials.history_grant_id = historyGrant.current.id;
+      }
+      if (workRelation?.mode === 'input') {
+        const request = retry?.request ?? { ...materials, operation: 'input' as const, message: text, submission_key: crypto.randomUUID() };
+        inputRetry.current = { signature, runId: workRelation.runId, request };
+        const updated = await botApi.controlRun(workRelation.runId, request);
+        if (pageAccount.current !== account || pageConversation.current !== id || authRevision !== useAuthStore.getState().revision) return;
+        inputRetry.current = undefined;
+        setInput('');
+        setWorkMaterials(emptyWorkMaterials());
+        setReplyTo(null);
+        historyGrant.current = undefined;
+        await handleUpdatedRun(updated);
+        message.success(`补充已接受 · 输入版本 v${updated.input_version}`);
+        return;
+      }
+      const pending = await createPendingRun(account, runTarget, {
+        ...materials, conv_id: id, message: text,
+        ...(replyTo ? { reply_to_msg_id: replyTo.msg_id } : {}),
+        ...(workRelation?.mode === 'continue' ? { parent_run_id: workRelation.runId } : {}),
+      });
       if (pageAccount.current !== account || authRevision !== useAuthStore.getState().revision) return;
       await reloadRunSubmissions();
       if (pageConversation.current === id) {
         setInput((current) => current === text ? '' : current);
         setReplyTo(null);
+        setWorkRelation(undefined);
+        setWorkMaterials(emptyWorkMaterials());
+        historyGrant.current = undefined;
       }
       await retryRunSubmission(pending);
-    } catch { if (pageAccount.current === account && authRevision === useAuthStore.getState().revision) message.error('无法保存请求状态，执行未提交'); }
-    finally { newSendLock.current = false; setCreatingRun(false); }
+    } catch (error) {
+      if (pageAccount.current === account && pageConversation.current === id && authRevision === useAuthStore.getState().revision) setWorkError(runOperationError(error));
+    } finally {
+      newSendLock.current = false;
+      if (pageAccount.current === account && pageConversation.current === id && authRevision === useAuthStore.getState().revision) setCreatingRun(false);
+    }
   };
 
   // Message synchronization and new-message delivery are owned by the account lifecycle.
@@ -1040,6 +1288,13 @@ export function ChatPage() {
   });
   const privateBot = conv?.type === 'private' ? convBots[0] : undefined;
   const runnableBots = convBots;
+  const currentBinding = convBots.find((bot) => bot.bot_id === runTarget);
+  const inputBlocked = workRelation?.mode === 'input' && (!relatedRun || !acceptsRunInput(relatedRun));
+  const continuationAllowed = !!relatedRun && isTerminalRun(relatedRun) && relatedRun.interaction_status === 'active'
+    && currentBinding?.binding_id === relatedRun.binding_id;
+  const retryInputReady = !!inputRetry.current && inputRetry.current.signature === JSON.stringify({
+    botId: runTarget, relation: workRelation, text: input, materials: workMaterials, replyTo,
+  });
 
   const mentionTargets = useMemo(() => [
     ...members.map((member) => ({ id: member.user_id, name: member.username, avatar: member.avatar, isBot: false })),
@@ -1143,6 +1398,20 @@ export function ChatPage() {
     }
   }
 
+  const uploadWorkFile = async (file: File) => {
+    const account = currentUserId;
+    const conversation = id;
+    setWorkError('');
+    try {
+      const uploaded = await uploadFile(file);
+      if (pageAccount.current !== account || pageConversation.current !== conversation || authRevision !== useAuthStore.getState().revision) return;
+      setUploadedWorkFiles((files) => [...files, { file_id: uploaded.file_id, name: uploaded.name }]);
+      setWorkMaterials((materials) => ({ ...materials, fileIds: [...materials.fileIds, uploaded.file_id] }));
+    } catch (error) {
+      if (pageAccount.current === account && pageConversation.current === conversation && authRevision === useAuthStore.getState().revision) setWorkError(runOperationError(error));
+    }
+  };
+
   // ─── Image selection ───
   function handleImagePick() {
     imageInputRef.current?.click();
@@ -1152,6 +1421,7 @@ export function ChatPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
+    if (runTarget) { await uploadWorkFile(file); return; }
     try {
       const fileInfo = await uploadFile(file);
       sendMutation.mutate({
@@ -1172,6 +1442,7 @@ export function ChatPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
+    if (runTarget) { await uploadWorkFile(file); return; }
     try {
       const fileInfo = await uploadFile(file);
       sendMutation.mutate({
@@ -1294,6 +1565,8 @@ export function ChatPage() {
 
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
+    if (creatingRun || uploading) return;
+    if (runTarget) { await uploadWorkFile(file); return; }
 
     if (!file.type.startsWith('image/')) {
       message.info('仅支持拖拽图片');
@@ -1309,7 +1582,7 @@ export function ChatPage() {
     } catch {
       message.error('图片发送失败');
     }
-  }, []);
+  }, [runTarget, creatingRun, uploading, uploadWorkFile]);
 
   const sendMutation = useMutation({
     mutationFn: async (data: { type: number; content: SendMsgContent }) => {
@@ -1498,6 +1771,7 @@ export function ChatPage() {
     <div className="chat-page">
       <div className="chat-header">
         <div className="chat-header-info">
+          <Button className="chat-mobile-back" size="small" onClick={() => navigate('/conversations')}>返回会话</Button>
           <Avatar name={privateBot?.name || conv?.name || (conv?.type === 'group' ? '群聊' : '私聊')} src={privateBot?.avatar || conv?.avatar} size={36} />
           <div>
             <div className="chat-header-name">{privateBot?.name || conv?.name || (conv?.type === 'group' ? '群聊' : '私聊')}</div>
@@ -1853,6 +2127,7 @@ export function ChatPage() {
                 <div className="chat-msg-footer">
                     <span className="chat-msg-time">{formatTime(msg.created_at)}</span>
                     {msg.sender_type === 'bot' && msg.requester_id && <span title={`请求者 ID: ${msg.requester_id}`}>请求者: {userMap.get(msg.requester_id)?.username || msg.requester_id}</span>}
+                    {runQuery.runs.some((run) => run.message_id === msg.message_id) && <Button type="link" size="small" onClick={() => void replyToMessage(msg)}>回复此执行</Button>}
                     {renderReadStatus(conv, msg, isSelf, readStatuses)}
                   </div>
               </div>
@@ -1872,7 +2147,16 @@ export function ChatPage() {
             {!runQuery.isError && runQuery.runs.map((run) => <RunCard key={run.id} run={run}
               botName={convBots.find((bot) => bot.bot_id === run.bot_id)?.name || `Bot ${run.bot_id}`}
               requesterName={userMap.get(run.requester_id)?.username || run.requester_id}
-              onLocate={locateRunMessage} onRefresh={runQuery.refreshRun} />)}
+              nameForUser={(userId) => userMap.get(userId)?.username || convBots.find((bot) => bot.bot_id === userId)?.name || userId}
+              canContinue={isTerminalRun(run) && run.interaction_status === 'active' && convBots.some((bot) => bot.bot_id === run.bot_id && bot.binding_id === run.binding_id)}
+              activeWork={runQuery.runs.some((candidate) => candidate.interaction_id === run.interaction_id && !isTerminalRun(candidate))}
+              canManage={isAdmin || run.requester_id === currentUserId}
+              onLocate={locateRunMessage} onLocateFile={async (fileId) => {
+                const file = await fileApi.getDownloadUrl(fileId);
+                if (pageConversation.current === id && authRevision === useAuthStore.getState().revision) setFilePreview({ ...file.file, url: file.download_url });
+              }}
+              onRefresh={async (runId) => { await runQuery.refreshRun(runId); await runQuery.refetch(); }}
+              onCompose={beginWork} onNew={(run) => beginNewTopic(run.bot_id)} onUpdated={handleUpdatedRun} />)}
           </section>
         </div>
         {!isAtBottom && (
@@ -1904,6 +2188,8 @@ export function ChatPage() {
           <div key={pending.request.submission_key} className="chat-reply-indicator" role="status">
             <span className="chat-reply-text" title={pending.request.message}>
               {requestingKey === pending.request.submission_key ? '正在确认执行请求' : '执行请求尚未确认'} · {pending.request.message}
+              {pending.request.parent_run_id ? ` · 明确承接 ${pending.request.parent_run_id}` : ' · 独立新请求'}
+              {(pending.request.message_ids?.length || pending.request.file_ids?.length || pending.request.history_grant_id) ? ' · 保留原来源选择' : ''}
               {' · 重试保留原内容与提交键，不创建重复执行'}
             </span>
             <Button size="small" loading={requestingKey === pending.request.submission_key} disabled={requestingKey !== null} onClick={() => void retryRunSubmission(pending)}>重试原请求</Button>
@@ -1925,16 +2211,33 @@ export function ChatPage() {
         {runnableBots.length > 0 && <div className="chat-run-composer">
           <label htmlFor="chat-run-target">发送方式</label>
           <Select id="chat-run-target" aria-label="工作执行 Bot" value={runTarget} allowClear placeholder="普通消息"
-            disabled={creatingRun || requestingKey !== null} onChange={(value) => setRunTarget(value)}
+            disabled={creatingRun || requestingKey !== null} onChange={(value: string | undefined) => {
+              setRunTarget(value); setWorkRelation(undefined); setWorkError(''); setReplyTo(null);
+              historyGrant.current = undefined; inputRetry.current = undefined;
+            }}
             options={runnableBots.map((bot) => ({ value: bot.bot_id, label: `交给 ${bot.name} 开展工作` }))} />
-          <span>{runTarget ? '仅提交本次输入与明确引用，不自动读取群最近消息' : '选择 Bot 可发起独立执行'}</span>
+          <span>{workRelation?.mode === 'input' ? '向明确 Run 追加输入；参与者身份与接受顺序保留，补充不等于授权'
+            : workRelation?.mode === 'continue' ? '明确承接父 Run 的获准材料与结果，创建关联新 Run，不改写旧执行'
+            : runTarget ? '独立新请求：只提交本次输入与明确来源，不继承其他交互或群最近消息' : '选择 Bot 可发起独立执行'}</span>
         </div>}
+        {workRelation && <div className="chat-work-relation" role="status">
+          <strong>{workRelation.mode === 'input' ? '补充到 Run' : '继续父 Run'}：{workRelation.runId}</strong>
+          <span>交互：{relatedRun?.interaction_id || '正在查询'} · {relatedRun?.interaction_status === 'closed' ? '已关闭' : relatedRun ? '开放' : '当前不可见'}</span>
+          <div className="chat-run-controls">
+            {inputBlocked && continuationAllowed && <Button disabled={creatingRun} onClick={() => beginWork(relatedRun!, 'continue')}>继续此结果</Button>}
+            <Button disabled={creatingRun} onClick={() => beginNewTopic(runTarget)}>独立新话题</Button>
+          </div>
+          {inputBlocked && <p className="chat-run-notice">原 Run 当前不接受补充，不会暗中创建新执行。已结束的开放交互可明确继续，其余情况请发起独立新话题。</p>}
+        </div>}
+        {runTarget && <WorkSourcePicker materials={workMaterials} onChange={setWorkMaterials} messages={messages}
+          uploadedFiles={uploadedWorkFiles} disabled={creatingRun || requestingKey !== null} uploading={uploading} onUpload={uploadWorkFile} />}
+        {workError && <div className="chat-run-error" role="alert">{workError}</div>}
         <div className="chat-input-wrapper">
           <div className="chat-input-toolbar">
-            <button className="chat-input-toolbar-btn" onClick={handleImagePick} disabled={uploading} title="发送图片">
+            <button className="chat-input-toolbar-btn" onClick={handleImagePick} disabled={uploading || creatingRun} aria-label={runTarget ? '选择图片作为工作来源' : '发送图片'} title={runTarget ? '选择工作图片' : '发送图片'}>
               <PictureOutlined />
             </button>
-            <button className="chat-input-toolbar-btn" onClick={handleFilePick} disabled={uploading} title="发送文件">
+            <button className="chat-input-toolbar-btn" onClick={handleFilePick} disabled={uploading || creatingRun} aria-label={runTarget ? '上传文件作为工作来源' : '发送文件'} title={runTarget ? '选择工作文件' : '发送文件'}>
               <PaperClipOutlined />
             </button>
             <button
@@ -1944,8 +2247,9 @@ export function ChatPage() {
               onMouseLeave={handleVoiceEnd}
               onTouchStart={handleVoiceStart}
               onTouchEnd={handleVoiceEnd}
-              disabled={uploading}
+              disabled={uploading || creatingRun || !!runTarget}
               title={recording ? `${recordingDuration}s · 松开停止` : '按住录音'}
+              aria-label={runTarget ? '工作输入请使用文字或明确文件来源' : recording ? '松开停止录音' : '按住录音'}
             >
               {recording ? <span style={{ fontSize: 11, fontWeight: 600 }}>{recordingDuration}s</span> : <AudioOutlined />}
             </button>
@@ -1954,7 +2258,7 @@ export function ChatPage() {
           {replyTo && (
             <div className="chat-reply-indicator">
               <span className="chat-reply-text">回复: {replyTo.preview}</span>
-              <button className="chat-reply-close" onClick={() => setReplyTo(null)}>
+              <button className="chat-reply-close" aria-label="取消消息引用" onClick={() => setReplyTo(null)}>
                 <CloseOutlined />
               </button>
             </div>
@@ -1981,15 +2285,16 @@ export function ChatPage() {
           <textarea
             ref={chatInputRef}
             className="chat-input"
-            aria-label={runTarget ? '工作请求内容' : '消息内容'}
-            placeholder={uploading ? '上传中...' : creatingRun ? '提交工作请求中...' : sendMutation.isPending ? '发送中...' : runTarget ? '描述本次工作；Enter 发起，Shift+Enter 换行' : '输入消息...'}
+            aria-label={workRelation?.mode === 'input' ? '补充工作输入' : workRelation?.mode === 'continue' ? '关联后续工作内容' : runTarget ? '工作请求内容' : '消息内容'}
+            placeholder={uploading ? '上传中...' : creatingRun ? '提交工作输入中...' : sendMutation.isPending ? '发送中...' : workRelation?.mode === 'input' ? '补充到指定 Run；Enter 提交，Shift+Enter 换行' : workRelation?.mode === 'continue' ? '描述承接结果的后续工作；Enter 创建关联 Run' : runTarget ? '描述独立新工作；Enter 发起，Shift+Enter 换行' : '输入消息...'}
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             rows={1}
+            disabled={creatingRun || requestingKey !== null}
           />
-          <button className="chat-send-btn" onClick={runTarget ? () => void handleStartRun() : handleSend} disabled={!input.trim() || sendMutation.isPending || creatingRun || requestingKey !== null}>
-            {creatingRun || requestingKey !== null ? '提交中…' : runTarget ? '发起工作' : sendMutation.isPending ? '...' : '发送'}
+          <button className="chat-send-btn" onClick={runTarget ? () => void handleStartRun() : handleSend} disabled={!input.trim() || sendMutation.isPending || creatingRun || requestingKey !== null || uploading || (inputBlocked && !retryInputReady)}>
+            {creatingRun || requestingKey !== null ? '提交中…' : workRelation?.mode === 'input' ? retryInputReady ? '重试原补充' : '提交补充' : workRelation?.mode === 'continue' ? '创建关联执行' : runTarget ? '发起工作' : sendMutation.isPending ? '...' : '发送'}
           </button>
         </div>
       </div>
@@ -2004,9 +2309,13 @@ export function ChatPage() {
             className="chat-msg-actions-menu"
             style={{ position: 'fixed', left: msgActions.x, top: msgActions.y, zIndex: 1000 }}
           >
-            <div className="chat-msg-action-item" onClick={() => { setReplyTo({ msg_id: msgActions.msg.message_id, preview: extractTextPreview(msgActions.msg.content) }); setMsgActions(null); }}>
-              回复
-            </div>
+            <button className="chat-msg-action-item" onClick={() => void replyToMessage(msgActions.msg)}>回复</button>
+            {runnableBots.length > 0 && msgActions.msg.status !== 2 && <button className="chat-msg-action-item" onClick={() => {
+              const messageId = msgActions.msg.message_id;
+              setWorkMaterials((materials) => ({ ...materials, messageIds: [...new Set([...materials.messageIds, messageId])] }));
+              setMsgActions(null);
+              if (!runTarget) message.info('消息已选为工作来源，请选择要开展工作的 Bot');
+            }}>选为工作来源</button>}
             <div className="chat-msg-action-item" onClick={() => {
               const name = getMsgUserInfo(msgActions.msg, userMap).username;
               if (name) {

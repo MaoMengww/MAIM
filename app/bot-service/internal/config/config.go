@@ -18,6 +18,7 @@ type Config struct {
 	LlmGateway     zrpc.RpcClientConf     `json:"llmGateway"`
 	MessageService zrpc.RpcClientConf     `json:"messageService"`
 	KnowledgeBase  zrpc.RpcClientConf     `json:"knowledgeBase"`
+	FileService    zrpc.RpcClientConf     `json:"fileService,optional"`
 	Runtime        zrpc.RpcClientConf     `json:"runtime,optional"`
 	UserService    zrpc.RpcClientConf     `json:"userService"`
 	RateLimit      config.RateLimitConfig `json:"rateLimit"`

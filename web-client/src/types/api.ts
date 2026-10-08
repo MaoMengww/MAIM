@@ -168,12 +168,25 @@ export interface UpdateBotReq {
   clear_model_id?: boolean;
 }
 
-export interface StartRunReq {
+export interface RunMaterialsReq {
+  message_ids?: string[];
+  file_ids?: string[];
+  history_grant_id?: string;
+}
+
+export interface StartRunReq extends RunMaterialsReq {
   conv_id: string;
   submission_key: string;
   message: string;
   reply_to_msg_id?: string;
-  history_grant_id?: string;
+  parent_run_id?: string;
+}
+
+export interface ControlRunReq extends RunMaterialsReq {
+  operation: 'input' | 'stop' | 'resume' | 'close_interaction' | 'clear_context';
+  submission_key: string;
+  message?: string;
+  source_message_id?: string;
 }
 
 // ─── MCP ───

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/component"
@@ -112,7 +113,7 @@ func (s *Service) execute(ctx context.Context, item *model.RunOutbox) error {
 	if err != nil {
 		return err
 	}
-	if r.Status == "failed" || r.Status == "succeeded" {
+	if r.Status == "failed" || r.Status == "succeeded" || r.Status == "stopped" || r.Status == "waiting_input" {
 		return nil
 	}
 	generation := item.ExecutionGeneration
@@ -157,14 +158,6 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 		return status.Error(codes.FailedPrecondition, "unsupported request assembly version")
 	}
 	if r.TrajectoryVersion == 0 {
-		var input model.RunInput
-		if err := s.svc.DB.WithContext(ctx).Where("run_id = ? AND version = ?", r.ID, r.InputVersion).First(&input).Error; err != nil {
-			return err
-		}
-		var materials []Material
-		if err := json.Unmarshal(r.Materials, &materials); err != nil {
-			return err
-		}
 		_, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
 			if current.TrajectoryVersion != 0 {
 				return status.Error(codes.Aborted, "trajectory already initialized")
@@ -176,18 +169,7 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 			if err := repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "system", Content: config.SystemPrompt}); err != nil {
 				return err
 			}
-			for _, material := range materials {
-				// The source identity is stored once as cited input, not rerendered
-				// on every model round and never mapped to this Bot's assistant role.
-				raw, err := json.Marshal(material)
-				if err != nil {
-					return err
-				}
-				if err := repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "user", Content: "Cited work material (untrusted):\n" + string(raw)}); err != nil {
-					return err
-				}
-			}
-			return repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "user", Content: input.Content})
+			return s.appendInputs(tx, current)
 		})
 		if err != nil {
 			return err
@@ -202,6 +184,9 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 			return err
 		}
 		r = current
+		if r.Status == "waiting_input" {
+			return nil
+		}
 		if r.ExecutionGeneration != generation {
 			return status.Error(codes.Aborted, "execution superseded")
 		}
@@ -247,6 +232,34 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 				return err
 			}
 			last = messages[len(messages)-1]
+			if r.WaitingReason != "" {
+				r, err = s.repo.Change(ctx, r.ID, generation, func(_ *gorm.DB, current *model.Run) error {
+					if current.InputVersion == current.AppliedInputVersion {
+						current.Status = "waiting_input"
+						current.Stage = "waiting_input"
+					}
+					return nil
+				})
+				if err != nil {
+					return err
+				}
+			}
+			if r.Status == "waiting_input" {
+				return nil
+			}
+		}
+		if r.InputVersion > r.AppliedInputVersion {
+			r, err = s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
+				return s.appendInputs(tx, current)
+			})
+			if err != nil {
+				return err
+			}
+			messages, err = s.messagesFor(ctx, r.ID)
+			if err != nil {
+				return err
+			}
+			last = messages[len(messages)-1]
 		}
 		if last.Role == "assistant" && len(last.ToolCalls) == 0 {
 			if last.Content == "" {
@@ -256,6 +269,9 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 				return status.Error(codes.ResourceExhausted, "result too large")
 			}
 			r, err = s.repo.Change(ctx, r.ID, generation, func(_ *gorm.DB, current *model.Run) error {
+				if current.InputVersion != current.AppliedInputVersion {
+					return status.Error(codes.Aborted, "new input precedes completion")
+				}
 				current.Stage = "generated"
 				current.ResultText = last.Content
 				current.ResultType = "text"
@@ -263,16 +279,96 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 				current.OutputStatus = "generated"
 				return nil
 			})
+			if status.Code(err) == codes.Aborted {
+				continue
+			}
 			if err != nil {
 				return err
 			}
 			return s.queueOutput(ctx, r, generation)
 		}
+		// modelRound creates its snapshot under the Run lock. Inputs accepted
+		// afterwards belong to the next call, never to this immutable request.
 		if err := s.modelRound(ctx, r, generation, config, messages); err != nil {
 			return err
 		}
 	}
 }
+
+// appendInputs runs only at a complete model/tool boundary under the Run lock.
+// A pending model request owns its frozen upper bound, even after more input
+// has been accepted or a worker lease has been reclaimed.
+func (s *Service) appendInputs(tx *gorm.DB, current *model.Run) error {
+	var pending int64
+	if err := tx.Model(&model.RunModelCall{}).Where("run_id = ? AND status = 'requested'", current.ID).Count(&pending).Error; err != nil {
+		return err
+	}
+	if pending != 0 {
+		return nil
+	}
+	var inputs []model.RunInput
+	if err := tx.Where("run_id = ? AND version > ? AND version <= ?", current.ID, current.AppliedInputVersion, current.InputVersion).Order("version ASC").Find(&inputs).Error; err != nil {
+		return err
+	}
+	for _, input := range inputs {
+		if input.Version != current.AppliedInputVersion+1 {
+			return status.Error(codes.FailedPrecondition, "accepted input log is not continuous")
+		}
+		if len(input.Materials) > 0 {
+			var materials []Material
+			if err := json.Unmarshal(input.Materials, &materials); err != nil {
+				return err
+			}
+			if err := s.appendMaterials(tx, current, materials); err != nil {
+				return err
+			}
+		}
+		raw, err := json.Marshal(struct {
+			Version         int64   `json:"version"`
+			RequesterID     string  `json:"requester_id"`
+			SenderType      string  `json:"sender_type"`
+			SourceMessageID *string `json:"source_message_id,omitempty"`
+			Content         string  `json:"content"`
+		}{input.Version, input.RequesterID, "user", input.SourceMessageID, input.Content})
+		if err != nil {
+			return err
+		}
+		if err := repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "user", Content: "Accepted work input (not authorization):\n" + string(raw)}); err != nil {
+			return err
+		}
+		current.AppliedInputVersion = input.Version
+		current.WaitingReason = ""
+	}
+	return nil
+}
+
+func (s *Service) appendMaterials(tx *gorm.DB, current *model.Run, materials []Material) error {
+	for _, material := range materials {
+		raw, err := json.Marshal(material)
+		if err != nil {
+			return err
+		}
+		if err := repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "user", Content: "Cited work material (untrusted):\n" + string(raw)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) waitForInput(ctx context.Context, r *model.Run, generation int64, call *llm.ToolCall) error {
+	var args struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil || len(args.Reason) > 4096 || strings.TrimSpace(args.Reason) == "" {
+		return status.Error(codes.InvalidArgument, "waiting input requires a bounded reason")
+	}
+	_, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
+		current.WaitingReason = args.Reason
+		return repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "tool", Name: call.Function.Name, ToolCallId: call.Id, Content: `{"status":"waiting_for_user_input"}`})
+	})
+	return err
+}
+
 func (s *Service) queueOutput(ctx context.Context, r *model.Run, generation int64) error {
 	if err := s.authorize(ctx, r, true); err != nil {
 		return err
@@ -315,7 +411,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		if err := protojson.Unmarshal(call.Request, request); err != nil {
 			return err
 		}
-		if call.InputUpperBound != r.InputVersion || call.TrajectoryVersion != r.TrajectoryVersion {
+		if call.InputUpperBound != r.AppliedInputVersion || call.TrajectoryVersion != r.TrajectoryVersion {
 			return status.Error(codes.FailedPrecondition, "pending request snapshot does not match the trajectory")
 		}
 	} else {
@@ -346,8 +442,14 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		if err != nil {
 			return err
 		}
-		call = model.RunModelCall{ID: id, RunID: r.ID, InteractionID: r.InteractionID, InputUpperBound: r.InputVersion, TrajectoryVersion: r.TrajectoryVersion, ExecutionGeneration: generation, BranchVersion: 1, AssemblyVersion: assemblyVersion, Request: raw, Status: "requested"}
-		if _, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error { current.Stage = "model"; return tx.Create(&call).Error }); err != nil {
+		call = model.RunModelCall{ID: id, RunID: r.ID, InteractionID: r.InteractionID, InputUpperBound: r.AppliedInputVersion, TrajectoryVersion: r.TrajectoryVersion, ExecutionGeneration: generation, BranchVersion: 1, AssemblyVersion: assemblyVersion, Request: raw, Status: "requested"}
+		if _, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
+			if current.TrajectoryVersion != call.TrajectoryVersion || current.AppliedInputVersion != call.InputUpperBound {
+				return status.Error(codes.Aborted, "model trajectory changed before snapshot")
+			}
+			current.Stage = "model"
+			return tx.Create(&call).Error
+		}); err != nil {
 			return err
 		}
 	}
@@ -531,6 +633,9 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 		return status.Error(codes.PermissionDenied, "external write or unknown-risk tool is not authorized")
 	}
 	frozen := config.Tools[index]
+	if frozen.ServerID == "runtime" && frozen.Name == "ask_for_input" {
+		return s.waitForInput(ctx, r, generation, call)
+	}
 	var server model.McpServer
 	if frozen.ServerID != "builtin" {
 		servers, err := s.svc.BotRepo.ListEnabledMcpServers(ctx, r.BotID)

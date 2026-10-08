@@ -4,6 +4,7 @@ import hashlib
 import json
 import hmac
 import math
+import re
 import os
 import queue
 import threading
@@ -18,6 +19,7 @@ PORT = int(os.environ.get("PORT", "8099"))
 LOCK = threading.Lock()
 SESSIONS = {}
 EXECUTORS = {}
+INTERACTION_GATES = {}
 OBSERVATIONS = {"mcp_lists": 0, "tool_texts": [], "chat_models": [], "embed_models": [], "active_ingest": 0,
                 "tool_call_ids": [], "chat_requests": [], "executor_requests": [], "executor_activities": []}
 TOOL = {"name": "fixture_echo", "description": "Echo text over the MCP network", "inputSchema": {
@@ -82,6 +84,67 @@ def composition_reply(model, messages, text):
     return "fixture-reply:" + text
 
 
+def accepted_input(item):
+    content = item.get("content", "")
+    prefix = "Accepted work input (not authorization):\n"
+    if item.get("role") == "user" and isinstance(content, str) and content.startswith(prefix):
+        return json.loads(content[len(prefix):])
+    return None
+
+
+def user_text(messages):
+    for item in reversed(messages):
+        if item.get("role") != "user":
+            continue
+        accepted = accepted_input(item)
+        if accepted is not None:
+            return accepted["content"]
+        content = item.get("content", "")
+        if isinstance(content, str) and content.startswith("Cited work material (untrusted):\n"):
+            continue
+        return str(content)
+    return ""
+
+
+def interaction_reply(body, messages):
+    inputs = [value for item in messages if (value := accepted_input(item)) is not None]
+    if not inputs:
+        raise ValueError("interaction requires attributed accepted inputs")
+    # A pause is a real model call with a paired tool response in subsequent calls.
+    calls = {call["id"] for item in messages for call in item.get("tool_calls", [])}
+    results = {item.get("tool_call_id") for item in messages if item.get("role") == "tool"}
+    if calls != results:
+        raise ValueError("ask_for_input tool calls must retain paired responses")
+    token = inputs[0]["content"].split()[0]
+    with LOCK:
+        gate = INTERACTION_GATES.get(token)
+        held = gate is not None and not gate["used"] and len(inputs) > 1
+        if held:
+            gate["used"] = True
+            gate["held"] = True
+    if held and not gate["event"].wait(timeout=30):
+        raise ValueError("interaction gate was not released")
+    if token.startswith("INTERACTION_WAIT_") and len(inputs) < 4:
+        ask = next((item["function"]["name"] for item in body.get("tools", [])
+                    if item.get("function", {}).get("name") == "ask_for_input"), "")
+        if not ask:
+            raise ValueError("builtin ask_for_input capability is missing")
+        return {"role": "assistant", "content": None, "tool_calls": [{
+            "id": "interaction-ask-" + str(len(calls)), "type": "function",
+            "function": {"name": ask, "arguments": json.dumps({"reason": "Supply three attributed VALUE amounts"})}}]}, "tool_calls"
+    materials = []
+    for item in messages:
+        content = item.get("content", "")
+        prefix = "Cited work material (untrusted):\n"
+        if item.get("role") == "user" and isinstance(content, str) and content.startswith(prefix):
+            materials.append(json.loads(content[len(prefix):]))
+    values = [value["content"] for value in inputs] + [value.get("content", "") for value in materials]
+    total = sum(int(amount) for value in values for amount in re.findall(r"\bVALUE=(-?\d+)\b", value))
+    result = {"sum": total, "contributors": sorted({value["requester_id"] for value in inputs}),
+              "materials": materials}
+    return {"role": "assistant", "content": json.dumps(result, sort_keys=True, separators=(",", ":"))}, "stop"
+
+
 def executor_result(text):
     return "words=" + str(len(text.split())) + ";sha256=" + hashlib.sha256(text.encode()).hexdigest()
 
@@ -94,7 +157,7 @@ def executor_update(body):
     if body.get("compute"):
         request = next(item["request"] for item in reversed(requests)
                        if item["request"].get("run", {}).get("id") == update["run_id"])
-        update["result_text"] = executor_result(request["input"]["text"])
+        update["result_text"] = executor_result("\n\n".join(item["content"] for item in request["inputs"]))
     raw = json.dumps(update, separators=(",", ":"), ensure_ascii=False).encode()
     signature = hmac.new(body.get("secret", config["secret"]).encode(), raw, hashlib.sha256).hexdigest()
     request = Request(config["gateway"] + "/api/v1/webhook", data=raw,
@@ -181,6 +244,19 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path in ("/interaction/arm", "/interaction/held", "/interaction/release"):
+            token = body.get("token", "")
+            with LOCK:
+                if path.endswith("/arm"):
+                    INTERACTION_GATES[token] = {"event": threading.Event(), "held": False, "used": False}
+                    ok = True
+                else:
+                    gate = INTERACTION_GATES.get(token)
+                    ok = bool(gate) and (gate["held"] if path.endswith("/held") else True)
+                    if gate and path.endswith("/release"):
+                        gate["event"].set()
+            self._json(200, {"ok": ok})
+            return
         if path == "/executor/register":
             with LOCK:
                 EXECUTORS[body["bot_id"]] = {"secret": body["secret"], "gateway": body["gateway"]}
@@ -211,7 +287,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/v1/chat/completions":
             messages = body.get("messages") or []
-            text = next((str(item.get("content", "")) for item in reversed(messages) if item.get("role") == "user"), "")
+            text = user_text(messages)
             model = body.get("model", "")
             with LOCK:
                 OBSERVATIONS["chat_models"].append(model)
@@ -232,7 +308,13 @@ class Handler(BaseHTTPRequestHandler):
                                  "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
                 return
             tool_messages = [item for item in messages if item.get("role") == "tool"]
-            if not tool_messages:
+            if model.startswith("fixture-interaction-"):
+                try:
+                    message, reason = interaction_reply(body, messages)
+                except (KeyError, ValueError, TypeError) as error:
+                    self._json(400, {"error": {"message": str(error)}})
+                    return
+            elif not tool_messages:
                 tools = body.get("tools") or []
                 echo = next((item["function"]["name"] for item in tools if "fixture_echo" in item.get("function", {}).get("name", "")), "")
                 if "RUN_WRITE_DENY" in text:

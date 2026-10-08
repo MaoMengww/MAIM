@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
@@ -52,14 +51,11 @@ func queueRun(tx *gorm.DB, run *model.Run, kind string) error {
 		if err := tx.Where("run_id = ?", run.ID).Order("version ASC").Find(&inputs).Error; err != nil {
 			return err
 		}
-		var text strings.Builder
-		for i, input := range inputs {
-			if i > 0 {
-				text.WriteString("\n\n")
-			}
-			text.WriteString(input.Content)
+		ordered := make([]map[string]any, 0, len(inputs))
+		for _, input := range inputs {
+			ordered = append(ordered, map[string]any{"version": input.Version, "requester_id": input.RequesterID, "sender_type": "user", "source_message_id": input.SourceMessageID, "content": input.Content, "materials": input.Materials, "sources": input.Sources, "created_at": input.CreatedAt.Unix()})
 		}
-		raw, err = json.Marshal(map[string]any{"type": "bot.run.request", "run": run.Public(), "generation": run.ExecutionGeneration, "input_version": run.InputVersion, "input": map[string]any{"text": text.String(), "materials": run.Materials, "sources": run.InputSources}, "operation": run.ControlOperation})
+		raw, err = json.Marshal(map[string]any{"type": "bot.run.request", "run": run.Public(), "generation": run.ExecutionGeneration, "input_version": run.InputVersion, "inputs": ordered, "operation": run.ControlOperation})
 		if err != nil {
 			return err
 		}
@@ -87,6 +83,22 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*mo
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		if run.ParentRunID != nil {
+			var interaction model.Interaction
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", run.InteractionID, run.BotID, run.ConvID, run.BindingID).First(&interaction).Error; err != nil {
+				return status.Error(codes.PermissionDenied, "parent interaction is unavailable")
+			}
+			if interaction.Status != "active" {
+				return status.Error(codes.FailedPrecondition, "interaction is closed; start a new request")
+			}
+			var parent model.Run
+			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND interaction_id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *run.ParentRunID, run.InteractionID, run.BotID, run.ConvID, run.BindingID).First(&parent).Error; err != nil {
+				return status.Error(codes.PermissionDenied, "parent Run is unavailable")
+			}
+			if !TerminalRun(&parent) {
+				return status.Error(codes.FailedPrecondition, "continuation requires a terminal parent Run")
+			}
+		}
 		// Capture the existing lifecycle; rejoining never revives a stale input.
 		var binding model.ConvBot
 		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND revoked_at IS NULL", run.BindingID, run.BotID, run.ConvID).First(&binding).Error; err != nil {
@@ -96,8 +108,10 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*mo
 		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND status = 'active'", run.BotID).First(&bot).Error; err != nil {
 			return err
 		}
-		if err := tx.Create(&model.Interaction{ID: run.InteractionID, BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID}).Error; err != nil {
-			return err
+		if run.ParentRunID == nil {
+			if err := tx.Create(&model.Interaction{ID: run.InteractionID, BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Status: "active"}).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Create(run).Error; err != nil {
 			return err
@@ -106,7 +120,7 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*mo
 		if err != nil {
 			return err
 		}
-		if err := tx.Create(&model.RunInput{ID: id, RunID: run.ID, Version: 1, RequesterID: run.RequesterID, SourceMessageID: run.SourceMessageID, InputKey: run.InputKey, Content: input, ContentHash: run.InputHash}).Error; err != nil {
+		if err := tx.Create(&model.RunInput{ID: id, RunID: run.ID, Version: 1, RequesterID: run.RequesterID, SourceMessageID: run.SourceMessageID, InputKey: run.InputKey, Content: input, ContentHash: run.InputHash, Materials: run.Materials, Sources: run.Sources}).Error; err != nil {
 			return err
 		}
 		kind := "execute"
@@ -167,14 +181,31 @@ func AppendRunBlock(tx *gorm.DB, run *model.Run, kind string, value any) error {
 	run.TrajectoryVersion++
 	return tx.Create(&model.RunTrajectory{ID: id, RunID: run.ID, Version: run.TrajectoryVersion, Kind: kind, Block: raw}).Error
 }
-func QueueRunOutput(tx *gorm.DB, run *model.Run) error   { return queueRun(tx, run, "output") }
-func QueueRunDelivery(tx *gorm.DB, run *model.Run) error { return queueRun(tx, run, "deliver") }
+func QueueRunOutput(tx *gorm.DB, run *model.Run) error    { return queueRun(tx, run, "output") }
+func QueueRunDelivery(tx *gorm.DB, run *model.Run) error  { return queueRun(tx, run, "deliver") }
+func QueueRunExecution(tx *gorm.DB, run *model.Run) error { return queueRun(tx, run, "execute") }
+
+func TerminalRun(run *model.Run) bool {
+	return run.Status == "succeeded" || run.Status == "failed" || run.Status == "stopped"
+}
+
+func (r *RunRepo) Inputs(ctx context.Context, id string) ([]model.RunInput, error) {
+	var inputs []model.RunInput
+	err := r.DB.WithContext(ctx).Where("run_id = ?", id).Order("version ASC").Find(&inputs).Error
+	return inputs, err
+}
+
+func (r *RunRepo) FindResult(ctx context.Context, bot, conv, binding, message string) (*model.Run, error) {
+	var run model.Run
+	err := r.DB.WithContext(ctx).Where("bot_id = ? AND conv_id = ? AND binding_id = ? AND message_id = ?", bot, conv, binding, message).First(&run).Error
+	return &run, err
+}
 
 func (r *RunRepo) Claim(ctx context.Context, kinds []string) (*model.RunOutbox, error) {
 	var item model.RunOutbox
 	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("kind IN ? AND completed_at IS NULL AND available_at <= ? AND (lease_until IS NULL OR lease_until < ?)", kinds, now, now).Order("created_at ASC,id ASC").First(&item).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("kind IN ? AND completed_at IS NULL AND available_at <= ? AND (lease_until IS NULL OR lease_until < ?)", kinds, now, now).Where("kind <> 'execute' OR NOT EXISTS (SELECT 1 FROM bot.run_outbox live WHERE live.run_id = run_outbox.run_id AND live.id <> run_outbox.id AND live.kind = 'execute' AND live.completed_at IS NULL AND live.lease_until > ?)", now).Order("created_at ASC,id ASC").First(&item).Error; err != nil {
 			return err
 		}
 		token, err := identity.New()
@@ -187,11 +218,25 @@ func (r *RunRepo) Claim(ctx context.Context, kinds []string) (*model.RunOutbox, 
 		item.Attempts++
 		if item.Kind == "execute" {
 			var claimed model.Run
-			result := tx.Model(&claimed).Clauses(clause.Returning{Columns: []clause.Column{{Name: "execution_generation"}}}).Where("id = ? AND status IN ('accepted','running')", item.RunID).UpdateColumn("execution_generation", gorm.Expr("execution_generation + 1"))
-			if result.Error != nil {
-				return result.Error
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", item.RunID).First(&claimed).Error; err != nil {
+				return err
 			}
-			item.ExecutionGeneration = claimed.ExecutionGeneration
+			// Recheck after the Run lock: concurrent claim queries may have both
+			// observed the same pre-commit absence of a live execution lease.
+			var live int64
+			if err := tx.Model(&model.RunOutbox{}).Where("run_id = ? AND id <> ? AND kind = 'execute' AND completed_at IS NULL AND lease_until > ?", item.RunID, item.ID, now).Count(&live).Error; err != nil {
+				return err
+			}
+			if live > 0 {
+				return gorm.ErrRecordNotFound
+			}
+			if claimed.Status == "accepted" || claimed.Status == "running" {
+				claimed.ExecutionGeneration++
+				if err := tx.Model(&claimed).UpdateColumn("execution_generation", claimed.ExecutionGeneration).Error; err != nil {
+					return err
+				}
+				item.ExecutionGeneration = claimed.ExecutionGeneration
+			}
 		}
 		return tx.Save(&item).Error
 	})
@@ -220,6 +265,16 @@ func (r *RunRepo) Report(ctx context.Context, id, key, digest string, authorize 
 	var receipt model.PublicRun
 	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var run model.Run
+		if err := tx.Where("id = ?", id).First(&run).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.NotFound, "Run not found")
+			}
+			return err
+		}
+		var interaction model.Interaction
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", run.InteractionID).First(&interaction).Error; err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&run).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return status.Error(codes.NotFound, "Run not found")
@@ -264,6 +319,9 @@ func (r *RunRepo) Report(ctx context.Context, id, key, digest string, authorize 
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		if interaction.Status != "active" {
+			return status.Error(codes.FailedPrecondition, "interaction is closed")
+		}
 		if run.Status == "succeeded" || run.Status == "failed" || run.Status == "stopped" || run.OutputStatus == "pending" || run.OutputStatus == "generated" {
 			return status.Error(codes.FailedPrecondition, "Run no longer accepts updates")
 		}
@@ -283,6 +341,93 @@ func (r *RunRepo) Report(ctx context.Context, id, key, digest string, authorize 
 			return err
 		}
 		receipt = run.Public()
+		raw, err := json.Marshal(receipt)
+		if err != nil {
+			return err
+		}
+		receiptID, err := identity.New()
+		if err != nil {
+			return err
+		}
+		return tx.Create(&model.RunReceipt{ID: receiptID, RunID: id, UpdateKey: key, ContentHash: digest, Receipt: raw}).Error
+	})
+	return &receipt, err
+}
+
+// CloseInteraction takes the interaction lock before any Run lock, as Accept
+// and Report do. It cuts continuation atomically without deleting work facts.
+func (r *RunRepo) CloseInteraction(ctx context.Context, id, key, digest string, authorize func(*model.Run) error) (*model.PublicRun, error) {
+	var receipt model.PublicRun
+	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var target model.Run
+		if err := tx.Where("id = ?", id).First(&target).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.NotFound, "Run not found")
+			}
+			return err
+		}
+		var interaction model.Interaction
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", target.InteractionID).First(&interaction).Error; err != nil {
+			return err
+		}
+		var runs []model.Run
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("interaction_id = ?", interaction.ID).Order("id ASC").Find(&runs).Error; err != nil {
+			return err
+		}
+		for _, run := range runs {
+			if run.ID == id {
+				target = run
+			}
+		}
+		if err := authorize(&target); err != nil {
+			return err
+		}
+		var binding model.ConvBot
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND revoked_at IS NULL", target.BindingID, target.BotID, target.ConvID).First(&binding).Error; err != nil {
+			return status.Error(codes.PermissionDenied, "binding revoked")
+		}
+		var bot model.Bot
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND status = 'active'", target.BotID).First(&bot).Error; err != nil {
+			return status.Error(codes.PermissionDenied, "Bot unavailable")
+		}
+		var prior model.RunReceipt
+		err := tx.Where("run_id = ? AND update_key = ?", id, key).First(&prior).Error
+		if err == nil {
+			if prior.ContentHash != digest {
+				return status.Error(codes.AlreadyExists, "update key has different content")
+			}
+			return json.Unmarshal(prior.Receipt, &receipt)
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		for _, run := range runs {
+			if !TerminalRun(&run) {
+				return status.Error(codes.FailedPrecondition, "finish every active Run before closing the interaction")
+			}
+		}
+		now := time.Now()
+		if interaction.Status != "closed" {
+			interaction.Status, interaction.ClosedAt = "closed", &now
+			if err := tx.Save(&interaction).Error; err != nil {
+				return err
+			}
+			for i := range runs {
+				run := &runs[i]
+				run.InteractionStatus, run.UpdatedAt = "closed", now
+				run.Version++
+				if err := tx.Save(run).Error; err != nil {
+					return err
+				}
+				if err := queueRun(tx, run, "updated"); err != nil {
+					return err
+				}
+				if run.ID == id {
+					target = *run
+				}
+			}
+		}
+		receipt = target.Public()
 		raw, err := json.Marshal(receipt)
 		if err != nil {
 			return err

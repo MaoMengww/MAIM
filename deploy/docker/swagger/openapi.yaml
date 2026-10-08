@@ -6973,10 +6973,53 @@ paths:
         "404":
           description: Run不存在
 
+  /bots/{id}/runs:
+    post:
+      tags: [Bot]
+      summary: 明确开始独立或关联 Run
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conv_id, submission_key, message]
+              properties:
+                conv_id: { type: string, format: uuid }
+                submission_key: { type: string, minLength: 1, maxLength: 256 }
+                message: { type: string, minLength: 1, description: 最大65536字节 }
+                reply_to_msg_id: { type: string, format: uuid }
+                history_grant_id: { type: string, format: uuid }
+                parent_run_id: { type: string, format: uuid, description: 同当前绑定中可见终态父Run；同交互创建独立快照分支 }
+                message_ids:
+                  type: array
+                  maxItems: 100
+                  items: { type: string, format: uuid }
+                file_ids:
+                  type: array
+                  maxItems: 100
+                  items: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 权威公开Run；含parent_run_id、interaction_status与waiting_reason，不公开模型轨迹
+        '400':
+          description: 不合法输入、过大历史范围或不支持的文件格式
+        '403':
+          description: 材料不可见、私有文件无法群共享或跨绑定引用
+        '409':
+          description: 异义提交键、父Run未结束或交互已关闭
+
   /runs/{id}/control:
     post:
       tags: [Bot]
-      summary: 补充、停止或安全恢复未结束Run
+      summary: 有序补充、执行控制或关闭交互延续
       security:
         - BearerAuth: []
       parameters:
@@ -6992,14 +7035,24 @@ paths:
               type: object
               required: [operation, submission_key]
               properties:
-                operation: { type: string, enum: [input, stop, resume] }
+                operation: { type: string, enum: [input, stop, resume, close_interaction, clear_context] }
                 submission_key: { type: string, minLength: 1, maxLength: 256 }
                 message: { type: string, description: 仅input使用，最大65536字节 }
+                source_message_id: { type: string, format: uuid, description: 本补充者本人发送的文本消息 }
+                message_ids:
+                  type: array
+                  maxItems: 100
+                  items: { type: string, format: uuid }
+                file_ids:
+                  type: array
+                  maxItems: 100
+                  items: { type: string, format: uuid }
+                history_grant_id: { type: string, format: uuid }
       responses:
         "200":
-          description: 操作接受receipt；停止请求仅变stopping，执行器确认后才stopped
+          description: 权威接受receipt；input接受版本与执行入轨分别记录。close/clear必须全交互终态且只关闭延续关系，不删历史。停止请求仅变stopping。
         "403":
-          description: 当前工作不可见，或无停止/恢复控制权
+          description: 当前工作或材料不可见，旧绑定引用，或无控制/交互关闭权限
         "409":
           description: 能力不支持、状态不允许或异义提交键；不改变权威状态
         "404":

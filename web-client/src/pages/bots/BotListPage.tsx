@@ -440,7 +440,7 @@ export function BotListPage() {
   "run": { "id": "0198abcd-0000-7000-8000-000000000001", "bot_id": "0198abcd-0000-7000-8000-000000000002", "requester_id": "0198abcd-0000-7000-8000-000000000003" },
   "generation": 1,
   "input_version": 1,
-  "input": { "text": "整理这份材料", "materials": [] }
+  "inputs": [{ "version": 1, "requester_id": "0198abcd-0000-7000-8000-000000000003", "sender_type": "user", "content": "整理这份材料", "materials": [], "sources": [] }]
 }`}</pre></div>
                         <p>分开提交 <code>run.delivery_ack</code> 和 <code>run.claim</code>，使用独立的稳定 <code>update_key</code>。认领后更新从 sequence=1 连续推进。</p>
                         <div className="bot-guide-code"><pre>{`{

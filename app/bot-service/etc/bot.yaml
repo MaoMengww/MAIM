@@ -39,6 +39,11 @@ KnowledgeBase:
   NonBlock: true
   Timeout: 600000
 
+FileService:
+  Target: ${FILE_SERVICE_ADDR}
+  NonBlock: true
+  Timeout: 30000
+
 Runtime:
   Target: ${BOT_RUNTIME_ADDR}
   NonBlock: true

@@ -460,6 +460,9 @@ message StartRunReq {
   string message = 4;
   optional string reply_to_msg_id = 5 [(common.entity_id) = true];
   optional string history_grant_id = 6 [(common.entity_id) = true];
+  optional string parent_run_id = 7 [(common.entity_id) = true];
+  repeated string message_ids = 8 [(common.entity_id) = true];
+  repeated string file_ids = 9 [(common.entity_id) = true];
 }
 
 message GetRunReq { string run_id = 1 [(common.entity_id) = true]; }
@@ -480,5 +483,9 @@ message ControlRunReq {
   string operation = 2;
   string message = 3;
   string submission_key = 4 [(common.submission_key) = true];
+  optional string source_message_id = 5 [(common.entity_id) = true];
+  repeated string message_ids = 6 [(common.entity_id) = true];
+  repeated string file_ids = 7 [(common.entity_id) = true];
+  optional string history_grant_id = 8 [(common.entity_id) = true];
 }
 

@@ -108,7 +108,15 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		}
 		// Observation transport failure never authorizes or prevents accepting work.
 		// On a transport retry, Accept retains the message submission identity.
-		if shouldRespond(event, bot) {
+		replied, replyErr := h.runs.ReplyInput(ctx, input)
+		if replyErr != nil {
+			switch status.Code(replyErr) {
+			case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.InvalidArgument, codes.FailedPrecondition, codes.AlreadyExists:
+			default:
+				return replyErr
+			}
+		}
+		if !replied && shouldRespond(event, bot) {
 			_, err = h.runs.Accept(ctx, input)
 			if err != nil {
 				switch status.Code(err) {

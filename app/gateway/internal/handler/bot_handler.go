@@ -291,6 +291,10 @@ func (h *BotHandler) StartRun(c *gin.Context) {
 	if !requireRequestIdentities(c, &req) {
 		return
 	}
+	if len(req.MessageIds) > 100 || len(req.FileIds) > 100 {
+		response.BadRequest(c, "too many material references")
+		return
+	}
 	if strings.TrimSpace(req.Message) == "" || len(req.Message) > 65536 {
 		response.BadRequest(c, "message must contain between 1 and 65536 bytes")
 		return
@@ -330,6 +334,10 @@ func (h *BotHandler) ControlRun(c *gin.Context) {
 	}
 	req.RunId = c.Param("id")
 	if !requireRequestIdentities(c, &req) {
+		return
+	}
+	if len(req.MessageIds) > 100 || len(req.FileIds) > 100 {
+		response.BadRequest(c, "too many material references")
 		return
 	}
 	if len(req.Message) > 65536 {

@@ -40,6 +40,7 @@ type ServiceContext struct {
 	DeliveryPublisher *delivery.Publisher
 	RuntimeClient     botpb.BotServiceClient
 	UserServiceConn   zrpc.Client
+	FileServiceConn   zrpc.Client
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -106,6 +107,13 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	userServiceConn, err := zrpc.NewClient(c.UserService, reqIDClientOpt, reqIDStreamOpt)
 	if err != nil {
 		panic(fmt.Sprintf("user-service client failed: %v", err))
+	}
+	if c.FileService.Target != "" || len(c.FileService.Endpoints) > 0 {
+		fileServiceConn, err := zrpc.NewClient(c.FileService, reqIDClientOpt, reqIDStreamOpt)
+		if err != nil {
+			panic(fmt.Sprintf("file-service client failed: %v", err))
+		}
+		base.FileServiceConn = fileServiceConn
 	}
 
 	base.LlmGatewayConn = llmGatewayConn

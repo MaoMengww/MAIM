@@ -3143,6 +3143,9 @@ type StartRunReq struct {
 	Message        string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
 	ReplyToMsgId   *string                `protobuf:"bytes,5,opt,name=reply_to_msg_id,json=replyToMsgId,proto3,oneof" json:"reply_to_msg_id,omitempty"`
 	HistoryGrantId *string                `protobuf:"bytes,6,opt,name=history_grant_id,json=historyGrantId,proto3,oneof" json:"history_grant_id,omitempty"`
+	ParentRunId    *string                `protobuf:"bytes,7,opt,name=parent_run_id,json=parentRunId,proto3,oneof" json:"parent_run_id,omitempty"`
+	MessageIds     []string               `protobuf:"bytes,8,rep,name=message_ids,json=messageIds,proto3" json:"message_ids,omitempty"`
+	FileIds        []string               `protobuf:"bytes,9,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -3217,6 +3220,27 @@ func (x *StartRunReq) GetHistoryGrantId() string {
 		return *x.HistoryGrantId
 	}
 	return ""
+}
+
+func (x *StartRunReq) GetParentRunId() string {
+	if x != nil && x.ParentRunId != nil {
+		return *x.ParentRunId
+	}
+	return ""
+}
+
+func (x *StartRunReq) GetMessageIds() []string {
+	if x != nil {
+		return x.MessageIds
+	}
+	return nil
+}
+
+func (x *StartRunReq) GetFileIds() []string {
+	if x != nil {
+		return x.FileIds
+	}
+	return nil
 }
 
 type GetRunReq struct {
@@ -3464,13 +3488,17 @@ func (x *ExecutorUpdateReq) GetBody() []byte {
 }
 
 type ControlRunReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Operation     string                 `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
-	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	SubmissionKey string                 `protobuf:"bytes,4,opt,name=submission_key,json=submissionKey,proto3" json:"submission_key,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	RunId           string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Operation       string                 `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
+	Message         string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	SubmissionKey   string                 `protobuf:"bytes,4,opt,name=submission_key,json=submissionKey,proto3" json:"submission_key,omitempty"`
+	SourceMessageId *string                `protobuf:"bytes,5,opt,name=source_message_id,json=sourceMessageId,proto3,oneof" json:"source_message_id,omitempty"`
+	MessageIds      []string               `protobuf:"bytes,6,rep,name=message_ids,json=messageIds,proto3" json:"message_ids,omitempty"`
+	FileIds         []string               `protobuf:"bytes,7,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
+	HistoryGrantId  *string                `protobuf:"bytes,8,opt,name=history_grant_id,json=historyGrantId,proto3,oneof" json:"history_grant_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ControlRunReq) Reset() {
@@ -3527,6 +3555,34 @@ func (x *ControlRunReq) GetMessage() string {
 func (x *ControlRunReq) GetSubmissionKey() string {
 	if x != nil {
 		return x.SubmissionKey
+	}
+	return ""
+}
+
+func (x *ControlRunReq) GetSourceMessageId() string {
+	if x != nil && x.SourceMessageId != nil {
+		return *x.SourceMessageId
+	}
+	return ""
+}
+
+func (x *ControlRunReq) GetMessageIds() []string {
+	if x != nil {
+		return x.MessageIds
+	}
+	return nil
+}
+
+func (x *ControlRunReq) GetFileIds() []string {
+	if x != nil {
+		return x.FileIds
+	}
+	return nil
+}
+
+func (x *ControlRunReq) GetHistoryGrantId() string {
+	if x != nil && x.HistoryGrantId != nil {
+		return *x.HistoryGrantId
 	}
 	return ""
 }
@@ -3832,16 +3888,21 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\fcallback_url\x18\x02 \x01(\tR\vcallbackUrl\x12%\n" +
 	"\x0ewebhook_secret\x18\x03 \x01(\tR\rwebhookSecret\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x12\x12\n" +
-	"\x04type\x18\x05 \x01(\tR\x04type\"\xaa\x02\n" +
+	"\x04type\x18\x05 \x01(\tR\x04type\"\xb9\x03\n" +
 	"\vStartRunReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
 	"\aconv_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12-\n" +
 	"\x0esubmission_key\x18\x03 \x01(\tB\x06\x98\xb8\xbf\x99\x0f\x01R\rsubmissionKey\x12\x18\n" +
 	"\amessage\x18\x04 \x01(\tR\amessage\x122\n" +
 	"\x0freply_to_msg_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\freplyToMsgId\x88\x01\x01\x125\n" +
-	"\x10history_grant_id\x18\x06 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x0ehistoryGrantId\x88\x01\x01B\x12\n" +
+	"\x10history_grant_id\x18\x06 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x0ehistoryGrantId\x88\x01\x01\x12/\n" +
+	"\rparent_run_id\x18\a \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x02R\vparentRunId\x88\x01\x01\x12'\n" +
+	"\vmessage_ids\x18\b \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\n" +
+	"messageIds\x12!\n" +
+	"\bfile_ids\x18\t \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\afileIdsB\x12\n" +
 	"\x10_reply_to_msg_idB\x13\n" +
-	"\x11_history_grant_id\"*\n" +
+	"\x11_history_grant_idB\x10\n" +
+	"\x0e_parent_run_id\"*\n" +
 	"\tGetRunReq\x12\x1d\n" +
 	"\x06run_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05runId\"D\n" +
 	"\vListRunsReq\x12\x1f\n" +
@@ -3854,12 +3915,19 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\x11ExecutorUpdateReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12\x12\n" +
-	"\x04body\x18\x03 \x01(\fR\x04body\"\x95\x01\n" +
+	"\x04body\x18\x03 \x01(\fR\x04body\"\xfc\x02\n" +
 	"\rControlRunReq\x12\x1d\n" +
 	"\x06run_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05runId\x12\x1c\n" +
 	"\toperation\x18\x02 \x01(\tR\toperation\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12-\n" +
-	"\x0esubmission_key\x18\x04 \x01(\tB\x06\x98\xb8\xbf\x99\x0f\x01R\rsubmissionKey*p\n" +
+	"\x0esubmission_key\x18\x04 \x01(\tB\x06\x98\xb8\xbf\x99\x0f\x01R\rsubmissionKey\x127\n" +
+	"\x11source_message_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x0fsourceMessageId\x88\x01\x01\x12'\n" +
+	"\vmessage_ids\x18\x06 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\n" +
+	"messageIds\x12!\n" +
+	"\bfile_ids\x18\a \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\afileIds\x125\n" +
+	"\x10history_grant_id\x18\b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x0ehistoryGrantId\x88\x01\x01B\x14\n" +
+	"\x12_source_message_idB\x13\n" +
+	"\x11_history_grant_id*p\n" +
 	"\aBotType\x12\x18\n" +
 	"\x14BOT_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11BOT_TYPE_OFFICIAL\x10\x01\x12\x1a\n" +
@@ -4055,6 +4123,7 @@ func file_bot_bot_proto_init() {
 	file_bot_bot_proto_msgTypes[14].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[15].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[36].OneofWrappers = []any{}
+	file_bot_bot_proto_msgTypes[42].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

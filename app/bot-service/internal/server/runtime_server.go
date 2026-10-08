@@ -33,7 +33,7 @@ func (s *RuntimeServer) StartRun(ctx context.Context, req *pb.StartRunReq) (*pb.
 	if values := md.Get("x-user-language"); len(values) > 0 {
 		language = values[0]
 	}
-	accepted, err := s.runs.Accept(ctx, run.Input{BotID: req.BotId, ConvID: req.ConvId, RequesterID: runtimeUserID(ctx), SubmissionKey: req.SubmissionKey, Message: req.Message, ReplyToMsgID: req.ReplyToMsgId, HistoryGrantID: req.HistoryGrantId, Language: language})
+	accepted, err := s.runs.Accept(ctx, run.Input{BotID: req.BotId, ConvID: req.ConvId, RequesterID: runtimeUserID(ctx), SubmissionKey: req.SubmissionKey, Message: req.Message, ReplyToMsgID: req.ReplyToMsgId, HistoryGrantID: req.HistoryGrantId, ParentRunID: req.ParentRunId, MessageIDs: req.MessageIds, FileIDs: req.FileIds, Language: language})
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func (s *RuntimeServer) ControlRun(ctx context.Context, req *pb.ControlRunReq) (
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "Run command required")
 	}
-	receipt, err := s.runs.Control(ctx, req.RunId, runtimeUserID(ctx), req.Operation, req.Message, req.SubmissionKey)
+	receipt, err := s.runs.Control(ctx, req.RunId, runtimeUserID(ctx), run.ControlInput{Operation: req.Operation, Message: req.Message, SubmissionKey: req.SubmissionKey, SourceMessageID: req.SourceMessageId, MessageIDs: req.MessageIds, FileIDs: req.FileIds, HistoryGrantID: req.HistoryGrantId})
 	if err != nil {
 		return nil, err
 	}

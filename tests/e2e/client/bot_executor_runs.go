@@ -26,10 +26,20 @@ type executorRequest struct {
 	Generation   int64     `json:"generation"`
 	InputVersion int64     `json:"input_version"`
 	Operation    string    `json:"operation"`
-	Input        struct {
-		Text      string            `json:"text"`
-		Materials []json.RawMessage `json:"materials"`
-	} `json:"input"`
+	Inputs       []struct {
+		Version     int64             `json:"version"`
+		RequesterID entityID          `json:"requester_id"`
+		Content     string            `json:"content"`
+		Materials   []json.RawMessage `json:"materials"`
+	} `json:"inputs"`
+}
+
+func (r executorRequest) Text() string {
+	parts := make([]string, len(r.Inputs))
+	for i, input := range r.Inputs {
+		parts[i] = input.Content
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 type controlledExecutor struct {
@@ -340,11 +350,11 @@ func (d *driver) executorMatrix(x, wrong *controlledExecutor, caller, admin acco
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(request.Input)
+	raw, err := json.Marshal(request.Inputs)
 	if err != nil {
 		return err
 	}
-	if request.Run.ID == "" || request.Run.BindingID != binding.BindingID || request.Run.RequesterID != caller.id || request.Run.BotID != bot.ID || request.Run.ConvID != conv || !hasEntityID(request.Run.SourceMessageID, source.MessageID) || request.Run.TriggerKind != "mention" || request.Generation < 1 || request.InputVersion < 1 || request.Input.Text != text || strings.Contains(string(raw), secretHistory) {
+	if request.Run.ID == "" || request.Run.BindingID != binding.BindingID || request.Run.RequesterID != caller.id || request.Run.BotID != bot.ID || request.Run.ConvID != conv || !hasEntityID(request.Run.SourceMessageID, source.MessageID) || request.Run.TriggerKind != "mention" || request.Generation < 1 || request.InputVersion < 1 || request.Text() != text || strings.Contains(string(raw), secretHistory) {
 		return errors.New("executor: source/requester/input isolation broken")
 	}
 	delivered, err := d.readRun(caller, request.Run.ID)
@@ -464,7 +474,7 @@ func (d *driver) executorMatrix(x, wrong *controlledExecutor, caller, admin acco
 		return err
 	}
 	completed := executorPayload(request, "run.update", "completed", 2)
-	result := executorText(request.Input.Text)
+	result := executorText(request.Text())
 	if x.conn != nil {
 		completed["result_text"] = result
 	}
