@@ -6,13 +6,10 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/logic/bot"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-service/pb/bot"
-	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/consts"
-	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/interceptor"
 	common "github.com/maomeng/aim/pkg/pb/common"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -229,29 +226,14 @@ func runtimeUserID(ctx context.Context) string {
 	return ""
 }
 
-func userCallContext(ctx context.Context, userID string) context.Context {
-	md, _ := metadata.FromOutgoingContext(ctx)
-	md = md.Copy()
-	md.Set(consts.MetadataKeyUserID, userID)
-	return metadata.NewOutgoingContext(ctx, md)
+func (s *BotServer) StartRun(ctx context.Context, req *pb.StartRunReq) (*pb.RunResponse, error) {
+	return s.runtime.StartRun(ctx, req)
 }
 
-func requireConversation(ctx context.Context, svcCtx *svc.ServiceContext, userID, convID string) error {
-	if identity.Validate(userID) != nil {
-		return errors.New(errors.CodeUnauthorized, "missing authenticated user")
-	}
-	if identity.Validate(convID) != nil {
-		return errors.New(errors.CodeInvalidParam, "invalid conversation identity")
-	}
-	cli := msgpb.NewMessageServiceClient(svcCtx.MessageSvcConn.Conn())
-	_, err := cli.GetMembers(userCallContext(ctx, userID), &msgpb.GetMembersReq{
-		ConversationId: convID,
-		UserId:         &userID,
-		Pagination:     &common.Pagination{Page: 1, PageSize: 1},
-	})
-	return err
+func (s *BotServer) GetRun(ctx context.Context, req *pb.GetRunReq) (*pb.RunResponse, error) {
+	return s.runtime.GetRun(ctx, req)
 }
 
-func (s *BotServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStreamingServer[pb.StreamChatResp]) error {
-	return s.runtime.StreamChat(req, stream)
+func (s *BotServer) ListRuns(ctx context.Context, req *pb.ListRunsReq) (*pb.ListRunsResponse, error) {
+	return s.runtime.ListRuns(ctx, req)
 }

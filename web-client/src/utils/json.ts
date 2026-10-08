@@ -30,7 +30,7 @@ export function knowledgeSources(value: unknown): KnowledgeSource[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw new Error('知识来源必须是数组');
   return value.map((source) => {
-    if (!source || source.type !== 'rag' || typeof source.kb_name !== 'string' || typeof source.title !== 'string' || typeof source.content !== 'string') {
+    if (!source || source.type !== 'rag' || typeof source.kb_name !== 'string' || typeof source.title !== 'string' || (source.content !== undefined && typeof source.content !== 'string')) {
       throw new Error('知识来源格式无效');
     }
     return {
@@ -40,7 +40,7 @@ export function knowledgeSources(value: unknown): KnowledgeSource[] {
       chunk_id: entityId(source.chunk_id, 'source.chunk_id'),
       kb_name: source.kb_name,
       title: source.title,
-      content: source.content,
+      ...(source.content === undefined ? {} : { content: source.content }),
     };
   });
 }

@@ -21,13 +21,14 @@ import (
 )
 
 type providerObservations struct {
-	MCPLists     int      `json:"mcp_lists"`
-	ToolTexts    []string `json:"tool_texts"`
-	ChatModels   []string `json:"chat_models"`
-	EmbedModels  []string `json:"embed_models"`
-	RerankModels []string `json:"rerank_models"`
-	ActiveIngest int      `json:"active_ingest"`
-	ToolCallIDs  []string `json:"tool_call_ids"`
+	MCPLists     int                          `json:"mcp_lists"`
+	ToolTexts    []string                     `json:"tool_texts"`
+	ChatModels   []string                     `json:"chat_models"`
+	EmbedModels  []string                     `json:"embed_models"`
+	RerankModels []string                     `json:"rerank_models"`
+	ActiveIngest int                          `json:"active_ingest"`
+	ToolCallIDs  []string                     `json:"tool_call_ids"`
+	ChatRequests []map[string]json.RawMessage `json:"chat_requests"`
 }
 
 func (d *driver) observeProvider() (providerObservations, error) {
@@ -140,7 +141,7 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	if err := d.request(http.MethodPost, "/bots", owner.token, map[string]any{
 		"name": "p5-bot-" + suffix, "type": "self_deployed", "model_id": modelID,
 		"model_name": modelName, "system_prompt": "Use fixture_echo to echo the user's exact text before replying.",
-		"response_triggers": []string{"always"}, "streaming_enabled": crossInstance, "enable_knowledge": false,
+		"response_triggers": []string{"mention"}, "streaming_enabled": crossInstance, "enable_knowledge": false,
 	}, &bot); err != nil {
 		return err
 	}
@@ -157,7 +158,7 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	prompt := "P5 updated prompt: use fixture_echo before replying"
 	if err := d.request(http.MethodPut, path, owner.token, map[string]any{
 		"name": "p5-configured-" + suffix, "model_id": modelID, "system_prompt": prompt,
-		"response_triggers": []string{"always"}, "streaming_enabled": crossInstance, "enable_knowledge": false,
+		"response_triggers": []string{"mention"}, "streaming_enabled": crossInstance, "enable_knowledge": false,
 		"max_context_messages": 4, "temperature": 0.2,
 	}, nil); err != nil {
 		return err
@@ -166,7 +167,7 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	if err := d.request(http.MethodGet, path, owner.token, nil, &fetched); err != nil {
 		return err
 	}
-	if fetched.ID != bot.ID || fetched.Name != "p5-configured-"+suffix || fetched.Prompt != prompt || !hasEntityID(fetched.ModelID, modelID) || !slices.Equal(fetched.Triggers, []string{"always"}) {
+	if fetched.ID != bot.ID || fetched.Name != "p5-configured-"+suffix || fetched.Prompt != prompt || !hasEntityID(fetched.ModelID, modelID) || !slices.Equal(fetched.Triggers, []string{"mention"}) {
 		return errors.New("bot.config: GET没有返回刚持久化的配置")
 	}
 	if !fetched.Streaming && crossInstance || fetched.Streaming && !crossInstance || fetched.Temperature != 0.2 || fetched.MaxContext != 4 {
@@ -333,7 +334,7 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 		return err
 	}
 	text := "P5_BOT_REQUEST_" + suffix
-	sent, err := d.sendMessage(owner, conv.ID, text, 0)
+	sent, err := d.sendBotMention(owner, bot.ID, conv.ID, text)
 	if err != nil {
 		return err
 	}
@@ -570,7 +571,7 @@ func (d *driver) runtimeModelReferences(owner, outsider account, path string, bo
 		return errors.New("bot.references: clear未移除nullable模型引用")
 	}
 	if err := d.request(http.MethodPut, path, owner.token, map[string]any{
-		"model_id": chatID, "response_triggers": []string{"always"}, "streaming_enabled": streaming,
+		"model_id": chatID, "response_triggers": []string{"mention"}, "streaming_enabled": streaming,
 		"enable_knowledge": false, "max_context_messages": 4, "temperature": 0.2,
 	}, nil); err != nil {
 		return err
@@ -959,7 +960,7 @@ func (d *driver) runtimePrivateBotConversation(owner, outsider account, address 
 		return err
 	}
 	defer socket.close()
-	sent, err := d.sendMessage(outsider, conv.ID, "P5_BOT_REQUEST_"+suffix+"_single", 0)
+	sent, err := d.sendBotMention(outsider, botID, conv.ID, "P5_BOT_REQUEST_"+suffix+"_single")
 	if err != nil {
 		return err
 	}

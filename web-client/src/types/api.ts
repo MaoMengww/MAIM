@@ -168,6 +168,14 @@ export interface UpdateBotReq {
   clear_model_id?: boolean;
 }
 
+export interface StartRunReq {
+  conv_id: string;
+  submission_key: string;
+  message: string;
+  reply_to_msg_id?: string;
+  history_grant_id?: string;
+}
+
 // ─── MCP ───
 export interface CreateMcpServerReq {
   name: string;

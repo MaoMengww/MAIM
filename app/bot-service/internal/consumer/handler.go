@@ -4,413 +4,103 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+	"github.com/IBM/sarama"
 	"slices"
-	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/components/tool"
-	"github.com/cloudwego/eino/compose"
-	"github.com/cloudwego/eino/flow/agent/react"
-	"github.com/cloudwego/eino/schema"
-
-	"github.com/maomeng/aim/app/bot-service/internal/client"
-	"github.com/maomeng/aim/app/bot-service/internal/component"
-	"github.com/maomeng/aim/app/bot-service/internal/graph"
-	"github.com/maomeng/aim/app/bot-service/internal/metrics"
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
-	"github.com/maomeng/aim/app/bot-service/internal/stream"
-	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/app/bot-service/internal/run"
 	"github.com/maomeng/aim/pkg/identity"
-	"github.com/maomeng/aim/pkg/logx"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Handler struct {
-	logger      logx.Logger
-	botRepo     *repo.BotRepo
-	convBotRepo *repo.ConvBotRepo
-	llmClient   *client.LlmGatewayClient
-	retriever   component.Retriever
-	msgClient   graph.MsgClient
-	kbClient    graph.KbClient
-	convClient  interface {
-		GetConversationMembers(ctx context.Context, convID string) ([]string, error)
-	}
-	dedup          *Dedup
-	userNames      graph.UserNamesFunc
-	deliveryClient stream.DeliveryClient
+	bindings *repo.ConvBotRepo
+	bots     *repo.BotRepo
+	runs     *run.Service
 }
 
-func NewHandler(
-	logger logx.Logger,
-	botRepo *repo.BotRepo,
-	convBotRepo *repo.ConvBotRepo,
-	llmClient *client.LlmGatewayClient,
-	retriever component.Retriever,
-	msgClient graph.MsgClient,
-	kbClient graph.KbClient,
-	convClient interface {
-		GetConversationMembers(ctx context.Context, convID string) ([]string, error)
-	},
-	dedup *Dedup,
-	deliveryClient stream.DeliveryClient,
-	userNames ...graph.UserNamesFunc,
-) *Handler {
-	var un graph.UserNamesFunc
-	if len(userNames) > 0 {
-		un = userNames[0]
-	}
-	return &Handler{
-		logger:         logger,
-		botRepo:        botRepo,
-		convBotRepo:    convBotRepo,
-		llmClient:      llmClient,
-		retriever:      retriever,
-		msgClient:      msgClient,
-		kbClient:       kbClient,
-		convClient:     convClient,
-		dedup:          dedup,
-		deliveryClient: deliveryClient,
-		userNames:      un,
-	}
+func NewHandler(bots *repo.BotRepo, bindings *repo.ConvBotRepo, runs *run.Service) *Handler {
+	return &Handler{bindings: bindings, bots: bots, runs: runs}
 }
 
+func (h *Handler) Setup(sarama.ConsumerGroupSession) error   { return nil }
+func (h *Handler) Cleanup(sarama.ConsumerGroupSession) error { return nil }
+func (h *Handler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	for message := range claim.Messages() {
+		for {
+			if err := h.Handle(session.Context(), message.Value); err == nil {
+				break
+			}
+			select {
+			case <-session.Context().Done():
+				return session.Context().Err()
+			case <-time.After(time.Second):
+			}
+		}
+		session.MarkMessage(message, "")
+	}
+	return nil
+}
 func (h *Handler) Handle(ctx context.Context, raw []byte) error {
-	event, msgID, err := parseEvent(raw)
-	var source struct {
-		SenderType string `json:"sender_type"`
+	var envelope struct {
 		Kind       string `json:"kind"`
+		SenderType string `json:"sender_type"`
 	}
-	if err := json.Unmarshal(raw, &source); err != nil {
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil
+	}
+	if envelope.Kind != "" && envelope.Kind != "message.new" {
+		return nil
+	}
+	if envelope.SenderType == "bot" || envelope.SenderType == "system" {
+		return nil
+	}
+	event, _, err := parseEvent(raw)
+	if err != nil {
+		return nil
+	}
+	if event.Sender == nil || event.Sender.SenderType != "user" || event.Sender.UserID == nil || event.Message == nil {
+		return nil
+	}
+	if event.EventType != "" && event.EventType != "message.created" {
+		return nil
+	}
+	bindings, err := h.bindings.FindByConv(ctx, event.ConvID)
+	if err != nil {
 		return err
 	}
-	if source.Kind != "" && source.Kind != "message.new" {
-		return nil
-	}
-	if source.SenderType == "bot" || source.SenderType == "system" {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("parse event: %w", err)
-	}
-	if event.Sender != nil && (event.Sender.SenderType == "bot" || event.Sender.SenderType == "system") {
-		return nil
-	}
-
-	if event.BotID == "" && event.ConvID != "" && h.convBotRepo != nil {
-		bots, err := h.convBotRepo.FindByConv(ctx, event.ConvID)
+	for _, binding := range bindings {
+		if event.BotID != "" && event.BotID != binding.BotID {
+			continue
+		}
+		if event.BindingID != "" && event.BindingID != binding.ID {
+			continue
+		}
+		if event.Message.Seq <= binding.StartSeq {
+			continue
+		}
+		bot, err := h.bots.GetBot(ctx, binding.BotID)
 		if err != nil {
 			return err
 		}
-		for _, binding := range bots {
-			event.BotID = binding.BotID
-			event.BindingID = binding.ID
-			payload, err := json.Marshal(event)
-			if err != nil {
-				return err
-			}
-			if err := h.Handle(ctx, payload); err != nil {
-				return err
-			}
+		if bot.Type == "third_party" || bot.Status != "active" || !shouldRespond(event, bot) {
+			continue
 		}
-		return nil
-	}
-
-	if event.BotID == "" {
-		return nil
-	}
-
-	bot, convBot, err := h.botRepo.FindByIDWithConvBot(ctx, event.BotID, event.ConvID)
-	if err != nil {
-		return fmt.Errorf("bot/conv not found: %w", err)
-	}
-	if event.BindingID != "" && event.BindingID != convBot.ID {
-		return nil
-	}
-	if event.Message != nil && event.Message.Seq <= convBot.StartSeq {
-		return nil
-	}
-	event.BindingID = convBot.ID
-	var requesterID *string
-	if event.Sender != nil && event.Sender.SenderType == "user" {
-		requesterID = event.Sender.UserID
-	}
-	eventID := fmt.Sprintf("%s_%s_%s", msgID, event.EventType, convBot.ID)
-	isDup, err := h.dedup.IsDuplicate(ctx, eventID)
-	if err != nil {
-		return fmt.Errorf("dedup check failed: %w", err)
-	}
-	if isDup {
-		return nil
-	}
-
-	if bot.Status != "active" {
-		return nil
-	}
-
-	if bot.Type == "third_party" {
-		return nil
-	}
-	if bot.ModelID == nil {
-		return fmt.Errorf("bot %s chat model is not configured", bot.ID)
-	}
-	if !shouldRespond(event, bot) {
-		return nil
-	}
-
-	var mcpConfigs []model.MCPServerConfig
-	if mcpServers, mcpErr := h.botRepo.ListEnabledMcpServers(ctx, event.BotID); mcpErr == nil {
-		for _, srv := range mcpServers {
-			timeoutMs := 0
-			if srv.AdvancedConfig != nil {
-				timeoutMs = srv.AdvancedConfig.Timeout * 1000
-			}
-			mcpConfigs = append(mcpConfigs, model.MCPServerConfig{
-				Name:           srv.Name,
-				Transport:      srv.Transport,
-				URL:            srv.URL,
-				AuthConfig:     srv.AuthConfig,
-				AdvancedConfig: srv.AdvancedConfig,
-				TimeoutMs:      timeoutMs,
-			})
-		}
-	}
-
-	botIDStr := event.BotID
-	start := time.Now()
-
-	// ---- context building ----
-	resolver := graph.NewKnowledgeResolver(h.kbClient)
-	ctxNode := graph.NewBuildContextNode(bot, convBot, h.msgClient, resolver, h.logger, h.userNames)
-	ctxResult, err := ctxNode.Invoke(ctx, event)
-	if err != nil {
-		return fmt.Errorf("load conversation context: %w", err)
-	}
-
-	// ---- MCP tools ----
-	var mcpTools []tool.BaseTool
-	if len(mcpConfigs) > 0 {
-		tools, toolErr := component.GetMCPServerTools(ctx, mcpConfigs)
-		if toolErr != nil {
-			h.logger.WithContext(ctx).Errorf("mcp tools failed: bot_id=%s error=%v", event.BotID, toolErr)
-		} else {
-			mcpTools = tools
-			h.logger.WithContext(ctx).Infof("mcp tools loaded: bot_id=%s count=%d", event.BotID, len(tools))
-		}
-	}
-
-	// track used tools
-	var usedTools []string
-	toolMiddleware := compose.ToolMiddleware{
-		Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
-			return func(c context.Context, input *compose.ToolInput) (*compose.ToolOutput, error) {
-				usedTools = append(usedTools, input.Name)
-				return next(c, input)
-			}
-		},
-	}
-
-	einoChatModel := h.llmClient.NewEinoChatModel(*bot.ModelID, bot.ModelName, bot.OwnerID, bot.ID)
-
-	msgText := ""
-	if event != nil && event.Message != nil {
-		msgText = event.Message.Text
-	}
-
-	agent, err := react.NewAgent(ctx, &react.AgentConfig{
-		ToolCallingModel: einoChatModel,
-		ToolsConfig: compose.ToolsNodeConfig{
-			Tools:               mcpTools,
-			ToolCallMiddlewares: []compose.ToolMiddleware{toolMiddleware},
-		},
-		MessageModifier: func(c context.Context, msgs []*schema.Message) []*schema.Message {
-			result := make([]*schema.Message, 0, 2+len(ctxResult.ContextMsgs)+len(msgs))
-			if ctxResult.RenderedPrompt != "" {
-				result = append(result, &schema.Message{Role: schema.System, Content: ctxResult.RenderedPrompt})
-			}
-			result = append(result, ctxResult.ContextMsgs...)
-			result = append(result, msgs...)
-			return result
-		},
-		MaxStep: bot.MaxStep,
-	})
-	if err != nil {
-		return fmt.Errorf("create react agent: %w", err)
-	}
-
-	if bot.StreamingEnabled && h.deliveryClient != nil {
-		var replyToMsgID *string
-		if event.Message != nil {
-			replyToMsgID = &event.Message.MsgID
-		}
-		pusher := stream.NewDeliveryPusher(ctx, h.deliveryClient, event.ConvID, event.BotID, convBot.ID, requesterID, replyToMsgID)
-
-		stream, streamErr := agent.Stream(ctx, []*schema.Message{
-			{Role: schema.User, Content: msgText},
-		})
-		if streamErr != nil {
-			metrics.BotRequestsTotal.Inc(botIDStr, "error")
-			metrics.BotResponseSeconds.Observe(time.Since(start).Seconds(), botIDStr)
-			h.logger.WithContext(ctx).Errorf("agent stream failed: event_id=%s duration=%.3fs error=%v", eventID, time.Since(start).Seconds(), streamErr)
-
-			fallbackText := h.tryDirectGenerate(ctx, bot, ctxResult, msgText)
-			rawPayload := ""
-			if fallbackText != "" {
-				rawPayload = graph.BuildRawPayload(ctxResult.KbSources, usedTools)
-			}
-			if fallbackText == "" {
-				h.logger.WithContext(ctx).Infof("direct generate fallback also failed: event_id=%s", eventID)
-				fallbackText = fallbackForLanguage(event.Sender)
-			}
-			var replyTo *string
-			if event.Message != nil {
-				replyTo = &event.Message.MsgID
-			}
-			if _, fbErr := h.msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: event.BotID, ConversationId: event.ConvID, BindingId: convBot.ID, RequesterId: requesterID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: fallbackText, ReplyToId: replyTo, RawPayload: rawPayload}); fbErr != nil {
-				h.logger.WithContext(ctx).Errorf("send fallback failed: event_id=%s error=%v", eventID, fbErr)
-			}
-			return fmt.Errorf("agent stream: %w", streamErr)
-		}
-		defer stream.Close()
-
-		var fullText string
-		for {
-			chunk, recvErr := stream.Recv()
-			if recvErr == io.EOF {
-				break
-			}
-			if recvErr != nil {
-				return fmt.Errorf("agent stream receive: %w", recvErr)
-			}
-			if chunk != nil && chunk.Content != "" {
-				fullText += chunk.Content
-				if err := pusher.Send(&model.StreamChunk{
-					Type:    "chunk",
-					Content: chunk.Content,
-					ConvID:  event.ConvID,
-				}); err != nil {
-					return err
-				}
-			}
-		}
-
-		metrics.BotRequestsTotal.Inc(botIDStr, "success")
-		metrics.BotResponseSeconds.Observe(time.Since(start).Seconds(), botIDStr)
-
-		if fullText == "" {
-			return nil
-		}
-
-		rawPayload := graph.BuildRawPayload(ctxResult.KbSources, usedTools)
-
-		// Send knowledge sources
-		if len(ctxResult.KbSources) > 0 {
-			sourcesJSON, err := json.Marshal(ctxResult.KbSources)
-			if err != nil {
-				return err
-			}
-			if err := pusher.Send(&model.StreamChunk{
-				Type:    "sources",
-				Content: string(sourcesJSON),
-				ConvID:  event.ConvID,
-			}); err != nil {
+		source := event.Message.MsgID
+		_, err = h.runs.Accept(ctx, run.Input{BotID: binding.BotID, ConvID: event.ConvID, BindingID: binding.ID, RequesterID: *event.Sender.UserID, SubmissionKey: "message:" + source, Message: event.Message.Text, SourceMessageID: &source, ReplyToMsgID: event.Message.ReplyToMsgID, Language: event.Sender.Language})
+		if err != nil {
+			switch status.Code(err) {
+			case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.InvalidArgument, codes.FailedPrecondition, codes.AlreadyExists:
+				continue
+			default:
 				return err
 			}
 		}
-
-		// Send tool_used notification
-		if len(usedTools) > 0 {
-			_ = pusher.Send(&model.StreamChunk{
-				Type:    "tool_used",
-				Content: strings.Join(usedTools, ","),
-				ConvID:  event.ConvID,
-			})
-		}
-
-		respMsgID, sendErr := h.msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: event.BotID, ConversationId: event.ConvID, BindingId: convBot.ID, RequesterId: requesterID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: fullText, ReplyToId: replyToMsgID, RawPayload: rawPayload})
-		if sendErr != nil {
-			h.logger.WithContext(ctx).Errorf("send reply failed: event_id=%s error=%v", eventID, sendErr)
-			return fmt.Errorf("send bot reply: %w", sendErr)
-		}
-		if err := pusher.Send(&model.StreamChunk{Type: "done", Content: fullText, MessageID: respMsgID, ConvID: event.ConvID}); err != nil {
-			return err
-		}
-
-		h.logger.WithContext(ctx).Infof("stream reply sent: event_id=%s bot_id=%s conv_id=%s msg_id=%s", eventID, event.BotID, event.ConvID, respMsgID)
-		metrics.BotReplyMessagesTotal.Inc(botIDStr)
-		return nil
 	}
-
-	// Non-streaming path
-	msg, genErr := agent.Generate(ctx, []*schema.Message{
-		{Role: schema.User, Content: msgText},
-	})
-	duration := time.Since(start).Seconds()
-	if genErr != nil {
-		metrics.BotRequestsTotal.Inc(botIDStr, "error")
-		metrics.BotResponseSeconds.Observe(duration, botIDStr)
-		h.logger.WithContext(ctx).Errorf("agent generate failed: event_id=%s duration=%.3fs error=%v", eventID, duration, genErr)
-		fallbackText := h.tryDirectGenerate(ctx, bot, ctxResult, msgText)
-		rawPayload := ""
-		if fallbackText != "" {
-			rawPayload = graph.BuildRawPayload(ctxResult.KbSources, usedTools)
-		}
-		if fallbackText == "" {
-			h.logger.WithContext(ctx).Infof("direct generate fallback also failed: event_id=%s", eventID)
-			fallbackText = fallbackForLanguage(event.Sender)
-		}
-		var replyTo *string
-		if event.Message != nil {
-			replyTo = &event.Message.MsgID
-		}
-		if _, fbErr := h.msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: event.BotID, ConversationId: event.ConvID, BindingId: convBot.ID, RequesterId: requesterID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: fallbackText, ReplyToId: replyTo, RawPayload: rawPayload}); fbErr != nil {
-			h.logger.WithContext(ctx).Errorf("send fallback failed: event_id=%s error=%v", eventID, fbErr)
-		}
-		return fmt.Errorf("agent generate: %w", genErr)
-	}
-
-	metrics.BotRequestsTotal.Inc(botIDStr, "success")
-	metrics.BotResponseSeconds.Observe(duration, botIDStr)
-
-	finalText := msg.Content
-	if finalText == "" {
-		return nil
-	}
-
-	var replyTo *string
-	if event.Message != nil {
-		replyTo = &event.Message.MsgID
-	}
-	rawPayload := graph.BuildRawPayload(ctxResult.KbSources, usedTools)
-
-	if _, sendErr := h.msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: event.BotID, ConversationId: event.ConvID, BindingId: convBot.ID, RequesterId: requesterID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: finalText, ReplyToId: replyTo, RawPayload: rawPayload}); sendErr != nil {
-		h.logger.WithContext(ctx).Errorf("send reply failed: event_id=%s error=%v", eventID, sendErr)
-		return fmt.Errorf("send bot reply: %w", sendErr)
-	}
-
-	h.logger.WithContext(ctx).Infof("reply sent: event_id=%s bot_id=%s conv_id=%s", eventID, event.BotID, event.ConvID)
-	metrics.BotReplyMessagesTotal.Inc(botIDStr)
 	return nil
-}
-
-// tryDirectGenerate calls the model without tools as a fallback when ReAct agent fails.
-func (h *Handler) tryDirectGenerate(ctx context.Context, bot *model.Bot, ctxResult *graph.BuildContextResult, msgText string) string {
-	if msgText == "" {
-		return ""
-	}
-	chatModel := h.llmClient.NewEinoChatModel(*bot.ModelID, bot.ModelName, bot.OwnerID, bot.ID)
-	msgs := make([]*schema.Message, 0, 2+len(ctxResult.ContextMsgs))
-	if ctxResult.RenderedPrompt != "" {
-		msgs = append(msgs, &schema.Message{Role: schema.System, Content: ctxResult.RenderedPrompt})
-	}
-	msgs = append(msgs, ctxResult.ContextMsgs...)
-	msgs = append(msgs, &schema.Message{Role: schema.User, Content: msgText})
-	result, err := chatModel.Generate(ctx, msgs)
-	if err != nil || result == nil {
-		return ""
-	}
-	return result.Content
 }
 
 // parseEvent parses a Kafka message.created event, handling both nested (BotEvent)
@@ -465,47 +155,8 @@ func parseEvent(raw []byte) (*model.BotEvent, string, error) {
 	return &evt, evt.Message.MsgID, nil
 }
 
-// fallbackForLanguage returns a fallback message in the user's language.
-func fallbackForLanguage(sender *model.EventSender) string {
-	lang := ""
-	if sender != nil {
-		lang = sender.Language
-	}
-	switch lang {
-	case "zh-CN":
-		return "抱歉，我暂时无法回答，请稍后再试。"
-	case "ja-JP":
-		return "申し訳ありません。一時的に回答できません。後でもう一度お試しください。"
-	case "ko-KR":
-		return "죄송합니다. 지금은 답변할 수 없습니다. 나중에 다시 시도해주세요."
-	default:
-		return "Sorry, I am unable to answer right now. Please try again later."
-	}
-}
-
+// Only a mention of this Bot accepts new builtin work; merely observing activity
+// or arbitrary mentions, keywords and Bot replies cannot authorize execution.
 func shouldRespond(event *model.BotEvent, bot *model.Bot) bool {
-	if bot == nil || len(bot.ResponseTriggers) == 0 {
-		return false
-	}
-	for _, trigger := range bot.ResponseTriggers {
-		switch {
-		case trigger == "always":
-			return true
-		case trigger == "mention":
-			if slices.Contains(event.MentionedUserIDs, bot.ID) {
-				return true
-			}
-		case strings.HasPrefix(trigger, "keyword:"):
-			keyword := strings.TrimPrefix(trigger, "keyword:")
-			if event.Message != nil && strings.Contains(event.Message.Text, keyword) {
-				return true
-			}
-		case strings.HasPrefix(trigger, "event:"):
-			eventType := strings.TrimPrefix(trigger, "event:")
-			if event.EventType == eventType {
-				return true
-			}
-		}
-	}
-	return false
+	return bot != nil && event != nil && event.Message != nil && slices.Contains(event.MentionedUserIDs, bot.ID)
 }

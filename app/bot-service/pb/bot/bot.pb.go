@@ -3179,31 +3179,32 @@ func (x *GetBotWebhookConfigResp) GetType() string {
 	return ""
 }
 
-type StreamChatReq struct {
+type StartRunReq struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	BotId          string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
 	ConvId         string                 `protobuf:"bytes,2,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
-	Message        string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	ReplyToMsgId   *string                `protobuf:"bytes,4,opt,name=reply_to_msg_id,json=replyToMsgId,proto3,oneof" json:"reply_to_msg_id,omitempty"`     // 可选
-	HistoryGrantId *string                `protobuf:"bytes,5,opt,name=history_grant_id,json=historyGrantId,proto3,oneof" json:"history_grant_id,omitempty"` // 仅显式授权的会话历史范围
+	SubmissionKey  string                 `protobuf:"bytes,3,opt,name=submission_key,json=submissionKey,proto3" json:"submission_key,omitempty"`
+	Message        string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	ReplyToMsgId   *string                `protobuf:"bytes,5,opt,name=reply_to_msg_id,json=replyToMsgId,proto3,oneof" json:"reply_to_msg_id,omitempty"`
+	HistoryGrantId *string                `protobuf:"bytes,6,opt,name=history_grant_id,json=historyGrantId,proto3,oneof" json:"history_grant_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
-func (x *StreamChatReq) Reset() {
-	*x = StreamChatReq{}
+func (x *StartRunReq) Reset() {
+	*x = StartRunReq{}
 	mi := &file_bot_bot_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StreamChatReq) String() string {
+func (x *StartRunReq) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StreamChatReq) ProtoMessage() {}
+func (*StartRunReq) ProtoMessage() {}
 
-func (x *StreamChatReq) ProtoReflect() protoreflect.Message {
+func (x *StartRunReq) ProtoReflect() protoreflect.Message {
 	mi := &file_bot_bot_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3215,71 +3216,74 @@ func (x *StreamChatReq) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StreamChatReq.ProtoReflect.Descriptor instead.
-func (*StreamChatReq) Descriptor() ([]byte, []int) {
+// Deprecated: Use StartRunReq.ProtoReflect.Descriptor instead.
+func (*StartRunReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{37}
 }
 
-func (x *StreamChatReq) GetBotId() string {
+func (x *StartRunReq) GetBotId() string {
 	if x != nil {
 		return x.BotId
 	}
 	return ""
 }
 
-func (x *StreamChatReq) GetConvId() string {
+func (x *StartRunReq) GetConvId() string {
 	if x != nil {
 		return x.ConvId
 	}
 	return ""
 }
 
-func (x *StreamChatReq) GetMessage() string {
+func (x *StartRunReq) GetSubmissionKey() string {
+	if x != nil {
+		return x.SubmissionKey
+	}
+	return ""
+}
+
+func (x *StartRunReq) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
 	return ""
 }
 
-func (x *StreamChatReq) GetReplyToMsgId() string {
+func (x *StartRunReq) GetReplyToMsgId() string {
 	if x != nil && x.ReplyToMsgId != nil {
 		return *x.ReplyToMsgId
 	}
 	return ""
 }
 
-func (x *StreamChatReq) GetHistoryGrantId() string {
+func (x *StartRunReq) GetHistoryGrantId() string {
 	if x != nil && x.HistoryGrantId != nil {
 		return *x.HistoryGrantId
 	}
 	return ""
 }
 
-type StreamChatResp struct {
+type GetRunReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`                                  // "chunk" | "tool_call" | "tool_result" | "done" | "error"
-	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`                            // 文本增量 / 工具结果
-	ToolName      string                 `protobuf:"bytes,3,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"`          // tool_call / tool_result 时用
-	MessageId     *string                `protobuf:"bytes,4,opt,name=message_id,json=messageId,proto3,oneof" json:"message_id,omitempty"` // done 时返回
-	ConvId        string                 `protobuf:"bytes,5,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StreamChatResp) Reset() {
-	*x = StreamChatResp{}
+func (x *GetRunReq) Reset() {
+	*x = GetRunReq{}
 	mi := &file_bot_bot_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StreamChatResp) String() string {
+func (x *GetRunReq) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StreamChatResp) ProtoMessage() {}
+func (*GetRunReq) ProtoMessage() {}
 
-func (x *StreamChatResp) ProtoReflect() protoreflect.Message {
+func (x *GetRunReq) ProtoReflect() protoreflect.Message {
 	mi := &file_bot_bot_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3291,42 +3295,154 @@ func (x *StreamChatResp) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StreamChatResp.ProtoReflect.Descriptor instead.
-func (*StreamChatResp) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetRunReq.ProtoReflect.Descriptor instead.
+func (*GetRunReq) Descriptor() ([]byte, []int) {
 	return file_bot_bot_proto_rawDescGZIP(), []int{38}
 }
 
-func (x *StreamChatResp) GetType() string {
+func (x *GetRunReq) GetRunId() string {
 	if x != nil {
-		return x.Type
+		return x.RunId
 	}
 	return ""
 }
 
-func (x *StreamChatResp) GetContent() string {
+type ListRunsReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ConvId        string                 `protobuf:"bytes,1,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRunsReq) Reset() {
+	*x = ListRunsReq{}
+	mi := &file_bot_bot_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRunsReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRunsReq) ProtoMessage() {}
+
+func (x *ListRunsReq) ProtoReflect() protoreflect.Message {
+	mi := &file_bot_bot_proto_msgTypes[39]
 	if x != nil {
-		return x.Content
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
 	}
-	return ""
+	return mi.MessageOf(x)
 }
 
-func (x *StreamChatResp) GetToolName() string {
-	if x != nil {
-		return x.ToolName
-	}
-	return ""
+// Deprecated: Use ListRunsReq.ProtoReflect.Descriptor instead.
+func (*ListRunsReq) Descriptor() ([]byte, []int) {
+	return file_bot_bot_proto_rawDescGZIP(), []int{39}
 }
 
-func (x *StreamChatResp) GetMessageId() string {
-	if x != nil && x.MessageId != nil {
-		return *x.MessageId
-	}
-	return ""
-}
-
-func (x *StreamChatResp) GetConvId() string {
+func (x *ListRunsReq) GetConvId() string {
 	if x != nil {
 		return x.ConvId
+	}
+	return ""
+}
+
+func (x *ListRunsReq) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type RunResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunJson       string                 `protobuf:"bytes,1,opt,name=run_json,json=runJson,proto3" json:"run_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunResponse) Reset() {
+	*x = RunResponse{}
+	mi := &file_bot_bot_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunResponse) ProtoMessage() {}
+
+func (x *RunResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bot_bot_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunResponse.ProtoReflect.Descriptor instead.
+func (*RunResponse) Descriptor() ([]byte, []int) {
+	return file_bot_bot_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *RunResponse) GetRunJson() string {
+	if x != nil {
+		return x.RunJson
+	}
+	return ""
+}
+
+type ListRunsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunsJson      string                 `protobuf:"bytes,1,opt,name=runs_json,json=runsJson,proto3" json:"runs_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRunsResponse) Reset() {
+	*x = ListRunsResponse{}
+	mi := &file_bot_bot_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRunsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRunsResponse) ProtoMessage() {}
+
+func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bot_bot_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRunsResponse.ProtoReflect.Descriptor instead.
+func (*ListRunsResponse) Descriptor() ([]byte, []int) {
+	return file_bot_bot_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *ListRunsResponse) GetRunsJson() string {
+	if x != nil {
+		return x.RunsJson
 	}
 	return ""
 }
@@ -3636,23 +3752,25 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\fcallback_url\x18\x02 \x01(\tR\vcallbackUrl\x12%\n" +
 	"\x0ewebhook_secret\x18\x03 \x01(\tR\rwebhookSecret\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x12\x12\n" +
-	"\x04type\x18\x05 \x01(\tR\x04type\"\xfd\x01\n" +
-	"\rStreamChatReq\x12\x1d\n" +
+	"\x04type\x18\x05 \x01(\tR\x04type\"\xaa\x02\n" +
+	"\vStartRunReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
-	"\aconv_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\x122\n" +
-	"\x0freply_to_msg_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\freplyToMsgId\x88\x01\x01\x125\n" +
-	"\x10history_grant_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x0ehistoryGrantId\x88\x01\x01B\x12\n" +
+	"\aconv_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12-\n" +
+	"\x0esubmission_key\x18\x03 \x01(\tB\x06\x98\xb8\xbf\x99\x0f\x01R\rsubmissionKey\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x122\n" +
+	"\x0freply_to_msg_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\freplyToMsgId\x88\x01\x01\x125\n" +
+	"\x10history_grant_id\x18\x06 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x0ehistoryGrantId\x88\x01\x01B\x12\n" +
 	"\x10_reply_to_msg_idB\x13\n" +
-	"\x11_history_grant_id\"\xb7\x01\n" +
-	"\x0eStreamChatResp\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1b\n" +
-	"\ttool_name\x18\x03 \x01(\tR\btoolName\x12*\n" +
-	"\n" +
-	"message_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\tmessageId\x88\x01\x01\x12\x1f\n" +
-	"\aconv_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convIdB\r\n" +
-	"\v_message_id*p\n" +
+	"\x11_history_grant_id\"*\n" +
+	"\tGetRunReq\x12\x1d\n" +
+	"\x06run_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05runId\"D\n" +
+	"\vListRunsReq\x12\x1f\n" +
+	"\aconv_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"(\n" +
+	"\vRunResponse\x12\x19\n" +
+	"\brun_json\x18\x01 \x01(\tR\arunJson\"/\n" +
+	"\x10ListRunsResponse\x12\x1b\n" +
+	"\truns_json\x18\x01 \x01(\tR\brunsJson*p\n" +
 	"\aBotType\x12\x18\n" +
 	"\x14BOT_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11BOT_TYPE_OFFICIAL\x10\x01\x12\x1a\n" +
@@ -3665,11 +3783,12 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\bConnMode\x12\x19\n" +
 	"\x15CONN_MODE_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fCONN_MODE_WS\x10\x01\x12\x15\n" +
-	"\x11CONN_MODE_WEBHOOK\x10\x022\x96\v\n" +
+	"\x11CONN_MODE_WEBHOOK\x10\x022\xee\v\n" +
 	"\n" +
-	"BotService\x127\n" +
-	"\n" +
-	"StreamChat\x12\x12.bot.StreamChatReq\x1a\x13.bot.StreamChatResp0\x01\x12(\n" +
+	"BotService\x12.\n" +
+	"\bStartRun\x12\x10.bot.StartRunReq\x1a\x10.bot.RunResponse\x12*\n" +
+	"\x06GetRun\x12\x0e.bot.GetRunReq\x1a\x10.bot.RunResponse\x123\n" +
+	"\bListRuns\x12\x10.bot.ListRunsReq\x1a\x15.bot.ListRunsResponse\x12(\n" +
 	"\tCreateBot\x12\x11.bot.CreateBotReq\x1a\b.bot.Bot\x12(\n" +
 	"\tUpdateBot\x12\x11.bot.UpdateBotReq\x1a\b.bot.Bot\x124\n" +
 	"\tDeleteBot\x12\x11.bot.DeleteBotReq\x1a\x14.common.BaseResponse\x12\"\n" +
@@ -3706,7 +3825,7 @@ func file_bot_bot_proto_rawDescGZIP() []byte {
 }
 
 var file_bot_bot_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_bot_bot_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
+var file_bot_bot_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
 var file_bot_bot_proto_goTypes = []any{
 	(BotType)(0),                    // 0: bot.BotType
 	(BotStatus)(0),                  // 1: bot.BotStatus
@@ -3748,71 +3867,78 @@ var file_bot_bot_proto_goTypes = []any{
 	(*BatchGetBotsResp)(nil),        // 37: bot.BatchGetBotsResp
 	(*GetBotWebhookConfigReq)(nil),  // 38: bot.GetBotWebhookConfigReq
 	(*GetBotWebhookConfigResp)(nil), // 39: bot.GetBotWebhookConfigResp
-	(*StreamChatReq)(nil),           // 40: bot.StreamChatReq
-	(*StreamChatResp)(nil),          // 41: bot.StreamChatResp
-	(*common.Pagination)(nil),       // 42: common.Pagination
-	(*common.PaginationResp)(nil),   // 43: common.PaginationResp
-	(*common.BaseResponse)(nil),     // 44: common.BaseResponse
+	(*StartRunReq)(nil),             // 40: bot.StartRunReq
+	(*GetRunReq)(nil),               // 41: bot.GetRunReq
+	(*ListRunsReq)(nil),             // 42: bot.ListRunsReq
+	(*RunResponse)(nil),             // 43: bot.RunResponse
+	(*ListRunsResponse)(nil),        // 44: bot.ListRunsResponse
+	(*common.Pagination)(nil),       // 45: common.Pagination
+	(*common.PaginationResp)(nil),   // 46: common.PaginationResp
+	(*common.BaseResponse)(nil),     // 47: common.BaseResponse
 }
 var file_bot_bot_proto_depIdxs = []int32{
-	42, // 0: bot.ListBotsReq.pagination:type_name -> common.Pagination
+	45, // 0: bot.ListBotsReq.pagination:type_name -> common.Pagination
 	3,  // 1: bot.ListBotsResp.bots:type_name -> bot.Bot
-	43, // 2: bot.ListBotsResp.pagination:type_name -> common.PaginationResp
-	42, // 3: bot.ListMcpServersReq.pagination:type_name -> common.Pagination
+	46, // 2: bot.ListBotsResp.pagination:type_name -> common.PaginationResp
+	45, // 3: bot.ListMcpServersReq.pagination:type_name -> common.Pagination
 	18, // 4: bot.ListMcpServersResp.servers:type_name -> bot.McpServerInfo
-	43, // 5: bot.ListMcpServersResp.pagination:type_name -> common.PaginationResp
+	46, // 5: bot.ListMcpServersResp.pagination:type_name -> common.PaginationResp
 	28, // 6: bot.ListBotMcpServersResp.servers:type_name -> bot.BotMcpServerInfo
 	31, // 7: bot.DiscoverMcpToolsResp.tools:type_name -> bot.McpToolInfo
 	31, // 8: bot.ListMcpToolsResp.tools:type_name -> bot.McpToolInfo
 	3,  // 9: bot.BatchGetBotsResp.bots:type_name -> bot.Bot
-	40, // 10: bot.BotService.StreamChat:input_type -> bot.StreamChatReq
-	4,  // 11: bot.BotService.CreateBot:input_type -> bot.CreateBotReq
-	5,  // 12: bot.BotService.UpdateBot:input_type -> bot.UpdateBotReq
-	6,  // 13: bot.BotService.DeleteBot:input_type -> bot.DeleteBotReq
-	7,  // 14: bot.BotService.GetBot:input_type -> bot.GetBotReq
-	8,  // 15: bot.BotService.ListBots:input_type -> bot.ListBotsReq
-	10, // 16: bot.BotService.RotateSecret:input_type -> bot.RotateSecretReq
-	12, // 17: bot.BotService.HandleIncomingWebhook:input_type -> bot.WebhookReq
-	14, // 18: bot.BotService.IssueBotToken:input_type -> bot.IssueBotTokenReq
-	16, // 19: bot.BotService.ValidateBotToken:input_type -> bot.ValidateBotTokenReq
-	19, // 20: bot.BotService.CreateMcpServer:input_type -> bot.CreateMcpServerReq
-	20, // 21: bot.BotService.UpdateMcpServer:input_type -> bot.UpdateMcpServerReq
-	21, // 22: bot.BotService.DeleteMcpServer:input_type -> bot.DeleteMcpServerReq
-	22, // 23: bot.BotService.GetMcpServer:input_type -> bot.GetMcpServerReq
-	23, // 24: bot.BotService.ListMcpServers:input_type -> bot.ListMcpServersReq
-	25, // 25: bot.BotService.AssignMcpToBot:input_type -> bot.AssignMcpToBotReq
-	26, // 26: bot.BotService.UnassignMcpFromBot:input_type -> bot.UnassignMcpFromBotReq
-	27, // 27: bot.BotService.ListBotMcpServers:input_type -> bot.ListBotMcpServersReq
-	30, // 28: bot.BotService.UpdateBotMcpServer:input_type -> bot.UpdateBotMcpServerReq
-	32, // 29: bot.BotService.DiscoverMcpTools:input_type -> bot.DiscoverMcpToolsReq
-	34, // 30: bot.BotService.ListMcpTools:input_type -> bot.ListMcpToolsReq
-	36, // 31: bot.BotService.BatchGetBots:input_type -> bot.BatchGetBotsReq
-	38, // 32: bot.BotService.GetBotWebhookConfig:input_type -> bot.GetBotWebhookConfigReq
-	41, // 33: bot.BotService.StreamChat:output_type -> bot.StreamChatResp
-	3,  // 34: bot.BotService.CreateBot:output_type -> bot.Bot
-	3,  // 35: bot.BotService.UpdateBot:output_type -> bot.Bot
-	44, // 36: bot.BotService.DeleteBot:output_type -> common.BaseResponse
-	3,  // 37: bot.BotService.GetBot:output_type -> bot.Bot
-	9,  // 38: bot.BotService.ListBots:output_type -> bot.ListBotsResp
-	11, // 39: bot.BotService.RotateSecret:output_type -> bot.RotateSecretResp
-	13, // 40: bot.BotService.HandleIncomingWebhook:output_type -> bot.WebhookResp
-	15, // 41: bot.BotService.IssueBotToken:output_type -> bot.IssueBotTokenResp
-	17, // 42: bot.BotService.ValidateBotToken:output_type -> bot.ValidateBotTokenResp
-	18, // 43: bot.BotService.CreateMcpServer:output_type -> bot.McpServerInfo
-	18, // 44: bot.BotService.UpdateMcpServer:output_type -> bot.McpServerInfo
-	44, // 45: bot.BotService.DeleteMcpServer:output_type -> common.BaseResponse
-	18, // 46: bot.BotService.GetMcpServer:output_type -> bot.McpServerInfo
-	24, // 47: bot.BotService.ListMcpServers:output_type -> bot.ListMcpServersResp
-	44, // 48: bot.BotService.AssignMcpToBot:output_type -> common.BaseResponse
-	44, // 49: bot.BotService.UnassignMcpFromBot:output_type -> common.BaseResponse
-	29, // 50: bot.BotService.ListBotMcpServers:output_type -> bot.ListBotMcpServersResp
-	44, // 51: bot.BotService.UpdateBotMcpServer:output_type -> common.BaseResponse
-	33, // 52: bot.BotService.DiscoverMcpTools:output_type -> bot.DiscoverMcpToolsResp
-	35, // 53: bot.BotService.ListMcpTools:output_type -> bot.ListMcpToolsResp
-	37, // 54: bot.BotService.BatchGetBots:output_type -> bot.BatchGetBotsResp
-	39, // 55: bot.BotService.GetBotWebhookConfig:output_type -> bot.GetBotWebhookConfigResp
-	33, // [33:56] is the sub-list for method output_type
-	10, // [10:33] is the sub-list for method input_type
+	40, // 10: bot.BotService.StartRun:input_type -> bot.StartRunReq
+	41, // 11: bot.BotService.GetRun:input_type -> bot.GetRunReq
+	42, // 12: bot.BotService.ListRuns:input_type -> bot.ListRunsReq
+	4,  // 13: bot.BotService.CreateBot:input_type -> bot.CreateBotReq
+	5,  // 14: bot.BotService.UpdateBot:input_type -> bot.UpdateBotReq
+	6,  // 15: bot.BotService.DeleteBot:input_type -> bot.DeleteBotReq
+	7,  // 16: bot.BotService.GetBot:input_type -> bot.GetBotReq
+	8,  // 17: bot.BotService.ListBots:input_type -> bot.ListBotsReq
+	10, // 18: bot.BotService.RotateSecret:input_type -> bot.RotateSecretReq
+	12, // 19: bot.BotService.HandleIncomingWebhook:input_type -> bot.WebhookReq
+	14, // 20: bot.BotService.IssueBotToken:input_type -> bot.IssueBotTokenReq
+	16, // 21: bot.BotService.ValidateBotToken:input_type -> bot.ValidateBotTokenReq
+	19, // 22: bot.BotService.CreateMcpServer:input_type -> bot.CreateMcpServerReq
+	20, // 23: bot.BotService.UpdateMcpServer:input_type -> bot.UpdateMcpServerReq
+	21, // 24: bot.BotService.DeleteMcpServer:input_type -> bot.DeleteMcpServerReq
+	22, // 25: bot.BotService.GetMcpServer:input_type -> bot.GetMcpServerReq
+	23, // 26: bot.BotService.ListMcpServers:input_type -> bot.ListMcpServersReq
+	25, // 27: bot.BotService.AssignMcpToBot:input_type -> bot.AssignMcpToBotReq
+	26, // 28: bot.BotService.UnassignMcpFromBot:input_type -> bot.UnassignMcpFromBotReq
+	27, // 29: bot.BotService.ListBotMcpServers:input_type -> bot.ListBotMcpServersReq
+	30, // 30: bot.BotService.UpdateBotMcpServer:input_type -> bot.UpdateBotMcpServerReq
+	32, // 31: bot.BotService.DiscoverMcpTools:input_type -> bot.DiscoverMcpToolsReq
+	34, // 32: bot.BotService.ListMcpTools:input_type -> bot.ListMcpToolsReq
+	36, // 33: bot.BotService.BatchGetBots:input_type -> bot.BatchGetBotsReq
+	38, // 34: bot.BotService.GetBotWebhookConfig:input_type -> bot.GetBotWebhookConfigReq
+	43, // 35: bot.BotService.StartRun:output_type -> bot.RunResponse
+	43, // 36: bot.BotService.GetRun:output_type -> bot.RunResponse
+	44, // 37: bot.BotService.ListRuns:output_type -> bot.ListRunsResponse
+	3,  // 38: bot.BotService.CreateBot:output_type -> bot.Bot
+	3,  // 39: bot.BotService.UpdateBot:output_type -> bot.Bot
+	47, // 40: bot.BotService.DeleteBot:output_type -> common.BaseResponse
+	3,  // 41: bot.BotService.GetBot:output_type -> bot.Bot
+	9,  // 42: bot.BotService.ListBots:output_type -> bot.ListBotsResp
+	11, // 43: bot.BotService.RotateSecret:output_type -> bot.RotateSecretResp
+	13, // 44: bot.BotService.HandleIncomingWebhook:output_type -> bot.WebhookResp
+	15, // 45: bot.BotService.IssueBotToken:output_type -> bot.IssueBotTokenResp
+	17, // 46: bot.BotService.ValidateBotToken:output_type -> bot.ValidateBotTokenResp
+	18, // 47: bot.BotService.CreateMcpServer:output_type -> bot.McpServerInfo
+	18, // 48: bot.BotService.UpdateMcpServer:output_type -> bot.McpServerInfo
+	47, // 49: bot.BotService.DeleteMcpServer:output_type -> common.BaseResponse
+	18, // 50: bot.BotService.GetMcpServer:output_type -> bot.McpServerInfo
+	24, // 51: bot.BotService.ListMcpServers:output_type -> bot.ListMcpServersResp
+	47, // 52: bot.BotService.AssignMcpToBot:output_type -> common.BaseResponse
+	47, // 53: bot.BotService.UnassignMcpFromBot:output_type -> common.BaseResponse
+	29, // 54: bot.BotService.ListBotMcpServers:output_type -> bot.ListBotMcpServersResp
+	47, // 55: bot.BotService.UpdateBotMcpServer:output_type -> common.BaseResponse
+	33, // 56: bot.BotService.DiscoverMcpTools:output_type -> bot.DiscoverMcpToolsResp
+	35, // 57: bot.BotService.ListMcpTools:output_type -> bot.ListMcpToolsResp
+	37, // 58: bot.BotService.BatchGetBots:output_type -> bot.BatchGetBotsResp
+	39, // 59: bot.BotService.GetBotWebhookConfig:output_type -> bot.GetBotWebhookConfigResp
+	35, // [35:60] is the sub-list for method output_type
+	10, // [10:35] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
 	10, // [10:10] is the sub-list for extension extendee
 	0,  // [0:10] is the sub-list for field type_name
@@ -3833,14 +3959,13 @@ func file_bot_bot_proto_init() {
 	file_bot_bot_proto_msgTypes[15].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[16].OneofWrappers = []any{}
 	file_bot_bot_proto_msgTypes[37].OneofWrappers = []any{}
-	file_bot_bot_proto_msgTypes[38].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bot_bot_proto_rawDesc), len(file_bot_bot_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   39,
+			NumMessages:   42,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

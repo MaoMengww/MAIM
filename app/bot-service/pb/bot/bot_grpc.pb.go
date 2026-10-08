@@ -20,7 +20,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	BotService_StreamChat_FullMethodName            = "/bot.BotService/StreamChat"
+	BotService_StartRun_FullMethodName              = "/bot.BotService/StartRun"
+	BotService_GetRun_FullMethodName                = "/bot.BotService/GetRun"
+	BotService_ListRuns_FullMethodName              = "/bot.BotService/ListRuns"
 	BotService_CreateBot_FullMethodName             = "/bot.BotService/CreateBot"
 	BotService_UpdateBot_FullMethodName             = "/bot.BotService/UpdateBot"
 	BotService_DeleteBot_FullMethodName             = "/bot.BotService/DeleteBot"
@@ -49,7 +51,9 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BotServiceClient interface {
-	StreamChat(ctx context.Context, in *StreamChatReq, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamChatResp], error)
+	StartRun(ctx context.Context, in *StartRunReq, opts ...grpc.CallOption) (*RunResponse, error)
+	GetRun(ctx context.Context, in *GetRunReq, opts ...grpc.CallOption) (*RunResponse, error)
+	ListRuns(ctx context.Context, in *ListRunsReq, opts ...grpc.CallOption) (*ListRunsResponse, error)
 	// Bot CRUD
 	CreateBot(ctx context.Context, in *CreateBotReq, opts ...grpc.CallOption) (*Bot, error)
 	UpdateBot(ctx context.Context, in *UpdateBotReq, opts ...grpc.CallOption) (*Bot, error)
@@ -90,24 +94,35 @@ func NewBotServiceClient(cc grpc.ClientConnInterface) BotServiceClient {
 	return &botServiceClient{cc}
 }
 
-func (c *botServiceClient) StreamChat(ctx context.Context, in *StreamChatReq, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamChatResp], error) {
+func (c *botServiceClient) StartRun(ctx context.Context, in *StartRunReq, opts ...grpc.CallOption) (*RunResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &BotService_ServiceDesc.Streams[0], BotService_StreamChat_FullMethodName, cOpts...)
+	out := new(RunResponse)
+	err := c.cc.Invoke(ctx, BotService_StartRun_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[StreamChatReq, StreamChatResp]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
+	return out, nil
 }
 
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type BotService_StreamChatClient = grpc.ServerStreamingClient[StreamChatResp]
+func (c *botServiceClient) GetRun(ctx context.Context, in *GetRunReq, opts ...grpc.CallOption) (*RunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunResponse)
+	err := c.cc.Invoke(ctx, BotService_GetRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *botServiceClient) ListRuns(ctx context.Context, in *ListRunsReq, opts ...grpc.CallOption) (*ListRunsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRunsResponse)
+	err := c.cc.Invoke(ctx, BotService_ListRuns_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func (c *botServiceClient) CreateBot(ctx context.Context, in *CreateBotReq, opts ...grpc.CallOption) (*Bot, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -333,7 +348,9 @@ func (c *botServiceClient) GetBotWebhookConfig(ctx context.Context, in *GetBotWe
 // All implementations must embed UnimplementedBotServiceServer
 // for forward compatibility.
 type BotServiceServer interface {
-	StreamChat(*StreamChatReq, grpc.ServerStreamingServer[StreamChatResp]) error
+	StartRun(context.Context, *StartRunReq) (*RunResponse, error)
+	GetRun(context.Context, *GetRunReq) (*RunResponse, error)
+	ListRuns(context.Context, *ListRunsReq) (*ListRunsResponse, error)
 	// Bot CRUD
 	CreateBot(context.Context, *CreateBotReq) (*Bot, error)
 	UpdateBot(context.Context, *UpdateBotReq) (*Bot, error)
@@ -374,8 +391,14 @@ type BotServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedBotServiceServer struct{}
 
-func (UnimplementedBotServiceServer) StreamChat(*StreamChatReq, grpc.ServerStreamingServer[StreamChatResp]) error {
-	return status.Error(codes.Unimplemented, "method StreamChat not implemented")
+func (UnimplementedBotServiceServer) StartRun(context.Context, *StartRunReq) (*RunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StartRun not implemented")
+}
+func (UnimplementedBotServiceServer) GetRun(context.Context, *GetRunReq) (*RunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRun not implemented")
+}
+func (UnimplementedBotServiceServer) ListRuns(context.Context, *ListRunsReq) (*ListRunsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRuns not implemented")
 }
 func (UnimplementedBotServiceServer) CreateBot(context.Context, *CreateBotReq) (*Bot, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateBot not implemented")
@@ -464,16 +487,59 @@ func RegisterBotServiceServer(s grpc.ServiceRegistrar, srv BotServiceServer) {
 	s.RegisterService(&BotService_ServiceDesc, srv)
 }
 
-func _BotService_StreamChat_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(StreamChatReq)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
+func _BotService_StartRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartRunReq)
+	if err := dec(in); err != nil {
+		return nil, err
 	}
-	return srv.(BotServiceServer).StreamChat(m, &grpc.GenericServerStream[StreamChatReq, StreamChatResp]{ServerStream: stream})
+	if interceptor == nil {
+		return srv.(BotServiceServer).StartRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BotService_StartRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BotServiceServer).StartRun(ctx, req.(*StartRunReq))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type BotService_StreamChatServer = grpc.ServerStreamingServer[StreamChatResp]
+func _BotService_GetRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRunReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BotServiceServer).GetRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BotService_GetRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BotServiceServer).GetRun(ctx, req.(*GetRunReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BotService_ListRuns_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRunsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BotServiceServer).ListRuns(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BotService_ListRuns_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BotServiceServer).ListRuns(ctx, req.(*ListRunsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 func _BotService_CreateBot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateBotReq)
@@ -879,6 +945,18 @@ var BotService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*BotServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "StartRun",
+			Handler:    _BotService_StartRun_Handler,
+		},
+		{
+			MethodName: "GetRun",
+			Handler:    _BotService_GetRun_Handler,
+		},
+		{
+			MethodName: "ListRuns",
+			Handler:    _BotService_ListRuns_Handler,
+		},
+		{
 			MethodName: "CreateBot",
 			Handler:    _BotService_CreateBot_Handler,
 		},
@@ -967,12 +1045,6 @@ var BotService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _BotService_GetBotWebhookConfig_Handler,
 		},
 	},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "StreamChat",
-			Handler:       _BotService_StreamChat_Handler,
-			ServerStreams: true,
-		},
-	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "bot/bot.proto",
 }

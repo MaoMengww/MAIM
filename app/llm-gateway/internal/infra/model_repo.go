@@ -109,13 +109,29 @@ func (r *ModelRepo) Refresh() error {
 }
 
 func (r *ModelRepo) FindByID(modelID string) (*domain.ModelEntry, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	entry, ok := r.byID[modelID]
-	if !ok {
+	var rec model.ModelRegistry
+	if err := r.db.WithContext(context.Background()).Where("id = ?", modelID).Limit(1).Find(&rec).Error; err != nil {
+		return nil, err
+	}
+	if rec.ID == "" {
 		return nil, nil
 	}
-	return entry, nil
+	var apiKey string
+	if rec.APIKeyEncrypted != "" {
+		var err error
+		apiKey, err = crypto.DecryptString(rec.APIKeyEncrypted, r.encKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &domain.ModelEntry{
+		ID: rec.ID, ModelName: rec.ModelName, Provider: rec.Provider,
+		Capability: rec.Capability, BaseURL: rec.BaseURL,
+		APIKeyEncrypted: rec.APIKeyEncrypted, APIKey: apiKey,
+		ContextWindow: rec.ContextWindow, MaxOutputTokens: rec.MaxOutputTokens,
+		InputPricePerMTok: rec.InputPricePerMTok, OutputPricePerMTok: rec.OutputPricePerMTok,
+		OwnerType: rec.OwnerType, OwnerID: rec.OwnerID, Status: rec.Status, Metadata: rec.Metadata,
+	}, nil
 }
 
 func (r *ModelRepo) FindByName(modelName string) (*domain.ModelEntry, error) {

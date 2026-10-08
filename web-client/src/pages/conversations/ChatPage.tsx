@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { message, Button, Input, Tag, Modal as AntModal, Image, Spin } from 'antd';
+import { message, Button, Input, Tag, Select, Modal as AntModal, Image, Spin } from 'antd';
+import { isAxiosError } from 'axios';
 import {
   MessageOutlined, DownloadOutlined,
   InfoCircleOutlined,
@@ -19,18 +20,20 @@ import { fileApi } from '@/services/file';
 import { botApi } from '@/services/bot';
 import { messageSync } from '@/services/messageSync';
 import { createPendingSend, retryPendingSend, loadPendingSends, type PendingSend } from '@/services/pendingSend';
+import { createPendingRun, retryPendingRun, loadPendingRuns, type PendingRun } from '@/services/pendingRun';
 import { SearchHighlight } from '@/components/common/SearchHighlight';
 import { wsOn, wsSend } from '@/services/ws';
 import { useAuthStore } from '@/stores/auth';
 import { SearchFilterBar } from '@/components/common/SearchFilterBar';
 import { useMessages } from '@/hooks/useMessages';
+import { useRuns } from '@/hooks/useRuns';
 import { Avatar } from '@/components/common/Avatar';
 import { GroupInfoDrawer } from './GroupInfoDrawer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { Message, MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource } from '@/types/model';
+import type { Message, MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource, BotRun, RunSource } from '@/types/model';
 import type { SendMsgContent, SearchMessagesReq } from '@/types/api';
-import { entityId, optionalEntityId, sequence, knowledgeSources } from '@/utils/json';
+import { sequence, knowledgeSources } from '@/utils/json';
 
 import './ChatPage.css';
 
@@ -352,7 +355,7 @@ function SourceItem({ source, expandedMap, setExpandedMap, itemKey }: {
   return (
     <div style={{ marginTop: 2 }}>
       <div className="chat-source-header">
-        <Button
+        {source.content ? <Button
           type="text"
           size="small"
           className="chat-source-toggle chat-source-title"
@@ -361,7 +364,7 @@ function SourceItem({ source, expandedMap, setExpandedMap, itemKey }: {
           icon={<RightOutlined rotate={expanded ? 90 : 0} />}
         >
           {source.title || '未命名文档'}
-        </Button>
+        </Button> : <span className="chat-source-title">{source.title || '未命名文档'}</span>}
         <Link to={`/knowledge/${source.kb_id}/documents/${source.doc_id}?chunk=${source.chunk_id}`} aria-label={`查看来源文档：${source.title || source.doc_id}`}>
           查看文档
         </Link>
@@ -374,6 +377,74 @@ function SourceItem({ source, expandedMap, setExpandedMap, itemKey }: {
       )}
     </div>
   );
+}
+
+const RUN_STATUS: Record<BotRun['status'], { label: string; color: string }> = {
+  accepted: { label: '已接受', color: 'default' }, running: { label: '运行中', color: 'processing' },
+  succeeded: { label: '成功', color: 'success' }, failed: { label: '失败', color: 'error' },
+};
+const RUN_STAGE: Record<string, string> = {
+  accepted: '接受请求', preparing: '准备获准上下文', model: '模型生成', tool: '工具执行',
+  generated: '结果已生成', pending: '等待提交消息', committed: '消息已提交', failed: '执行失败',
+};
+const RUN_OUTPUT: Record<BotRun['output_status'], string> = {
+  none: '尚无结果', generated: '结果已生成 · 尚未发送', pending: '结果待提交 · 尚未发送',
+  committed: '最终消息已提交', failed: '输出提交失败 · 未发送',
+};
+const RUN_SOURCE_LABEL: Record<string, string> = { request_source: '发起请求', reference: '明确引用', history: '获准历史' };
+const SOURCE_SENDER_LABEL: Record<string, string> = { user: '用户', bot: 'Bot', system: '系统' };
+
+function RunCard({ run, botName, requesterName, onLocate, onRefresh }: {
+  run: BotRun; botName: string; requesterName: string;
+  onLocate: (messageId: string) => Promise<void>; onRefresh: (runId: string) => Promise<void>;
+}) {
+  const [refreshing, setRefreshing] = useState(false);
+  const state = RUN_STATUS[run.status];
+  return <article className="chat-run-card" data-run-id={run.id} data-run-version={run.version} data-run-status={run.status} data-output-status={run.output_status} aria-label={`${botName} 执行：${state.label}`}>
+    <div className="chat-run-header">
+      <strong>{botName} · 执行</strong>
+      <Tag color={state.color}>{state.label}</Tag>
+      <span className="chat-run-updated">{formatTime(run.updated_at)}</span>
+      <Button size="small" loading={refreshing} onClick={async () => {
+        setRefreshing(true);
+        try { await onRefresh(run.id); }
+        catch { message.error('执行状态查询失败'); }
+        finally { setRefreshing(false); }
+      }}>查询状态</Button>
+    </div>
+    <div className="chat-run-meta">
+      <span title={run.requester_id}>请求者：{requesterName}</span>
+      {run.source_message_id
+        ? <Button type="link" size="small" onClick={() => void onLocate(run.source_message_id!).catch(() => message.error('来源消息无法读取'))}>查看输入来源消息</Button>
+        : <span>输入来源：明确操作</span>}
+    </div>
+    <div className="chat-run-stage" role="status">当前阶段：{RUN_STAGE[run.stage] || run.stage} · {RUN_OUTPUT[run.output_status]}</div>
+    {run.error && <div className="chat-run-error" role="alert">{run.error}</div>}
+    {run.result_text && <details className="chat-run-result" open={run.output_status !== 'committed'}>
+      <summary>执行结果{run.output_status === 'committed' ? '（已进入消息历史）' : '（尚未发送）'}</summary>
+      <div className="chat-msg-bubble"><ChatMarkdown>{run.result_text}</ChatMarkdown></div>
+    </details>}
+    <SourceSection sources={run.sources.filter((source) => source.type === 'rag')} />
+    <ToolUsage tools={run.sources.filter((source) => source.type === 'tool').map((source) => source.tool_name)} />
+    {run.sources.some((source) => source.type === 'request_source' || source.type === 'reference' || source.type === 'history') && <details className="chat-run-details">
+      <summary>请求与引用来源</summary>
+      <ul className="chat-run-steps">{run.sources.filter((source): source is Extract<RunSource, { type: 'request_source' | 'reference' | 'history' }> => source.type === 'request_source' || source.type === 'reference' || source.type === 'history').map((source) => <li key={`${source.type}:${source.message_id}`}>
+        <Button type="link" size="small" onClick={() => void onLocate(source.message_id).catch(() => message.error('引用来源消息无法读取'))}>{RUN_SOURCE_LABEL[source.type]}：查看消息</Button>
+        <span title={source.sender_id}>{SOURCE_SENDER_LABEL[source.sender_type]}{source.sender_id ? ` · ${source.sender_id}` : ''}</span>
+      </li>)}</ul>
+    </details>}
+    {run.output_status === 'committed' && run.message_id && <Button type="link" size="small" onClick={() => void onLocate(run.message_id!).catch(() => message.error('最终消息无法读取'))}>查看最终消息</Button>}
+    <details className="chat-run-details">
+      <summary>关键阶段与执行标识 · v{run.version}</summary>
+      <ol className="chat-run-steps">{run.steps.map((step) => <li key={step.version}>{RUN_STAGE[step.stage] || step.stage} <span>v{step.version} · {formatTime(step.created_at)}</span></li>)}</ol>
+      <dl className="chat-run-identities">
+        <dt>Run ID</dt><dd>{run.id}</dd><dt>交互 ID</dt><dd>{run.interaction_id}</dd>
+        <dt>输入版本</dt><dd>{run.input_version}</dd><dt>绑定 ID</dt><dd>{run.binding_id}</dd>
+        {run.source_message_id && <><dt>来源消息 ID</dt><dd>{run.source_message_id}</dd></>}
+        {run.message_id && <><dt>最终消息 ID</dt><dd>{run.message_id}</dd></>}
+      </dl>
+    </details>
+  </article>;
 }
 
 
@@ -496,6 +567,11 @@ export function ChatPage() {
   const currentUserName = useAuthStore((s) => s.user?.username ?? '');
   const authRevision = useAuthStore((state) => state.revision);
   const pageConversation = useRef(id);
+  const [pendingRuns, setPendingRuns] = useState<PendingRun[]>([]);
+  const [requestingKey, setRequestingKey] = useState<string | null>(null);
+  const [creatingRun, setCreatingRun] = useState(false);
+  const [runTarget, setRunTarget] = useState<string>();
+  const runRetryLock = useRef(false);
   pageConversation.current = id;
   const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
   const [retryingKey, setRetryingKey] = useState<string | null>(null);
@@ -508,6 +584,17 @@ export function ChatPage() {
     const pending = await loadPendingSends(account);
     if (pageAccount.current === account && authRevision === useAuthStore.getState().revision) setPendingSends(pending);
   }, [currentUserId, authRevision]);
+  const reloadRunSubmissions = useCallback(async () => {
+    if (!currentUserId) return;
+    const pending = await loadPendingRuns(currentUserId);
+    if (pageAccount.current === currentUserId && authRevision === useAuthStore.getState().revision) setPendingRuns(pending);
+  }, [currentUserId, authRevision]);
+  useEffect(() => {
+    setPendingRuns([]);
+    setRequestingKey(null);
+    void reloadRunSubmissions().catch(() => message.error('待确认执行请求读取失败'));
+  }, [reloadRunSubmissions]);
+  useEffect(() => { setRunTarget(undefined); }, [id, authRevision]);
   useEffect(() => {
     setPendingSends([]);
     setRetryingKey(null);
@@ -570,10 +657,6 @@ export function ChatPage() {
   const [convSearchPage, setConvSearchPage] = useState(1);
   const convSearchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Temporary streams belong to the captured conversation/Bot/binding lifecycle.
-  const [streamingMap, setStreamingMap] = useState<Record<string, { text: string; replyToMsgId?: string; createdAt: number; sources?: KnowledgeSource[]; tools?: string[] }>>({});
-  const streamingRef = useRef(streamingMap);
-  streamingRef.current = streamingMap;
 
   // Message action menu state
   const [msgActions, setMsgActions] = useState<{ msg: any; x: number; y: number } | null>(null);
@@ -584,12 +667,6 @@ export function ChatPage() {
   // File preview for in-page file viewing
   const [filePreview, setFilePreview] = useState<FileContent | null>(null);
   useEffect(() => setFilePreview(null), [id, currentUserId, authRevision]);
-  // Clear streaming state when conversation changes
-  useEffect(() => {
-    return () => {
-      setStreamingMap({});
-    };
-  }, [id]);
 
   // Reset page when filter conditions change
   useEffect(() => {
@@ -681,9 +758,22 @@ export function ChatPage() {
     });
   };
 
+  const locateRunMessage = async (messageId: string) => {
+    if (!id) return;
+    const revision = authRevision;
+    const source = await msgApi.getById(messageId);
+    if (source.conversation_id !== id) throw new Error('消息不属于当前会话');
+    const around = await msgApi.getAroundSeq(id, source.seq);
+    for (const msg of around) {
+      if (pageConversation.current !== id || revision !== useAuthStore.getState().revision) return;
+      await messageSync.addMessage(id, msg);
+    }
+    if (pageConversation.current === id && revision === useAuthStore.getState().revision) await scrollToMessage(messageId);
+  };
   const navigateSearch = (dir: 'prev' | 'next') => {
     const total = convSearchResults.length;
     if (total === 0) return;
+
     setConvSearchIndex((prev) => {
       const next = dir === 'next' ? (prev + 1) % total : (prev - 1 + total) % total;
       const msgId = convSearchResults[next]?.message_id;
@@ -700,6 +790,46 @@ export function ChatPage() {
   });
 
   const { messages, loading: msgsLoading, error: msgsError, reSync, loadOlder, hasOlder, loadingOlder } = useMessages(id);
+  const runQuery = useRuns(id ?? '');
+  const retryRunSubmission = async (pending: PendingRun) => {
+    if (runRetryLock.current) return;
+    const account = currentUserId;
+    if (account !== useAuthStore.getState().user?.id || authRevision !== useAuthStore.getState().revision) return;
+    runRetryLock.current = true;
+    setRequestingKey(pending.request.submission_key);
+    try {
+      const run = await retryPendingRun(account, pending.request.submission_key);
+      runQuery.applyRun(run);
+    } catch (error) {
+      if (pageAccount.current === account && authRevision === useAuthStore.getState().revision) {
+        message.error(isAxiosError(error) && typeof error.response?.data?.message === 'string' ? error.response.data.message : '请求接受结果尚未确认，可用原请求重试');
+      }
+    } finally {
+      runRetryLock.current = false;
+      if (pageAccount.current === account && authRevision === useAuthStore.getState().revision) {
+        setRequestingKey(null);
+        void reloadRunSubmissions();
+      }
+    }
+  };
+  const handleStartRun = async () => {
+    if (!id || !runTarget || !input.trim() || newSendLock.current || runRetryLock.current) return;
+    const account = currentUserId;
+    const text = input;
+    newSendLock.current = true;
+    setCreatingRun(true);
+    try {
+      const pending = await createPendingRun(account, runTarget, { conv_id: id, message: text, ...(replyTo ? { reply_to_msg_id: replyTo.msg_id } : {}) });
+      if (pageAccount.current !== account || authRevision !== useAuthStore.getState().revision) return;
+      await reloadRunSubmissions();
+      if (pageConversation.current === id) {
+        setInput((current) => current === text ? '' : current);
+        setReplyTo(null);
+      }
+      await retryRunSubmission(pending);
+    } catch { if (pageAccount.current === account && authRevision === useAuthStore.getState().revision) message.error('无法保存请求状态，执行未提交'); }
+    finally { newSendLock.current = false; setCreatingRun(false); }
+  };
 
   // Message synchronization and new-message delivery are owned by the account lifecycle.
   useEffect(() => {
@@ -727,91 +857,7 @@ export function ChatPage() {
       });
     });
 
-    // Bot streaming: accumulate chunks into a temporary message
-    const unsubStreamChunk = wsOn('bot.streaming.chunk', (payload: any) => {
-      if (payload.conv_id == null || payload.conv_id !== id) return;
-      const key = `${id}:${entityId(payload.bot_id, 'stream.bot_id')}:${entityId(payload.binding_id, 'stream.binding_id')}`
-      setStreamingMap((prev) => {
-        const existing = prev[key];
-        const replyToMsgId = existing?.replyToMsgId ?? optionalEntityId(payload.reply_to_msg_id, 'stream.reply_to_msg_id');
-        return {
-          ...prev,
-          [key]: {
-            ...existing,
-            text: (existing?.text || '') + (payload.content || ''),
-            createdAt: existing?.createdAt ?? Math.floor(Date.now() / 1000),
-            ...(replyToMsgId ? { replyToMsgId } : {}),
-          },
-        };
-      });
-    });
-
-    // Bot streaming tool_call/tool_result — could show inline indicators
-    const unsubStreamTool = wsOn('bot.streaming.tool_call', (payload: any) => {
-      // tool calls are silently consumed for now
-    });
-
-    // Bot streaming sources: store knowledge source metadata for the streaming message
-    const unsubStreamSources = wsOn('bot.streaming.sources', (payload: any) => {
-      if (payload.conv_id == null || payload.conv_id !== id) return;
-      const key = `${id}:${entityId(payload.bot_id, 'stream.bot_id')}:${entityId(payload.binding_id, 'stream.binding_id')}`
-      let sources: KnowledgeSource[] = [];
-      try {
-        sources = knowledgeSources(JSON.parse(payload.content || '[]'));
-      } catch { /* ignore parse errors */ }
-      if (sources.length === 0) return;
-      setStreamingMap((prev) => {
-        const existing = prev[key];
-        // Create entry if streaming hasn't started yet (sources may arrive before first chunk)
-        if (!existing) {
-          return { ...prev, [key]: { text: '', sources, createdAt: Math.floor(Date.now() / 1000) } };
-        }
-        return { ...prev, [key]: { ...existing, sources } };
-      });
-    });
-
-    // Bot streaming tool_used: record which tools were used
-    const unsubStreamToolUsed = wsOn('bot.streaming.tool_used', (payload: any) => {
-      if (payload.conv_id == null || payload.conv_id !== id) return;
-      const key = `${id}:${entityId(payload.bot_id, 'stream.bot_id')}:${entityId(payload.binding_id, 'stream.binding_id')}`
-      const tools = payload.content ? payload.content.split(',').filter(Boolean) : [];
-      if (!tools.length) return;
-      setStreamingMap((prev) => {
-        const existing = prev[key];
-        if (!existing) {
-          return { ...prev, [key]: { text: '', tools, createdAt: Math.floor(Date.now() / 1000) } };
-        }
-        return { ...prev, [key]: { ...existing, tools } };
-      });
-    });
-
-    // Bot streaming done: transition streaming message into the real message cache
-    const unsubStreamDone = wsOn('bot.streaming.done', (payload: any) => {
-      if (payload.conv_id == null || payload.conv_id !== id) return;
-      const key = `${id}:${entityId(payload.bot_id, 'stream.bot_id')}:${entityId(payload.binding_id, 'stream.binding_id')}`
-      // Read accumulated text from ref to avoid React batching race
-      const entry = streamingRef.current[key];
-      if (!payload.message_id || !entry?.text) {
-        setStreamingMap((prev) => {
-          const next = { ...prev };
-          delete next[key];
-          return next;
-        });
-        return;
-      }
-
-      // The completion payload is not authoritative: another device may have
-      // edited or deleted this message before this delayed callback arrives.
-      void messageSync.reSync();
-
-      setStreamingMap((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-    });
-
-    return () => { unsubRead(); unsubReadReceipt(); unsubStreamChunk(); unsubStreamTool(); unsubStreamSources(); unsubStreamToolUsed(); unsubStreamDone(); };
+    return () => { unsubRead(); unsubReadReceipt(); };
   }, [id, queryClient]);
 
   // Reset scroll state when conversation changes
@@ -821,25 +867,15 @@ export function ChatPage() {
 
 
   useEffect(() => {
-    if (listRef.current && messages.length > 0 && isAtBottom) {
+    if (listRef.current && (messages.length > 0 || runQuery.runs.length > 0) && isAtBottom) {
       requestAnimationFrame(() => {
         if (listRef.current) {
           listRef.current.scrollTop = listRef.current.scrollHeight;
         }
       });
     }
-  }, [messages]);
+  }, [messages, runQuery.runs]);
 
-  // Auto-scroll on streaming content update
-  useEffect(() => {
-    if (listRef.current && Object.keys(streamingMap).length > 0 && isAtBottom) {
-      requestAnimationFrame(() => {
-        if (listRef.current) {
-          listRef.current.scrollTop = listRef.current.scrollHeight;
-        }
-      });
-    }
-  }, [streamingMap]);
 
   const handleScroll = () => {
     if (!listRef.current) return;
@@ -948,6 +984,7 @@ export function ChatPage() {
     queryKey: ['conv-bots', id], queryFn: () => botApi.listConvBots(id!), enabled: !!id,
   });
   const privateBot = conv?.type === 'private' ? convBots[0] : undefined;
+  const builtinBots = convBots.filter((bot) => bot.type !== 'third_party');
 
   const mentionTargets = useMemo(() => [
     ...members.map((member) => ({ id: member.user_id, name: member.username, avatar: member.avatar, isBot: false })),
@@ -1309,14 +1346,13 @@ export function ChatPage() {
           mentionSet.add(m.user_id);
         }
       });
-      convBots.forEach((bot) => mentionSet.add(bot.bot_id));
     }
 
     sendMutation.mutate({
       type: 1,
       content: { text, mentions: [...mentionSet], mention_all: false },
     });
-  }, [input, sendMutation, members, convBots, mentionTargets, conv, currentUserId]);
+  }, [input, sendMutation, members, mentionTargets, conv, currentUserId]);
 
   const insertMention = useCallback((target: { name: string }) => {
     const mentionLen = mentionQuery.length;
@@ -1352,7 +1388,8 @@ export function ChatPage() {
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      if (runTarget) void handleStartRun();
+      else handleSend();
     }
   };
 
@@ -1510,7 +1547,7 @@ export function ChatPage() {
           {msgsError && <div className="chat-loading" role="alert">同步失败：{msgsError} <button onClick={reSync}>重试同步</button></div>}
           {msgsLoading && messages.length === 0 && <div className="chat-loading">加载消息中...</div>}
           {hasOlder && <Button size="small" loading={loadingOlder} onClick={loadOlder}>加载更早消息</Button>}
-          {!msgsLoading && !msgsError && messages.length === 0 && <div className="chat-loading">暂无消息，发送第一条消息吧</div>}
+          {!msgsLoading && !msgsError && messages.length === 0 && runQuery.runs.length === 0 && <div className="chat-loading">暂无消息，发送第一条消息吧</div>}
 
           {messages.map((msg: any) => {
           const isSelf = msg.sender_type === 'user' && msg.sender_id === currentUserId;
@@ -1768,52 +1805,20 @@ export function ChatPage() {
           );
         })}
 
-        {/* Streaming bot messages */}
-        {Object.entries(streamingMap)
-          .filter(([key]) => key.startsWith(`${id}:`) && convBots.some((bot) => key === `${id}:${bot.bot_id}:${bot.binding_id}`))
-          .map(([key, entry]) => {
-            const botId = key.split(':')[1];
-            const binding = convBots.find((bot) => bot.bot_id === botId && bot.binding_id === key.split(':')[2]);
-            const userInfo = getMsgUserInfo({ sender_id: botId, sender_type: 'bot', sender_name: binding?.name, sender_avatar: binding?.avatar }, userMap);
-            return (
-              <div key={key} className="chat-msg chat-msg-other">
-                <div className="chat-msg-avatar-col">
-                  <Avatar
-                    src={userInfo?.avatar}
-                    name={userInfo?.username || `Bot${botId}`}
-                    size={32}
-                  />
-                </div>
-                <div className="chat-msg-content">
-                  {userInfo?.username && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
-                      <span className="chat-msg-nickname">{userInfo.username}</span>
-                      <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>BOT</Tag>
-                    </div>
-                  )}
-                  {entry.replyToMsgId && (() => {
-                    const replyMsg = messages.find((m: any) => m.message_id === entry.replyToMsgId);
-                    const replyPreview = replyMsg ? extractTextPreview(replyMsg.content) : `消息 ${entry.replyToMsgId}`;
-                    return <div className="chat-msg-reply">回复: {replyPreview}</div>;
-                  })()}
-                  <div className="chat-msg-bubble-wrapper">
-                    <div className="chat-msg-bubble">
-                      <ChatMarkdown>{entry.text}</ChatMarkdown>
-                      {entry.tools && entry.tools.length > 0 && <ToolUsage tools={entry.tools} />}
-                      {entry.sources && entry.sources.length > 0 ? (
-                        <SourceSection sources={entry.sources} />
-                      ) : (
-                        <span className="chat-msg-streaming-cursor">▍</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="chat-msg-footer">
-                    <span className="chat-msg-time">{formatTime(entry.createdAt)}</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          <section className="chat-run-list" aria-label="Bot 执行记录">
+            {(builtinBots.length > 0 || runQuery.runs.length > 0 || runQuery.isError) && <div className="chat-run-list-header">
+              <strong>Bot 执行记录</strong>
+              <Button size="small" loading={runQuery.isFetching} onClick={() => void runQuery.refetch()}>刷新执行</Button>
+            </div>}
+            {runQuery.isPending && builtinBots.length > 0 && <div role="status">正在读取执行记录…</div>}
+            {runQuery.connection !== 'connected' && runQuery.runs.length > 0 && <div className="chat-run-notice" role="status">实时连接已断开；执行不因此结束，查询将恢复最新状态。</div>}
+            {runQuery.isError && <div className="chat-run-error" role="alert">执行记录读取失败，请刷新重试。</div>}
+            {!runQuery.isError && !runQuery.isPending && builtinBots.length > 0 && runQuery.runs.length === 0 && <div className="chat-run-notice">尚无执行。选择 Bot 并明确发起工作，或在消息中提及它。</div>}
+            {!runQuery.isError && runQuery.runs.map((run) => <RunCard key={run.id} run={run}
+              botName={convBots.find((bot) => bot.bot_id === run.bot_id)?.name || `Bot ${run.bot_id}`}
+              requesterName={userMap.get(run.requester_id)?.username || run.requester_id}
+              onLocate={locateRunMessage} onRefresh={runQuery.refreshRun} />)}
+          </section>
         </div>
         {!isAtBottom && (
           <button className="chat-scroll-bottom" onClick={scrollToBottom}>
@@ -1840,6 +1845,15 @@ export function ChatPage() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        {pendingRuns.filter((pending) => pending.request.conv_id === id).map((pending) => (
+          <div key={pending.request.submission_key} className="chat-reply-indicator" role="status">
+            <span className="chat-reply-text" title={pending.request.message}>
+              {requestingKey === pending.request.submission_key ? '正在确认执行请求' : '执行请求尚未确认'} · {pending.request.message}
+              {' · 重试保留原内容与提交键，不创建重复执行'}
+            </span>
+            <Button size="small" loading={requestingKey === pending.request.submission_key} disabled={requestingKey !== null} onClick={() => void retryRunSubmission(pending)}>重试原请求</Button>
+          </div>
+        ))}
         {pendingSends.filter((pending) => pending.request.conversation_id === id).map((pending) => (
           <div key={pending.request.client_msg_id} className="chat-reply-indicator" role="status">
             <span className="chat-reply-text" title={pending.request.content.text || '附件发送'}>
@@ -1853,6 +1867,13 @@ export function ChatPage() {
         <input type="file" ref={imageInputRef} accept="image/*" style={{ display: 'none' }} onChange={handleImageChange} />
         <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
 
+        {builtinBots.length > 0 && <div className="chat-run-composer">
+          <label htmlFor="chat-run-target">发送方式</label>
+          <Select id="chat-run-target" aria-label="工作执行 Bot" value={runTarget} allowClear placeholder="普通消息"
+            disabled={creatingRun || requestingKey !== null} onChange={(value) => setRunTarget(value)}
+            options={builtinBots.map((bot) => ({ value: bot.bot_id, label: `交给 ${bot.name} 开展工作` }))} />
+          <span>{runTarget ? '仅提交本次输入与明确引用，不自动读取群最近消息' : '选择 Bot 可发起独立执行'}</span>
+        </div>}
         <div className="chat-input-wrapper">
           <div className="chat-input-toolbar">
             <button className="chat-input-toolbar-btn" onClick={handleImagePick} disabled={uploading} title="发送图片">
@@ -1905,14 +1926,15 @@ export function ChatPage() {
           <textarea
             ref={chatInputRef}
             className="chat-input"
-            placeholder={uploading ? '上传中...' : sendMutation.isPending ? '发送中...' : '输入消息...'}
+            aria-label={runTarget ? '工作请求内容' : '消息内容'}
+            placeholder={uploading ? '上传中...' : creatingRun ? '提交工作请求中...' : sendMutation.isPending ? '发送中...' : runTarget ? '描述本次工作；Enter 发起，Shift+Enter 换行' : '输入消息...'}
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             rows={1}
           />
-          <button className="chat-send-btn" onClick={handleSend} disabled={!input.trim() || sendMutation.isPending}>
-            {sendMutation.isPending ? '...' : '发送'}
+          <button className="chat-send-btn" onClick={runTarget ? () => void handleStartRun() : handleSend} disabled={!input.trim() || sendMutation.isPending || creatingRun || requestingKey !== null}>
+            {creatingRun || requestingKey !== null ? '提交中…' : runTarget ? '发起工作' : sendMutation.isPending ? '...' : '发送'}
           </button>
         </div>
       </div>

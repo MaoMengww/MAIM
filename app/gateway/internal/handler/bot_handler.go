@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,8 @@ import (
 	common "github.com/maomeng/aim/pkg/pb/common"
 	"github.com/maomeng/aim/pkg/protocol"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type BotHandler struct {
@@ -291,63 +294,85 @@ func (h *BotHandler) ValidateToken(c *gin.Context) {
 	response.Success(c, resp)
 }
 
-// ========== AI Bot Streaming Chat ==========
-
-func (h *BotHandler) StreamChat(c *gin.Context) {
+// Run acceptance is independent of the lifetime of this HTTP request.
+func (h *BotHandler) StartRun(c *gin.Context) {
 	if !requirePathIdentities(c, "id") {
 		return
 	}
-	req := botpb.StreamChatReq{BotId: c.Param("id"), ConvId: c.Query("conv_id"), Message: c.Query("message")}
-	if req.Message == "" {
-		response.BadRequest(c, "message is required")
+	var req botpb.StartRunReq
+	if err := bindJSON(c, &req); err != nil {
+		response.BadRequest(c, "invalid run request")
 		return
 	}
-	if replyID, supplied := c.GetQuery("reply_to_msg_id"); supplied {
-		req.ReplyToMsgId = &replyID
+	if req.BotId != "" && req.BotId != c.Param("id") {
+		response.BadRequest(c, "bot identity does not match path")
+		return
 	}
-	if grantID, supplied := c.GetQuery("history_grant_id"); supplied {
-		if identity.Validate(grantID) != nil {
-			response.BadRequest(c, "invalid history grant identity")
-			return
-		}
-		req.HistoryGrantId = &grantID
-	}
-	ctx := middleware.WithGRPCMetadata(c)
+	req.BotId = c.Param("id")
 	if !requireRequestIdentities(c, &req) {
 		return
 	}
-	stream, err := h.botClient.StreamChat(ctx, &req)
-	if err != nil {
-		response.GRPCError(c, err)
+	if strings.TrimSpace(req.Message) == "" || len(req.Message) > 65536 {
+		response.BadRequest(c, "message must contain between 1 and 65536 bytes")
 		return
 	}
-	resp, err := stream.Recv()
+	resp, err := h.botClient.StartRun(middleware.WithGRPCMetadata(c), &req)
 	if err != nil {
-		response.GRPCError(c, err)
+		runRPCError(c, err)
 		return
 	}
+	writeRunJSON(c, resp.GetRunJson(), false)
+}
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-
-	for {
-		data, err := protocol.Marshal(resp)
-		if err != nil {
-			return
-		}
-		c.SSEvent("message", string(data))
-		c.Writer.Flush()
-		resp, err = stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			c.SSEvent("error", "bot stream failed")
-			c.Writer.Flush()
-			return
-		}
+func (h *BotHandler) GetRun(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
 	}
+	resp, err := h.botClient.GetRun(middleware.WithGRPCMetadata(c), &botpb.GetRunReq{RunId: c.Param("id")})
+	if err != nil {
+		runRPCError(c, err)
+		return
+	}
+	writeRunJSON(c, resp.GetRunJson(), false)
+}
+
+func (h *BotHandler) ListRuns(c *gin.Context) {
+	if !requirePathIdentities(c, "id") {
+		return
+	}
+	limit := int64(50)
+	if value, supplied := c.GetQuery("limit"); supplied {
+		parsed, err := strconv.ParseInt(value, 10, 32)
+		if err != nil || parsed < 1 || parsed > 100 {
+			response.BadRequest(c, "limit must be between 1 and 100")
+			return
+		}
+		limit = parsed
+	}
+	resp, err := h.botClient.ListRuns(middleware.WithGRPCMetadata(c), &botpb.ListRunsReq{ConvId: c.Param("id"), Limit: int32(limit)})
+	if err != nil {
+		runRPCError(c, err)
+		return
+	}
+	writeRunJSON(c, resp.GetRunsJson(), true)
+}
+
+func writeRunJSON(c *gin.Context, value string, list bool) {
+	raw := json.RawMessage(value)
+	trimmed := strings.TrimSpace(value)
+	if !json.Valid(raw) || trimmed == "" || (!list && trimmed[0] != '{') || (list && trimmed[0] != '[') {
+		response.InternalError(c, "invalid run response contract")
+		return
+	}
+	response.Success(c, raw)
+}
+
+func runRPCError(c *gin.Context, err error) {
+	if status.Code(err) == codes.FailedPrecondition {
+		response.Conflict(c, status.Convert(err).Message())
+		return
+	}
+	response.GRPCError(c, err)
 }
 
 // Bot in Conversation

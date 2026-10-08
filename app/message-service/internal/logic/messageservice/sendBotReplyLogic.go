@@ -1,9 +1,13 @@
 package messageservicelogic
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	stderrors "errors"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
@@ -25,6 +29,21 @@ func NewSendBotReplyLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Send
 	return &SendBotReplyLogic{ctx: ctx, svcCtx: svcCtx, Logger: logx.WithContext(ctx)}
 }
 
+// The publication receipt is immutable even if the message is later edited or
+// hidden. Its content uses the same semantic JSON fingerprint as user sends.
+type botOutputSubmission struct {
+	BotID              string            `gorm:"primaryKey;type:uuid"`
+	BindingID          string            `gorm:"primaryKey;type:uuid"`
+	OutputKey          string            `gorm:"primaryKey"`
+	ConvID             string            `gorm:"type:uuid"`
+	ContentFingerprint model.JSONContent `gorm:"type:jsonb"`
+	MessageID          string            `gorm:"type:uuid"`
+	Seq                int64
+	CreatedAt          time.Time
+}
+
+func (botOutputSubmission) TableName() string { return "bot_output_submissions" }
+
 func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.SendBotReplyResp, error) {
 	if in == nil || validateIdentities(in.ConversationId, in.BotId, in.BindingId) != nil || (in.ReplyToId != nil && identity.Validate(*in.ReplyToId) != nil) || (in.RequesterId != nil && identity.Validate(*in.RequesterId) != nil) {
 		return nil, errors.New(errors.CodeInvalidParam, "invalid bot sending identity")
@@ -32,6 +51,9 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 	// Bot credentials and domain calls never borrow a user's access identity.
 	if callerUserID(l.ctx) != "" {
 		return nil, errors.New(errors.CodeForbidden, "bot output cannot use a user identity")
+	}
+	if in.OutputKey != nil && (*in.OutputKey == "" || len(*in.OutputKey) > 512 || !utf8.ValidString(*in.OutputKey) || strings.ContainsRune(*in.OutputKey, 0)) {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid bot output key")
 	}
 	if err := validateBotMetadata(in.RawPayload); err != nil {
 		return nil, errors.New(errors.CodeInvalidParam, err.Error())
@@ -59,19 +81,20 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 	default:
 		return nil, errors.New(errors.CodeInvalidParam, "unsupported bot content type")
 	}
-	id, err := identity.New()
-	if err != nil {
-		return nil, err
-	}
-	now := time.Now()
-	msg := &model.Message{ID: id, ConvID: in.ConversationId, SenderID: &in.BotId, SenderType: "bot", BindingID: &in.BindingId, RequesterID: in.RequesterId, RawPayload: in.RawPayload, MsgType: int32(kind), Content: content, ReplyToMsgID: in.ReplyToId, Status: model.MessageStatusNormal, EditHistory: model.JSONArray{}, CreatedAt: now, UpdatedAt: now}
-	err = l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
+	msg := &model.Message{ConvID: in.ConversationId, SenderID: &in.BotId, SenderType: "bot", BindingID: &in.BindingId, RequesterID: in.RequesterId, RawPayload: in.RawPayload, MsgType: int32(kind), Content: content, ReplyToMsgID: in.ReplyToId, Status: model.MessageStatusNormal, EditHistory: model.JSONArray{}}
+	var receipt *botOutputSubmission
+	created := false
+	err := l.svcCtx.DB.WithContext(l.ctx).Transaction(func(tx *gorm.DB) error {
 		if _, err := lockBotBinding(l.ctx, tx, in.ConversationId, in.BotId, in.BindingId); err != nil {
 			return err
 		}
 		// Resolve display metadata locally; the send hot path never calls Bot control.
-		bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, in.BotId)
-		if err != nil || bot.Status != "active" {
+		var bot struct {
+			Name   string
+			Avatar string
+			Status string
+		}
+		if err := tx.Table("bot.bots").Select("name, avatar, status").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", in.BotId).Take(&bot).Error; err != nil || bot.Status != "active" {
 			return errors.New(errors.CodeForbidden, "bot is unavailable")
 		}
 		msg.SenderName, msg.SenderAvatar = bot.Name, bot.Avatar
@@ -94,7 +117,7 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 				Ext      string
 				MimeType string
 			}
-			if err := tx.Table("file.files").Select("id, name, size, ext, mime_type").Where("id = ? AND access = 3", in.File.FileId).Take(&file).Error; err != nil {
+			if err := tx.Table("file.files").Select("id, name, size, ext, mime_type").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND access = 3", in.File.FileId).Take(&file).Error; err != nil {
 				return errors.New(errors.CodeForbidden, "file is not publicly shareable")
 			}
 			msg.Content = model.FileContent{FileID: file.ID, Name: file.Name, Size: file.Size, Ext: file.Ext, MimeType: file.MimeType}.ToJSONContent()
@@ -102,13 +125,83 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		if err := validateReplyTarget(l.ctx, l.svcCtx, tx, in.ConversationId, "", in.ReplyToId); err != nil {
 			return err
 		}
-		return persistMessage(l.ctx, l.svcCtx, tx, msg, msg.SenderName)
+		// Every retry reaches all current identity, file, reply and metadata checks
+		// above before observing a receipt. The conversation lock serializes keys.
+		if in.OutputKey != nil {
+			fingerprint, err := botOutputFingerprint(msg)
+			if err != nil {
+				return err
+			}
+			var existing botOutputSubmission
+			err = tx.Where("bot_id = ? AND binding_id = ? AND output_key = ?", in.BotId, in.BindingId, *in.OutputKey).Take(&existing).Error
+			if err == nil {
+				same, err := sameSubmission(existing.ContentFingerprint, fingerprint)
+				if err != nil {
+					return err
+				}
+				if !same {
+					return errors.New(errors.CodeConflict, "bot output key was already used with different content")
+				}
+				receipt = &existing
+				return nil
+			}
+			if !stderrors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			receipt = &botOutputSubmission{BotID: in.BotId, BindingID: in.BindingId, OutputKey: *in.OutputKey, ConvID: in.ConversationId, ContentFingerprint: fingerprint}
+		}
+		id, err := identity.New()
+		if err != nil {
+			return err
+		}
+		msg.ID = id
+		now := time.Now()
+		msg.CreatedAt, msg.UpdatedAt = now, now
+		if err := persistMessage(l.ctx, l.svcCtx, tx, msg, msg.SenderName); err != nil {
+			return err
+		}
+		if receipt != nil {
+			receipt.MessageID, receipt.Seq, receipt.CreatedAt = msg.ID, msg.Seq, msg.CreatedAt
+			if err := tx.Create(receipt).Error; err != nil {
+				return err
+			}
+		}
+		created = true
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	l.Infof("bot message committed: message_id=%s bot_id=%s binding_id=%s", id, in.BotId, in.BindingId)
-	return &message.SendBotReplyResp{MessageId: id, Seq: msg.Seq, CreatedAt: now.Unix()}, nil
+	if created {
+		l.Infof("bot message committed: message_id=%s bot_id=%s binding_id=%s", msg.ID, in.BotId, in.BindingId)
+	}
+	if receipt != nil {
+		return &message.SendBotReplyResp{MessageId: receipt.MessageID, Seq: receipt.Seq, CreatedAt: receipt.CreatedAt.Unix()}, nil
+	}
+	return &message.SendBotReplyResp{MessageId: msg.ID, Seq: msg.Seq, CreatedAt: msg.CreatedAt.Unix()}, nil
+}
+
+func botOutputFingerprint(msg *model.Message) (model.JSONContent, error) {
+	// Server-resolved display snapshots are not caller content: renaming a Bot
+	// must not invalidate a retry of an already committed publication.
+	fingerprint, err := originalSubmission(message.MessageType(msg.MsgType), msg.Content, msg.ReplyToMsgID)
+	if err != nil {
+		return nil, err
+	}
+	var metadata any
+	if msg.RawPayload != "" {
+		decoder := json.NewDecoder(bytes.NewBufferString(msg.RawPayload))
+		decoder.UseNumber()
+		if err := decoder.Decode(&metadata); err != nil {
+			return nil, err
+		}
+	}
+	fingerprint["conv_id"] = msg.ConvID
+	fingerprint["bot_id"] = msg.SenderID
+	fingerprint["binding_id"] = msg.BindingID
+	fingerprint["requester_id"] = msg.RequesterID
+	fingerprint["metadata"] = metadata
+	return fingerprint, nil
 }
 
 // All membership changes take the same conversation lock. Checking the exact

@@ -341,6 +341,11 @@ message SyncMessagesResp {
 
 message GetMessageByIDReq {
   string message_id = 1 [(common.entity_id) = true];
+  // Bot runtime reads only this selected source, never a user's full history.
+  optional string bot_id = 2 [(common.entity_id) = true];
+  optional string binding_id = 3 [(common.entity_id) = true];
+  optional string requester_id = 4 [(common.entity_id) = true];
+  bool explicit_reference = 5; // Authenticated user explicitly selected this source
 }
 
 message GetMessageByIDResp {
@@ -404,12 +409,13 @@ message SendBotReplyReq {
   string conversation_id = 2 [(common.entity_id) = true];
   string text = 3;
   optional string reply_to_id = 4 [(common.entity_id) = true];
-  string raw_payload = 5;        // JSON: model, tokens, etc.
+  string raw_payload = 5;        // JSON public output metadata; never authorization
   string binding_id = 6 [(common.entity_id) = true];
   optional string requester_id = 7 [(common.entity_id) = true];
   MessageType type = 8;
   FileContent file = 9;
   CustomContent result = 10;
+  optional string output_key = 11; // Stable publication identity within this Bot binding
 }
 
 message GrantBotHistoryReq {

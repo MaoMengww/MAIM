@@ -133,6 +133,36 @@ export interface BotInConv {
   added_at: number;
 }
 
+export type RunSource = Omit<KnowledgeSource, 'content'> | {
+  type: 'request_source' | 'reference' | 'history';
+  message_id: string;
+  sender_type: 'user' | 'bot' | 'system';
+  sender_id?: string;
+} | { type: 'tool'; tool_name: string };
+
+export interface BotRun {
+  id: string;
+  interaction_id: string;
+  bot_id: string;
+  conv_id: string;
+  binding_id: string;
+  requester_id: string;
+  input_key: string;
+  source_message_id?: string;
+  input_version: number;
+  version: number;
+  status: 'accepted' | 'running' | 'succeeded' | 'failed';
+  stage: string;
+  result_text: string;
+  output_status: 'none' | 'generated' | 'pending' | 'committed' | 'failed';
+  message_id?: string;
+  error?: string;
+  sources: RunSource[];
+  steps: { version: number; stage: string; created_at: number }[];
+  created_at: number;
+  updated_at: number;
+}
+
 // ─── Message ───
 export type MsgType = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 10;
 
@@ -205,7 +235,7 @@ export interface KnowledgeSource {
   doc_id: string;
   chunk_id: string;
   title: string;
-  content: string;
+  content?: string;
 }
 
 export interface CustomContent {

@@ -2500,10 +2500,15 @@ func (x *SyncMessagesResp) GetRebuildReason() string {
 }
 
 type GetMessageByIDReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MessageId     string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	MessageId string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	// Bot runtime reads only this selected source, never a user's full history.
+	BotId             *string `protobuf:"bytes,2,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	BindingId         *string `protobuf:"bytes,3,opt,name=binding_id,json=bindingId,proto3,oneof" json:"binding_id,omitempty"`
+	RequesterId       *string `protobuf:"bytes,4,opt,name=requester_id,json=requesterId,proto3,oneof" json:"requester_id,omitempty"`
+	ExplicitReference bool    `protobuf:"varint,5,opt,name=explicit_reference,json=explicitReference,proto3" json:"explicit_reference,omitempty"` // Authenticated user explicitly selected this source
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GetMessageByIDReq) Reset() {
@@ -2541,6 +2546,34 @@ func (x *GetMessageByIDReq) GetMessageId() string {
 		return x.MessageId
 	}
 	return ""
+}
+
+func (x *GetMessageByIDReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
+	}
+	return ""
+}
+
+func (x *GetMessageByIDReq) GetBindingId() string {
+	if x != nil && x.BindingId != nil {
+		return *x.BindingId
+	}
+	return ""
+}
+
+func (x *GetMessageByIDReq) GetRequesterId() string {
+	if x != nil && x.RequesterId != nil {
+		return *x.RequesterId
+	}
+	return ""
+}
+
+func (x *GetMessageByIDReq) GetExplicitReference() bool {
+	if x != nil {
+		return x.ExplicitReference
+	}
+	return false
 }
 
 type GetMessageByIDResp struct {
@@ -3029,12 +3062,13 @@ type SendBotReplyReq struct {
 	ConversationId string                 `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	Text           string                 `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
 	ReplyToId      *string                `protobuf:"bytes,4,opt,name=reply_to_id,json=replyToId,proto3,oneof" json:"reply_to_id,omitempty"`
-	RawPayload     string                 `protobuf:"bytes,5,opt,name=raw_payload,json=rawPayload,proto3" json:"raw_payload,omitempty"` // JSON: model, tokens, etc.
+	RawPayload     string                 `protobuf:"bytes,5,opt,name=raw_payload,json=rawPayload,proto3" json:"raw_payload,omitempty"` // JSON public output metadata; never authorization
 	BindingId      string                 `protobuf:"bytes,6,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
 	RequesterId    *string                `protobuf:"bytes,7,opt,name=requester_id,json=requesterId,proto3,oneof" json:"requester_id,omitempty"`
 	Type           MessageType            `protobuf:"varint,8,opt,name=type,proto3,enum=message.MessageType" json:"type,omitempty"`
 	File           *FileContent           `protobuf:"bytes,9,opt,name=file,proto3" json:"file,omitempty"`
 	Result         *CustomContent         `protobuf:"bytes,10,opt,name=result,proto3" json:"result,omitempty"`
+	OutputKey      *string                `protobuf:"bytes,11,opt,name=output_key,json=outputKey,proto3,oneof" json:"output_key,omitempty"` // Stable publication identity within this Bot binding
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -3137,6 +3171,13 @@ func (x *SendBotReplyReq) GetResult() *CustomContent {
 		return x.Result
 	}
 	return nil
+}
+
+func (x *SendBotReplyReq) GetOutputKey() string {
+	if x != nil && x.OutputKey != nil {
+		return *x.OutputKey
+	}
+	return ""
 }
 
 type GrantBotHistoryReq struct {
@@ -6117,10 +6158,18 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\rnext_position\x18\x03 \x01(\x03B\x06\x88\xb8\xbf\x99\x0f\x01R\fnextPosition\x12)\n" +
 	"\x10rebuild_required\x18\x04 \x01(\bR\x0frebuildRequired\x12C\n" +
 	"\rconversations\x18\x05 \x03(\v2\x1d.message.ConversationSnapshotR\rconversations\x12%\n" +
-	"\x0erebuild_reason\x18\x06 \x01(\tR\rrebuildReason\":\n" +
+	"\x0erebuild_reason\x18\x06 \x01(\tR\rrebuildReason\"\x94\x02\n" +
 	"\x11GetMessageByIDReq\x12%\n" +
 	"\n" +
-	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tmessageId\"@\n" +
+	"message_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\tmessageId\x12\"\n" +
+	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12*\n" +
+	"\n" +
+	"binding_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\tbindingId\x88\x01\x01\x12.\n" +
+	"\frequester_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x02R\vrequesterId\x88\x01\x01\x12-\n" +
+	"\x12explicit_reference\x18\x05 \x01(\bR\x11explicitReferenceB\t\n" +
+	"\a_bot_idB\r\n" +
+	"\v_binding_idB\x0f\n" +
+	"\r_requester_id\"@\n" +
 	"\x12GetMessageByIDResp\x12*\n" +
 	"\amessage\x18\x01 \x01(\v2\x10.message.MessageR\amessage\">\n" +
 	"\x13BatchGetMessagesReq\x12'\n" +
@@ -6173,7 +6222,7 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\x11SendBroadcastResp\x12)\n" +
 	"\fbroadcast_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\vbroadcastId\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x02 \x01(\x03R\tcreatedAt\"\xbf\x03\n" +
+	"created_at\x18\x02 \x01(\x03R\tcreatedAt\"\xf2\x03\n" +
 	"\x0fSendBotReplyReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12/\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12\x12\n" +
@@ -6187,9 +6236,12 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\x04type\x18\b \x01(\x0e2\x14.message.MessageTypeR\x04type\x12(\n" +
 	"\x04file\x18\t \x01(\v2\x14.message.FileContentR\x04file\x12.\n" +
 	"\x06result\x18\n" +
-	" \x01(\v2\x16.message.CustomContentR\x06resultB\x0e\n" +
+	" \x01(\v2\x16.message.CustomContentR\x06result\x12\"\n" +
+	"\n" +
+	"output_key\x18\v \x01(\tH\x02R\toutputKey\x88\x01\x01B\x0e\n" +
 	"\f_reply_to_idB\x0f\n" +
-	"\r_requester_id\"\xf2\x01\n" +
+	"\r_requester_idB\r\n" +
+	"\v_output_key\"\xf2\x01\n" +
 	"\x12GrantBotHistoryReq\x12/\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12\x1d\n" +
 	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12%\n" +
@@ -6824,6 +6876,7 @@ func file_message_service_message_proto_init() {
 	file_message_service_message_proto_msgTypes[15].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[18].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[22].OneofWrappers = []any{}
+	file_message_service_message_proto_msgTypes[25].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[29].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[32].OneofWrappers = []any{}
 	file_message_service_message_proto_msgTypes[34].OneofWrappers = []any{}

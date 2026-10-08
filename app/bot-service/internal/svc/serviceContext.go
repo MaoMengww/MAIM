@@ -19,7 +19,6 @@ import (
 	"github.com/maomeng/aim/pkg/logx"
 
 	"github.com/maomeng/aim/pkg/interceptor"
-	goredis "github.com/redis/go-redis/v9"
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
@@ -33,7 +32,6 @@ type ServiceContext struct {
 	MessageClient     msgpb.MessageServiceClient
 	Config            config.Config
 	DB                *database.DB
-	Redis             *goredis.Client
 	Logger            logx.Logger
 	KafkaProducer     *kafka.Producer
 	LlmGatewayConn    zrpc.Client
@@ -81,14 +79,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		base.RuntimeClient = botpb.NewBotServiceClient(zrpc.MustNewClient(c.Runtime).Conn())
 		return base
 	}
-	rdb := goredis.NewClient(&goredis.Options{
-		Addr:     c.Redis.Host,
-		Password: c.Redis.Pass,
-		DB:       0,
-	})
-	if err := rdb.Ping(context.Background()).Err(); err != nil {
-		panic(fmt.Sprintf("redis init failed: %v", err))
-	}
 
 	reqIDClientOpt := zrpc.WithDialOption(
 		grpc.WithChainUnaryInterceptor(interceptor.UnaryRequestIDClientInterceptor()),
@@ -114,7 +104,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		panic(fmt.Sprintf("user-service client failed: %v", err))
 	}
 
-	base.Redis = rdb
 	base.LlmGatewayConn = llmGatewayConn
 	base.MessageSvcConn = messageSvcConn
 	base.KnowledgeConn = knowledgeConn

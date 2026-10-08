@@ -187,8 +187,10 @@ func New(
 	bots.POST("/:id/token", botH.IssueToken)
 	bots.POST("/token/validate", botH.ValidateToken)
 
-	// AI Bot Streaming Chat
-	bots.GET("/:id/chat/stream", botH.StreamChat)
+	// Single-run work and authoritative readback.
+	bots.POST("/:id/runs", botH.StartRun)
+	protected.GET("/runs/:id", botH.GetRun)
+	protected.GET("/conversations/:id/runs", botH.ListRuns)
 
 	// Global MCP Server Management
 	mcp := protected.Group("/mcp-servers")

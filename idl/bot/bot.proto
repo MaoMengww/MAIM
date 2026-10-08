@@ -7,7 +7,9 @@ import "common/common.proto";
 option go_package = "github.com/maomeng/aim/app/bot-service/pb/bot";
 
 service BotService {
-  rpc StreamChat(StreamChatReq) returns (stream StreamChatResp);
+  rpc StartRun(StartRunReq) returns (RunResponse);
+  rpc GetRun(GetRunReq) returns (RunResponse);
+  rpc ListRuns(ListRunsReq) returns (ListRunsResponse);
 
   // Bot CRUD
   rpc CreateBot(CreateBotReq) returns (Bot);
@@ -452,19 +454,20 @@ message GetBotWebhookConfigResp {
   string type = 5;
 }
 
-message StreamChatReq {
+message StartRunReq {
   string bot_id = 1 [(common.entity_id) = true];
   string conv_id = 2 [(common.entity_id) = true];
-  string message = 3;
-  optional string reply_to_msg_id = 4 [(common.entity_id) = true];   // 可选
-  optional string history_grant_id = 5 [(common.entity_id) = true]; // 仅显式授权的会话历史范围
+  string submission_key = 3 [(common.submission_key) = true];
+  string message = 4;
+  optional string reply_to_msg_id = 5 [(common.entity_id) = true];
+  optional string history_grant_id = 6 [(common.entity_id) = true];
 }
 
-message StreamChatResp {
-  string type = 1;              // "chunk" | "tool_call" | "tool_result" | "done" | "error"
-  string content = 2;           // 文本增量 / 工具结果
-  string tool_name = 3;         // tool_call / tool_result 时用
-  optional string message_id = 4 [(common.entity_id) = true];        // done 时返回
-  string conv_id = 5 [(common.entity_id) = true];
+message GetRunReq { string run_id = 1 [(common.entity_id) = true]; }
+message ListRunsReq {
+  string conv_id = 1 [(common.entity_id) = true];
+  int32 limit = 2;
 }
+message RunResponse { string run_json = 1; }
+message ListRunsResponse { string runs_json = 1; }
 

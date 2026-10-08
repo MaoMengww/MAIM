@@ -1316,19 +1316,6 @@
   color: var(--aim-text);
 }
 
-/* Streaming message cursor */
-.chat-msg-streaming-cursor {
-  display: inline-block;
-  animation: chat-cursor-blink 1s step-end infinite;
-  color: var(--aim-primary);
-  font-weight: 300;
-  margin-left: 1px;
-}
-
-@keyframes chat-cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
 
 /* ─── Search highlight ─── */
 .search-highlight {
@@ -1652,4 +1639,94 @@
   margin-bottom: 4px;
   color: var(--aim-text-tertiary);
   font-size: 11px;
+}
+
+/* Authoritative work records are separate from chat message bubbles. */
+.chat-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+.chat-run-list-header, .chat-run-header, .chat-run-meta, .chat-run-composer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chat-run-list-header {
+  justify-content: space-between;
+}
+.chat-run-card {
+  padding: 16px;
+  border: 1px solid var(--aim-border);
+  border-radius: var(--aim-radius-md, 8px);
+  background: var(--aim-surface);
+  color: var(--aim-text);
+  overflow-wrap: anywhere;
+}
+.chat-run-header .ant-tag {
+  margin-inline-end: 0;
+}
+.chat-run-updated {
+  margin-left: auto;
+  color: var(--aim-text-secondary);
+  font-size: 12px;
+}
+.chat-run-meta, .chat-run-notice {
+  color: var(--aim-text-secondary);
+  font-size: 13px;
+}
+.chat-run-meta, .chat-run-stage, .chat-run-result, .chat-run-details {
+  margin-top: 8px;
+}
+.chat-run-error {
+  margin-top: 8px;
+  color: var(--aim-error, #c53b4e);
+}
+.chat-run-card summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+.chat-run-result .chat-msg-bubble {
+  padding: 8px 0;
+  max-width: 100%;
+}
+.chat-run-steps {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+.chat-run-steps span {
+  color: var(--aim-text-secondary);
+  font-size: 12px;
+}
+.chat-run-identities {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+.chat-run-identities dt {
+  color: var(--aim-text-secondary);
+}
+.chat-run-identities dd {
+  margin: 0;
+}
+.chat-run-composer {
+  padding: 8px 0;
+  font-size: 13px;
+}
+.chat-run-composer .ant-select {
+  min-width: 180px;
+  max-width: 100%;
+}
+.chat-run-composer > span {
+  color: var(--aim-text-secondary);
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .chat-run-card { padding: 12px; }
+  .chat-run-composer > span { flex-basis: 100%; }
+  .chat-run-updated { margin-left: 0; }
 }

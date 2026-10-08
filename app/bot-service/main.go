@@ -9,12 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cloudwego/eino/callbacks"
-	"github.com/maomeng/aim/app/bot-service/internal/client"
 	"github.com/maomeng/aim/app/bot-service/internal/config"
 	"github.com/maomeng/aim/app/bot-service/internal/consumer"
-	"github.com/maomeng/aim/app/bot-service/internal/graph"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
+	"github.com/maomeng/aim/app/bot-service/internal/run"
 	"github.com/maomeng/aim/app/bot-service/internal/server"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	botpb "github.com/maomeng/aim/app/bot-service/pb/bot"
@@ -85,9 +83,6 @@ func main() {
 		}()
 	}
 	if c.Role != "control" {
-		// Register global eino callback handlers for OTel tracing and logging
-		callbacks.AppendGlobalHandlers(graph.NewOTelCallbackHandler(logger))
-
 		// Kafka consumer for message.created events
 		var err error
 		eventConsumer, err = kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated}, c.Kafka.ConsumerGroup, logger)
@@ -100,53 +95,14 @@ func main() {
 			kafka.CollectConsumerLag(kafkaClient, c.Kafka.ConsumerGroup, []string{consts.KafkaTopicMessageCreated})
 		}
 
-		db := ctx.DB
-		userNames := graph.UserNamesFunc(func(ctx context.Context, ids []string) (map[string]string, error) {
-			type userInfo struct {
-				ID       string `gorm:"column:id"`
-				Username string
-			}
-			var users []userInfo
-			if err := db.Table("user.users").Where("id IN ?", ids).Find(&users).Error; err != nil {
-				return nil, err
-			}
-			m := make(map[string]string, len(users))
-			for _, u := range users {
-				m[u.ID] = u.Username
-			}
-			return m, nil
-		})
-
-		llmClient := client.NewLlmGatewayClient(ctx.LlmGatewayConn)
-		msgClient := client.NewMessageClient(ctx.MessageSvcConn)
-		kbClient := client.NewKnowledgeClient(ctx.KnowledgeConn)
-
-		deliveryClient := client.NewDeliveryClient(msgClient, ctx.DeliveryPublisher)
-
-		handler := consumer.NewHandler(
-			logger,
-			ctx.BotRepo,
-			repo.NewConvBotRepo(ctx.DB),
-			llmClient,
-			nil, // retriever
-			msgClient,
-			kbClient,
-			nil, // convClient
-			consumer.NewDedup(ctx.Redis),
-			deliveryClient,
-			userNames,
-		)
+		runs := run.NewService(ctx)
+		runs.Start(kafkaCtx)
+		handler := consumer.NewHandler(ctx.BotRepo, repo.NewConvBotRepo(ctx.DB), runs)
 
 		// Start Kafka consumer after tracing is initialized (by MustNewServer above)
 		// so ConsumerClaim spans have a valid global TracerProvider.
 		go func() {
-			kafkaHandler := &kafka.MessageHandler{
-				OnMessage: func(ctx context.Context, key, value []byte) error {
-					return handler.Handle(ctx, value)
-				},
-				Logger: logger,
-			}
-			if err := eventConsumer.Consume(kafkaCtx, kafkaHandler); err != nil {
+			if err := eventConsumer.Consume(kafkaCtx, handler); err != nil && kafkaCtx.Err() == nil {
 				logger.Errorf("kafka consumer stopped: %v", err)
 			}
 		}()

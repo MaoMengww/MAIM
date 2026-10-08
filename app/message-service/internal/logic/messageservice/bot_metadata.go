@@ -17,6 +17,16 @@ func validateBotMetadata(raw string) error {
 	if err := json.Unmarshal([]byte(raw), &object); err != nil || object == nil {
 		return fmt.Errorf("bot metadata must be a JSON object")
 	}
+	// These are display links only. Identity and current sending permission still
+	// come from the authenticated call and authoritative conversation binding.
+	for _, field := range []string{"run_id", "interaction_id"} {
+		if value, exists := object[field]; exists {
+			var id string
+			if err := json.Unmarshal(value, &id); err != nil || identity.Validate(id) != nil {
+				return fmt.Errorf("invalid bot metadata %s", field)
+			}
+		}
+	}
 	sourceJSON, exists := object["kb_sources"]
 	if !exists || string(sourceJSON) == "null" {
 		return nil

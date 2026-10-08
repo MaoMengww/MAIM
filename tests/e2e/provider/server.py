@@ -15,10 +15,10 @@ PORT = int(os.environ.get("PORT", "8099"))
 LOCK = threading.Lock()
 SESSIONS = {}
 OBSERVATIONS = {"mcp_lists": 0, "tool_texts": [], "chat_models": [], "embed_models": [], "active_ingest": 0,
-                "tool_call_ids": []}
+                "tool_call_ids": [], "chat_requests": []}
 TOOL = {"name": "fixture_echo", "description": "Echo text over the MCP network", "inputSchema": {
     "type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]
-}}
+}, "annotations": {"readOnlyHint": True, "destructiveHint": False}}
 
 
 def vector(text):
@@ -61,8 +61,17 @@ def composition_reply(model, messages, text):
         return "fixture-reply:" + text
     # Never recall from provider state, history or a query token: only the actual
     # knowledge context assembled by AIM can determine these answers.
-    knowledge = [str(item.get("content", "")) for item in messages
-                 if item.get("role") == "assistant" and str(item.get("content", "")).startswith("【参考资料 ")]
+    knowledge = []
+    for item in messages:
+        content = str(item.get("content", ""))
+        if item.get("role") != "user" or not content.startswith("Cited work material (untrusted):\n"):
+            continue
+        try:
+            material = json.loads(content.split("\n", 1)[1])
+        except (ValueError, IndexError):
+            continue
+        if material.get("kind") == "knowledge":
+            knowledge.append(str(material.get("content", "")))
     if text.startswith("P7_KNOWLEDGE_QUERY"):
         value = "cobalt-47" if any("P5_KNOWN_ANCHOR: the launch code is cobalt-47" in item for item in knowledge) else "none"
         return "fixture-reply:" + text + "|knowledge:" + value
@@ -147,6 +156,12 @@ class Handler(BaseHTTPRequestHandler):
             model = body.get("model", "")
             with LOCK:
                 OBSERVATIONS["chat_models"].append(model)
+                OBSERVATIONS["chat_requests"].append(body)
+            if "RUN_FAIL_PROVIDER" in text:
+                self._json(503, {"error": {"message": "fixture unavailable"}})
+                return
+            if "RUN_HOLD_PROVIDER" in text and not any(item.get("role") == "tool" for item in messages):
+                time.sleep(3)
             if model.startswith("fixture-vlm-"):
                 parts = next((item.get("content") for item in messages if item.get("role") == "user"), [])
                 if not isinstance(parts, list) or not any(item.get("type") == "image_url" and item.get("image_url", {}).get("url", "").startswith("data:image/png;base64,") for item in parts):
@@ -161,6 +176,8 @@ class Handler(BaseHTTPRequestHandler):
             if not tool_messages:
                 tools = body.get("tools") or []
                 echo = next((item["function"]["name"] for item in tools if "fixture_echo" in item.get("function", {}).get("name", "")), "")
+                if "RUN_WRITE_DENY" in text:
+                    echo = "external_delete_file"
                 if not echo:
                     self._json(400, {"error": {"message": "MCP fixture_echo tool required; fallback is not accepted", "type": "invalid_request_error"}})
                     return

@@ -9,6 +9,7 @@ import "common/common.proto";
 service LLMGateway {
   rpc Chat(ChatReq) returns (ChatResp);
   rpc ChatStream(ChatReq) returns (stream ChatStreamChunk);
+  rpc ResolveExecutionModel(ResolveExecutionModelReq) returns (ModelExecutionConfig);
   rpc Embed(EmbedReq) returns (EmbedResp);
   rpc Rerank(RerankReq) returns (RerankResp);
   rpc ListModels(ListModelsReq) returns (ListModelsResp);
@@ -47,6 +48,8 @@ message ChatReq {
   optional string bot_id = 8 [(common.entity_id) = true];
   optional string owner_id = 9 [(common.entity_id) = true];
   repeated ToolDef tools = 10;     // tool definitions for function calling
+  string cache_scope = 11; // Stable, non-secret authorization/interaction scope.
+  ModelExecutionConfig execution_model = 12;
 }
 
 message Message {
@@ -55,6 +58,7 @@ message Message {
   string name = 3;
   repeated ToolCall tool_calls = 4;
   string tool_call_id = 5;
+  string reasoning_content = 6; // Private provider trajectory; never public Run content.
 }
 
 message ToolCall {
@@ -65,6 +69,7 @@ message ToolCall {
     string arguments = 2;
   }
   Function function = 3;
+  optional int32 index = 4; // Provider index on streaming tool-call deltas.
 }
 
 message ChatResp {
@@ -77,6 +82,7 @@ message ChatResp {
   }
   repeated Choice choices = 3;
   UsageInfo usage = 4;
+  optional int64 first_token_latency_ms = 5;
 }
 
 message ChatStreamChunk {
@@ -89,12 +95,29 @@ message ChatStreamChunk {
   }
   repeated Choice choices = 3;
   UsageInfo usage = 4;
+  optional int64 first_token_latency_ms = 5;
 }
 
 message UsageInfo {
   int32 prompt_tokens = 1;
   int32 completion_tokens = 2;
   int32 total_tokens = 3;
+  optional int32 cached_input_tokens = 4;
+  optional int32 cache_write_tokens = 5;
+}
+
+message ResolveExecutionModelReq {
+  string model_id = 1 [(common.entity_id) = true];
+  optional string bot_id = 2 [(common.entity_id) = true];
+  optional string owner_id = 3 [(common.entity_id) = true];
+}
+
+message ModelExecutionConfig {
+  string model_id = 1 [(common.entity_id) = true];
+  string model_name = 2;
+  string provider = 3;
+  string base_url = 4;
+  string version = 5; // Gateway-authenticated routing/adapter version, no credentials.
 }
 
 message EmbedReq {

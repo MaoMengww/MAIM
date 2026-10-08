@@ -228,6 +228,7 @@ func run(args []string) error {
 			{"bot-runtime", *realtimeA, *realtimeA},
 			{"bot-runtime-cross-instance", *realtimeA, *realtimeB},
 			{"bot-identity", *realtimeA, *realtimeB},
+			{"bot-runs", *realtimeA, *realtimeB},
 			{"knowledge-ingest", "", ""},
 			{"cross-instance", *realtimeA, *realtimeB},
 		}
@@ -255,6 +256,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"stage-p6", *realtimeA, *realtimeB}}
 	case "bot-identity":
 		scenarios = []scenarioSpec{{"bot-identity", *realtimeA, *realtimeB}}
+	case "bot-runs":
+		scenarios = []scenarioSpec{{"bot-runs", *realtimeA, *realtimeB}}
 	case "bot-runtime":
 		scenarios = []scenarioSpec{{"bot-runtime", *realtimeA, *realtimeA}}
 	case "bot-runtime-cross-instance":
@@ -286,7 +289,7 @@ func run(args []string) error {
 		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
 	}
 	for _, scenario := range scenarios {
-		if scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
+		if scenario.name == "bot-runs" || scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
 			if _, err := endpoint(*provider, "http", "https"); err != nil {
 				return fmt.Errorf("配置外部 provider: %w", err)
 			}
@@ -328,6 +331,8 @@ func run(args []string) error {
 			err = d.attachments(scenario.a, scenario.b)
 		case "bot-identity":
 			err = d.botIdentity(scenario.a, scenario.b)
+		case "bot-runs":
+			err = d.botRuns(scenario.a, scenario.b)
 		case "bot-runtime", "bot-runtime-cross-instance":
 			err = d.botRuntime(scenario.a, scenario.b)
 		case "knowledge-ingest":
@@ -355,6 +360,8 @@ func run(args []string) error {
 			fmt.Println("E2E PASS: attachments 真实PUT/confirm/info/download精确bytes与UUID → 四类型ACK/跨实例WS/history/byID/离线inbox → 重试/冲突 → 回复摘要/文本search引用 → 私有权限/匿名拒绝/单删/批删/消息删除对象隔离")
 		} else if scenario.name == "bot-identity" {
 			fmt.Println("E2E PASS: bot-identity 独立owner/inviter/requester → 两群binding与纯人类计数 → REST/WS text/file/result显式Bot身份 → 无binding/跨群/移出/重入旧binding拒写 → 指定seq授权/无grant/越界/跨群/个人删除/旧grant拒读 → search/引用/用户sync身份一致")
+		} else if scenario.name == "bot-runs" {
+			fmt.Println("E2E PASS: bot-runs 明确操作/目标mention → 独立交互Run → 幂等/冲突 → 真实工具/追加前缀 → 失败/消息历史 → WS版本与重连恢复")
 		} else if scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" {
 			fmt.Printf("E2E PASS: %s UUID模型CRUD/私有选择拒绝/model_id省略保持与clear → Bot配置/token状态 → MCP稳定UUID发现/绑定解绑/真实调用 → Kafka精确回复/WS与REST → model/bot/user计费一致 → 语言与AI模型设置 → 已退役生成/查询/Todo管理HTTP404且provider计数不变 → 知识multipart上传/检索/绑定/WS与SSE/history来源UUID/解绑隔离 → 删除\n", scenario.name)
 		} else if scenario.name == "knowledge-ingest" {

@@ -262,9 +262,9 @@ python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifact
 
 `stage-p5` 在 P4 场景上追加 Bot 配置/令牌、真实网络 MCP 工具发现与调用、Kafka 回复及 WS/REST 精确内容核对，以及四个大文档并发入库期间的检索和失败隔离。OpenAI/MCP 外部协议由 `e2e-provider` 提供；AIM 内部 RPC、Kafka、PostgreSQL、Milvus 不替换。在线查询每次硬截止 5 秒；入库总截止 10 分钟，容纳默认 20 RPM 预算，不提高配额或缩小文档负载。
 
-`bot-runtime` / `bot-runtime-cross-instance` 在不启动 Neo4j、不创建长期记忆集合的隔离环境中运行真实 knowledge online/ingest、文件与 Milvus：覆盖 Bot/会话绑定与解绑、反向目标列表、UUID 来源在 WS/SSE 和持久消息正文中一致、模型所有权与真实网络 MCP 调用。旧群摘要、Todo、回复候选与专用翻译接口返回 404，且不触发 provider 工作。外部 provider fixture 只决定模型/MCP 响应，不替换 AIM 的内部服务和存储。
+`bot-runtime` / `bot-runtime-cross-instance` 在不启动 Neo4j、不创建长期记忆集合的隔离环境中运行真实 knowledge online/ingest、文件与 Milvus：覆盖 Bot/会话绑定、模型所有权、真实网络 MCP 调用、目标提及启动 Run，以及知识来源在 Run、WS 和持久消息正文中的一致性。旧群摘要、Todo、回复候选、专用翻译和直接 chat/stream 接口不再提供。外部 provider fixture 只决定模型/MCP 响应，不替换 AIM 内部服务与存储。
 
-`stage-p6` 覆盖 P3/P4 主链路、跨实例 Bot 回复和流式输出、发送方其它设备回显、非成员隔离、撤回/编辑/删除与未读同步。验收通过 `presence.query` 查询设备所在实例，并真实执行强制终止、TTL 自然失效、TTL 内投递失败负反馈、重启恢复，以及 readiness 摘流量后的多连接平滑排空；故障期间遗漏的消息按用户同步位点补拉。`--artifacts` 保留检查点与服务日志。
+`stage-p6` 覆盖 P3/P4 主链路、跨实例 Bot 最终回复与版本化 Run 状态、发送方其它设备回显、非成员隔离、撤回/编辑/删除与未读同步。验收通过 `presence.query` 查询设备所在实例，并真实执行强制终止、TTL 自然失效、TTL 内投递失败负反馈、重启恢复，以及 readiness 摘流量后的多连接平滑排空；遗漏消息按用户同步位点补拉，Run 过程通过权威查询恢复。
 
 Bot 使用同一镜像：`bot-service -role control` 提供外部入口，运行时调用转发到 `BOT_RUNTIME_ADDR`；`bot-runtime -role runtime` 消费消息并执行 Agent，直接读取同域配置，不依赖控制面 RPC。两个工作负载分别暴露 9109/9119 指标，可独立调整副本。Knowledge 使用同一镜像：`-role online` 仅提供查询/管理 RPC，`-role ingest` 仅消费上传事件，只监听一个 `9118` HTTP 端口同时服务 `/health` 与 `/metrics`。Compose 与 Helm 都把两者作为独立工作负载配置资源，可单独设置 `replicaCount`；Helm 侧不另建 values 文件，由同域 values 覆盖生成。
 
@@ -611,6 +611,17 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 新库及已有 UUID 库统一应用 `003_bot_conversation_identity.sql`：清理旧伪成员、重算人类数量、保留撤销绑定，转换旧类型9消息及待发布/失败事件；旧消息无法证明的请求者和绑定保持缺失，不虚构。既有搜索投影同步退役类型9；浏览器旧身份缓存整份失效并重建。
 
 验收入口：`python3 tests/e2e/run.py --scenario bot-identity`，也包含在 `all` 中。覆盖跨会话身份、REST/WS/Webhook 文本/文件/结果、限定历史、移出重入、owner/inviter/requester 分离、搜索/引用/同步和恶意 metadata 拒绝。
+
+#### 内置 Bot 的持久执行
+
+- `POST /api/v1/bots/:id/runs`：提交 `{conv_id,submission_key,message,reply_to_msg_id?,history_grant_id?}`。明确操作或消息中精确提及当前 Bot 才开始工作；普通 Bot 输出、无关 mention 和群活动不启动内置 Run。
+- `GET /api/v1/runs/:id` 与 `GET /api/v1/conversations/:id/runs?limit=50`：按当前会话与来源可见性查询。默认每次请求新建独立交互与 Run，只包含本次输入、明确引用及获准知识，不读取群最近消息。
+- `bot.run.updated` WS 事件携带 `{type,conv_id,bot_id,run}`；按 `run.version` 合并，断线后重新查询。卡片区分 `accepted/running/succeeded/failed` 及 `generated/pending/committed/failed` 输出状态，不把临时 token 或生成完成当作消息已发送。
+- `004_single_run.sql` 持有交互、接受输入、追加轨迹、不可变模型调用快照和 Bot outbox；`005_bot_output_submission.sql` 在消息事务内保存最终输出 receipt。重复输入返回同一 Run，重复输出返回同一消息，同键不同内容冲突；重试仍校验当前绑定和权限。
+- 开始时固定模型路由、提示词、排序后的工具/schema 和预算；当前密钥只在 LLM domain 使用。调用工具和提交输出重新授权，外部写操作明确拒绝。模型端点/供应商变更使旧路由快照失效，不把新端点密钥发给旧端点。
+- 固定指令、真实 assistant/tool 往返只追加；模型调用保留输入上界、轨迹版本、实际请求/输出和 nullable usage/首 token 延迟。支持的官方 OpenAI 端点使用原生 `prompt_cache_key`；不支持缓存照常执行，缺失缓存字段不推断命中，不自建 KV 状态。
+
+验收入口：`python3 tests/e2e/run.py --scenario bot-runs`，覆盖明确操作/目标提及、同键并发重试/冲突、真实网络工具、稳定前缀、模型失败、配置冻结/撤权、最终历史与 WS/断线恢复。外部 fixture 证明协议与输入，不代表真实远端 KV 命中。
 
 ---
 

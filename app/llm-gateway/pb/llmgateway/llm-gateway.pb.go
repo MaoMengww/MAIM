@@ -183,18 +183,20 @@ func (x *ToolDef) GetParameters() []byte {
 }
 
 type ChatReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
-	Messages      []*Message             `protobuf:"bytes,3,rep,name=messages,proto3" json:"messages,omitempty"`
-	Temperature   float64                `protobuf:"fixed64,4,opt,name=temperature,proto3" json:"temperature,omitempty"`
-	MaxTokens     int32                  `protobuf:"varint,5,opt,name=max_tokens,json=maxTokens,proto3" json:"max_tokens,omitempty"`
-	TopP          float64                `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3" json:"top_p,omitempty"`
-	Stop          []string               `protobuf:"bytes,7,rep,name=stop,proto3" json:"stop,omitempty"`
-	BotId         *string                `protobuf:"bytes,8,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
-	OwnerId       *string                `protobuf:"bytes,9,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
-	Tools         []*ToolDef             `protobuf:"bytes,10,rep,name=tools,proto3" json:"tools,omitempty"` // tool definitions for function calling
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ModelId        string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
+	Messages       []*Message             `protobuf:"bytes,3,rep,name=messages,proto3" json:"messages,omitempty"`
+	Temperature    float64                `protobuf:"fixed64,4,opt,name=temperature,proto3" json:"temperature,omitempty"`
+	MaxTokens      int32                  `protobuf:"varint,5,opt,name=max_tokens,json=maxTokens,proto3" json:"max_tokens,omitempty"`
+	TopP           float64                `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3" json:"top_p,omitempty"`
+	Stop           []string               `protobuf:"bytes,7,rep,name=stop,proto3" json:"stop,omitempty"`
+	BotId          *string                `protobuf:"bytes,8,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	OwnerId        *string                `protobuf:"bytes,9,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
+	Tools          []*ToolDef             `protobuf:"bytes,10,rep,name=tools,proto3" json:"tools,omitempty"`                             // tool definitions for function calling
+	CacheScope     string                 `protobuf:"bytes,11,opt,name=cache_scope,json=cacheScope,proto3" json:"cache_scope,omitempty"` // Stable, non-secret authorization/interaction scope.
+	ExecutionModel *ModelExecutionConfig  `protobuf:"bytes,12,opt,name=execution_model,json=executionModel,proto3" json:"execution_model,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ChatReq) Reset() {
@@ -290,15 +292,30 @@ func (x *ChatReq) GetTools() []*ToolDef {
 	return nil
 }
 
+func (x *ChatReq) GetCacheScope() string {
+	if x != nil {
+		return x.CacheScope
+	}
+	return ""
+}
+
+func (x *ChatReq) GetExecutionModel() *ModelExecutionConfig {
+	if x != nil {
+		return x.ExecutionModel
+	}
+	return nil
+}
+
 type Message struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Role          string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
-	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	ToolCalls     []*ToolCall            `protobuf:"bytes,4,rep,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`
-	ToolCallId    string                 `protobuf:"bytes,5,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Role             string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
+	Content          string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	Name             string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	ToolCalls        []*ToolCall            `protobuf:"bytes,4,rep,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`
+	ToolCallId       string                 `protobuf:"bytes,5,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
+	ReasoningContent string                 `protobuf:"bytes,6,opt,name=reasoning_content,json=reasoningContent,proto3" json:"reasoning_content,omitempty"` // Private provider trajectory; never public Run content.
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Message) Reset() {
@@ -366,11 +383,19 @@ func (x *Message) GetToolCallId() string {
 	return ""
 }
 
+func (x *Message) GetReasoningContent() string {
+	if x != nil {
+		return x.ReasoningContent
+	}
+	return ""
+}
+
 type ToolCall struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
 	Function      *ToolCall_Function     `protobuf:"bytes,3,opt,name=function,proto3" json:"function,omitempty"`
+	Index         *int32                 `protobuf:"varint,4,opt,name=index,proto3,oneof" json:"index,omitempty"` // Provider index on streaming tool-call deltas.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -426,14 +451,22 @@ func (x *ToolCall) GetFunction() *ToolCall_Function {
 	return nil
 }
 
+func (x *ToolCall) GetIndex() int32 {
+	if x != nil && x.Index != nil {
+		return *x.Index
+	}
+	return 0
+}
+
 type ChatResp struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Model         string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
-	Choices       []*ChatResp_Choice     `protobuf:"bytes,3,rep,name=choices,proto3" json:"choices,omitempty"`
-	Usage         *UsageInfo             `protobuf:"bytes,4,opt,name=usage,proto3" json:"usage,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Id                  string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Model               string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	Choices             []*ChatResp_Choice     `protobuf:"bytes,3,rep,name=choices,proto3" json:"choices,omitempty"`
+	Usage               *UsageInfo             `protobuf:"bytes,4,opt,name=usage,proto3" json:"usage,omitempty"`
+	FirstTokenLatencyMs *int64                 `protobuf:"varint,5,opt,name=first_token_latency_ms,json=firstTokenLatencyMs,proto3,oneof" json:"first_token_latency_ms,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ChatResp) Reset() {
@@ -494,14 +527,22 @@ func (x *ChatResp) GetUsage() *UsageInfo {
 	return nil
 }
 
+func (x *ChatResp) GetFirstTokenLatencyMs() int64 {
+	if x != nil && x.FirstTokenLatencyMs != nil {
+		return *x.FirstTokenLatencyMs
+	}
+	return 0
+}
+
 type ChatStreamChunk struct {
-	state         protoimpl.MessageState    `protogen:"open.v1"`
-	Id            string                    `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Model         string                    `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
-	Choices       []*ChatStreamChunk_Choice `protobuf:"bytes,3,rep,name=choices,proto3" json:"choices,omitempty"`
-	Usage         *UsageInfo                `protobuf:"bytes,4,opt,name=usage,proto3" json:"usage,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState    `protogen:"open.v1"`
+	Id                  string                    `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Model               string                    `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	Choices             []*ChatStreamChunk_Choice `protobuf:"bytes,3,rep,name=choices,proto3" json:"choices,omitempty"`
+	Usage               *UsageInfo                `protobuf:"bytes,4,opt,name=usage,proto3" json:"usage,omitempty"`
+	FirstTokenLatencyMs *int64                    `protobuf:"varint,5,opt,name=first_token_latency_ms,json=firstTokenLatencyMs,proto3,oneof" json:"first_token_latency_ms,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ChatStreamChunk) Reset() {
@@ -562,13 +603,22 @@ func (x *ChatStreamChunk) GetUsage() *UsageInfo {
 	return nil
 }
 
+func (x *ChatStreamChunk) GetFirstTokenLatencyMs() int64 {
+	if x != nil && x.FirstTokenLatencyMs != nil {
+		return *x.FirstTokenLatencyMs
+	}
+	return 0
+}
+
 type UsageInfo struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	PromptTokens     int32                  `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3" json:"prompt_tokens,omitempty"`
-	CompletionTokens int32                  `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3" json:"completion_tokens,omitempty"`
-	TotalTokens      int32                  `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3" json:"total_tokens,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	PromptTokens      int32                  `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3" json:"prompt_tokens,omitempty"`
+	CompletionTokens  int32                  `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3" json:"completion_tokens,omitempty"`
+	TotalTokens       int32                  `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3" json:"total_tokens,omitempty"`
+	CachedInputTokens *int32                 `protobuf:"varint,4,opt,name=cached_input_tokens,json=cachedInputTokens,proto3,oneof" json:"cached_input_tokens,omitempty"`
+	CacheWriteTokens  *int32                 `protobuf:"varint,5,opt,name=cache_write_tokens,json=cacheWriteTokens,proto3,oneof" json:"cache_write_tokens,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *UsageInfo) Reset() {
@@ -622,6 +672,156 @@ func (x *UsageInfo) GetTotalTokens() int32 {
 	return 0
 }
 
+func (x *UsageInfo) GetCachedInputTokens() int32 {
+	if x != nil && x.CachedInputTokens != nil {
+		return *x.CachedInputTokens
+	}
+	return 0
+}
+
+func (x *UsageInfo) GetCacheWriteTokens() int32 {
+	if x != nil && x.CacheWriteTokens != nil {
+		return *x.CacheWriteTokens
+	}
+	return 0
+}
+
+type ResolveExecutionModelReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	BotId         *string                `protobuf:"bytes,2,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	OwnerId       *string                `protobuf:"bytes,3,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveExecutionModelReq) Reset() {
+	*x = ResolveExecutionModelReq{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveExecutionModelReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveExecutionModelReq) ProtoMessage() {}
+
+func (x *ResolveExecutionModelReq) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveExecutionModelReq.ProtoReflect.Descriptor instead.
+func (*ResolveExecutionModelReq) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ResolveExecutionModelReq) GetModelId() string {
+	if x != nil {
+		return x.ModelId
+	}
+	return ""
+}
+
+func (x *ResolveExecutionModelReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
+	}
+	return ""
+}
+
+func (x *ResolveExecutionModelReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
+	}
+	return ""
+}
+
+type ModelExecutionConfig struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelName     string                 `protobuf:"bytes,2,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
+	Provider      string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
+	BaseUrl       string                 `protobuf:"bytes,4,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	Version       string                 `protobuf:"bytes,5,opt,name=version,proto3" json:"version,omitempty"` // Gateway-authenticated routing/adapter version, no credentials.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ModelExecutionConfig) Reset() {
+	*x = ModelExecutionConfig{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelExecutionConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelExecutionConfig) ProtoMessage() {}
+
+func (x *ModelExecutionConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelExecutionConfig.ProtoReflect.Descriptor instead.
+func (*ModelExecutionConfig) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ModelExecutionConfig) GetModelId() string {
+	if x != nil {
+		return x.ModelId
+	}
+	return ""
+}
+
+func (x *ModelExecutionConfig) GetModelName() string {
+	if x != nil {
+		return x.ModelName
+	}
+	return ""
+}
+
+func (x *ModelExecutionConfig) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *ModelExecutionConfig) GetBaseUrl() string {
+	if x != nil {
+		return x.BaseUrl
+	}
+	return ""
+}
+
+func (x *ModelExecutionConfig) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 type EmbedReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
@@ -634,7 +834,7 @@ type EmbedReq struct {
 
 func (x *EmbedReq) Reset() {
 	*x = EmbedReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[8]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -646,7 +846,7 @@ func (x *EmbedReq) String() string {
 func (*EmbedReq) ProtoMessage() {}
 
 func (x *EmbedReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[8]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -659,7 +859,7 @@ func (x *EmbedReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EmbedReq.ProtoReflect.Descriptor instead.
 func (*EmbedReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{8}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *EmbedReq) GetModelId() string {
@@ -701,7 +901,7 @@ type EmbedResp struct {
 
 func (x *EmbedResp) Reset() {
 	*x = EmbedResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[9]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -713,7 +913,7 @@ func (x *EmbedResp) String() string {
 func (*EmbedResp) ProtoMessage() {}
 
 func (x *EmbedResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[9]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -726,7 +926,7 @@ func (x *EmbedResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EmbedResp.ProtoReflect.Descriptor instead.
 func (*EmbedResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{9}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *EmbedResp) GetModel() string {
@@ -765,7 +965,7 @@ type RerankReq struct {
 
 func (x *RerankReq) Reset() {
 	*x = RerankReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[10]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -777,7 +977,7 @@ func (x *RerankReq) String() string {
 func (*RerankReq) ProtoMessage() {}
 
 func (x *RerankReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[10]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -790,7 +990,7 @@ func (x *RerankReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerankReq.ProtoReflect.Descriptor instead.
 func (*RerankReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{10}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RerankReq) GetModelId() string {
@@ -853,7 +1053,7 @@ type RerankResp struct {
 
 func (x *RerankResp) Reset() {
 	*x = RerankResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[11]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +1065,7 @@ func (x *RerankResp) String() string {
 func (*RerankResp) ProtoMessage() {}
 
 func (x *RerankResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[11]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -878,7 +1078,7 @@ func (x *RerankResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerankResp.ProtoReflect.Descriptor instead.
 func (*RerankResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{11}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RerankResp) GetResults() []*RerankResp_Result {
@@ -912,7 +1112,7 @@ type ListModelsReq struct {
 
 func (x *ListModelsReq) Reset() {
 	*x = ListModelsReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[12]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -924,7 +1124,7 @@ func (x *ListModelsReq) String() string {
 func (*ListModelsReq) ProtoMessage() {}
 
 func (x *ListModelsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[12]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -937,7 +1137,7 @@ func (x *ListModelsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListModelsReq.ProtoReflect.Descriptor instead.
 func (*ListModelsReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{12}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListModelsReq) GetCapability() string {
@@ -964,7 +1164,7 @@ type ListModelsResp struct {
 
 func (x *ListModelsResp) Reset() {
 	*x = ListModelsResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[13]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -976,7 +1176,7 @@ func (x *ListModelsResp) String() string {
 func (*ListModelsResp) ProtoMessage() {}
 
 func (x *ListModelsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[13]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -989,7 +1189,7 @@ func (x *ListModelsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListModelsResp.ProtoReflect.Descriptor instead.
 func (*ListModelsResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{13}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListModelsResp) GetItems() []*ModelResp {
@@ -1023,7 +1223,7 @@ type CreateModelReq struct {
 
 func (x *CreateModelReq) Reset() {
 	*x = CreateModelReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[14]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1035,7 +1235,7 @@ func (x *CreateModelReq) String() string {
 func (*CreateModelReq) ProtoMessage() {}
 
 func (x *CreateModelReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[14]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1048,7 +1248,7 @@ func (x *CreateModelReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateModelReq.ProtoReflect.Descriptor instead.
 func (*CreateModelReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{14}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CreateModelReq) GetModelName() string {
@@ -1130,7 +1330,7 @@ type UpdateModelReq struct {
 
 func (x *UpdateModelReq) Reset() {
 	*x = UpdateModelReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[15]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1142,7 +1342,7 @@ func (x *UpdateModelReq) String() string {
 func (*UpdateModelReq) ProtoMessage() {}
 
 func (x *UpdateModelReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[15]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1155,7 +1355,7 @@ func (x *UpdateModelReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateModelReq.ProtoReflect.Descriptor instead.
 func (*UpdateModelReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{15}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *UpdateModelReq) GetModelId() string {
@@ -1223,7 +1423,7 @@ type DeleteModelReq struct {
 
 func (x *DeleteModelReq) Reset() {
 	*x = DeleteModelReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[16]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1235,7 +1435,7 @@ func (x *DeleteModelReq) String() string {
 func (*DeleteModelReq) ProtoMessage() {}
 
 func (x *DeleteModelReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[16]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1248,7 +1448,7 @@ func (x *DeleteModelReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteModelReq.ProtoReflect.Descriptor instead.
 func (*DeleteModelReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{16}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *DeleteModelReq) GetModelId() string {
@@ -1267,7 +1467,7 @@ type DeleteModelResp struct {
 
 func (x *DeleteModelResp) Reset() {
 	*x = DeleteModelResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[17]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1279,7 +1479,7 @@ func (x *DeleteModelResp) String() string {
 func (*DeleteModelResp) ProtoMessage() {}
 
 func (x *DeleteModelResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[17]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1292,7 +1492,7 @@ func (x *DeleteModelResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteModelResp.ProtoReflect.Descriptor instead.
 func (*DeleteModelResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{17}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DeleteModelResp) GetSuccess() bool {
@@ -1321,7 +1521,7 @@ type ModelResp struct {
 
 func (x *ModelResp) Reset() {
 	*x = ModelResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[18]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1333,7 +1533,7 @@ func (x *ModelResp) String() string {
 func (*ModelResp) ProtoMessage() {}
 
 func (x *ModelResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[18]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1346,7 +1546,7 @@ func (x *ModelResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelResp.ProtoReflect.Descriptor instead.
 func (*ModelResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{18}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ModelResp) GetId() string {
@@ -1436,7 +1636,7 @@ type BillingStatsReq struct {
 
 func (x *BillingStatsReq) Reset() {
 	*x = BillingStatsReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[19]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1448,7 +1648,7 @@ func (x *BillingStatsReq) String() string {
 func (*BillingStatsReq) ProtoMessage() {}
 
 func (x *BillingStatsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[19]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1461,7 +1661,7 @@ func (x *BillingStatsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BillingStatsReq.ProtoReflect.Descriptor instead.
 func (*BillingStatsReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{19}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *BillingStatsReq) GetOwnerId() string {
@@ -1490,7 +1690,7 @@ type BillingStatsResp struct {
 
 func (x *BillingStatsResp) Reset() {
 	*x = BillingStatsResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[20]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1502,7 +1702,7 @@ func (x *BillingStatsResp) String() string {
 func (*BillingStatsResp) ProtoMessage() {}
 
 func (x *BillingStatsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[20]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1515,7 +1715,7 @@ func (x *BillingStatsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BillingStatsResp.ProtoReflect.Descriptor instead.
 func (*BillingStatsResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{20}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *BillingStatsResp) GetTotalInputTokens() int64 {
@@ -1559,7 +1759,7 @@ type BillingModelStat struct {
 
 func (x *BillingModelStat) Reset() {
 	*x = BillingModelStat{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[21]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1571,7 +1771,7 @@ func (x *BillingModelStat) String() string {
 func (*BillingModelStat) ProtoMessage() {}
 
 func (x *BillingModelStat) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[21]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1584,7 +1784,7 @@ func (x *BillingModelStat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BillingModelStat.ProtoReflect.Descriptor instead.
 func (*BillingModelStat) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{21}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *BillingModelStat) GetModelName() string {
@@ -1633,7 +1833,7 @@ type ListBillingRecordsReq struct {
 
 func (x *ListBillingRecordsReq) Reset() {
 	*x = ListBillingRecordsReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[22]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1645,7 +1845,7 @@ func (x *ListBillingRecordsReq) String() string {
 func (*ListBillingRecordsReq) ProtoMessage() {}
 
 func (x *ListBillingRecordsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[22]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1658,7 +1858,7 @@ func (x *ListBillingRecordsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBillingRecordsReq.ProtoReflect.Descriptor instead.
 func (*ListBillingRecordsReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{22}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ListBillingRecordsReq) GetOwnerId() string {
@@ -1704,7 +1904,7 @@ type BillingRecordItem struct {
 
 func (x *BillingRecordItem) Reset() {
 	*x = BillingRecordItem{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[23]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1716,7 +1916,7 @@ func (x *BillingRecordItem) String() string {
 func (*BillingRecordItem) ProtoMessage() {}
 
 func (x *BillingRecordItem) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[23]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1729,7 +1929,7 @@ func (x *BillingRecordItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BillingRecordItem.ProtoReflect.Descriptor instead.
 func (*BillingRecordItem) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{23}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *BillingRecordItem) GetId() string {
@@ -1840,7 +2040,7 @@ type ListBillingRecordsResp struct {
 
 func (x *ListBillingRecordsResp) Reset() {
 	*x = ListBillingRecordsResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[24]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1852,7 +2052,7 @@ func (x *ListBillingRecordsResp) String() string {
 func (*ListBillingRecordsResp) ProtoMessage() {}
 
 func (x *ListBillingRecordsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[24]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1865,7 +2065,7 @@ func (x *ListBillingRecordsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBillingRecordsResp.ProtoReflect.Descriptor instead.
 func (*ListBillingRecordsResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{24}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListBillingRecordsResp) GetItems() []*BillingRecordItem {
@@ -1892,7 +2092,7 @@ type ToolCall_Function struct {
 
 func (x *ToolCall_Function) Reset() {
 	*x = ToolCall_Function{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[25]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1904,7 +2104,7 @@ func (x *ToolCall_Function) String() string {
 func (*ToolCall_Function) ProtoMessage() {}
 
 func (x *ToolCall_Function) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[25]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1945,7 +2145,7 @@ type ChatResp_Choice struct {
 
 func (x *ChatResp_Choice) Reset() {
 	*x = ChatResp_Choice{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[26]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1957,7 +2157,7 @@ func (x *ChatResp_Choice) String() string {
 func (*ChatResp_Choice) ProtoMessage() {}
 
 func (x *ChatResp_Choice) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[26]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2005,7 +2205,7 @@ type ChatStreamChunk_Choice struct {
 
 func (x *ChatStreamChunk_Choice) Reset() {
 	*x = ChatStreamChunk_Choice{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[27]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2017,7 +2217,7 @@ func (x *ChatStreamChunk_Choice) String() string {
 func (*ChatStreamChunk_Choice) ProtoMessage() {}
 
 func (x *ChatStreamChunk_Choice) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[27]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2064,7 +2264,7 @@ type EmbedResp_Embedding struct {
 
 func (x *EmbedResp_Embedding) Reset() {
 	*x = EmbedResp_Embedding{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[28]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2076,7 +2276,7 @@ func (x *EmbedResp_Embedding) String() string {
 func (*EmbedResp_Embedding) ProtoMessage() {}
 
 func (x *EmbedResp_Embedding) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[28]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2089,7 +2289,7 @@ func (x *EmbedResp_Embedding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EmbedResp_Embedding.ProtoReflect.Descriptor instead.
 func (*EmbedResp_Embedding) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{9, 0}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{11, 0}
 }
 
 func (x *EmbedResp_Embedding) GetIndex() int32 {
@@ -2117,7 +2317,7 @@ type RerankResp_Result struct {
 
 func (x *RerankResp_Result) Reset() {
 	*x = RerankResp_Result{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[29]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2129,7 +2329,7 @@ func (x *RerankResp_Result) String() string {
 func (*RerankResp_Result) ProtoMessage() {}
 
 func (x *RerankResp_Result) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[29]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2142,7 +2342,7 @@ func (x *RerankResp_Result) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerankResp_Result.ProtoReflect.Descriptor instead.
 func (*RerankResp_Result) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{11, 0}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{13, 0}
 }
 
 func (x *RerankResp_Result) GetIndex() int32 {
@@ -2192,7 +2392,7 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x1e\n" +
 	"\n" +
 	"parameters\x18\x03 \x01(\fR\n" +
-	"parameters\"\xd6\x02\n" +
+	"parameters\"\xc2\x03\n" +
 	"\aChatReq\x12!\n" +
 	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12/\n" +
 	"\bmessages\x18\x03 \x03(\v2\x13.llmgateway.MessageR\bmessages\x12 \n" +
@@ -2204,9 +2404,12 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\x06bot_id\x18\b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12&\n" +
 	"\bowner_id\x18\t \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01\x12)\n" +
 	"\x05tools\x18\n" +
-	" \x03(\v2\x13.llmgateway.ToolDefR\x05toolsB\t\n" +
+	" \x03(\v2\x13.llmgateway.ToolDefR\x05tools\x12\x1f\n" +
+	"\vcache_scope\x18\v \x01(\tR\n" +
+	"cacheScope\x12I\n" +
+	"\x0fexecution_model\x18\f \x01(\v2 .llmgateway.ModelExecutionConfigR\x0eexecutionModelB\t\n" +
 	"\a_bot_idB\v\n" +
-	"\t_owner_id\"\xa2\x01\n" +
+	"\t_owner_id\"\xcf\x01\n" +
 	"\aMessage\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x12\n" +
@@ -2214,36 +2417,60 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\n" +
 	"tool_calls\x18\x04 \x03(\v2\x14.llmgateway.ToolCallR\ttoolCalls\x12 \n" +
 	"\ftool_call_id\x18\x05 \x01(\tR\n" +
-	"toolCallId\"\xa7\x01\n" +
+	"toolCallId\x12+\n" +
+	"\x11reasoning_content\x18\x06 \x01(\tR\x10reasoningContent\"\xcc\x01\n" +
 	"\bToolCall\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x129\n" +
-	"\bfunction\x18\x03 \x01(\v2\x1d.llmgateway.ToolCall.FunctionR\bfunction\x1a<\n" +
+	"\bfunction\x18\x03 \x01(\v2\x1d.llmgateway.ToolCall.FunctionR\bfunction\x12\x19\n" +
+	"\x05index\x18\x04 \x01(\x05H\x00R\x05index\x88\x01\x01\x1a<\n" +
 	"\bFunction\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
-	"\targuments\x18\x02 \x01(\tR\targuments\"\x88\x02\n" +
+	"\targuments\x18\x02 \x01(\tR\targumentsB\b\n" +
+	"\x06_index\"\xdd\x02\n" +
 	"\bChatResp\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x125\n" +
 	"\achoices\x18\x03 \x03(\v2\x1b.llmgateway.ChatResp.ChoiceR\achoices\x12+\n" +
-	"\x05usage\x18\x04 \x01(\v2\x15.llmgateway.UsageInfoR\x05usage\x1ar\n" +
+	"\x05usage\x18\x04 \x01(\v2\x15.llmgateway.UsageInfoR\x05usage\x128\n" +
+	"\x16first_token_latency_ms\x18\x05 \x01(\x03H\x00R\x13firstTokenLatencyMs\x88\x01\x01\x1ar\n" +
 	"\x06Choice\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\x05R\x05index\x12-\n" +
 	"\amessage\x18\x02 \x01(\v2\x13.llmgateway.MessageR\amessage\x12#\n" +
-	"\rfinish_reason\x18\x03 \x01(\tR\ffinishReason\"\x92\x02\n" +
+	"\rfinish_reason\x18\x03 \x01(\tR\ffinishReasonB\x19\n" +
+	"\x17_first_token_latency_ms\"\xe7\x02\n" +
 	"\x0fChatStreamChunk\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12<\n" +
 	"\achoices\x18\x03 \x03(\v2\".llmgateway.ChatStreamChunk.ChoiceR\achoices\x12+\n" +
-	"\x05usage\x18\x04 \x01(\v2\x15.llmgateway.UsageInfoR\x05usage\x1an\n" +
+	"\x05usage\x18\x04 \x01(\v2\x15.llmgateway.UsageInfoR\x05usage\x128\n" +
+	"\x16first_token_latency_ms\x18\x05 \x01(\x03H\x00R\x13firstTokenLatencyMs\x88\x01\x01\x1an\n" +
 	"\x06Choice\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\x05R\x05index\x12)\n" +
 	"\x05delta\x18\x02 \x01(\v2\x13.llmgateway.MessageR\x05delta\x12#\n" +
-	"\rfinish_reason\x18\x03 \x01(\tR\ffinishReason\"\x80\x01\n" +
+	"\rfinish_reason\x18\x03 \x01(\tR\ffinishReasonB\x19\n" +
+	"\x17_first_token_latency_ms\"\x97\x02\n" +
 	"\tUsageInfo\x12#\n" +
 	"\rprompt_tokens\x18\x01 \x01(\x05R\fpromptTokens\x12+\n" +
 	"\x11completion_tokens\x18\x02 \x01(\x05R\x10completionTokens\x12!\n" +
-	"\ftotal_tokens\x18\x03 \x01(\x05R\vtotalTokens\"\xa7\x01\n" +
+	"\ftotal_tokens\x18\x03 \x01(\x05R\vtotalTokens\x123\n" +
+	"\x13cached_input_tokens\x18\x04 \x01(\x05H\x00R\x11cachedInputTokens\x88\x01\x01\x121\n" +
+	"\x12cache_write_tokens\x18\x05 \x01(\x05H\x01R\x10cacheWriteTokens\x88\x01\x01B\x16\n" +
+	"\x14_cached_input_tokensB\x15\n" +
+	"\x13_cache_write_tokens\"\xa1\x01\n" +
+	"\x18ResolveExecutionModelReq\x12!\n" +
+	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12\"\n" +
+	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12&\n" +
+	"\bowner_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01B\t\n" +
+	"\a_bot_idB\v\n" +
+	"\t_owner_id\"\xa9\x01\n" +
+	"\x14ModelExecutionConfig\x12!\n" +
+	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12\x1d\n" +
+	"\n" +
+	"model_name\x18\x02 \x01(\tR\tmodelName\x12\x1a\n" +
+	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x19\n" +
+	"\bbase_url\x18\x04 \x01(\tR\abaseUrl\x12\x18\n" +
+	"\aversion\x18\x05 \x01(\tR\aversion\"\xa7\x01\n" +
 	"\bEmbedReq\x12!\n" +
 	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12\x14\n" +
 	"\x05input\x18\x03 \x03(\tR\x05input\x12\"\n" +
@@ -2387,12 +2614,13 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\t_owner_id\"c\n" +
 	"\x16ListBillingRecordsResp\x123\n" +
 	"\x05items\x18\x01 \x03(\v2\x1d.llmgateway.BillingRecordItemR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total2\xe5\x05\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total2\xc6\x06\n" +
 	"\n" +
 	"LLMGateway\x121\n" +
 	"\x04Chat\x12\x13.llmgateway.ChatReq\x1a\x14.llmgateway.ChatResp\x12@\n" +
 	"\n" +
-	"ChatStream\x12\x13.llmgateway.ChatReq\x1a\x1b.llmgateway.ChatStreamChunk0\x01\x124\n" +
+	"ChatStream\x12\x13.llmgateway.ChatReq\x1a\x1b.llmgateway.ChatStreamChunk0\x01\x12_\n" +
+	"\x15ResolveExecutionModel\x12$.llmgateway.ResolveExecutionModelReq\x1a .llmgateway.ModelExecutionConfig\x124\n" +
 	"\x05Embed\x12\x14.llmgateway.EmbedReq\x1a\x15.llmgateway.EmbedResp\x127\n" +
 	"\x06Rerank\x12\x15.llmgateway.RerankReq\x1a\x16.llmgateway.RerankResp\x12C\n" +
 	"\n" +
@@ -2416,84 +2644,89 @@ func file_llm_gateway_llm_gateway_proto_rawDescGZIP() []byte {
 	return file_llm_gateway_llm_gateway_proto_rawDescData
 }
 
-var file_llm_gateway_llm_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_llm_gateway_llm_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_llm_gateway_llm_gateway_proto_goTypes = []any{
-	(*VlmChatReq)(nil),             // 0: llmgateway.VlmChatReq
-	(*ToolDef)(nil),                // 1: llmgateway.ToolDef
-	(*ChatReq)(nil),                // 2: llmgateway.ChatReq
-	(*Message)(nil),                // 3: llmgateway.Message
-	(*ToolCall)(nil),               // 4: llmgateway.ToolCall
-	(*ChatResp)(nil),               // 5: llmgateway.ChatResp
-	(*ChatStreamChunk)(nil),        // 6: llmgateway.ChatStreamChunk
-	(*UsageInfo)(nil),              // 7: llmgateway.UsageInfo
-	(*EmbedReq)(nil),               // 8: llmgateway.EmbedReq
-	(*EmbedResp)(nil),              // 9: llmgateway.EmbedResp
-	(*RerankReq)(nil),              // 10: llmgateway.RerankReq
-	(*RerankResp)(nil),             // 11: llmgateway.RerankResp
-	(*ListModelsReq)(nil),          // 12: llmgateway.ListModelsReq
-	(*ListModelsResp)(nil),         // 13: llmgateway.ListModelsResp
-	(*CreateModelReq)(nil),         // 14: llmgateway.CreateModelReq
-	(*UpdateModelReq)(nil),         // 15: llmgateway.UpdateModelReq
-	(*DeleteModelReq)(nil),         // 16: llmgateway.DeleteModelReq
-	(*DeleteModelResp)(nil),        // 17: llmgateway.DeleteModelResp
-	(*ModelResp)(nil),              // 18: llmgateway.ModelResp
-	(*BillingStatsReq)(nil),        // 19: llmgateway.BillingStatsReq
-	(*BillingStatsResp)(nil),       // 20: llmgateway.BillingStatsResp
-	(*BillingModelStat)(nil),       // 21: llmgateway.BillingModelStat
-	(*ListBillingRecordsReq)(nil),  // 22: llmgateway.ListBillingRecordsReq
-	(*BillingRecordItem)(nil),      // 23: llmgateway.BillingRecordItem
-	(*ListBillingRecordsResp)(nil), // 24: llmgateway.ListBillingRecordsResp
-	(*ToolCall_Function)(nil),      // 25: llmgateway.ToolCall.Function
-	(*ChatResp_Choice)(nil),        // 26: llmgateway.ChatResp.Choice
-	(*ChatStreamChunk_Choice)(nil), // 27: llmgateway.ChatStreamChunk.Choice
-	(*EmbedResp_Embedding)(nil),    // 28: llmgateway.EmbedResp.Embedding
-	(*RerankResp_Result)(nil),      // 29: llmgateway.RerankResp.Result
+	(*VlmChatReq)(nil),               // 0: llmgateway.VlmChatReq
+	(*ToolDef)(nil),                  // 1: llmgateway.ToolDef
+	(*ChatReq)(nil),                  // 2: llmgateway.ChatReq
+	(*Message)(nil),                  // 3: llmgateway.Message
+	(*ToolCall)(nil),                 // 4: llmgateway.ToolCall
+	(*ChatResp)(nil),                 // 5: llmgateway.ChatResp
+	(*ChatStreamChunk)(nil),          // 6: llmgateway.ChatStreamChunk
+	(*UsageInfo)(nil),                // 7: llmgateway.UsageInfo
+	(*ResolveExecutionModelReq)(nil), // 8: llmgateway.ResolveExecutionModelReq
+	(*ModelExecutionConfig)(nil),     // 9: llmgateway.ModelExecutionConfig
+	(*EmbedReq)(nil),                 // 10: llmgateway.EmbedReq
+	(*EmbedResp)(nil),                // 11: llmgateway.EmbedResp
+	(*RerankReq)(nil),                // 12: llmgateway.RerankReq
+	(*RerankResp)(nil),               // 13: llmgateway.RerankResp
+	(*ListModelsReq)(nil),            // 14: llmgateway.ListModelsReq
+	(*ListModelsResp)(nil),           // 15: llmgateway.ListModelsResp
+	(*CreateModelReq)(nil),           // 16: llmgateway.CreateModelReq
+	(*UpdateModelReq)(nil),           // 17: llmgateway.UpdateModelReq
+	(*DeleteModelReq)(nil),           // 18: llmgateway.DeleteModelReq
+	(*DeleteModelResp)(nil),          // 19: llmgateway.DeleteModelResp
+	(*ModelResp)(nil),                // 20: llmgateway.ModelResp
+	(*BillingStatsReq)(nil),          // 21: llmgateway.BillingStatsReq
+	(*BillingStatsResp)(nil),         // 22: llmgateway.BillingStatsResp
+	(*BillingModelStat)(nil),         // 23: llmgateway.BillingModelStat
+	(*ListBillingRecordsReq)(nil),    // 24: llmgateway.ListBillingRecordsReq
+	(*BillingRecordItem)(nil),        // 25: llmgateway.BillingRecordItem
+	(*ListBillingRecordsResp)(nil),   // 26: llmgateway.ListBillingRecordsResp
+	(*ToolCall_Function)(nil),        // 27: llmgateway.ToolCall.Function
+	(*ChatResp_Choice)(nil),          // 28: llmgateway.ChatResp.Choice
+	(*ChatStreamChunk_Choice)(nil),   // 29: llmgateway.ChatStreamChunk.Choice
+	(*EmbedResp_Embedding)(nil),      // 30: llmgateway.EmbedResp.Embedding
+	(*RerankResp_Result)(nil),        // 31: llmgateway.RerankResp.Result
 }
 var file_llm_gateway_llm_gateway_proto_depIdxs = []int32{
 	3,  // 0: llmgateway.ChatReq.messages:type_name -> llmgateway.Message
 	1,  // 1: llmgateway.ChatReq.tools:type_name -> llmgateway.ToolDef
-	4,  // 2: llmgateway.Message.tool_calls:type_name -> llmgateway.ToolCall
-	25, // 3: llmgateway.ToolCall.function:type_name -> llmgateway.ToolCall.Function
-	26, // 4: llmgateway.ChatResp.choices:type_name -> llmgateway.ChatResp.Choice
-	7,  // 5: llmgateway.ChatResp.usage:type_name -> llmgateway.UsageInfo
-	27, // 6: llmgateway.ChatStreamChunk.choices:type_name -> llmgateway.ChatStreamChunk.Choice
-	7,  // 7: llmgateway.ChatStreamChunk.usage:type_name -> llmgateway.UsageInfo
-	28, // 8: llmgateway.EmbedResp.data:type_name -> llmgateway.EmbedResp.Embedding
-	7,  // 9: llmgateway.EmbedResp.usage:type_name -> llmgateway.UsageInfo
-	29, // 10: llmgateway.RerankResp.results:type_name -> llmgateway.RerankResp.Result
-	7,  // 11: llmgateway.RerankResp.usage:type_name -> llmgateway.UsageInfo
-	18, // 12: llmgateway.ListModelsResp.items:type_name -> llmgateway.ModelResp
-	21, // 13: llmgateway.BillingStatsResp.by_model:type_name -> llmgateway.BillingModelStat
-	23, // 14: llmgateway.ListBillingRecordsResp.items:type_name -> llmgateway.BillingRecordItem
-	3,  // 15: llmgateway.ChatResp.Choice.message:type_name -> llmgateway.Message
-	3,  // 16: llmgateway.ChatStreamChunk.Choice.delta:type_name -> llmgateway.Message
-	2,  // 17: llmgateway.LLMGateway.Chat:input_type -> llmgateway.ChatReq
-	2,  // 18: llmgateway.LLMGateway.ChatStream:input_type -> llmgateway.ChatReq
-	8,  // 19: llmgateway.LLMGateway.Embed:input_type -> llmgateway.EmbedReq
-	10, // 20: llmgateway.LLMGateway.Rerank:input_type -> llmgateway.RerankReq
-	12, // 21: llmgateway.LLMGateway.ListModels:input_type -> llmgateway.ListModelsReq
-	14, // 22: llmgateway.LLMGateway.CreateModel:input_type -> llmgateway.CreateModelReq
-	15, // 23: llmgateway.LLMGateway.UpdateModel:input_type -> llmgateway.UpdateModelReq
-	16, // 24: llmgateway.LLMGateway.DeleteModel:input_type -> llmgateway.DeleteModelReq
-	19, // 25: llmgateway.LLMGateway.GetBillingStats:input_type -> llmgateway.BillingStatsReq
-	0,  // 26: llmgateway.LLMGateway.VlmChat:input_type -> llmgateway.VlmChatReq
-	22, // 27: llmgateway.LLMGateway.ListBillingRecords:input_type -> llmgateway.ListBillingRecordsReq
-	5,  // 28: llmgateway.LLMGateway.Chat:output_type -> llmgateway.ChatResp
-	6,  // 29: llmgateway.LLMGateway.ChatStream:output_type -> llmgateway.ChatStreamChunk
-	9,  // 30: llmgateway.LLMGateway.Embed:output_type -> llmgateway.EmbedResp
-	11, // 31: llmgateway.LLMGateway.Rerank:output_type -> llmgateway.RerankResp
-	13, // 32: llmgateway.LLMGateway.ListModels:output_type -> llmgateway.ListModelsResp
-	18, // 33: llmgateway.LLMGateway.CreateModel:output_type -> llmgateway.ModelResp
-	18, // 34: llmgateway.LLMGateway.UpdateModel:output_type -> llmgateway.ModelResp
-	17, // 35: llmgateway.LLMGateway.DeleteModel:output_type -> llmgateway.DeleteModelResp
-	20, // 36: llmgateway.LLMGateway.GetBillingStats:output_type -> llmgateway.BillingStatsResp
-	5,  // 37: llmgateway.LLMGateway.VlmChat:output_type -> llmgateway.ChatResp
-	24, // 38: llmgateway.LLMGateway.ListBillingRecords:output_type -> llmgateway.ListBillingRecordsResp
-	28, // [28:39] is the sub-list for method output_type
-	17, // [17:28] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	9,  // 2: llmgateway.ChatReq.execution_model:type_name -> llmgateway.ModelExecutionConfig
+	4,  // 3: llmgateway.Message.tool_calls:type_name -> llmgateway.ToolCall
+	27, // 4: llmgateway.ToolCall.function:type_name -> llmgateway.ToolCall.Function
+	28, // 5: llmgateway.ChatResp.choices:type_name -> llmgateway.ChatResp.Choice
+	7,  // 6: llmgateway.ChatResp.usage:type_name -> llmgateway.UsageInfo
+	29, // 7: llmgateway.ChatStreamChunk.choices:type_name -> llmgateway.ChatStreamChunk.Choice
+	7,  // 8: llmgateway.ChatStreamChunk.usage:type_name -> llmgateway.UsageInfo
+	30, // 9: llmgateway.EmbedResp.data:type_name -> llmgateway.EmbedResp.Embedding
+	7,  // 10: llmgateway.EmbedResp.usage:type_name -> llmgateway.UsageInfo
+	31, // 11: llmgateway.RerankResp.results:type_name -> llmgateway.RerankResp.Result
+	7,  // 12: llmgateway.RerankResp.usage:type_name -> llmgateway.UsageInfo
+	20, // 13: llmgateway.ListModelsResp.items:type_name -> llmgateway.ModelResp
+	23, // 14: llmgateway.BillingStatsResp.by_model:type_name -> llmgateway.BillingModelStat
+	25, // 15: llmgateway.ListBillingRecordsResp.items:type_name -> llmgateway.BillingRecordItem
+	3,  // 16: llmgateway.ChatResp.Choice.message:type_name -> llmgateway.Message
+	3,  // 17: llmgateway.ChatStreamChunk.Choice.delta:type_name -> llmgateway.Message
+	2,  // 18: llmgateway.LLMGateway.Chat:input_type -> llmgateway.ChatReq
+	2,  // 19: llmgateway.LLMGateway.ChatStream:input_type -> llmgateway.ChatReq
+	8,  // 20: llmgateway.LLMGateway.ResolveExecutionModel:input_type -> llmgateway.ResolveExecutionModelReq
+	10, // 21: llmgateway.LLMGateway.Embed:input_type -> llmgateway.EmbedReq
+	12, // 22: llmgateway.LLMGateway.Rerank:input_type -> llmgateway.RerankReq
+	14, // 23: llmgateway.LLMGateway.ListModels:input_type -> llmgateway.ListModelsReq
+	16, // 24: llmgateway.LLMGateway.CreateModel:input_type -> llmgateway.CreateModelReq
+	17, // 25: llmgateway.LLMGateway.UpdateModel:input_type -> llmgateway.UpdateModelReq
+	18, // 26: llmgateway.LLMGateway.DeleteModel:input_type -> llmgateway.DeleteModelReq
+	21, // 27: llmgateway.LLMGateway.GetBillingStats:input_type -> llmgateway.BillingStatsReq
+	0,  // 28: llmgateway.LLMGateway.VlmChat:input_type -> llmgateway.VlmChatReq
+	24, // 29: llmgateway.LLMGateway.ListBillingRecords:input_type -> llmgateway.ListBillingRecordsReq
+	5,  // 30: llmgateway.LLMGateway.Chat:output_type -> llmgateway.ChatResp
+	6,  // 31: llmgateway.LLMGateway.ChatStream:output_type -> llmgateway.ChatStreamChunk
+	9,  // 32: llmgateway.LLMGateway.ResolveExecutionModel:output_type -> llmgateway.ModelExecutionConfig
+	11, // 33: llmgateway.LLMGateway.Embed:output_type -> llmgateway.EmbedResp
+	13, // 34: llmgateway.LLMGateway.Rerank:output_type -> llmgateway.RerankResp
+	15, // 35: llmgateway.LLMGateway.ListModels:output_type -> llmgateway.ListModelsResp
+	20, // 36: llmgateway.LLMGateway.CreateModel:output_type -> llmgateway.ModelResp
+	20, // 37: llmgateway.LLMGateway.UpdateModel:output_type -> llmgateway.ModelResp
+	19, // 38: llmgateway.LLMGateway.DeleteModel:output_type -> llmgateway.DeleteModelResp
+	22, // 39: llmgateway.LLMGateway.GetBillingStats:output_type -> llmgateway.BillingStatsResp
+	5,  // 40: llmgateway.LLMGateway.VlmChat:output_type -> llmgateway.ChatResp
+	26, // 41: llmgateway.LLMGateway.ListBillingRecords:output_type -> llmgateway.ListBillingRecordsResp
+	30, // [30:42] is the sub-list for method output_type
+	18, // [18:30] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_llm_gateway_llm_gateway_proto_init() }
@@ -2503,20 +2736,25 @@ func file_llm_gateway_llm_gateway_proto_init() {
 	}
 	file_llm_gateway_llm_gateway_proto_msgTypes[0].OneofWrappers = []any{}
 	file_llm_gateway_llm_gateway_proto_msgTypes[2].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[4].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[5].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[6].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[7].OneofWrappers = []any{}
 	file_llm_gateway_llm_gateway_proto_msgTypes[8].OneofWrappers = []any{}
 	file_llm_gateway_llm_gateway_proto_msgTypes[10].OneofWrappers = []any{}
 	file_llm_gateway_llm_gateway_proto_msgTypes[12].OneofWrappers = []any{}
 	file_llm_gateway_llm_gateway_proto_msgTypes[14].OneofWrappers = []any{}
-	file_llm_gateway_llm_gateway_proto_msgTypes[18].OneofWrappers = []any{}
-	file_llm_gateway_llm_gateway_proto_msgTypes[19].OneofWrappers = []any{}
-	file_llm_gateway_llm_gateway_proto_msgTypes[23].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[16].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[20].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[21].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[25].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_llm_gateway_llm_gateway_proto_rawDesc), len(file_llm_gateway_llm_gateway_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   30,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

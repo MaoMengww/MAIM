@@ -19,17 +19,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LLMGateway_Chat_FullMethodName               = "/llmgateway.LLMGateway/Chat"
-	LLMGateway_ChatStream_FullMethodName         = "/llmgateway.LLMGateway/ChatStream"
-	LLMGateway_Embed_FullMethodName              = "/llmgateway.LLMGateway/Embed"
-	LLMGateway_Rerank_FullMethodName             = "/llmgateway.LLMGateway/Rerank"
-	LLMGateway_ListModels_FullMethodName         = "/llmgateway.LLMGateway/ListModels"
-	LLMGateway_CreateModel_FullMethodName        = "/llmgateway.LLMGateway/CreateModel"
-	LLMGateway_UpdateModel_FullMethodName        = "/llmgateway.LLMGateway/UpdateModel"
-	LLMGateway_DeleteModel_FullMethodName        = "/llmgateway.LLMGateway/DeleteModel"
-	LLMGateway_GetBillingStats_FullMethodName    = "/llmgateway.LLMGateway/GetBillingStats"
-	LLMGateway_VlmChat_FullMethodName            = "/llmgateway.LLMGateway/VlmChat"
-	LLMGateway_ListBillingRecords_FullMethodName = "/llmgateway.LLMGateway/ListBillingRecords"
+	LLMGateway_Chat_FullMethodName                  = "/llmgateway.LLMGateway/Chat"
+	LLMGateway_ChatStream_FullMethodName            = "/llmgateway.LLMGateway/ChatStream"
+	LLMGateway_ResolveExecutionModel_FullMethodName = "/llmgateway.LLMGateway/ResolveExecutionModel"
+	LLMGateway_Embed_FullMethodName                 = "/llmgateway.LLMGateway/Embed"
+	LLMGateway_Rerank_FullMethodName                = "/llmgateway.LLMGateway/Rerank"
+	LLMGateway_ListModels_FullMethodName            = "/llmgateway.LLMGateway/ListModels"
+	LLMGateway_CreateModel_FullMethodName           = "/llmgateway.LLMGateway/CreateModel"
+	LLMGateway_UpdateModel_FullMethodName           = "/llmgateway.LLMGateway/UpdateModel"
+	LLMGateway_DeleteModel_FullMethodName           = "/llmgateway.LLMGateway/DeleteModel"
+	LLMGateway_GetBillingStats_FullMethodName       = "/llmgateway.LLMGateway/GetBillingStats"
+	LLMGateway_VlmChat_FullMethodName               = "/llmgateway.LLMGateway/VlmChat"
+	LLMGateway_ListBillingRecords_FullMethodName    = "/llmgateway.LLMGateway/ListBillingRecords"
 )
 
 // LLMGatewayClient is the client API for LLMGateway service.
@@ -38,6 +39,7 @@ const (
 type LLMGatewayClient interface {
 	Chat(ctx context.Context, in *ChatReq, opts ...grpc.CallOption) (*ChatResp, error)
 	ChatStream(ctx context.Context, in *ChatReq, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ChatStreamChunk], error)
+	ResolveExecutionModel(ctx context.Context, in *ResolveExecutionModelReq, opts ...grpc.CallOption) (*ModelExecutionConfig, error)
 	Embed(ctx context.Context, in *EmbedReq, opts ...grpc.CallOption) (*EmbedResp, error)
 	Rerank(ctx context.Context, in *RerankReq, opts ...grpc.CallOption) (*RerankResp, error)
 	ListModels(ctx context.Context, in *ListModelsReq, opts ...grpc.CallOption) (*ListModelsResp, error)
@@ -85,6 +87,16 @@ func (c *lLMGatewayClient) ChatStream(ctx context.Context, in *ChatReq, opts ...
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type LLMGateway_ChatStreamClient = grpc.ServerStreamingClient[ChatStreamChunk]
+
+func (c *lLMGatewayClient) ResolveExecutionModel(ctx context.Context, in *ResolveExecutionModelReq, opts ...grpc.CallOption) (*ModelExecutionConfig, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ModelExecutionConfig)
+	err := c.cc.Invoke(ctx, LLMGateway_ResolveExecutionModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func (c *lLMGatewayClient) Embed(ctx context.Context, in *EmbedReq, opts ...grpc.CallOption) (*EmbedResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -182,6 +194,7 @@ func (c *lLMGatewayClient) ListBillingRecords(ctx context.Context, in *ListBilli
 type LLMGatewayServer interface {
 	Chat(context.Context, *ChatReq) (*ChatResp, error)
 	ChatStream(*ChatReq, grpc.ServerStreamingServer[ChatStreamChunk]) error
+	ResolveExecutionModel(context.Context, *ResolveExecutionModelReq) (*ModelExecutionConfig, error)
 	Embed(context.Context, *EmbedReq) (*EmbedResp, error)
 	Rerank(context.Context, *RerankReq) (*RerankResp, error)
 	ListModels(context.Context, *ListModelsReq) (*ListModelsResp, error)
@@ -206,6 +219,9 @@ func (UnimplementedLLMGatewayServer) Chat(context.Context, *ChatReq) (*ChatResp,
 }
 func (UnimplementedLLMGatewayServer) ChatStream(*ChatReq, grpc.ServerStreamingServer[ChatStreamChunk]) error {
 	return status.Error(codes.Unimplemented, "method ChatStream not implemented")
+}
+func (UnimplementedLLMGatewayServer) ResolveExecutionModel(context.Context, *ResolveExecutionModelReq) (*ModelExecutionConfig, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolveExecutionModel not implemented")
 }
 func (UnimplementedLLMGatewayServer) Embed(context.Context, *EmbedReq) (*EmbedResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Embed not implemented")
@@ -283,6 +299,24 @@ func _LLMGateway_ChatStream_Handler(srv interface{}, stream grpc.ServerStream) e
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type LLMGateway_ChatStreamServer = grpc.ServerStreamingServer[ChatStreamChunk]
+
+func _LLMGateway_ResolveExecutionModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveExecutionModelReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMGatewayServer).ResolveExecutionModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMGateway_ResolveExecutionModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMGatewayServer).ResolveExecutionModel(ctx, req.(*ResolveExecutionModelReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 func _LLMGateway_Embed_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EmbedReq)
@@ -456,6 +490,10 @@ var LLMGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Chat",
 			Handler:    _LLMGateway_Chat_Handler,
+		},
+		{
+			MethodName: "ResolveExecutionModel",
+			Handler:    _LLMGateway_ResolveExecutionModel_Handler,
 		},
 		{
 			MethodName: "Embed",

@@ -36,6 +36,7 @@ type p6Event struct {
 		DeviceID   string `json:"device_id"`
 		InstanceID string `json:"instance_id"`
 	} `json:"devices"`
+	Run publicRun `json:"run"`
 }
 
 type p6Socket struct {
@@ -692,36 +693,14 @@ func (d *driver) p6ReadinessRejected(address string) (time.Time, error) {
 }
 
 func (d *driver) p6BotStream(s *p6Socket, botID, convID, requestID entityID, reply sentMessage) error {
-	done, err := d.p6Wait(s, 0, "bot.streaming.done", func(e p6Event) bool {
-		return e.Type == "bot.streaming.done" && hasEntityID(e.ConvID, convID) && hasEntityID(e.BotID, botID) && hasEntityID(e.MessageID, reply.MessageID)
+	done, err := d.p6Wait(s, 0, "bot.run.updated", func(e p6Event) bool {
+		return e.Type == "bot.run.updated" && e.Run.BotID == botID && e.Run.ConvID == convID && e.Run.Status == "succeeded" && hasEntityID(e.Run.MessageID, reply.MessageID)
 	})
 	if err != nil {
 		return err
 	}
-	if done.StreamID == "" {
-		return errors.New("p6.bot.stream: done缺少stream_id")
-	}
-	var content string
-	previous := int64(-1)
-	first := true
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, evt := range s.events {
-		if evt.Type != "bot.streaming.chunk" || evt.StreamID != done.StreamID {
-			continue
-		}
-		if !hasEntityID(evt.ConvID, convID) || !hasEntityID(evt.BotID, botID) || evt.Seq <= previous {
-			return errors.New("p6.bot.stream: chunk身份/顺序不一致")
-		}
-		if first && !hasEntityID(evt.ReplyToID, requestID) {
-			return errors.New("p6.bot.stream: 首chunk回复消息ID不匹配")
-		}
-		first = false
-		previous = evt.Seq
-		content += evt.Content
-	}
-	if first || content != reply.Content.Text {
-		return errors.New("p6.bot.stream: chunk拼接不等于provider精确回复（拒绝fallback）")
+	if done.Run.ID == "" || done.Run.InteractionID == "" || done.Run.ID == reply.MessageID || !hasEntityID(done.Run.SourceMessageID, requestID) || done.Run.ResultText != reply.Content.Text || done.Run.OutputStatus != "committed" {
+		return errors.New("p6.bot.run: 执行状态/请求来源/最终消息失配")
 	}
 	return nil
 }

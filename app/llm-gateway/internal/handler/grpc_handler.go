@@ -5,16 +5,9 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	stderrors "errors"
-	"io"
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/cloudwego/eino/callbacks"
-	"github.com/cloudwego/eino/components"
-	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/schema"
-	"github.com/eino-contrib/jsonschema"
 
 	"github.com/maomeng/aim/app/llm-gateway/internal/domain"
 	"github.com/maomeng/aim/app/llm-gateway/internal/llm"
@@ -32,15 +25,11 @@ import (
 
 type LLMGatewayHandler struct {
 	pb.UnimplementedLLMGatewayServer
-	svcCtx         *svc.ServiceContext
-	billingHandler callbacks.Handler
+	svcCtx *svc.ServiceContext
 }
 
 func NewLLMGatewayHandler(svcCtx *svc.ServiceContext) *LLMGatewayHandler {
-	return &LLMGatewayHandler{
-		svcCtx:         svcCtx,
-		billingHandler: llm.NewBillingCallbackHandler(svcCtx.BillingRepo),
-	}
+	return &LLMGatewayHandler{svcCtx: svcCtx}
 }
 
 // resolveModel applies the same visibility contract as model selection to every call.
@@ -150,250 +139,6 @@ func (h *LLMGatewayHandler) calcCost(info *modelEntryInfo, inputTokens, outputTo
 	inputCost := float64(inputTokens) / 1_000_000 * info.ModelEntry.InputPricePerMTok
 	outputCost := float64(outputTokens) / 1_000_000 * info.ModelEntry.OutputPricePerMTok
 	return inputCost + outputCost
-}
-
-// ----- Chat (Eino ChatModel + CallbackBilling) -----
-
-func (h *LLMGatewayHandler) Chat(ctx context.Context, req *pb.ChatReq) (resp *pb.ChatResp, err error) {
-	start := time.Now()
-	log := h.svcCtx.Logger.WithContext(ctx)
-
-	var info *modelEntryInfo
-	defer func() {
-		duration := time.Since(start).Seconds()
-		status := "success"
-		if err != nil {
-			status = "error"
-		}
-		modelName := "unknown"
-		if info != nil && info.ModelEntry != nil {
-			modelName = info.ModelEntry.ModelName
-		}
-		metrics.LLMRequestsTotal.Inc(modelName, status)
-		metrics.LLMRequestDuration.Observe(duration, modelName, "false")
-		if resp != nil && resp.Usage != nil {
-			metrics.LLMPromptTokensTotal.Add(float64(resp.Usage.PromptTokens), modelName)
-			metrics.LLMCompletionTokensTotal.Add(float64(resp.Usage.CompletionTokens), modelName)
-		}
-	}()
-
-	info, err = h.resolveModel(ctx, req.ModelId, req.BotId, req.OwnerId, "chat")
-	if err != nil {
-		return nil, err
-	}
-
-	modelName := info.ModelEntry.ModelName
-	log.Infof("method=Chat model=%s model_id=%s bot_id=%s owner_id=%s", modelName, req.ModelId, req.GetBotId(), req.GetOwnerId())
-
-	if info.TrackBilling {
-		if err := h.checkBalance(ctx, req.OwnerId); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := h.svcCtx.RateLimiter.Allow(ctx, modelName); err != nil {
-		return nil, err
-	}
-	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, modelName); err != nil {
-		return nil, err
-	}
-	defer h.svcCtx.RateLimiter.DecrConcurrency(ctx, modelName)
-
-	cm := llm.NewChatModel(modelName, info.Provider, info.ModelEntry.APIKey, info.ModelEntry.BaseURL)
-
-	ctx = llm.WithBillingInfo(ctx, &llm.BillingInfo{
-		BotID:      req.BotId,
-		OwnerID:    req.OwnerId,
-		Capability: "chat",
-		ModelEntry: info.ModelEntry,
-	})
-
-	ctx = callbacks.InitCallbacks(ctx, &callbacks.RunInfo{
-		Name:      modelName,
-		Type:      info.Provider,
-		Component: components.ComponentOfChatModel,
-	}, h.billingHandler)
-
-	var chatOpts []model.Option
-	if req.Temperature > 0 {
-		chatOpts = append(chatOpts, model.WithTemperature(float32(req.Temperature)))
-	}
-	if req.TopP > 0 {
-		chatOpts = append(chatOpts, model.WithTopP(float32(req.TopP)))
-	}
-	if req.MaxTokens > 0 {
-		chatOpts = append(chatOpts, model.WithMaxTokens(int(req.MaxTokens)))
-	}
-	if len(req.Stop) > 0 {
-		chatOpts = append(chatOpts, model.WithStop(req.Stop))
-	}
-	if len(req.Tools) > 0 {
-		tools := make([]*schema.ToolInfo, len(req.Tools))
-		for i, t := range req.Tools {
-			ti := &schema.ToolInfo{Name: t.Name, Desc: t.Description}
-			if len(t.Parameters) > 0 {
-				var s jsonschema.Schema
-				if err := json.Unmarshal(t.Parameters, &s); err == nil {
-					ti.ParamsOneOf = schema.NewParamsOneOfByJSONSchema(&s)
-				}
-			}
-			tools[i] = ti
-		}
-		chatOpts = append(chatOpts, model.WithTools(tools))
-	}
-	result, err := cm.Generate(ctx, llm.ProtoToEinoMessages(req.Messages), chatOpts...)
-	if err != nil {
-		log.Errorf("method=Chat model=%s error=%v", modelName, err)
-		return nil, errors.Wrap(errors.CodeRPCError, "chat completion failed", err)
-	}
-
-	resp = &pb.ChatResp{}
-	finishReason := ""
-	if result.ResponseMeta != nil {
-		finishReason = result.ResponseMeta.FinishReason
-	}
-	if result.Content != "" || len(result.ToolCalls) > 0 {
-		resp.Choices = []*pb.ChatResp_Choice{{
-			Index:        0,
-			Message:      llm.EinoMessageToProto(result),
-			FinishReason: finishReason,
-		}}
-	}
-	if result.ResponseMeta != nil && result.ResponseMeta.Usage != nil {
-		resp.Usage = llm.SchemaTokenUsageToProto(result.ResponseMeta.Usage)
-	}
-
-	// Deduct balance for official models
-	if info.TrackBilling && resp.Usage != nil && resp.Usage.TotalTokens > 0 {
-		cost := h.calcCost(info, int(resp.Usage.PromptTokens), int(resp.Usage.CompletionTokens))
-		h.deductBalance(ctx, req.OwnerId, cost)
-	}
-
-	if resp.Usage != nil {
-		log.Infof("method=Chat model=%s input_tokens=%d output_tokens=%d total_tokens=%d", modelName, resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.TotalTokens)
-	} else {
-		log.Infof("method=Chat model=%s completed", modelName)
-	}
-	return resp, nil
-}
-
-// ----- ChatStream (Eino ChatModel + CallbackBilling) -----
-
-func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_ChatStreamServer) error {
-	ctx, err := interceptor.WithUserIDFromMetadata(stream.Context())
-	if err != nil {
-		return err
-	}
-	ctx = interceptor.WithRequestIDFromMetadata(ctx)
-	log := h.svcCtx.Logger.WithContext(ctx)
-
-	info, err := h.resolveModel(ctx, req.ModelId, req.BotId, req.OwnerId, "chat")
-	if err != nil {
-		return err
-	}
-
-	modelName := info.ModelEntry.ModelName
-	log.Infof("method=ChatStream model=%s model_id=%s bot_id=%s owner_id=%s", modelName, req.ModelId, req.GetBotId(), req.GetOwnerId())
-
-	if info.TrackBilling {
-		if err := h.checkBalance(ctx, req.OwnerId); err != nil {
-			return err
-		}
-	}
-
-	if err := h.svcCtx.RateLimiter.Allow(ctx, modelName); err != nil {
-		return err
-	}
-	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, modelName); err != nil {
-		return err
-	}
-	defer h.svcCtx.RateLimiter.DecrConcurrency(ctx, modelName)
-
-	cm := llm.NewChatModel(modelName, info.Provider, info.ModelEntry.APIKey, info.ModelEntry.BaseURL)
-
-	ctx = llm.WithBillingInfo(ctx, &llm.BillingInfo{
-		BotID:      req.BotId,
-		OwnerID:    req.OwnerId,
-		Capability: "chat",
-		ModelEntry: info.ModelEntry,
-	})
-
-	ctx = callbacks.InitCallbacks(ctx, &callbacks.RunInfo{
-		Name:      modelName,
-		Type:      info.Provider,
-		Component: components.ComponentOfChatModel,
-	}, h.billingHandler)
-
-	var chatOpts []model.Option
-	if req.Temperature > 0 {
-		chatOpts = append(chatOpts, model.WithTemperature(float32(req.Temperature)))
-	}
-	if req.TopP > 0 {
-		chatOpts = append(chatOpts, model.WithTopP(float32(req.TopP)))
-	}
-	if req.MaxTokens > 0 {
-		chatOpts = append(chatOpts, model.WithMaxTokens(int(req.MaxTokens)))
-	}
-	if len(req.Stop) > 0 {
-		chatOpts = append(chatOpts, model.WithStop(req.Stop))
-	}
-	if len(req.Tools) > 0 {
-		tools := make([]*schema.ToolInfo, len(req.Tools))
-		for i, t := range req.Tools {
-			ti := &schema.ToolInfo{Name: t.Name, Desc: t.Description}
-			if len(t.Parameters) > 0 {
-				var s jsonschema.Schema
-				if err := json.Unmarshal(t.Parameters, &s); err == nil {
-					ti.ParamsOneOf = schema.NewParamsOneOfByJSONSchema(&s)
-				}
-			}
-			tools[i] = ti
-		}
-		chatOpts = append(chatOpts, model.WithTools(tools))
-	}
-	sr, err := cm.Stream(ctx, llm.ProtoToEinoMessages(req.Messages), chatOpts...)
-	if err != nil {
-		log.Errorf("method=ChatStream model=%s error=%v", modelName, err)
-		return errors.Wrap(errors.CodeRPCError, "stream chat failed", err)
-	}
-	defer sr.Close()
-
-	var lastUsage *pb.UsageInfo
-	for {
-		chunk, err := sr.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Errorf("method=ChatStream model=%s recv error=%v", modelName, err)
-			return errors.Wrap(errors.CodeRPCError, "stream recv failed", err)
-		}
-		finishReason := ""
-		if chunk.ResponseMeta != nil {
-			finishReason = chunk.ResponseMeta.FinishReason
-			if chunk.ResponseMeta.Usage != nil {
-				lastUsage = llm.SchemaTokenUsageToProto(chunk.ResponseMeta.Usage)
-			}
-		}
-		if err := stream.Send(&pb.ChatStreamChunk{
-			Choices: []*pb.ChatStreamChunk_Choice{{
-				Index:        0,
-				Delta:        llm.EinoMessageToProto(chunk),
-				FinishReason: finishReason,
-			}},
-		}); err != nil {
-			return err
-		}
-	}
-
-	// Deduct balance for official models
-	if info.TrackBilling && lastUsage != nil && lastUsage.TotalTokens > 0 {
-		cost := h.calcCost(info, int(lastUsage.PromptTokens), int(lastUsage.CompletionTokens))
-		h.deductBalance(ctx, req.OwnerId, cost)
-	}
-
-	log.Infof("method=ChatStream model=%s completed", modelName)
-	return nil
 }
 
 // ----- Embed (direct HTTP, manual billing) -----

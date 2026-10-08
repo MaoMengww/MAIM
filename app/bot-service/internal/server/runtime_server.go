@@ -3,260 +3,74 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"io"
 
-	"github.com/cloudwego/eino/components/tool"
-	"github.com/cloudwego/eino/compose"
-	"github.com/cloudwego/eino/flow/agent/react"
-	"github.com/cloudwego/eino/schema"
-
-	"github.com/maomeng/aim/app/bot-service/internal/client"
-	"github.com/maomeng/aim/app/bot-service/internal/component"
-	"github.com/maomeng/aim/app/bot-service/internal/graph"
-	"github.com/maomeng/aim/app/bot-service/internal/model"
-	"github.com/maomeng/aim/app/bot-service/internal/repo"
+	"github.com/maomeng/aim/app/bot-service/internal/run"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-service/pb/bot"
-	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/errors"
-	"github.com/maomeng/aim/pkg/identity"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
 type RuntimeServer struct {
 	svcCtx *svc.ServiceContext
+	runs   *run.Service
 }
 
 func NewRuntimeServer(svcCtx *svc.ServiceContext) *RuntimeServer {
-	return &RuntimeServer{svcCtx: svcCtx}
+	return &RuntimeServer{svcCtx: svcCtx, runs: run.NewService(svcCtx)}
 }
-
-func extractChatCaller(ctx context.Context) (string, string, string) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return "", "", ""
-	}
-	userID := runtimeUserID(ctx)
-	username := ""
-	if vals := md.Get("x-username"); len(vals) > 0 {
-		username = vals[0]
-	}
-	language := ""
-	if vals := md.Get("x-user-language"); len(vals) > 0 {
-		language = vals[0]
-	}
-	return userID, username, language
-}
-
-// StreamChat implements single-chat streaming conversation using ReAct agent.
-func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStreamingServer[pb.StreamChatResp]) error {
-	ctx := stream.Context()
-	userID, username, language := extractChatCaller(ctx)
-	if req == nil || identity.Validate(req.BotId) != nil || identity.Validate(req.ConvId) != nil || (req.ReplyToMsgId != nil && identity.Validate(*req.ReplyToMsgId) != nil) || (req.HistoryGrantId != nil && identity.Validate(*req.HistoryGrantId) != nil) {
-		return errors.New(errors.CodeInvalidParam, "invalid chat identity")
-	}
+func (s *RuntimeServer) StartRun(ctx context.Context, req *pb.StartRunReq) (*pb.RunResponse, error) {
 	if s.svcCtx.RuntimeClient != nil {
-		upstream, err := s.svcCtx.RuntimeClient.StreamChat(forwardRuntimeContext(ctx), req)
-		if err != nil {
-			return err
-		}
-		for {
-			resp, err := upstream.Recv()
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			if err := stream.Send(resp); err != nil {
-				return err
-			}
-		}
+		return s.svcCtx.RuntimeClient.StartRun(forwardRuntimeContext(ctx), req)
 	}
-	if err := requireConversation(ctx, s.svcCtx, userID, req.ConvId); err != nil {
-		return err
+	if req == nil {
+		req = &pb.StartRunReq{}
 	}
-	logger := s.svcCtx.Logger.WithContext(ctx)
-
-	botRepo := s.svcCtx.BotRepo
-	bot, convBot, err := botRepo.FindByIDWithConvBot(ctx, req.BotId, req.ConvId)
+	md, _ := metadata.FromIncomingContext(ctx)
+	language := ""
+	if values := md.Get("x-user-language"); len(values) > 0 {
+		language = values[0]
+	}
+	accepted, err := s.runs.Accept(ctx, run.Input{BotID: req.BotId, ConvID: req.ConvId, RequesterID: runtimeUserID(ctx), SubmissionKey: req.SubmissionKey, Message: req.Message, ReplyToMsgID: req.ReplyToMsgId, HistoryGrantID: req.HistoryGrantId, Language: language})
 	if err != nil {
-		logger.Errorf("bot not found: bot_id=%s error=%v", req.BotId, err)
-		return errors.New(errors.CodeNotFound, "bot not found")
+		return nil, err
 	}
-	if bot.Status != "active" {
-		return errors.New(errors.CodeForbidden, "bot is disabled")
-	}
-	if bot.ModelID == nil {
-		return errors.New(errors.CodeInvalidParam, "bot chat model is not configured")
-	}
-	// Every temporary output checks the original binding, never a newly joined one.
-	sendResponse := func(resp *pb.StreamChatResp) error {
-		active, err := botRepo.HasActiveBinding(ctx, req.BotId, req.ConvId, convBot.ID)
-		if err != nil {
-			return err
-		}
-		if !active {
-			return errors.New(errors.CodeForbidden, "bot binding has been revoked")
-		}
-		return stream.Send(resp)
-	}
-
-	llmClient := client.NewLlmGatewayClient(s.svcCtx.LlmGatewayConn)
-	msgClient := client.NewMessageClient(s.svcCtx.MessageSvcConn)
-	einoChatModel := llmClient.NewEinoChatModel(*bot.ModelID, bot.ModelName, bot.OwnerID, bot.ID)
-	resolver := graph.NewKnowledgeResolver(client.NewKnowledgeClient(s.svcCtx.KnowledgeConn))
-	ctxNode := graph.NewBuildContextNode(bot, convBot, msgClient, resolver, s.svcCtx.Logger)
-	ctxResult, err := ctxNode.Invoke(ctx, &model.BotEvent{
-		BotID:          req.BotId,
-		ConvID:         req.ConvId,
-		BindingID:      convBot.ID,
-		HistoryGrantID: req.GetHistoryGrantId(),
-		Message:        &model.EventMessage{Text: req.Message},
-		Sender:         &model.EventSender{UserID: &userID, SenderType: "user", Username: username, Language: language},
-	})
+	raw, err := json.Marshal(accepted.Public())
 	if err != nil {
-		return errors.Wrap(errors.CodeRPCError, "load conversation context failed", err)
+		return nil, err
 	}
-	sourcesJSON := ""
-	if len(ctxResult.KbSources) > 0 {
-		raw, err := json.Marshal(ctxResult.KbSources)
-		if err != nil {
-			return err
-		}
-		sourcesJSON = string(raw)
-	}
-
-	// MCP tools
-	var mcpTools []tool.BaseTool
-	if mcpConfigs := loadBotMcpServers(ctx, botRepo, req.BotId); len(mcpConfigs) > 0 {
-		if tools, toolErr := component.GetMCPServerTools(ctx, mcpConfigs); toolErr == nil {
-			mcpTools = tools
-		}
-	}
-
-	// Track used tools
-	var usedTools []string
-	toolMw := compose.ToolMiddleware{
-		Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
-			return func(c context.Context, input *compose.ToolInput) (*compose.ToolOutput, error) {
-				usedTools = append(usedTools, input.Name)
-				return next(c, input)
-			}
-		},
-	}
-	// Build system prompt with locale instruction
-	systemPrompt := ctxResult.RenderedPrompt
-	if loc := graph.LocalePrompt(language); loc != "" {
-		systemPrompt = loc + "\n\n" + systemPrompt
-	}
-
-	agent, err := react.NewAgent(ctx, &react.AgentConfig{
-		ToolCallingModel: einoChatModel,
-		ToolsConfig: compose.ToolsNodeConfig{
-			Tools:               mcpTools,
-			ToolCallMiddlewares: []compose.ToolMiddleware{toolMw},
-		},
-		MessageModifier: func(_ context.Context, msgs []*schema.Message) []*schema.Message {
-			result := make([]*schema.Message, 0, 1+len(ctxResult.ContextMsgs)+len(msgs))
-			result = append(result, &schema.Message{Role: schema.System, Content: systemPrompt})
-			result = append(result, ctxResult.ContextMsgs...)
-			return append(result, msgs...)
-		},
-		MaxStep: bot.MaxStep,
-	})
-	if err != nil {
-		logger.Errorf("create react agent failed: bot_id=%s error=%v", req.BotId, err)
-		return errors.Wrap(errors.CodeRPCError, "create agent failed", err)
-	}
-
-	input := []*schema.Message{
-		{Role: schema.User, Content: req.Message},
-	}
-
-	if bot.StreamingEnabled {
-		sr, streamErr := agent.Stream(ctx, input)
-		if streamErr != nil {
-			logger.Errorf("agent stream failed: bot_id=%s error=%v", req.BotId, streamErr)
-			return errors.Wrap(errors.CodeRPCError, "agent stream failed", streamErr)
-		}
-		defer sr.Close()
-
-		var fullText string
-		for {
-			chunk, recvErr := sr.Recv()
-			if recvErr == io.EOF {
-				break
-			}
-			if recvErr != nil {
-				return errors.Wrap(errors.CodeRPCError, "agent stream receive failed", recvErr)
-			}
-			if chunk != nil && chunk.Content != "" {
-				fullText += chunk.Content
-				if err := sendResponse(&pb.StreamChatResp{Type: "chunk", Content: chunk.Content, ConvId: req.ConvId}); err != nil {
-					return err
-				}
-			}
-		}
-
-		var messageID *string
-		if fullText != "" {
-			if sourcesJSON != "" {
-				if err := sendResponse(&pb.StreamChatResp{Type: "sources", Content: sourcesJSON, ConvId: req.ConvId}); err != nil {
-					return err
-				}
-			}
-			id, err := msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: req.BotId, ConversationId: req.ConvId, BindingId: convBot.ID, RequesterId: &userID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: fullText, ReplyToId: req.ReplyToMsgId, RawPayload: graph.BuildRawPayload(ctxResult.KbSources, usedTools)})
-			if err != nil {
-				return errors.Wrap(errors.CodeRPCError, "send bot reply failed", err)
-			}
-			messageID = &id
-		}
-		return sendResponse(&pb.StreamChatResp{Type: "done", Content: fullText, ConvId: req.ConvId, MessageId: messageID})
-	}
-
-	msg, genErr := agent.Generate(ctx, input)
-	if genErr != nil {
-		logger.Errorf("agent generate failed: bot_id=%s error=%v", req.BotId, genErr)
-		return errors.Wrap(errors.CodeRPCError, "agent generate failed", genErr)
-	}
-
-	var messageID *string
-	if msg.Content != "" {
-		if sourcesJSON != "" {
-			if err := sendResponse(&pb.StreamChatResp{Type: "sources", Content: sourcesJSON, ConvId: req.ConvId}); err != nil {
-				return err
-			}
-		}
-		id, err := msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: req.BotId, ConversationId: req.ConvId, BindingId: convBot.ID, RequesterId: &userID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: msg.Content, ReplyToId: req.ReplyToMsgId, RawPayload: graph.BuildRawPayload(ctxResult.KbSources, usedTools)})
-		if err != nil {
-			return errors.Wrap(errors.CodeRPCError, "send bot reply failed", err)
-		}
-		messageID = &id
-	}
-	return sendResponse(&pb.StreamChatResp{Type: "done", Content: msg.Content, ConvId: req.ConvId, MessageId: messageID})
+	return &pb.RunResponse{RunJson: string(raw)}, nil
 }
-
-func loadBotMcpServers(ctx context.Context, botRepo *repo.BotRepo, botID string) []model.MCPServerConfig {
-	servers, err := botRepo.ListEnabledMcpServers(ctx, botID)
-	if err != nil || len(servers) == 0 {
-		return nil
+func (s *RuntimeServer) GetRun(ctx context.Context, req *pb.GetRunReq) (*pb.RunResponse, error) {
+	if s.svcCtx.RuntimeClient != nil {
+		return s.svcCtx.RuntimeClient.GetRun(forwardRuntimeContext(ctx), req)
 	}
-	configs := make([]model.MCPServerConfig, 0, len(servers))
-	for _, srv := range servers {
-		timeoutMs := 0
-		if srv.AdvancedConfig != nil {
-			timeoutMs = srv.AdvancedConfig.Timeout * 1000
-		}
-		configs = append(configs, model.MCPServerConfig{
-			Name:           srv.Name,
-			Transport:      srv.Transport,
-			URL:            srv.URL,
-			AuthConfig:     srv.AuthConfig,
-			AdvancedConfig: srv.AdvancedConfig,
-			TimeoutMs:      timeoutMs,
-		})
+	if req == nil {
+		req = &pb.GetRunReq{}
 	}
-	return configs
+	r, err := s.runs.Get(ctx, req.RunId, runtimeUserID(ctx))
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(r.Public())
+	if err != nil {
+		return nil, err
+	}
+	return &pb.RunResponse{RunJson: string(raw)}, nil
+}
+func (s *RuntimeServer) ListRuns(ctx context.Context, req *pb.ListRunsReq) (*pb.ListRunsResponse, error) {
+	if s.svcCtx.RuntimeClient != nil {
+		return s.svcCtx.RuntimeClient.ListRuns(forwardRuntimeContext(ctx), req)
+	}
+	if req == nil {
+		req = &pb.ListRunsReq{}
+	}
+	rows, err := s.runs.List(ctx, req.ConvId, runtimeUserID(ctx), int(req.Limit))
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(rows)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.ListRunsResponse{RunsJson: string(raw)}, nil
 }

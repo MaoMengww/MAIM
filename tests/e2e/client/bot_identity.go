@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -469,10 +470,12 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 		result = errors.Join(result, d.request(http.MethodDelete, "/files/"+file.info.FileID.String(), inviter.token, nil, nil))
 	}()
 	var outputs []identityOutput
+	var firstPublication map[string]any
 	for i, conv := range convs {
 		for _, kind := range []int32{1, 3, 10} {
 			raw := fmt.Sprintf(`{"origin":"identity","group":%d,"kind":%d}`, i, kind)
 			input := map[string]any{"conversation_id": conv, "binding_id": bindings[i].BindingID, "requester_id": requester.id, "type": kind, "raw_payload": raw}
+			input["output_key"] = fmt.Sprintf("identity:%s:%d:%d", suffix, i, kind)
 			expected := identityOutput{text: "机器人身份消息" + suffix + fmt.Sprint(i), file: file.info.FileID, resultType: "identity.result", resultData: fmt.Sprintf(`{"group":%d,"ok":true}`, i)}
 			switch kind {
 			case 1:
@@ -491,6 +494,29 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 			}
 			if ack.ID == "" || ack.Seq <= 0 {
 				return errors.New("bot-identity.rest: 输出没有持久消息UUID/seq")
+			}
+			retry := maps.Clone(input)
+			retry["raw_payload"] = fmt.Sprintf(`{"kind":%d,"group":%d,"origin":"identity"}`, kind, i)
+			if kind == 10 {
+				retry["result"] = map[string]string{"type": expected.resultType, "data": fmt.Sprintf(`{"ok":true,"group":%d.0}`, i)}
+			}
+			var replay struct {
+				ID  entityID       `json:"message_id"`
+				Seq sequenceNumber `json:"seq"`
+			}
+			if err := d.request(http.MethodPost, "/bot-app/messages", issued.Token, retry, &replay); err != nil {
+				return err
+			}
+			if replay.ID != ack.ID || replay.Seq != ack.Seq {
+				return errors.New("bot-output.retry: 同键同语义重复生成消息")
+			}
+			changed := maps.Clone(input)
+			changed["raw_payload"] = `{"origin":"changed"}`
+			if err := d.runtimeReject(http.MethodPost, "/bot-app/messages", botCaller, changed, http.StatusConflict); err != nil {
+				return err
+			}
+			if i == 0 && kind == 1 {
+				firstPublication = maps.Clone(input)
 			}
 			expected.message = storedMessage{MessageID: ack.ID, ConvID: conv, Seq: ack.Seq, Type: kind, SenderID: &bot.ID, SenderType: "bot", SenderName: name, SenderAvatar: bot.Avatar, BindingID: &bindings[i].BindingID, RequesterID: &requester.id, RawPayload: raw}
 			if err := d.identityObserve(humanSocket, requester, expected); err != nil {
@@ -542,6 +568,9 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 		return err
 	}
 	if err := d.request(http.MethodDelete, "/convs/"+convs[0].String()+"/bots/"+bot.ID.String(), inviter.token, nil, nil); err != nil {
+		return err
+	}
+	if err := d.runtimeReject(http.MethodPost, "/bot-app/messages", botCaller, firstPublication, http.StatusForbidden); err != nil {
 		return err
 	}
 	if err := d.identityHumans(inviter, convs[0], inviter.id, requester.id); err != nil {

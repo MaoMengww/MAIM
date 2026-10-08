@@ -44,15 +44,6 @@ type EventBotConfig struct {
 	UsePlatformModel bool     `json:"use_platform_model"`
 }
 
-// StreamChunk is used for streaming output.
-type StreamChunk struct {
-	Type      string `json:"type"`
-	Content   string `json:"content"`
-	ToolName  string `json:"tool_name"`
-	MessageID string `json:"message_id,omitempty"`
-	ConvID    string `json:"conv_id"`
-}
-
 // ValidateEntityJSON validates the entity references in bot configuration and payloads.
 // Template names, provider tool-call IDs and stream IDs are not entity references.
 func ValidateEntityJSON(data []byte) error {
