@@ -54,6 +54,10 @@ components:
         stage:
           type: string
           maxLength: 128
+        waiting_reason:
+          type: string
+          maxLength: 2048
+          description: 仅waiting_input使用，面向参与者的待补充事项，不包含内部执行轨迹
         result_text:
           type: string
           description: completed的文本结果；最大262144字节
