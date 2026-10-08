@@ -16,6 +16,7 @@ import {
 import { convApi } from '@/services/conversation';
 import { msgApi, normalizeRealtimeMessageContent } from '@/services/message';
 import { fileApi } from '@/services/file';
+import { botApi } from '@/services/bot';
 import { messageSync } from '@/services/messageSync';
 import { createPendingSend, retryPendingSend, loadPendingSends, type PendingSend } from '@/services/pendingSend';
 import { SearchHighlight } from '@/components/common/SearchHighlight';
@@ -27,7 +28,7 @@ import { Avatar } from '@/components/common/Avatar';
 import { GroupInfoDrawer } from './GroupInfoDrawer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource } from '@/types/model';
+import type { Message, MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource } from '@/types/model';
 import type { SendMsgContent, SearchMessagesReq } from '@/types/api';
 import { entityId, optionalEntityId, sequence, knowledgeSources } from '@/utils/json';
 
@@ -49,14 +50,17 @@ function extractTextPreview(content: any): string {
   if (content.system) {
     return `[系统] ${content.system.detail || content.system.action || ''}`;
   }
-  // Bot content wrapper: { bot: { text: "..." } }
-  if (content.bot?.text) return typeof content.bot.text === 'string' ? content.bot.text : JSON.stringify(content.bot.text);
   // Normalized text: { text: { text: "...", mentions: [...] } }
   if (content.text) {
     if (typeof content.text === 'string') return content.text;
     if (typeof content.text.text === 'string') return content.text.text;
     return JSON.stringify(content.text);
   }
+  if (content.result) return `[结果] ${content.result.type || ''} ${content.result.data || ''}`;
+  if (content.file) return `[文件] ${content.file.name || ''}`;
+  if (content.image) return '[图片]';
+  if (content.audio) return '[语音]';
+  if (content.video) return '[视频]';
   if (content.file_name) return `[文件] ${content.file_name}`;
   if (content.image_url) return '[图片]';
   return '';
@@ -64,7 +68,7 @@ function extractTextPreview(content: any): string {
 
 const MSG_TYPE_LABELS: Record<number, string> = {
   1: '文本', 2: '图片', 3: '文件', 4: '视频',
-  5: '语音', 6: '位置', 7: '系统', 8: '自定义', 9: 'Bot',
+  5: '语音', 6: '位置', 7: '系统', 8: '自定义', 10: '结果',
 };
 
 function convTitle(c: any): string {
@@ -221,25 +225,19 @@ function renderContent(content: MsgContentOneof, onFilePreview?: (file: FileCont
   if ('system' in content) {
     return <span style={{ color: 'var(--aim-text-tertiary)', fontSize: 12, fontStyle: 'italic' }}>{content.system.detail || content.system.action}</span>;
   }
-  if ('bot' in content) {
-    const b = content.bot;
-    const sources = parseSources(b);
-    const tools = parseTools(b);
-    return (
-      <div>
-        {b.bot_name && <div style={{ fontWeight: 500, fontSize: 12, marginBottom: 4, color: 'var(--aim-primary)' }}>{b.bot_name}</div>}
-        <ChatMarkdown>{b.text}</ChatMarkdown>
-        {tools.length > 0 && <ToolUsage tools={tools} />}
-        {sources.length > 0 && <SourceSection sources={sources} />}
-      </div>
-    );
+  if ('result' in content || 'custom' in content) {
+    const result = 'result' in content ? content.result : content.custom;
+    let data = result.data;
+    try { data = JSON.stringify(JSON.parse(data), null, 2); } catch { /* Plain text results remain plain text. */ }
+    return <div><Tag>{'result' in content ? '结果' : '自定义'}{result.type ? ` · ${result.type}` : ''}</Tag>
+      <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '8px 0 0', fontFamily: 'inherit' }}>{data}</pre></div>;
   }
   return <span>[未知消息]</span>;
 }
 
 
-/** Parse KnowledgeSource[] from BotContent.raw_payload */
-function parseSources(b: any): KnowledgeSource[] {
+/** Parse knowledge sources from message metadata. */
+function parseSources(b: Pick<Message, 'raw_payload'>): KnowledgeSource[] {
   if (!b?.raw_payload) return [];
   try {
     const parsed = JSON.parse(b.raw_payload);
@@ -249,15 +247,21 @@ function parseSources(b: any): KnowledgeSource[] {
   }
 }
 
-/** Parse tool names from BotContent.raw_payload */
-function parseTools(b: any): string[] {
+/** Parse tool names from message metadata. */
+function parseTools(b: Pick<Message, 'raw_payload'>): string[] {
   if (!b?.raw_payload) return [];
   try {
     const parsed = JSON.parse(b.raw_payload);
-    return Array.isArray(parsed?.tool_names) ? parsed.tool_names : [];
+    return Array.isArray(parsed?.tool_names) ? parsed.tool_names.filter((name: unknown): name is string => typeof name === 'string') : [];
   } catch {
     return [];
   }
+}
+
+function MessageMetadata({ message: msg }: { message: Pick<Message, 'raw_payload'> }) {
+  const sources = parseSources(msg);
+  const tools = parseTools(msg);
+  return <>{tools.length > 0 && <ToolUsage tools={tools} />}{sources.length > 0 && <SourceSection sources={sources} />}</>;
 }
 
 /** Collapsible knowledge source section below bot messages */
@@ -372,9 +376,6 @@ function SourceItem({ source, expandedMap, setExpandedMap, itemKey }: {
   );
 }
 
-function isBotMember(m: ConvMember): boolean {
-  return m.member_type === 'bot';
-}
 
 // ─── File Preview Modal ───
 function FilePreviewModal({ file, onClose }: { file: FileContent; onClose: () => void }) {
@@ -465,19 +466,16 @@ function FilePreviewModal({ file, onClose }: { file: FileContent; onClose: () =>
 }
 
 /** 获取消息发送者的显示名和头像 */
-function getMsgUserInfo(msg: any, userMap: Map<string, { username: string; avatar: string }>): { username: string; avatar: string } | undefined {
-  const uid = msg.from_user_id;
-  const info = userMap.get(uid);
-  if (info) return info;
-  if (msg.type === 9 && msg.content?.bot?.bot_id != null) {
-    return userMap.get(msg.content.bot.bot_id);
-  }
-  return undefined;
+function getMsgUserInfo(msg: Partial<Message>, userMap: Map<string, { username: string; avatar: string }>): { username: string; avatar: string } {
+  const info = msg.sender_type === 'bot' || !msg.sender_id ? undefined : userMap.get(msg.sender_id);
+  return { username: msg.sender_name || info?.username || `${msg.sender_type === 'bot' ? 'Bot' : '用户'} ${msg.sender_id || ''}`,
+    avatar: msg.sender_avatar || info?.avatar || '' };
 }
 
 function renderReadStatus(conv: any, msg: any, isSelf: boolean, readStatuses: Record<string, { read: boolean; readCount?: number; totalCount?: number }>): any {
   if (!isSelf || msg.status === 2) return null;
   const rs = readStatuses[msg.message_id];
+  if (conv?.type === 'private' && !rs) return null;
   if (conv?.type === 'group' && rs?.readCount !== undefined && rs?.totalCount !== undefined) {
     return <span className="chat-msg-read chat-msg-read-done">{rs.readCount}/{rs.totalCount} 已读</span>;
   }
@@ -572,7 +570,7 @@ export function ChatPage() {
   const [convSearchPage, setConvSearchPage] = useState(1);
   const convSearchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Streaming bot messages (key: `${convId}:${botId}`, value: accumulated text + reply info + sources)
+  // Temporary streams belong to the captured conversation/Bot/binding lifecycle.
   const [streamingMap, setStreamingMap] = useState<Record<string, { text: string; replyToMsgId?: string; createdAt: number; sources?: KnowledgeSource[]; tools?: string[] }>>({});
   const streamingRef = useRef(streamingMap);
   streamingRef.current = streamingMap;
@@ -732,7 +730,7 @@ export function ChatPage() {
     // Bot streaming: accumulate chunks into a temporary message
     const unsubStreamChunk = wsOn('bot.streaming.chunk', (payload: any) => {
       if (payload.conv_id == null || payload.conv_id !== id) return;
-      const key = `${id}:${payload.bot_id}`;
+      const key = `${id}:${entityId(payload.bot_id, 'stream.bot_id')}:${entityId(payload.binding_id, 'stream.binding_id')}`
       setStreamingMap((prev) => {
         const existing = prev[key];
         const replyToMsgId = existing?.replyToMsgId ?? optionalEntityId(payload.reply_to_msg_id, 'stream.reply_to_msg_id');
@@ -756,7 +754,7 @@ export function ChatPage() {
     // Bot streaming sources: store knowledge source metadata for the streaming message
     const unsubStreamSources = wsOn('bot.streaming.sources', (payload: any) => {
       if (payload.conv_id == null || payload.conv_id !== id) return;
-      const key = `${id}:${payload.bot_id}`;
+      const key = `${id}:${entityId(payload.bot_id, 'stream.bot_id')}:${entityId(payload.binding_id, 'stream.binding_id')}`
       let sources: KnowledgeSource[] = [];
       try {
         sources = knowledgeSources(JSON.parse(payload.content || '[]'));
@@ -775,7 +773,7 @@ export function ChatPage() {
     // Bot streaming tool_used: record which tools were used
     const unsubStreamToolUsed = wsOn('bot.streaming.tool_used', (payload: any) => {
       if (payload.conv_id == null || payload.conv_id !== id) return;
-      const key = `${id}:${payload.bot_id}`;
+      const key = `${id}:${entityId(payload.bot_id, 'stream.bot_id')}:${entityId(payload.binding_id, 'stream.binding_id')}`
       const tools = payload.content ? payload.content.split(',').filter(Boolean) : [];
       if (!tools.length) return;
       setStreamingMap((prev) => {
@@ -790,7 +788,7 @@ export function ChatPage() {
     // Bot streaming done: transition streaming message into the real message cache
     const unsubStreamDone = wsOn('bot.streaming.done', (payload: any) => {
       if (payload.conv_id == null || payload.conv_id !== id) return;
-      const key = `${id}:${payload.bot_id}`;
+      const key = `${id}:${entityId(payload.bot_id, 'stream.bot_id')}:${entityId(payload.binding_id, 'stream.binding_id')}`
       // Read accumulated text from ref to avoid React batching race
       const entry = streamingRef.current[key];
       if (!payload.message_id || !entry?.text) {
@@ -946,20 +944,31 @@ export function ChatPage() {
     enabled: !!id,
   });
 
+  const { data: convBots = [] } = useQuery({
+    queryKey: ['conv-bots', id], queryFn: () => botApi.listConvBots(id!), enabled: !!id,
+  });
+  const privateBot = conv?.type === 'private' ? convBots[0] : undefined;
+
+  const mentionTargets = useMemo(() => [
+    ...members.map((member) => ({ id: member.user_id, name: member.username, avatar: member.avatar, isBot: false })),
+    ...convBots.map((bot) => ({ id: bot.bot_id, name: bot.name, avatar: bot.avatar, isBot: true })),
+  ], [members, convBots]);
+
   // Compute read status for self-sent messages from member last_read_seq
   const readStatuses = useMemo(() => {
     const result: Record<string, { read: boolean; readCount?: number; totalCount?: number }> = {};
     if (!id || !messages.length || !conv || !members.length) return result;
 
-    const selfMsgs = messages.filter((m: any) => m.from_user_id === currentUserId);
+    const selfMsgs = messages.filter((m) => m.sender_type === 'user' && m.sender_id === currentUserId);
     for (const msg of selfMsgs) {
       if (conv.type === 'private') {
         const peer = members.find((m: ConvMember) => m.user_id !== currentUserId);
+        if (!peer) continue;
         result[msg.message_id] = {
           read: !!peer && (peer.last_read_seq || 0) >= (msg.seq || 0),
         };
       } else {
-        const readableMembers = members.filter((m: ConvMember) => !isBotMember(m));
+        const readableMembers = members;
         const totalCount = readableMembers.length;
         const readCount = readableMembers.filter((m: ConvMember) => (m.last_read_seq || 0) >= (msg.seq || 0)).length;
         result[msg.message_id] = { read: readCount > 0, readCount, totalCount };
@@ -975,16 +984,7 @@ export function ChatPage() {
   const userMap = useMemo(() => {
     const map = new Map<string, { username: string; avatar: string }>();
     if (members?.length) {
-      members.forEach((m: ConvMember) => {
-        // Protobuf enum: 1=user, 2=bot (numbers, not strings)
-        const isBot = isBotMember(m);
-        const name = isBot ? (m.bot_name || m.username) : m.username;
-        const avatar = isBot ? (m.bot_avatar || m.avatar) : m.avatar;
-        if (m.user_id) map.set(m.user_id, { username: name, avatar });
-        if (m.bot_id) {
-          map.set(m.bot_id, { username: name, avatar });
-        }
-      });
+      members.forEach((m) => map.set(m.user_id, { username: m.username, avatar: m.avatar }));
     }
     const currentUser = useAuthStore.getState().user;
     if (currentUser) {
@@ -1001,34 +1001,23 @@ export function ChatPage() {
     if (members?.length) {
       members.forEach((m: ConvMember) => {
         if (m.user_id) map.set(m.user_id, m.role);
-        if (m.bot_id) {
-          map.set(m.bot_id, m.role);
-        }
       });
     }
     return map;
   }, [members]);
 
-  const botIdSet = useMemo(() => {
-    const set = new Set<string>();
-    if (members?.length) {
-      members.forEach((m: ConvMember) => {
-        if (isBotMember(m)) {
-          if (m.bot_id) set.add(m.bot_id);
-        }
-      });
-    }
-    return set;
-  }, [members]);
 
   const convSenderOptions = useMemo(() => {
-    if (!members?.length) return [];
-    return members.map((m: ConvMember) => ({
-      id: (m.user_id ?? m.bot_id)!,
-      name: isBotMember(m) ? (m.bot_name || m.username) : m.username,
-      isBot: isBotMember(m),
-    }));
-  }, [members]);
+    const senders = new Map<string, { id: string; name: string; isBot: boolean }>();
+    members.forEach((member) => senders.set(member.user_id, { id: member.user_id, name: member.username, isBot: false }));
+    convBots.forEach((bot) => senders.set(bot.bot_id, { id: bot.bot_id, name: bot.name, isBot: true }));
+    messages.forEach((msg) => {
+      if (msg.sender_id && !senders.has(msg.sender_id) && msg.sender_type !== 'system') {
+        senders.set(msg.sender_id, { id: msg.sender_id, name: msg.sender_name || msg.sender_id, isBot: msg.sender_type === 'bot' });
+      }
+    });
+    return [...senders.values()];
+  }, [members, convBots, messages]);
 
   const roleLabels: Record<string, string> = { MEMBER_ROLE_OWNER: '群主', MEMBER_ROLE_ADMIN: '管理员', MEMBER_ROLE_MEMBER: '成员' };
   const roleColors: Record<string, string> = { MEMBER_ROLE_OWNER: 'gold', MEMBER_ROLE_ADMIN: 'blue', MEMBER_ROLE_MEMBER: 'default' };
@@ -1309,10 +1298,8 @@ export function ChatPage() {
     let match;
     while ((match = mentionRegex.exec(text)) !== null) {
       const username = match[1];
-      const member = (members as ConvMember[]).find((m) => m.username === username);
-      if (member?.user_id) {
-        mentionSet.add(member.user_id);
-      }
+      const sender = mentionTargets.find((candidate) => candidate.name === username);
+      if (sender) mentionSet.add(sender.id);
     }
 
     // Private chat: auto-mention peer
@@ -1322,19 +1309,20 @@ export function ChatPage() {
           mentionSet.add(m.user_id);
         }
       });
+      convBots.forEach((bot) => mentionSet.add(bot.bot_id));
     }
 
     sendMutation.mutate({
       type: 1,
       content: { text, mentions: [...mentionSet], mention_all: false },
     });
-  }, [input, sendMutation, members, conv, currentUserId]);
+  }, [input, sendMutation, members, convBots, mentionTargets, conv, currentUserId]);
 
-  const insertMention = useCallback((member: ConvMember) => {
+  const insertMention = useCallback((target: { name: string }) => {
     const mentionLen = mentionQuery.length;
     const before = input.slice(0, mentionStartPos);
     const after = input.slice(mentionStartPos + 1 + mentionLen);
-    const newText = `${before}@${member.username} ${after}`;
+    const newText = `${before}@${target.name} ${after}`;
     setInput(newText);
     setMentionOpen(false);
     setTimeout(() => {
@@ -1344,9 +1332,7 @@ export function ChatPage() {
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (mentionOpen) {
-      const filtered = (members as ConvMember[]).filter(
-        (m) => m.user_id !== currentUserId && m.username.toLowerCase().includes(mentionQuery.toLowerCase())
-      );
+      const filtered = mentionTargets.filter((target) => target.id !== currentUserId && target.name.toLowerCase().includes(mentionQuery.toLowerCase()));
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setMentionSelected((prev) => Math.min(prev + 1, filtered.length - 1));
@@ -1420,18 +1406,18 @@ export function ChatPage() {
     <div className="chat-page">
       <div className="chat-header">
         <div className="chat-header-info">
-          <Avatar name={conv?.name || (conv?.type === 'group' ? '群聊' : '私聊')} src={conv?.avatar} size={36} />
+          <Avatar name={privateBot?.name || conv?.name || (conv?.type === 'group' ? '群聊' : '私聊')} src={privateBot?.avatar || conv?.avatar} size={36} />
           <div>
-            <div className="chat-header-name">{conv?.name || (conv?.type === 'group' ? '群聊' : '私聊')}</div>
-            {conv && <div className="chat-header-meta">{conv.type === 'group' ? `${conv.member_count} 人` : ''}</div>}
+            <div className="chat-header-name">{privateBot?.name || conv?.name || (conv?.type === 'group' ? '群聊' : '私聊')}</div>
+            {conv && <div className="chat-header-meta">{conv.type === 'group' ? `${conv.member_count} 人` : privateBot ? 'Bot · 独立会话绑定' : ''}</div>}
           </div>
         </div>
         <div className="chat-header-actions">
           <button className="chat-header-info-btn" onClick={() => setConvSearchOpen(!convSearchOpen)} title="搜索消息">
             <SearchOutlined />
           </button>
-          {conv?.type === 'group' && (
-            <button className="chat-header-info-btn" onClick={() => setGroupInfoOpen(true)} title="群聊信息">
+          {(conv?.type === 'group' || conv?.type === 'private' && (convBots.length > 0 || members.length === 1)) && (
+            <button className="chat-header-info-btn" onClick={() => setGroupInfoOpen(true)} title={conv?.type === 'group' ? '群聊信息' : 'Bot 绑定信息'}>
               <InfoCircleOutlined />
             </button>
           )}
@@ -1496,12 +1482,12 @@ export function ChatPage() {
                 >
                   <Avatar
                     src={senderInfo?.avatar}
-                    name={senderInfo?.username || `用户${msg.from_user_id}`}
+                    name={senderInfo?.username || `用户${msg.sender_id}`}
                     size={28}
                   />
                   <div className="chat-search-result-body">
                     <div className="chat-search-result-sender">
-                      {senderInfo?.username || `用户${msg.from_user_id}`}
+                      {senderInfo.username}{msg.sender_type === 'bot' ? ' [Bot]' : ''}
                     </div>
                     <div className="chat-search-result-preview">
                       {highlight ? (
@@ -1527,7 +1513,7 @@ export function ChatPage() {
           {!msgsLoading && !msgsError && messages.length === 0 && <div className="chat-loading">暂无消息，发送第一条消息吧</div>}
 
           {messages.map((msg: any) => {
-          const isSelf = msg.from_user_id === currentUserId;
+          const isSelf = msg.sender_type === 'user' && msg.sender_id === currentUserId;
           if (editingMsgId === msg.message_id) {
             const editUserInfo = getMsgUserInfo(msg, userMap);
             return (
@@ -1535,7 +1521,7 @@ export function ChatPage() {
                 <div className="chat-msg-avatar-col">
                   <Avatar
                     src={editUserInfo?.avatar}
-                    name={editUserInfo?.username || `用户${msg.from_user_id}`}
+                    name={editUserInfo?.username || `用户${msg.sender_id}`}
                     size={32}
                   />
                 </div>
@@ -1569,7 +1555,7 @@ export function ChatPage() {
               let payload: { content?: string; old_content?: string } = {};
               try { payload = JSON.parse(sysContent.payload || '{}'); } catch { /* ignore */ }
               const announcementText = payload.content || '';
-              const operatorInfo = getMsgUserInfo({ from_user_id: sysContent.actor_id }, userMap);
+              const operatorInfo = getMsgUserInfo({ sender_id: sysContent.actor_id, sender_type: sysContent.actor_type }, userMap);
               const operatorName = operatorInfo?.username || `用户${sysContent.actor_id}`;
               const operatorRole = sysContent.actor_id ? memberRoleMap.get(sysContent.actor_id) : undefined;
               const roleLabel = roleLabels[operatorRole || ''] || '成员';
@@ -1615,11 +1601,11 @@ export function ChatPage() {
             }
 
             // 解析操作者和被操作者信息
-            const actorInfo = getMsgUserInfo({ from_user_id: sysContent.actor_id }, userMap);
+            const actorInfo = getMsgUserInfo({ sender_id: sysContent.actor_id, sender_type: sysContent.actor_type }, userMap);
             const actorName = actorInfo?.username || `用户${sysContent.actor_id}`;
             const relatedIDs: string[] = Array.isArray(sysContent.related_user_ids) ? sysContent.related_user_ids : [];
             const relatedNames = relatedIDs.map((uid) => {
-              const info = getMsgUserInfo({ from_user_id: uid }, userMap);
+              const info = getMsgUserInfo({ sender_id: uid, sender_type: 'user' }, userMap);
               return info?.username || `用户${uid}`;
             });
 
@@ -1722,22 +1708,25 @@ export function ChatPage() {
           }
           const msgUserInfo = getMsgUserInfo(msg, userMap);
           const isMediaMsg = msg.type === 2 || msg.type === 3; // image or file — no bubble background
+          const identityTitle = msg.sender_type === 'bot' ? `Bot ID: ${msg.sender_id}${msg.binding_id ? ` · 绑定 ID: ${msg.binding_id}` : ''}` : undefined;
           return (
-            <div key={msg.message_id || msg.seq} className={`chat-msg ${isSelf ? 'chat-msg-self' : 'chat-msg-other'}`} data-msg-id={msg.message_id} onContextMenu={(e) => showMsgActions(e, msg)}>
+            <div key={msg.message_id || msg.seq} className={`chat-msg ${isSelf ? 'chat-msg-self' : 'chat-msg-other'}`} data-msg-id={msg.message_id}
+              data-sender-id={msg.sender_id} data-sender-type={msg.sender_type} data-binding-id={msg.binding_id}
+              onContextMenu={(e) => showMsgActions(e, msg)}>
               <div className="chat-msg-avatar-col">
                 <Avatar
                   src={msgUserInfo?.avatar}
-                  name={msgUserInfo?.username || `用户${msg.from_user_id}`}
+                  name={msgUserInfo?.username || `用户${msg.sender_id}`}
                   size={32}
                 />
               </div>
               <div className="chat-msg-content">
                 {!isSelf && msgUserInfo?.username && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
-                    <span className="chat-msg-nickname">{msgUserInfo.username}</span>
+                    <span className="chat-msg-nickname" title={identityTitle}>{msgUserInfo.username}</span>
                     {(() => {
-                      const role = memberRoleMap.get(msg.from_user_id);
-                      const isBot = botIdSet.has(msg.from_user_id);
+                      const role = msg.sender_type === 'user' ? memberRoleMap.get(msg.sender_id) : undefined;
+                      const isBot = msg.sender_type === 'bot';
                       return (
                         <>
                           {role && role !== 'MEMBER_ROLE_MEMBER' ? (
@@ -1756,11 +1745,14 @@ export function ChatPage() {
                   </div>
                 )}
                 {msg.reply_to && (
-                  <div className="chat-msg-reply">回复: {msg.reply_to.preview || '消息不可用'}</div>
+                  <div className="chat-msg-reply">回复: {msg.reply_to.sender_type === 'bot' ? '[Bot] ' : ''}{msg.reply_to.sender_name ? `${msg.reply_to.sender_name}: ` : ''}{msg.reply_to.preview || '消息不可用'}</div>
                 )}
                 <div className={`chat-msg-bubble-wrapper${isMediaMsg ? ' chat-msg-bubble-wrapper-media' : ''}`}>
                   <div className={`chat-msg-bubble${isMediaMsg ? ' chat-msg-bubble-media' : ''} ${msg.status === 2 ? 'recalled' : ''}`}>
-                    {msg.status === 2 ? <span style={{ fontStyle: 'italic', opacity: 0.6 }}>消息已撤回</span> : renderContent(msg.content || {}, setFilePreview)}
+                    {msg.status === 2 ? <span style={{ fontStyle: 'italic', opacity: 0.6 }}>消息已撤回</span> : <>
+                      {renderContent(msg.content || {}, setFilePreview)}
+                      <MessageMetadata message={msg} />
+                    </>}
                   </div>
                   <button className="chat-msg-actions-btn" onClick={(e) => showMsgActions(e, msg)}>
                     <MoreOutlined />
@@ -1768,6 +1760,7 @@ export function ChatPage() {
                 </div>
                 <div className="chat-msg-footer">
                     <span className="chat-msg-time">{formatTime(msg.created_at)}</span>
+                    {msg.sender_type === 'bot' && msg.requester_id && <span title={`请求者 ID: ${msg.requester_id}`}>请求者: {userMap.get(msg.requester_id)?.username || msg.requester_id}</span>}
                     {renderReadStatus(conv, msg, isSelf, readStatuses)}
                   </div>
               </div>
@@ -1777,10 +1770,11 @@ export function ChatPage() {
 
         {/* Streaming bot messages */}
         {Object.entries(streamingMap)
-          .filter(([key]) => key.startsWith(`${id}:`))
+          .filter(([key]) => key.startsWith(`${id}:`) && convBots.some((bot) => key === `${id}:${bot.bot_id}:${bot.binding_id}`))
           .map(([key, entry]) => {
             const botId = key.split(':')[1];
-            const userInfo = getMsgUserInfo({ from_user_id: botId, content: { bot: { bot_id: botId, text: entry.text } }, type: 9 }, userMap);
+            const binding = convBots.find((bot) => bot.bot_id === botId && bot.binding_id === key.split(':')[2]);
+            const userInfo = getMsgUserInfo({ sender_id: botId, sender_type: 'bot', sender_name: binding?.name, sender_avatar: binding?.avatar }, userMap);
             return (
               <div key={key} className="chat-msg chat-msg-other">
                 <div className="chat-msg-avatar-col">
@@ -1794,24 +1788,7 @@ export function ChatPage() {
                   {userInfo?.username && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
                       <span className="chat-msg-nickname">{userInfo.username}</span>
-                      {(() => {
-                        const role = memberRoleMap.get(botId);
-                        const isBot = botIdSet.has(botId);
-                        return (
-                          <>
-                            {role && role !== 'MEMBER_ROLE_MEMBER' ? (
-                              <Tag color={roleColors[role]} style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                                {roleLabels[role]}
-                              </Tag>
-                            ) : null}
-                            {isBot ? (
-                              <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                                BOT
-                              </Tag>
-                            ) : null}
-                          </>
-                        );
-                      })()}
+                      <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>BOT</Tag>
                     </div>
                   )}
                   {entry.replyToMsgId && (() => {
@@ -1908,21 +1885,19 @@ export function ChatPage() {
           )}
           {mentionOpen && (
             <div className="chat-mention-dropdown">
-              {(members as ConvMember[])
-                .filter((m) => m.user_id !== currentUserId && m.username.toLowerCase().includes(mentionQuery.toLowerCase()))
-                .map((m, i) => (
-                  <div key={m.user_id}
+              {mentionTargets
+                .filter((target) => target.id !== currentUserId && target.name.toLowerCase().includes(mentionQuery.toLowerCase()))
+                .map((target, i) => (
+                  <div key={target.id}
                     className={`chat-mention-item${i === mentionSelected ? ' active' : ''}`}
-                    onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
+                    onMouseDown={(e) => { e.preventDefault(); insertMention(target); }}
                     onMouseEnter={() => setMentionSelected(i)}>
-                    <Avatar src={m.avatar} name={m.username} size={24} />
-                    <span className="chat-mention-name">{m.username}</span>
-                    {isBotMember(m) && <span className="chat-mention-badge">BOT</span>}
+                    <Avatar src={target.avatar} name={target.name} size={24} />
+                    <span className="chat-mention-name">{target.name}</span>
+                    {target.isBot && <span className="chat-mention-badge">BOT</span>}
                   </div>
                 ))}
-              {(members as ConvMember[]).filter(
-                (m) => m.user_id !== currentUserId && m.username.toLowerCase().includes(mentionQuery.toLowerCase())
-              ).length === 0 && (
+              {mentionTargets.filter((target) => target.id !== currentUserId && target.name.toLowerCase().includes(mentionQuery.toLowerCase())).length === 0 && (
                 <div className="chat-mention-empty">无匹配成员</div>
               )}
             </div>
@@ -1956,7 +1931,7 @@ export function ChatPage() {
               回复
             </div>
             <div className="chat-msg-action-item" onClick={() => {
-              const name = userMap.get(msgActions.msg.from_user_id)?.username;
+              const name = getMsgUserInfo(msgActions.msg, userMap).username;
               if (name) {
                 setInput((prev) => prev ? `${prev} @${name} ` : `@${name} `);
                 chatInputRef.current?.focus();
@@ -1965,12 +1940,12 @@ export function ChatPage() {
             }}>
               @提及
             </div>
-            {msgActions.msg.from_user_id === currentUserId && msgActions.msg.type === 1 && (
+            {msgActions.msg.sender_type === 'user' && msgActions.msg.sender_id === currentUserId && msgActions.msg.type === 1 && (
               <div className="chat-msg-action-item" onClick={() => { setEditingMsgId(msgActions.msg.message_id); setEditText(extractTextPreview(msgActions.msg.content)); setMsgActions(null); }}>
                 编辑
               </div>
             )}
-            {msgActions.msg.from_user_id === currentUserId && msgActions.msg.status === 1 && (
+            {msgActions.msg.sender_type === 'user' && msgActions.msg.sender_id === currentUserId && msgActions.msg.status === 1 && (
               <div className="chat-msg-action-item" onClick={() => {
                 const msgId = msgActions.msg.message_id;
                 setMsgActions(null);
@@ -1990,7 +1965,7 @@ export function ChatPage() {
             }}>
               删除
             </div>
-            {(msgActions.msg.from_user_id === currentUserId || isAdmin) && (
+            {(msgActions.msg.sender_type === 'user' && msgActions.msg.sender_id === currentUserId || isAdmin) && (
               <div className="chat-msg-action-item chat-msg-action-danger" onClick={() => {
                 const msgId = msgActions.msg.message_id;
                 setMsgActions(null);
@@ -2004,7 +1979,7 @@ export function ChatPage() {
       )}
 
       {/* Group Info Drawer */}
-      {conv?.type === 'group' && (
+      {(conv?.type === 'group' || conv?.type === 'private' && (convBots.length > 0 || members.length === 1)) && (
         <GroupInfoDrawer
           conv={conv}
           members={members}

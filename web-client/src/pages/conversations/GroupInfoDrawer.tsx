@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { message, Drawer, Button, Tag, Divider, Input, Switch, Popconfirm, Select, Radio, Modal as AntModal } from 'antd';
+import { message, Drawer, Button, Tag, Divider, Input, InputNumber, Switch, Popconfirm, Select, Radio, Modal as AntModal } from 'antd';
 import {
   EditOutlined, UserAddOutlined, DeleteOutlined,
   CrownOutlined, CloseOutlined, CameraOutlined,
@@ -14,9 +14,6 @@ import { Avatar } from '@/components/common/Avatar';
 import type { ConvMember, BotInConv } from '@/types/model';
 import './ChatPage.css';
 
-function isBotMember(m: ConvMember): boolean {
-  return m.member_type === 'bot';
-}
 
 interface GroupInfoDrawerProps {
   conv: any;
@@ -34,6 +31,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const convId = conv?.id;
+  const isPrivate = conv?.type === 'private';
 
   const [editingName, setEditingName] = useState(false);
   const [editNameVal, setEditNameVal] = useState('');
@@ -45,6 +43,9 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
   const [transferTarget, setTransferTarget] = useState<string | null>(null);
   const [addBotOpen, setAddBotOpen] = useState(false);
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
+  const [grantBot, setGrantBot] = useState<BotInConv | null>(null);
+  const [startSeq, setStartSeq] = useState<number | null>(null);
+  const [endSeq, setEndSeq] = useState<number | null>(null);
   const avatarRef = useRef<HTMLInputElement>(null);
 
   // ─── Queries ───
@@ -56,13 +57,13 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
   });
   const friends = friendsData?.list ?? [];
 
-  const { data: convBots = [] } = useQuery({
+  const { data: convBots = [], isLoading: botsLoading, isError: botsError, refetch: refetchBots } = useQuery({
     queryKey: ['conv-bots', convId],
     queryFn: () => botApi.listConvBots(convId!),
     enabled: open && !!convId,
   });
 
-  const { data: userBotsData } = useQuery({
+  const { data: userBotsData, isLoading: availableBotsLoading, isError: availableBotsError } = useQuery({
     queryKey: ['user-bots'],
     queryFn: () => botApi.list(),
     enabled: addBotOpen,
@@ -217,6 +218,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
       setAddBotOpen(false);
       setSelectedBotId(null);
       queryClient.invalidateQueries({ queryKey: ['conv-bots', convId] });
+      props.onMembersChange();
     },
     onError: (err: any) => message.error(err?.response?.data?.message || '操作失败'),
   });
@@ -230,14 +232,29 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
         return old.filter((b) => b.bot_id !== botId);
       });
       queryClient.invalidateQueries({ queryKey: ['conv-bots', convId] });
+      props.onMembersChange();
     },
     onError: (err: any) => message.error(err?.response?.data?.message || '操作失败'),
+  });
+
+  const grantHistoryMutation = useMutation({
+    mutationFn: async () => {
+      if (!grantBot || startSeq === null || endSeq === null || !Number.isSafeInteger(startSeq)
+        || !Number.isSafeInteger(endSeq) || startSeq < 1 || endSeq < startSeq || endSeq > conv.max_seq) throw new Error('请选择会话内有效的消息序号范围');
+      if (!convBots.some((bot) => bot.binding_id === grantBot.binding_id)) throw new Error('此 Bot 绑定已失效，请重新选择');
+      return botApi.grantHistory(convId!, grantBot.bot_id, grantBot.binding_id, startSeq, endSeq);
+    },
+    onSuccess: ({ grant_id }) => {
+      message.success(`历史授权已创建：${grant_id}`, 8);
+      setGrantBot(null); setStartSeq(null); setEndSeq(null);
+    },
+    onError: (error: unknown) => message.error(error instanceof Error ? error.message : '历史授权失败'),
   });
 
   return (
     <>
       <Drawer
-        title="群聊信息"
+        title={isPrivate ? 'Bot 绑定信息' : '群聊信息'}
         placement="right"
         width={380}
         open={open}
@@ -248,8 +265,8 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
           {/* Section 1: Avatar + Name */}
           <div className="group-info-avatar-section">
             <div className="group-info-avatar-wrapper">
-              <Avatar name={conv?.name || '群聊'} src={conv?.avatar} size={80} />
-              {isAdmin && (
+              <Avatar name={isPrivate ? convBots[0]?.name || conv?.name || 'Bot' : conv?.name || '群聊'} src={isPrivate ? convBots[0]?.avatar || conv?.avatar : conv?.avatar} size={80} />
+              {isAdmin && !isPrivate && (
                 <>
                   <div className="group-info-avatar-overlay" onClick={() => avatarRef.current?.click()}>
                     <CameraOutlined />
@@ -287,10 +304,10 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
               ) : (
                 <div className="group-info-name-display" style={{ justifyContent: 'center', textAlign: 'center' }}>
                   <div>
-                    <div className="group-info-name-text">{conv?.name || '群聊'}</div>
+                    <div className="group-info-name-text">{isPrivate ? convBots[0]?.name || conv?.name || 'Bot' : conv?.name || '群聊'}</div>
                     <div className="group-info-count">{conv?.member_count || 0} 人</div>
                   </div>
-                  {isAdmin && (
+                  {isAdmin && !isPrivate && (
                     <Button type="text" icon={<EditOutlined />} size="small" onClick={() => { setEditingName(true); setEditNameVal(conv?.name || ''); }} />
                   )}
                 </div>
@@ -299,6 +316,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
           </div>
           <Divider />
 
+          {!isPrivate && <>
           {/* Section 2: Announcement */}
           <div className="group-info-section">
             <div className="group-info-section-title">群公告</div>
@@ -352,9 +370,8 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                 const roleLabels: Record<string, string> = { '1': '群主', MEMBER_ROLE_OWNER: '群主', '2': '管理员', MEMBER_ROLE_ADMIN: '管理员', '3': '成员', MEMBER_ROLE_MEMBER: '成员' };
                 const roleColors: Record<string, string> = { '1': 'gold', MEMBER_ROLE_OWNER: 'gold', '2': 'blue', MEMBER_ROLE_ADMIN: 'blue', '3': 'default', MEMBER_ROLE_MEMBER: 'default' };
                 const canRemove = isOwner && member.role !== 'MEMBER_ROLE_OWNER' && member.role !== 1;
-                const isBot = isBotMember(member);
                 return (
-                  <div key={member.user_id ?? member.bot_id} className="group-info-member">
+                  <div key={member.user_id} className="group-info-member">
                     <Avatar name={member.username || `用户${member.user_id}`} src={member.avatar || ''} size={32} />
                     <div className="group-info-member-info">
                       <span className="group-info-member-name">{member.username || `用户${member.user_id}`}</span>
@@ -362,14 +379,9 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                         <Tag color={roleColors[member.role]} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
                           {roleLabels[member.role]}
                         </Tag>
-                        {isBot && (
-                          <Tag color="purple" style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
-                            BOT
-                          </Tag>
-                        )}
                       </div>
                     </div>
-                    {member.user_id && !isBot && (isAdmin || isOwner) && member.role !== 'MEMBER_ROLE_OWNER' && member.role !== 1 && (
+                    {(isAdmin || isOwner) && member.role !== 'MEMBER_ROLE_OWNER' && member.role !== 1 && (
                       member.is_muted ? (
                         <Button
                           type="text"
@@ -390,7 +402,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                         />
                       )
                     )}
-                    {member.user_id && !isBot && canRemove && (
+                    {canRemove && (
                       <Popconfirm
                         title="移除成员"
                         description={`确定要移除 ${member.username || `用户${member.user_id}`} 吗？`}
@@ -401,12 +413,12 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                         <Button type="text" size="small" danger icon={<CloseOutlined />} />
                       </Popconfirm>
                     )}
-                    {!isBot && isOwner && (member.role === 'MEMBER_ROLE_MEMBER' || member.role === 3) && (
+                    {isOwner && (member.role === 'MEMBER_ROLE_MEMBER' || member.role === 3) && (
                       <Button type="text" size="small" onClick={() => member.user_id && updateMemberRoleMutation.mutate({ userId: member.user_id, role: 2 })} title="设为管理员">
                         升管
                       </Button>
                     )}
-                    {!isBot && isOwner && (member.role === 'MEMBER_ROLE_ADMIN' || member.role === 2) && (
+                    {isOwner && (member.role === 'MEMBER_ROLE_ADMIN' || member.role === 2) && (
                       <Button type="text" size="small" onClick={() => member.user_id && updateMemberRoleMutation.mutate({ userId: member.user_id, role: 3 })} title="取消管理员">
                         降级
                       </Button>
@@ -417,11 +429,12 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
             </div>
           </div>
           <Divider />
+          </>}
 
           {/* Section 4: Bots */}
           <div className="group-info-section">
             <div className="group-info-section-title">
-              <span>群机器人 ({convBots.length})</span>
+              <span>Bot 绑定 ({convBots.length})</span>
               {isAdmin && (
                 <Button type="primary" size="small" icon={<RobotOutlined />} onClick={() => setAddBotOpen(true)}>
                   添加
@@ -429,35 +442,38 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
               )}
             </div>
             <div className="group-info-members">
-              {convBots.length === 0 && <div className="group-info-no-data">暂无机器人</div>}
+              {botsLoading && <div role="status">加载 Bot 绑定中...</div>}
+              {botsError && <div role="alert">Bot 绑定读取失败 <Button size="small" onClick={() => void refetchBots()}>重试</Button></div>}
+              {!botsLoading && !botsError && convBots.length === 0 && <div className="group-info-no-data">暂无 Bot 绑定；邀请后建立新的参与生命周期</div>}
               {convBots.map((bot: BotInConv) => {
-                const roleLabels: Record<string, string> = { '1': '群主', MEMBER_ROLE_OWNER: '群主', '2': '管理员', MEMBER_ROLE_ADMIN: '管理员', '3': '成员', MEMBER_ROLE_MEMBER: '成员' };
-                const roleColors: Record<string, string> = { '1': 'gold', MEMBER_ROLE_OWNER: 'gold', '2': 'blue', MEMBER_ROLE_ADMIN: 'blue', '3': 'default', MEMBER_ROLE_MEMBER: 'default' };
-                const botMember = members.find((m) => m.bot_id === bot.bot_id);
-                const botRole = botMember?.role || 'MEMBER_ROLE_MEMBER';
                 return (
-                  <div key={bot.bot_id} className="group-info-member">
+                  <div key={bot.binding_id} className="group-info-member group-info-bot">
                     <Avatar name={bot.name || `Bot#${bot.bot_id}`} src={bot.avatar || ''} size={32} />
                     <div className="group-info-member-info">
                       <span className="group-info-member-name">{bot.name || `Bot#${bot.bot_id}`}</span>
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <Tag color={roleColors[botRole]} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
-                          {roleLabels[botRole]}
-                        </Tag>
                         <Tag color="purple" style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
                           BOT
                         </Tag>
                       </div>
+                      <div className="group-info-binding-details">
+                        <div>Bot ID: {bot.bot_id}</div>
+                        <div>绑定 ID: {bot.binding_id}</div>
+                        <div>所有者: {bot.owner_type === 'platform' ? '平台' : members.find((member) => member.user_id === bot.owner_id)?.username || bot.owner_id}</div>
+                        <div>邀请者: {members.find((member) => member.user_id === bot.added_by)?.username || bot.added_by}</div>
+                        <div>加入时间: {new Date(bot.added_at * 1000).toLocaleString('zh-CN')}</div>
+                      </div>
+                      {isAdmin && <Button size="small" disabled={!conv?.max_seq} onClick={() => { setGrantBot(bot); setStartSeq(null); setEndSeq(null); }}>授权历史范围</Button>}
                     </div>
                     {isAdmin && (
                       <Popconfirm
                         title="移除机器人"
-                        description={`确定要移除 ${bot.name || '此机器人'} 吗？`}
+                        description={`确定要移出 ${bot.name || '此 Bot'} 吗？当前绑定及其历史授权将失效，重新邀请会创建新绑定。`}
                         onConfirm={() => removeBotMutation.mutate(bot.bot_id)}
                         okText="移除"
                         cancelText="取消"
                       >
-                        <Button type="text" size="small" danger icon={<CloseOutlined />} loading={removeBotMutation.isPending} />
+                        <Button type="text" size="small" danger aria-label={`移出 ${bot.name || 'Bot'}`} icon={<CloseOutlined />} loading={removeBotMutation.isPending} />
                       </Popconfirm>
                     )}
                   </div>
@@ -467,6 +483,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
           </div>
           <Divider />
 
+          {!isPrivate && <>
           {/* Section 5: Settings */}
           <div className="group-info-section">
             <div className="group-info-section-title">设置</div>
@@ -524,6 +541,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
               </div>
             )}
           </div>
+          </>}
         </div>
       </Drawer>
 
@@ -577,7 +595,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
           value={transferTarget}
           onChange={setTransferTarget}
           options={members
-            .filter((m) => m.user_id && m.user_id !== currentUserId && !isBotMember(m))
+            .filter((m) => m.user_id !== currentUserId)
             .map((m) => ({
               value: m.user_id,
               label: m.username || `用户${m.user_id}`,
@@ -599,20 +617,40 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
         confirmLoading={addBotMutation.isPending}
         okText="添加"
         cancelText="取消"
+        okButtonProps={{ disabled: !selectedBotId || !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(selectedBotId) }}
       >
+        {availableBotsError && <p role="alert">可邀请的 Bot 读取失败，请关闭后重试。</p>}
         <Select
           placeholder="选择机器人"
           style={{ width: '100%' }}
+          loading={availableBotsLoading}
           value={selectedBotId}
           onChange={setSelectedBotId}
           options={userBots
-            .filter((bot: any) => !convBots.some((b: BotInConv) => b.bot_id === bot.id))
-            .map((bot: any) => ({
+            .filter((bot) => bot.status === 'active' && !convBots.some((binding) => binding.bot_id === bot.id))
+            .map((bot) => ({
               value: bot.id,
               label: bot.name,
             }))
           }
         />
+        <label htmlFor="invite-bot-id">或输入他人分享的 Bot ID</label>
+        <Input id="invite-bot-id" aria-label="Bot ID" placeholder="Bot UUID" value={selectedBotId ?? ''} onChange={(event) => setSelectedBotId(event.target.value.trim() || null)} />
+        <p className="group-info-no-data">Bot 不占用人类成员名额，也不会自动获得群历史。移出后重新邀请会建立新绑定。</p>
+      </AntModal>
+
+      <AntModal title={`授权 ${grantBot?.name || 'Bot'} 读取历史`} open={!!grantBot}
+        onCancel={() => { setGrantBot(null); setStartSeq(null); setEndSeq(null); }}
+        onOk={() => grantHistoryMutation.mutate()} confirmLoading={grantHistoryMutation.isPending}
+        okText="授权此范围" cancelText="取消"
+        okButtonProps={{ disabled: startSeq === null || endSeq === null || startSeq < 1 || endSeq < startSeq || endSeq > (conv?.max_seq || 0) }}>
+        <p>仅授权当前绑定读取所选范围，不授予完整历史；移出后授权失效，重入不恢复。</p>
+        <p className="group-info-binding-details">绑定 ID: {grantBot?.binding_id}</p>
+        <label htmlFor="bot-history-start">起始消息序号</label>
+        <InputNumber id="bot-history-start" min={1} max={conv?.max_seq} precision={0} value={startSeq} onChange={setStartSeq} style={{ width: '100%', margin: '8px 0 16px' }} />
+        <label htmlFor="bot-history-end">结束消息序号（包含）</label>
+        <InputNumber id="bot-history-end" min={startSeq || 1} max={conv?.max_seq} precision={0} value={endSeq} onChange={setEndSeq} style={{ width: '100%', marginTop: 8 }} />
+        <p className="group-info-no-data">当前会话最大消息序号: {conv?.max_seq || 0}</p>
       </AntModal>
     </>
   );

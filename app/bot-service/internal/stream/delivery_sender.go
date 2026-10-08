@@ -10,7 +10,7 @@ import (
 )
 
 type DeliveryClient interface {
-	PublishToConversation(ctx context.Context, convID, botID string, msg []byte) error
+	PublishToConversation(ctx context.Context, convID, botID, bindingID string, msg []byte) error
 }
 
 // DeliveryPusher publishes ephemeral chunks for current conversation members.
@@ -19,17 +19,19 @@ type DeliveryPusher struct {
 	client       DeliveryClient
 	convID       string
 	botID        string
+	bindingID    string
+	requesterID  *string
 	replyToMsgID *string
 	seq          int64
 	streamID     string
 }
 
-func NewDeliveryPusher(ctx context.Context, client DeliveryClient, convID, botID string, replyToMsgID *string) *DeliveryPusher {
-	return &DeliveryPusher{ctx: ctx, client: client, convID: convID, botID: botID, replyToMsgID: replyToMsgID, streamID: uuid.NewString()}
+func NewDeliveryPusher(ctx context.Context, client DeliveryClient, convID, botID, bindingID string, requesterID, replyToMsgID *string) *DeliveryPusher {
+	return &DeliveryPusher{ctx: ctx, client: client, convID: convID, botID: botID, bindingID: bindingID, requesterID: requesterID, replyToMsgID: replyToMsgID, streamID: uuid.NewString()}
 }
 
 func (w *DeliveryPusher) Send(chunk *model.StreamChunk) error {
-	msg := map[string]any{"type": "bot.streaming." + chunk.Type, "stream_id": w.streamID, "bot_id": w.botID, "conv_id": w.convID, "content": chunk.Content, "seq": w.seq}
+	msg := map[string]any{"type": "bot.streaming." + chunk.Type, "stream_id": w.streamID, "bot_id": w.botID, "binding_id": w.bindingID, "requester_id": w.requesterID, "conv_id": w.convID, "content": chunk.Content, "seq": w.seq}
 	if w.seq == 0 && w.replyToMsgID != nil {
 		msg["reply_to_msg_id"] = w.replyToMsgID
 	}
@@ -43,7 +45,7 @@ func (w *DeliveryPusher) Send(chunk *model.StreamChunk) error {
 	if err != nil {
 		return fmt.Errorf("marshal stream message: %w", err)
 	}
-	if err := w.client.PublishToConversation(w.ctx, w.convID, w.botID, raw); err != nil {
+	if err := w.client.PublishToConversation(w.ctx, w.convID, w.botID, w.bindingID, raw); err != nil {
 		return fmt.Errorf("stream to conversation: %w", err)
 	}
 	w.seq++

@@ -33,6 +33,7 @@ const (
 	MessageService_SendBroadcast_FullMethodName      = "/message.MessageService/SendBroadcast"
 	MessageService_SendBotReply_FullMethodName       = "/message.MessageService/SendBotReply"
 	MessageService_SendSystemMessage_FullMethodName  = "/message.MessageService/SendSystemMessage"
+	MessageService_GrantBotHistory_FullMethodName    = "/message.MessageService/GrantBotHistory"
 	MessageService_CreateConversation_FullMethodName = "/message.MessageService/CreateConversation"
 	MessageService_GetConversation_FullMethodName    = "/message.MessageService/GetConversation"
 	MessageService_ListConversations_FullMethodName  = "/message.MessageService/ListConversations"
@@ -81,6 +82,7 @@ type MessageServiceClient interface {
 	// ========== Bot Reply (called by bot-service) ==========
 	SendBotReply(ctx context.Context, in *SendBotReplyReq, opts ...grpc.CallOption) (*SendBotReplyResp, error)
 	SendSystemMessage(ctx context.Context, in *SendSystemMessageReq, opts ...grpc.CallOption) (*SendMessageResp, error)
+	GrantBotHistory(ctx context.Context, in *GrantBotHistoryReq, opts ...grpc.CallOption) (*GrantBotHistoryResp, error)
 	// ========== Conversation domain ==========
 	// ========== CRUD ==========
 	CreateConversation(ctx context.Context, in *CreateConversationReq, opts ...grpc.CallOption) (*CreateConversationResp, error)
@@ -247,6 +249,16 @@ func (c *messageServiceClient) SendSystemMessage(ctx context.Context, in *SendSy
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SendMessageResp)
 	err := c.cc.Invoke(ctx, MessageService_SendSystemMessage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) GrantBotHistory(ctx context.Context, in *GrantBotHistoryReq, opts ...grpc.CallOption) (*GrantBotHistoryResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GrantBotHistoryResp)
+	err := c.cc.Invoke(ctx, MessageService_GrantBotHistory_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -524,6 +536,7 @@ type MessageServiceServer interface {
 	// ========== Bot Reply (called by bot-service) ==========
 	SendBotReply(context.Context, *SendBotReplyReq) (*SendBotReplyResp, error)
 	SendSystemMessage(context.Context, *SendSystemMessageReq) (*SendMessageResp, error)
+	GrantBotHistory(context.Context, *GrantBotHistoryReq) (*GrantBotHistoryResp, error)
 	// ========== Conversation domain ==========
 	// ========== CRUD ==========
 	CreateConversation(context.Context, *CreateConversationReq) (*CreateConversationResp, error)
@@ -604,6 +617,9 @@ func (UnimplementedMessageServiceServer) SendBotReply(context.Context, *SendBotR
 }
 func (UnimplementedMessageServiceServer) SendSystemMessage(context.Context, *SendSystemMessageReq) (*SendMessageResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method SendSystemMessage not implemented")
+}
+func (UnimplementedMessageServiceServer) GrantBotHistory(context.Context, *GrantBotHistoryReq) (*GrantBotHistoryResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method GrantBotHistory not implemented")
 }
 func (UnimplementedMessageServiceServer) CreateConversation(context.Context, *CreateConversationReq) (*CreateConversationResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateConversation not implemented")
@@ -931,6 +947,24 @@ func _MessageService_SendSystemMessage_Handler(srv interface{}, ctx context.Cont
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MessageServiceServer).SendSystemMessage(ctx, req.(*SendSystemMessageReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_GrantBotHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GrantBotHistoryReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).GrantBotHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_GrantBotHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).GrantBotHistory(ctx, req.(*GrantBotHistoryReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1443,6 +1477,10 @@ var MessageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendSystemMessage",
 			Handler:    _MessageService_SendSystemMessage_Handler,
+		},
+		{
+			MethodName: "GrantBotHistory",
+			Handler:    _MessageService_GrantBotHistory_Handler,
 		},
 		{
 			MethodName: "CreateConversation",

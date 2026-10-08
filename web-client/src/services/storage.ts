@@ -34,7 +34,14 @@ function restoreUserSyncCache(value: unknown): UserSyncCache | null {
         entityId(message.message_id, 'cache.message.message_id');
         if (entityId(message.conversation_id, 'cache.message.conversation_id') !== conversationId) return null;
         sequence(message.seq, 'cache.message.seq', true);
-        optionalEntityId(message.from_user_id, 'cache.message.from_user_id');
+        if (!['user', 'bot', 'system'].includes(message.sender_type)) return null;
+        if (message.sender_type === 'system') optionalEntityId(message.sender_id, 'cache.message.sender_id');
+        else entityId(message.sender_id, 'cache.message.sender_id');
+        optionalEntityId(message.binding_id, 'cache.message.binding_id');
+        optionalEntityId(message.requester_id, 'cache.message.requester_id');
+        if (![1, 2, 3, 4, 5, 6, 7, 8, 10].includes(message.type) || typeof message.sender_name !== 'string' || typeof message.sender_avatar !== 'string'
+          || typeof message.raw_payload !== 'string') return null;
+        if (message.raw_payload) knowledgeSources(JSON.parse(message.raw_payload).kb_sources);
         optionalEntityId(message.reply_to_id, 'cache.message.reply_to_id');
         optionalEntityId(message.client_msg_id, 'cache.message.client_msg_id');
         if (message.reply_to) {
@@ -42,14 +49,13 @@ function restoreUserSyncCache(value: unknown): UserSyncCache | null {
           optionalEntityId(message.reply_to.sender_id, 'cache.reply.sender_id');
         }
         for (const body of Object.values(message.content)) {
-          for (const field of ['file_id', 'bot_id', 'actor_id']) optionalEntityId(body[field], `cache.content.${field}`);
+          for (const field of ['file_id', 'actor_id']) optionalEntityId(body[field], `cache.content.${field}`);
           for (const field of ['mention_user_ids', 'related_user_ids']) {
             if (body[field] !== undefined) {
               if (!Array.isArray(body[field])) return null;
               for (const id of body[field]) entityId(id, `cache.content.${field}`);
             }
           }
-          if (body.raw_payload) knowledgeSources(JSON.parse(body.raw_payload).kb_sources);
         }
       }
     }

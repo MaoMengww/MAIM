@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -115,20 +116,12 @@ type SendPermission struct {
 	OtherMemberIDs   []string
 }
 
-// CheckSendPermission locks the conversation before its membership and permission
-// rows. The caller must hold this transaction through sequence allocation and
+// CheckSendPermission locks the conversation before the human membership rows.
+// The caller must hold this transaction through sequence allocation and
 // message/outbox/latest-message writes so removal and mute changes cannot race it.
-func (r *ConversationRepo) CheckSendPermission(ctx context.Context, tx *gorm.DB, convID, actorID, memberType string) (*SendPermission, error) {
+func (r *ConversationRepo) CheckSendPermission(ctx context.Context, tx *gorm.DB, convID, actorID string) (*SendPermission, error) {
 	if err := identity.Validate(actorID); err != nil {
 		return nil, err
-	}
-	memberColumn := "user_id"
-	switch memberType {
-	case model.MemberTypeUser:
-	case model.MemberTypeBot:
-		memberColumn = "bot_id"
-	default:
-		return nil, errors.New("unsupported conversation member type")
 	}
 	var conv model.Conversation
 	if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -142,7 +135,7 @@ func (r *ConversationRepo) CheckSendPermission(ctx context.Context, tx *gorm.DB,
 
 	var member model.ConversationMember
 	err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("conv_id = ? AND member_type = ? AND "+memberColumn+" = ?", convID, memberType, actorID).Take(&member).Error
+		Where("conv_id = ? AND member_type = ? AND user_id = ?", convID, model.MemberTypeUser, actorID).Take(&member).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return perm, nil
 	}
@@ -153,7 +146,7 @@ func (r *ConversationRepo) CheckSendPermission(ctx context.Context, tx *gorm.DB,
 	perm.IsMuted = member.IsMuted
 	perm.MuteUntil = member.MuteUntil
 
-	if conv.Type == model.ConvTypePrivate && memberType == model.MemberTypeUser {
+	if conv.Type == model.ConvTypePrivate {
 		var members []model.ConversationMember
 		if err := tx.WithContext(ctx).Select("user_id").Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("conv_id = ? AND member_type = ? AND user_id <> ?", convID, model.MemberTypeUser, actorID).Order("user_id").Find(&members).Error; err != nil {
@@ -191,9 +184,9 @@ func (r *ConversationRepo) TouchLastMessage(ctx context.Context, tx *gorm.DB, co
 
 // ========== Members ==========
 
-// AddMembersWithinLimit serializes additions on the conversation row and commits
-// the entire new-member batch together with its member count. Existing members,
-// including bots, count toward capacity; repeated IDs do not consume new slots.
+// AddMembersWithinLimit serializes human additions on the conversation row and
+// commits the entire new-member batch together with its member count. Bot
+// bindings never consume capacity; repeated user IDs do not consume new slots.
 // The candidate slice is compacted in place.
 func (r *ConversationRepo) AddMembersWithinLimit(ctx context.Context, convID string, members []model.ConversationMember, maxMembers int) (added, failed []string, err error) {
 	if len(members) == 0 {
@@ -205,38 +198,21 @@ func (r *ConversationRepo) AddMembersWithinLimit(ctx context.Context, convID str
 			return err
 		}
 
-		// Read the membership rows, not the denormalized count: other existing
-		// membership paths can leave that count behind (notably bot additions).
+		// Read human rows so capacity never depends on a stale denormalized count.
 		var currentMembers []model.ConversationMember
-		if err := tx.Model(&model.ConversationMember{}).Where("conv_id = ?", convID).Find(&currentMembers).Error; err != nil {
+		if err := tx.Model(&model.ConversationMember{}).Where("conv_id = ? AND member_type = ?", convID, model.MemberTypeUser).Find(&currentMembers).Error; err != nil {
 			return err
 		}
-		type memberKey struct{ kind, id string }
-		keyFor := func(member model.ConversationMember) (memberKey, error) {
-			var id *string
-			switch member.MemberType {
-			case model.MemberTypeUser:
-				if member.BotID != nil {
-					return memberKey{}, errors.New("user member cannot reference a bot")
-				}
-				id = member.UserID
-			case model.MemberTypeBot:
-				if member.UserID != nil {
-					return memberKey{}, errors.New("bot member cannot reference a user")
-				}
-				id = member.BotID
-			default:
-				return memberKey{}, errors.New("unsupported conversation member type")
+		keyFor := func(member model.ConversationMember) (string, error) {
+			if member.MemberType != model.MemberTypeUser || member.UserID == nil {
+				return "", errors.New("conversation member requires a human user identity")
 			}
-			if id == nil {
-				return memberKey{}, errors.New("member requires its actor identity")
+			if err := identity.Validate(*member.UserID); err != nil {
+				return "", err
 			}
-			if err := identity.Validate(*id); err != nil {
-				return memberKey{}, err
-			}
-			return memberKey{member.MemberType, *id}, nil
+			return *member.UserID, nil
 		}
-		seen := make(map[memberKey]struct{}, len(currentMembers))
+		seen := make(map[string]struct{}, len(currentMembers))
 		for _, current := range currentMembers {
 			key, err := keyFor(current)
 			if err != nil {
@@ -254,12 +230,12 @@ func (r *ConversationRepo) AddMembersWithinLimit(ctx context.Context, convID str
 				return err
 			}
 			if _, exists := seen[key]; exists {
-				failed = append(failed, key.id)
+				failed = append(failed, key)
 				continue
 			}
 			seen[key] = struct{}{}
 			pending = append(pending, member)
-			added = append(added, key.id)
+			added = append(added, key)
 		}
 		if len(pending) == 0 {
 			return nil
@@ -293,24 +269,16 @@ func (r *ConversationRepo) GetMember(ctx context.Context, convID, userID string)
 	return &m, nil
 }
 
-func (r *ConversationRepo) GetBotMember(ctx context.Context, convID, botID string) (*model.ConversationMember, error) {
-	var member model.ConversationMember
-	if err := r.DB.WithContext(ctx).Where("conv_id = ? AND member_type = ? AND bot_id = ?", convID, model.MemberTypeBot, botID).Take(&member).Error; err != nil {
-		return nil, err
-	}
-	return &member, nil
-}
-
 func (r *ConversationRepo) GetMembers(ctx context.Context, convID string, offset, limit int) ([]model.ConversationMember, error) {
 	var members []model.ConversationMember
-	err := r.DB.WithContext(ctx).Where("conv_id = ?", convID).
+	err := r.DB.WithContext(ctx).Where("conv_id = ? AND member_type = ?", convID, model.MemberTypeUser).
 		Order("role ASC, joined_at ASC").Offset(offset).Limit(limit).Find(&members).Error
 	return members, err
 }
 
 func (r *ConversationRepo) CountMembers(ctx context.Context, convID string) (int64, error) {
 	var count int64
-	err := r.DB.WithContext(ctx).Model(&model.ConversationMember{}).Where("conv_id = ?", convID).Count(&count).Error
+	err := r.DB.WithContext(ctx).Model(&model.ConversationMember{}).Where("conv_id = ? AND member_type = ?", convID, model.MemberTypeUser).Count(&count).Error
 	return count, err
 }
 
@@ -563,7 +531,7 @@ func (r *ConversationRepo) FindPrivateBotConv(ctx context.Context, userID, botID
 	var conv model.Conversation
 	err := r.DB.WithContext(ctx).Table("conversations c").
 		Joins("INNER JOIN conv_members u ON u.conv_id = c.id AND u.member_type = ? AND u.user_id = ?", model.MemberTypeUser, userID).
-		Joins("INNER JOIN conv_members b ON b.conv_id = c.id AND b.member_type = ? AND b.bot_id = ?", model.MemberTypeBot, botID).
+		Joins("INNER JOIN conv_bots b ON b.conv_id = c.id AND b.bot_id = ? AND b.revoked_at IS NULL", botID).
 		Where("c.type = ?", model.ConvTypePrivate).First(&conv).Error
 	if err != nil {
 		return nil, err
@@ -596,47 +564,55 @@ func (r *ConversationRepo) AddBot(ctx context.Context, bot *model.ConvBot) error
 }
 
 func (r *ConversationRepo) RemoveBot(ctx context.Context, convID, botID string) error {
-	return r.DB.WithContext(ctx).Where("conv_id = ? AND bot_id = ?", convID, botID).
-		Delete(&model.ConvBot{}).Error
+	result := r.DB.WithContext(ctx).Model(&model.ConvBot{}).
+		Where("conv_id = ? AND bot_id = ? AND revoked_at IS NULL", convID, botID).
+		Update("revoked_at", time.Now())
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
-func (r *ConversationRepo) UpdateBot(ctx context.Context, convID, botID string, settings any) error {
+func (r *ConversationRepo) UpdateBot(ctx context.Context, convID, botID string, settings map[string]any) error {
 	updates := map[string]any{}
 	if settings != nil {
-		updates["bot_settings"] = settings
+		data, err := json.Marshal(settings)
+		if err != nil {
+			return err
+		}
+		updates["bot_settings"] = string(data)
 	}
 	if len(updates) == 0 {
 		return nil
 	}
-	return r.DB.WithContext(ctx).Model(&model.ConvBot{}).
-		Where("conv_id = ? AND bot_id = ?", convID, botID).
-		Updates(updates).Error
+	result := r.DB.WithContext(ctx).Model(&model.ConvBot{}).
+		Where("conv_id = ? AND bot_id = ? AND revoked_at IS NULL", convID, botID).
+		Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *ConversationRepo) ListBotsByConv(ctx context.Context, convID string) ([]model.ConvBot, error) {
 	var bots []model.ConvBot
-	err := r.DB.WithContext(ctx).Where("conv_id = ?", convID).Find(&bots).Error
+	err := r.DB.WithContext(ctx).Where("conv_id = ? AND revoked_at IS NULL", convID).Order("created_at, id").Find(&bots).Error
 	return bots, err
 }
 
 func (r *ConversationRepo) GetBotInConv(ctx context.Context, convID, botID string) (*model.ConvBot, error) {
 	var bot model.ConvBot
-	err := r.DB.WithContext(ctx).Where("conv_id = ? AND bot_id = ?", convID, botID).First(&bot).Error
+	err := r.DB.WithContext(ctx).Where("conv_id = ? AND bot_id = ? AND revoked_at IS NULL", convID, botID).First(&bot).Error
 	if err != nil {
 		return nil, err
 	}
 	return &bot, nil
-}
-
-// ========== Bot with Member (transactional) ==========
-
-func (r *ConversationRepo) RemoveBotWithMember(ctx context.Context, convID, botID string) error {
-	return r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("conv_id = ? AND bot_id = ?", convID, botID).Delete(&model.ConvBot{}).Error; err != nil {
-			return err
-		}
-		return tx.Where("conv_id = ? AND bot_id = ?", convID, botID).Delete(&model.ConversationMember{}).Error
-	})
 }
 
 func (r *ConversationRepo) GetBotsByIDs(ctx context.Context, ids []string) ([]*botpb.Bot, error) {
@@ -644,12 +620,12 @@ func (r *ConversationRepo) GetBotsByIDs(ctx context.Context, ids []string) ([]*b
 		return nil, nil
 	}
 	var records []botProjection
-	if err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar").Where("id IN ?", ids).Find(&records).Error; err != nil {
+	if err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar, owner_type, owner_id").Where("id IN ?", ids).Find(&records).Error; err != nil {
 		return nil, err
 	}
 	bots := make([]*botpb.Bot, len(records))
 	for i, bot := range records {
-		bots[i] = &botpb.Bot{Id: bot.ID, Name: bot.Name, Avatar: bot.Avatar}
+		bots[i] = &botpb.Bot{Id: bot.ID, Name: bot.Name, Avatar: bot.Avatar, OwnerType: bot.OwnerType, OwnerId: bot.OwnerID}
 	}
 	return bots, nil
 }

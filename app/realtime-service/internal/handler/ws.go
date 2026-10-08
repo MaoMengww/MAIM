@@ -19,6 +19,7 @@ import (
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/protocol"
 	"github.com/maomeng/aim/pkg/sequence"
 	"google.golang.org/grpc/metadata"
 )
@@ -32,15 +33,19 @@ type WSHandler struct {
 	Upgrader      websocket.Upgrader
 }
 type clientEvent struct {
-	Type      string   `json:"type"`
-	UserID    string   `json:"user_id"`
-	UserIDs   []string `json:"user_ids"`
-	ConvID    string   `json:"conv_id"`
-	Seq       int64    `json:"seq"`
-	StreamID  string   `json:"stream_id"`
-	FromSeq   *int64   `json:"from_seq"`
-	Text      string   `json:"text"`
-	ReplyToID *string  `json:"reply_to_id"`
+	Type        string          `json:"type"`
+	UserID      string          `json:"user_id"`
+	UserIDs     []string        `json:"user_ids"`
+	ConvID      string          `json:"conv_id"`
+	Seq         int64           `json:"seq"`
+	StreamID    string          `json:"stream_id"`
+	FromSeq     *int64          `json:"from_seq"`
+	BindingID   string          `json:"binding_id"`
+	RequesterID *string         `json:"requester_id"`
+	MsgType     string          `json:"msg_type"`
+	Content     json.RawMessage `json:"content"`
+	RawPayload  string          `json:"raw_payload"`
+	ReplyToID   *string         `json:"reply_to_id"`
 }
 
 func (event *clientEvent) UnmarshalJSON(raw []byte) error {
@@ -349,16 +354,40 @@ func (h *WSHandler) handleBot(ctx context.Context, s *session.Session, e clientE
 		return nil
 	}
 	conv := e.ConvID
-	if err := identity.Validate(conv); err != nil {
-		return errors.New("invalid conversation")
+	if identity.Validate(conv) != nil || identity.Validate(e.BindingID) != nil || (e.RequesterID != nil && identity.Validate(*e.RequesterID) != nil) {
+		return errors.New("invalid bot output identity")
 	}
-	req := &message.SendBotReplyReq{BotId: s.Route.ID, ConversationId: conv, Text: e.Text}
-	if e.ReplyToID != nil {
-		if err := identity.Validate(*e.ReplyToID); err != nil {
-			return errors.New("invalid reply")
+	req := &message.SendBotReplyReq{BotId: s.Route.ID, ConversationId: conv, BindingId: e.BindingID, RequesterId: e.RequesterID, ReplyToId: e.ReplyToID, RawPayload: e.RawPayload}
+	if e.ReplyToID != nil && identity.Validate(*e.ReplyToID) != nil {
+		return errors.New("invalid reply")
+	}
+	switch e.MsgType {
+	case "text":
+		content := &message.TextContent{}
+		if err := protocol.Unmarshal(e.Content, content); err != nil {
+			return err
 		}
-		req.ReplyToId = e.ReplyToID
+		req.Type, req.Text = message.MessageType_MESSAGE_TYPE_TEXT, content.Text
+	case "file":
+		req.File = &message.FileContent{}
+		if err := protocol.Unmarshal(e.Content, req.File); err != nil {
+			return err
+		}
+		req.Type = message.MessageType_MESSAGE_TYPE_FILE
+	case "result":
+		req.Result = &message.CustomContent{}
+		if err := protocol.Unmarshal(e.Content, req.Result); err != nil {
+			return err
+		}
+		req.Type = message.MessageType_MESSAGE_TYPE_RESULT
+	default:
+		return errors.New("unsupported bot content type")
 	}
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	md.Delete("user-id")
+	md.Delete("x-user-id")
+	ctx = metadata.NewOutgoingContext(ctx, md)
 	response, err := h.MessageClient.SendBotReply(ctx, req)
 	if err != nil {
 		return err

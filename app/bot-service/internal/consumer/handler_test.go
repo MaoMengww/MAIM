@@ -25,6 +25,7 @@ func TestShouldRespond_Mention(t *testing.T) {
 		MentionedUserIDs: []string{"01960000-0000-7000-8000-000000000001", "01960000-0000-7000-8000-000000000002"},
 	}
 	bot := &model.Bot{
+		ID:               "01960000-0000-7000-8000-000000000001",
 		ResponseTriggers: []string{"mention"},
 	}
 	assert.True(t, shouldRespond(event, bot))
@@ -34,9 +35,10 @@ func TestShouldRespond_Mention_NotMentioned(t *testing.T) {
 	event := &model.BotEvent{
 		EventType:        "message.created",
 		Message:          &model.EventMessage{Text: "你好"},
-		MentionedUserIDs: nil,
+		MentionedUserIDs: []string{"01960000-0000-7000-8000-000000000002"},
 	}
 	bot := &model.Bot{
+		ID:               "01960000-0000-7000-8000-000000000001",
 		ResponseTriggers: []string{"mention"},
 	}
 	assert.False(t, shouldRespond(event, bot))

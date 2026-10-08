@@ -217,14 +217,16 @@ func (h *BotHandler) Webhook(c *gin.Context) {
 	var payload struct {
 		Type           string  `json:"type"`
 		ConversationID string  `json:"conversation_id"`
+		BindingID      string  `json:"binding_id"`
+		RequesterID    *string `json:"requester_id"`
 		ReplyToID      *string `json:"reply_to_id"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		response.BadRequest(c, "invalid webhook payload")
 		return
 	}
-	if payload.Type == "message.send" && identity.Validate(payload.ConversationID) != nil {
-		response.BadRequest(c, "invalid conversation identity")
+	if payload.Type == "message.send" && (identity.Validate(payload.ConversationID) != nil || identity.Validate(payload.BindingID) != nil || (payload.RequesterID != nil && identity.Validate(*payload.RequesterID) != nil)) {
+		response.BadRequest(c, "invalid bot output identity")
 		return
 	}
 	if payload.ReplyToID != nil && identity.Validate(*payload.ReplyToID) != nil {
@@ -302,6 +304,13 @@ func (h *BotHandler) StreamChat(c *gin.Context) {
 	}
 	if replyID, supplied := c.GetQuery("reply_to_msg_id"); supplied {
 		req.ReplyToMsgId = &replyID
+	}
+	if grantID, supplied := c.GetQuery("history_grant_id"); supplied {
+		if identity.Validate(grantID) != nil {
+			response.BadRequest(c, "invalid history grant identity")
+			return
+		}
+		req.HistoryGrantId = &grantID
 	}
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, &req) {

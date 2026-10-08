@@ -97,7 +97,7 @@ export interface Conversation {
 }
 
 export interface ConvMember {
-  user_id?: string;
+  user_id: string;
   username: string;
   avatar: string;
   role: 'MEMBER_ROLE_OWNER' | 'MEMBER_ROLE_ADMIN' | 'MEMBER_ROLE_MEMBER' | number;
@@ -106,10 +106,6 @@ export interface ConvMember {
   last_read_seq: number;
   is_muted: boolean;
   mute_until: number;
-  member_type: 'user' | 'bot';
-  bot_id?: string;
-  bot_name?: string;
-  bot_avatar?: string;
 }
 
 export interface ReadUser {
@@ -125,6 +121,9 @@ export interface ReadStatusData {
 
 export interface BotInConv {
   bot_id: string;
+  binding_id: string;
+  owner_type: 'user' | 'platform';
+  owner_id?: string;
   name: string;
   avatar: string;
   type: string;
@@ -135,7 +134,7 @@ export interface BotInConv {
 }
 
 // ─── Message ───
-export type MsgType = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+export type MsgType = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 10;
 
 export interface ReplySummary {
   message_id: string;
@@ -198,15 +197,6 @@ export interface SystemContent {
   payload: string;
 }
 
-export interface BotContent {
-  bot_id: string;
-  bot_name: string;
-  bot_avatar: string;
-  text: string;
-  is_streaming: boolean;
-  thinking_time_ms: number;
-  raw_payload: string;
-}
 
 export interface KnowledgeSource {
   type: 'rag';
@@ -230,14 +220,20 @@ export type MsgContentOneof =
   | { video: VideoContent }
   | { audio: AudioContent }
   | { system: SystemContent }
-  | { bot: BotContent }
-  | { custom: CustomContent };
+  | { custom: CustomContent }
+  | { result: CustomContent };
 
 export interface Message {
   message_id: string;
   conversation_id: string;
   seq: number;
-  from_user_id?: string;
+  sender_id?: string;
+  sender_type: 'user' | 'bot' | 'system';
+  sender_name: string;
+  sender_avatar: string;
+  binding_id?: string;
+  requester_id?: string;
+  raw_payload: string;
   type: MsgType;
   status: number; // 1=normal, 2=recalled, 3=edited, 4=streaming
   content: MsgContentOneof;

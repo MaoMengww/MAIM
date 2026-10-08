@@ -71,7 +71,7 @@ func (l *SendMessageLogic) SendMessage(in *message.SendMessageReq) (*message.Sen
 	var msg *model.Message
 	created := false
 	err = l.svcCtx.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		perm, err := l.svcCtx.ConversationRepo.CheckSendPermission(ctx, tx, in.ConversationId, in.FromUserId, model.MemberTypeUser)
+		perm, err := l.svcCtx.ConversationRepo.CheckSendPermission(ctx, tx, in.ConversationId, in.FromUserId)
 		if err != nil {
 			return err
 		}
@@ -459,6 +459,10 @@ func buildMessageCreatedPayload(msg *model.Message, senderName string) map[strin
 		"conv_id":         msg.ConvID,
 		"sender_id":       msg.SenderID,
 		"sender_type":     msg.SenderType,
+		"sender_avatar":   msg.SenderAvatar,
+		"binding_id":      msg.BindingID,
+		"requester_id":    msg.RequesterID,
+		"raw_payload":     msg.RawPayload,
 		"msg_type":        int64(msg.MsgType),
 		"content":         msg.Content,
 		"seq":             msg.Seq,
@@ -480,6 +484,7 @@ func persistMessage(ctx context.Context, svcCtx *svc.ServiceContext, tx *gorm.DB
 		return err
 	}
 	msg.Seq = seq
+	msg.SenderName = senderName
 	if err := tx.Create(msg).Error; err != nil {
 		return err
 	}

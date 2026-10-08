@@ -38,16 +38,13 @@ export const convApi = {
     })),
   update: (id: string, data: UpdateConvReq) => client.put<APIResponse<null>>(`/convs/${id}/info`, data).then(unwrap),
   delete: (id: string) => client.delete<APIResponse<null>>(`/convs/${id}`).then(unwrap),
-  getMembers: (id: string) => client.get<APIResponse<{ members: (Omit<ConvMember, 'member_type'> & { member_type: number })[] }>>(`/convs/${id}/members`).then((r) =>
-    (r.data.data.members ?? []).map((m) => {
-      const userId = optionalEntityId(m.user_id, 'member.user_id');
-      const botId = optionalEntityId(m.bot_id, 'member.bot_id');
-      if (!!userId === !!botId) throw new Error('成员必须且只能引用用户或 Bot');
-      if (m.member_type !== 1 && m.member_type !== 2 || m.member_type === 1 && !userId || m.member_type === 2 && !botId) throw new Error('成员类型与引用不一致');
-      return { ...m, user_id: userId, bot_id: botId, member_type: m.member_type === 2 ? 'bot' as const : 'user' as const,
-        last_read_seq: sequence(m.last_read_seq ?? 0, 'member.last_read_seq'),
-        joined_at: quantity(m.joined_at, 'member.joined_at'), mute_until: quantity(m.mute_until, 'member.mute_until') };
-    })),
+  getMembers: (id: string) => client.get<APIResponse<{ members: ConvMember[] }>>(`/convs/${id}/members`).then((r) =>
+    (r.data.data.members ?? []).map((m) => ({
+      user_id: entityId(m.user_id, 'member.user_id'), username: m.username, avatar: m.avatar,
+      role: m.role, alias: m.alias, is_muted: m.is_muted,
+      last_read_seq: sequence(m.last_read_seq ?? 0, 'member.last_read_seq'),
+      joined_at: quantity(m.joined_at, 'member.joined_at'), mute_until: quantity(m.mute_until, 'member.mute_until'),
+    }))),
   addMembers: (id: string, memberIds: string[]) => client.post<APIResponse<null>>(`/convs/${id}/members/invite`, { user_ids: memberIds }).then(unwrap),
   removeMembers: (id: string, memberIds: string[]) => client.post<APIResponse<null>>(`/convs/${id}/members/kick`, { user_ids: memberIds }).then(unwrap),
   updateMember: (convId: string, userId: string, data: { role?: number; alias?: string }) => client.put<APIResponse<null>>(`/convs/${convId}/members/${userId}/role`, data).then(unwrap),

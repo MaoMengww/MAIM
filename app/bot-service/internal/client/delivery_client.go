@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"fmt"
 
 	message "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/delivery"
@@ -20,29 +19,19 @@ func NewDeliveryClient(messages *MessageClient, publisher *delivery.Publisher) *
 	return &DeliveryClient{messages: messages, publisher: publisher}
 }
 
-func (c *DeliveryClient) PublishToConversation(ctx context.Context, convID, botID string, raw []byte) error {
+func (c *DeliveryClient) PublishToConversation(ctx context.Context, convID, botID, bindingID string, raw []byte) error {
 	var users []string
-	botMember := false
 	for page := int32(1); ; page++ {
-		resp, err := c.messages.cli.GetMembers(serviceCallContext(ctx), &message.GetMembersReq{ConversationId: convID, BotId: &botID, Pagination: &common.Pagination{Page: page, PageSize: 100}})
+		resp, err := c.messages.cli.GetMembers(serviceCallContext(ctx), &message.GetMembersReq{ConversationId: convID, BotId: &botID, BindingId: &bindingID, Pagination: &common.Pagination{Page: page, PageSize: 100}})
 		if err != nil {
 			return err
 		}
 		for _, member := range resp.Members {
-			if member.MemberType == message.MemberType_MEMBER_TYPE_BOT {
-				if member.GetBotId() == botID {
-					botMember = true
-				}
-			} else {
-				users = append(users, member.GetUserId())
-			}
+			users = append(users, member.GetUserId())
 		}
 		if len(resp.Members) < 100 {
 			break
 		}
-	}
-	if !botMember {
-		return fmt.Errorf("bot %s is not a member of conversation %s", botID, convID)
 	}
 	if len(users) == 0 {
 		return nil

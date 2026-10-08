@@ -12,6 +12,7 @@ import (
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
 	"google.golang.org/grpc/metadata"
+	"gorm.io/gorm"
 )
 
 type GetMembersLogic struct {
@@ -35,20 +36,36 @@ func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversat
 		if len(md.Get("user-id")) != 0 || caller != "" {
 			return nil, ErrInsufficientPerm
 		}
-		if identity.Validate(*in.BotId) != nil {
+		if identity.Validate(*in.BotId) != nil || identity.Validate(in.GetBindingId()) != nil {
 			return nil, ErrInvalidParam
 		}
-		if _, err := l.svcCtx.ConversationRepo.GetBotMember(l.ctx, in.ConversationId, *in.BotId); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := validateRequest(l.ctx, *in.UserId, in.ConversationId); err != nil {
-			return nil, err
-		}
-		if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, *in.UserId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
-			return nil, err
-		}
+		var response *conversation.GetMembersResp
+		err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(_ *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
+			binding, err := r.GetBotInConv(l.ctx, conv.ID, *in.BotId)
+			if err != nil {
+				return err
+			}
+			if binding.ID != in.GetBindingId() {
+				return ErrInsufficientPerm
+			}
+			response, err = l.getMembers(in, r)
+			return err
+		})
+		return response, err
 	}
+	if in.BindingId != nil {
+		return nil, ErrInvalidParam
+	}
+	if err := validateRequest(l.ctx, *in.UserId, in.ConversationId); err != nil {
+		return nil, err
+	}
+	if err := requireRole(l.ctx, l.svcCtx.ConversationRepo, in.ConversationId, *in.UserId, int32(conversation.MemberRole_MEMBER_ROLE_MEMBER)); err != nil {
+		return nil, err
+	}
+	return l.getMembers(in, l.svcCtx.ConversationRepo)
+}
+
+func (l *GetMembersLogic) getMembers(in *conversation.GetMembersReq, r *repo.ConversationRepo) (*conversation.GetMembersResp, error) {
 	page := 1
 	pageSize := 50
 	if in.Pagination != nil {
@@ -61,13 +78,13 @@ func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversat
 	}
 	offset := (page - 1) * pageSize
 
-	members, err := l.svcCtx.ConversationRepo.GetMembers(l.ctx, in.ConversationId, offset, pageSize)
+	members, err := r.GetMembers(l.ctx, in.ConversationId, offset, pageSize)
 	if err != nil {
 		l.Logger.Errorf("get members failed: %v", err)
 		return nil, err
 	}
 
-	total, err := l.svcCtx.ConversationRepo.CountMembers(l.ctx, in.ConversationId)
+	total, err := r.CountMembers(l.ctx, in.ConversationId)
 	if err != nil {
 		l.Logger.Errorf("count members failed: %v", err)
 		return nil, err
@@ -90,7 +107,7 @@ func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversat
 	}
 
 	// 查询所有已读序列
-	readSeqs, err := l.svcCtx.ConversationRepo.GetReadSeqs(l.ctx, in.ConversationId)
+	readSeqs, err := r.GetReadSeqs(l.ctx, in.ConversationId)
 	if err != nil {
 		l.Logger.Errorf("get member read sequences failed: %v", err)
 		return nil, err
@@ -102,10 +119,6 @@ func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversat
 
 	pbMembers := make([]*conversation.ConversationMember, len(members))
 	for i, m := range members {
-		memberType := conversation.MemberType_MEMBER_TYPE_USER
-		if m.MemberType == model.MemberTypeBot {
-			memberType = conversation.MemberType_MEMBER_TYPE_BOT
-		}
 		pbMember := &conversation.ConversationMember{
 			UserId:     m.UserID,
 			Role:       conversation.MemberRole(m.Role),
@@ -113,17 +126,9 @@ func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversat
 			JoinedAt:   m.JoinedAt.Unix(),
 			IsMuted:    m.IsMuted,
 			MuteUntil:  m.MuteUntil,
-			MemberType: memberType,
-			BotId:      m.BotID,
+			MemberType: conversation.MemberType_MEMBER_TYPE_USER,
 		}
-		if m.MemberType == model.MemberTypeBot && m.BotID != nil {
-			if bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, *m.BotID); err == nil {
-				pbMember.Username = bot.Name
-				pbMember.Avatar = bot.Avatar
-				pbMember.BotName = bot.Name
-				pbMember.BotAvatar = bot.Avatar
-			}
-		} else if m.UserID != nil {
+		if m.UserID != nil {
 			if u, ok := userInfoMap[*m.UserID]; ok {
 				pbMember.Username = u.Username
 				pbMember.Avatar = u.Avatar

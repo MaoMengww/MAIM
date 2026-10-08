@@ -16,19 +16,19 @@ func NewConvBotRepo(db *database.DB) *ConvBotRepo {
 	return &ConvBotRepo{db: db}
 }
 
-// FindByBotAndConv returns a ConvBot entry.
+// FindByBotAndConv returns the active binding for a bot in a conversation.
 func (r *ConvBotRepo) FindByBotAndConv(ctx context.Context, botID, convID string) (*model.ConvBot, error) {
 	var cb model.ConvBot
-	err := r.db.WithContext(ctx).Where("bot_id = ? AND conv_id = ?", botID, convID).First(&cb).Error
+	err := r.db.WithContext(ctx).Where("bot_id = ? AND conv_id = ? AND revoked_at IS NULL", botID, convID).First(&cb).Error
 	if err != nil {
 		return nil, err
 	}
 	return &cb, nil
 }
 
-// FindByConv returns ConvBot entries for a conversation (may be multiple bots).
+// FindByConv returns active bot bindings for a conversation.
 func (r *ConvBotRepo) FindByConv(ctx context.Context, convID string) ([]model.ConvBot, error) {
 	var bots []model.ConvBot
-	err := r.db.WithContext(ctx).Where("conv_id = ?", convID).Find(&bots).Error
+	err := r.db.WithContext(ctx).Where("conv_id = ? AND revoked_at IS NULL", convID).Find(&bots).Error
 	return bots, err
 }

@@ -313,8 +313,18 @@ func (r *BotRepo) FindByIDWithConvBot(ctx context.Context, botID, convID string)
 		return nil, nil, err
 	}
 	var cb model.ConvBot
-	if err := r.DB.WithContext(ctx).Where("bot_id = ? AND conv_id = ?", botID, convID).First(&cb).Error; err != nil {
-		return bot, nil, err
+	if err := r.DB.WithContext(ctx).Where("bot_id = ? AND conv_id = ? AND revoked_at IS NULL", botID, convID).First(&cb).Error; err != nil {
+		return nil, nil, err
 	}
 	return bot, &cb, nil
+}
+
+// HasActiveBinding checks the captured lifecycle without resolving a replacement.
+func (r *BotRepo) HasActiveBinding(ctx context.Context, botID, convID, bindingID string) (bool, error) {
+	var count int64
+	err := r.DB.WithContext(ctx).Model(&model.ConvBot{}).
+		Where("id = ? AND bot_id = ? AND conv_id = ? AND revoked_at IS NULL", bindingID, botID, convID).
+		Where("EXISTS (SELECT 1 FROM bots WHERE bots.id = messaging.conv_bots.bot_id AND bots.status = ?)", "active").
+		Count(&count).Error
+	return count == 1, err
 }

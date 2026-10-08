@@ -2,6 +2,7 @@ package conversationservice
 
 import (
 	"context"
+	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/repo"
@@ -37,7 +38,11 @@ func (l *DeleteConversationLogic) DeleteConversation(in *conversation.DeleteConv
 			Order("user_id").Pluck("user_id", &removed).Error; err != nil {
 			return err
 		}
-		for _, child := range []any{&model.ConversationMember{}, &model.ConvBot{}, &model.ConvSettings{}, &model.ConvReadSeq{}} {
+		if err := tx.Model(&model.ConvBot{}).Where("conv_id = ? AND revoked_at IS NULL", conv.ID).
+			Update("revoked_at", time.Now()).Error; err != nil {
+			return err
+		}
+		for _, child := range []any{&model.ConversationMember{}, &model.ConvSettings{}, &model.ConvReadSeq{}} {
 			if err := tx.Where("conv_id = ?", conv.ID).Delete(child).Error; err != nil {
 				return err
 			}

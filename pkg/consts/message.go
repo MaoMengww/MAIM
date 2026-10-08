@@ -12,7 +12,7 @@ const (
 	MsgTypeLocation    int32 = 6
 	MsgTypeSystem      int32 = 7
 	MsgTypeCustom      int32 = 8
-	MsgTypeBot         int32 = 9
+	MsgTypeResult      int32 = 10
 )
 
 // ---- Message status ----

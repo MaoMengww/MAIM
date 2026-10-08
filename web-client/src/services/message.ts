@@ -42,21 +42,21 @@ const MSG_TYPE_KEY: Record<number, string> = {
   6: 'location',
   7: 'system',
   8: 'custom',
-  9: 'bot',
+  10: 'result',
 };
-const MSG_CONTENT_KEYS = ['text', 'image', 'file', 'video', 'audio', 'location', 'system', 'custom', 'bot'];
+const MSG_CONTENT_KEYS = ['text', 'image', 'file', 'video', 'audio', 'location', 'system', 'custom', 'result'];
 const SYNC_CONTENT_STRINGS: Record<string, string[]> = {
   text: ['text'], image: ['url', 'thumbnail_url', 'format'],
   file: ['url', 'name', 'ext', 'mime_type'], video: ['url', 'thumbnail_url'], audio: ['url'],
   location: ['address', 'name'], system: ['action', 'detail', 'actor_type', 'payload'],
-  custom: ['type', 'data'], bot: ['bot_name', 'bot_avatar', 'text', 'raw_payload'],
+  custom: ['type', 'data'], result: ['type', 'data'],
 };
 const SYNC_CONTENT_INTEGERS: Record<string, string[]> = {
   image: ['width', 'height', 'size'], file: ['size'], video: ['duration', 'width', 'height', 'size'],
-  audio: ['duration', 'size'], bot: ['thinking_time_ms'],
+  audio: ['duration', 'size'],
 };
 const SYNC_CONTENT_ID: Record<string, string> = {
-  image: 'file_id', file: 'file_id', video: 'file_id', audio: 'file_id', bot: 'bot_id', system: 'actor_id',
+  image: 'file_id', file: 'file_id', video: 'file_id', audio: 'file_id', system: 'actor_id',
 };
 
 // WS events have a defined flat content schema; HTTP protobuf oneofs are decoded separately.
@@ -66,15 +66,8 @@ export function normalizeRealtimeMessageContent(value: unknown): Message {
   const body = syncRecord(event.content, 'event.content');
   const key = MSG_TYPE_KEY[type];
   if (!key) throw new Error('实时消息类型无效');
-  const content = { ...body };
-  if (type === 1) content.mention_user_ids = body.mentions;
-  if (type === 2) Object.assign(content, { url: body.image_url, thumbnail_url: body.image_thumb,
-    width: body.image_width, height: body.image_height, size: body.file_size });
-  if (type === 3) Object.assign(content, { url: body.file_url, name: body.file_name,
-    size: body.file_size, mime_type: body.file_mime });
-  if (type === 5) Object.assign(content, { url: body.file_url, size: body.file_size });
-  return syncMessage({ ...event, conversation_id: event.conv_id, from_user_id: event.sender_id,
-    type, reply_to_id: event.reply_to_msg_id, content: { [key]: content } }, entityId(event.conv_id, 'event.conv_id'));
+  return syncMessage({ ...event, conversation_id: event.conv_id,
+    type, reply_to_id: event.reply_to_msg_id, content: { [key]: body } }, entityId(event.conv_id, 'event.conv_id'));
 }
 
 function normalizeHttpMessage(value: unknown): Message {
@@ -134,10 +127,6 @@ function syncContent(type: number, value: unknown): Record<string, unknown> {
     body[field] = syncArray(body[field], `content.${field}`).map((id) => entityId(id, field));
   }
   if (key === 'text') body.mention_all = syncBoolean(body.mention_all, 'content.mention_all');
-  if (key === 'bot') {
-    body.is_streaming = syncBoolean(body.is_streaming, 'content.is_streaming');
-    if (typeof body.raw_payload === 'string' && body.raw_payload) knowledgeSources(JSON.parse(body.raw_payload).kb_sources);
-  }
   if (key === 'location') {
     for (const field of ['latitude', 'longitude']) {
       const coordinate = body[field] === undefined ? 0 : body[field];
@@ -168,10 +157,19 @@ function syncMessage(value: unknown, conversationId: string): Message {
   const rawContent = raw.content === undefined ? raw : syncRecord(raw.content, 'message.content');
   syncRecord(rawContent[MSG_TYPE_KEY[type]], `message.content.${MSG_TYPE_KEY[type]}`);
   const content = syncContent(type, { [MSG_TYPE_KEY[type]]: rawContent[MSG_TYPE_KEY[type]] });
+  const senderType = syncString(raw.sender_type, 'message.sender_type');
+  if (senderType !== 'user' && senderType !== 'bot' && senderType !== 'system') throw new Error('消息发送者类型无效');
+  const senderId = senderType === 'system' ? optionalEntityId(raw.sender_id, 'message.sender_id') : entityId(raw.sender_id, 'message.sender_id');
+  const bindingId = optionalEntityId(raw.binding_id, 'message.binding_id');
+  const rawPayload = syncString(raw.raw_payload, 'message.raw_payload');
+  if (rawPayload) knowledgeSources(JSON.parse(rawPayload).kb_sources);
   const normalized: Message = {
     message_id: messageId, conversation_id: conversationId,
     seq: syncInteger(raw.seq, 'message.seq', true),
-    from_user_id: optionalEntityId(raw.from_user_id, 'message.from_user_id'),
+    sender_id: senderId, sender_type: senderType, binding_id: bindingId,
+    sender_name: syncString(raw.sender_name, 'message.sender_name'),
+    sender_avatar: syncString(raw.sender_avatar, 'message.sender_avatar'),
+    requester_id: optionalEntityId(raw.requester_id, 'message.requester_id'), raw_payload: rawPayload,
     type: type as MsgType, status, content: content as unknown as MsgContentOneof,
     edited_at: quantity(raw.edited_at, 'message.edited_at'), edit_count: quantity(raw.edit_count, 'message.edit_count'),
     created_at: quantity(raw.created_at, 'message.created_at'), updated_at: quantity(raw.updated_at, 'message.updated_at'),
@@ -184,7 +182,7 @@ function syncMessage(value: unknown, conversationId: string): Message {
     const replyMessageId = entityId(summary.message_id, 'reply_to.message_id');
     if (replyId !== replyMessageId) throw new Error('同步消息的引用 ID 不一致');
     const replyType = syncInteger(summary.type ?? 0, 'reply_to.type');
-    if (replyType > 9) throw new Error('同步消息的引用类型无效');
+    if (replyType !== 0 && !MSG_TYPE_KEY[replyType]) throw new Error('同步消息的引用类型无效');
     reply = { message_id: replyMessageId, sender_id: optionalEntityId(summary.sender_id, 'reply_to.sender_id'),
       type: replyType as MsgType | 0, sender_type: syncString(summary.sender_type, 'reply_to.sender_type'),
       sender_name: syncString(summary.sender_name, 'reply_to.sender_name'), preview: syncString(summary.preview, 'reply_to.preview'),
@@ -294,12 +292,15 @@ export const msgApi = {
     const ack = syncRecord(await client.post<APIResponse<unknown>>('/messages/send', data).then(unwrap), 'ack');
     const type = syncInteger(ack.type, 'ack.type', true);
     const body = syncRecord(ack.content, 'ack.content');
-    if (type === 1) return normalizeRealtimeMessageContent({ message_id: ack.message_id, conv_id: ack.conv_id,
-      sender_id: ack.from_user_id, seq: ack.seq, created_at: ack.created_at, reply_to_msg_id: ack.reply_to_msg_id,
-      msg_type: type, content: body, client_msg_id: data.client_msg_id });
+    const identity = { sender_id: ack.sender_id, sender_type: ack.sender_type,
+      sender_name: ack.sender_name, sender_avatar: ack.sender_avatar, binding_id: ack.binding_id,
+      requester_id: ack.requester_id, raw_payload: ack.raw_payload };
+    if (type === 1) return normalizeRealtimeMessageContent({ ...identity, message_id: ack.message_id, conv_id: ack.conv_id,
+      seq: ack.seq, created_at: ack.created_at, reply_to_msg_id: ack.reply_to_msg_id,
+      msg_type: type, content: { text: body.text, mention_user_ids: body.mentions, mention_all: body.mention_all }, client_msg_id: data.client_msg_id });
     const file = syncRecord(syncArray(body.files, 'ack.content.files')[0], 'ack.content.files[0]');
-    return normalizeHttpMessage({ message_id: ack.message_id, conversation_id: ack.conv_id,
-      from_user_id: ack.from_user_id, seq: ack.seq, created_at: ack.created_at, reply_to_id: ack.reply_to_msg_id,
+    return normalizeHttpMessage({ ...identity, message_id: ack.message_id, conversation_id: ack.conv_id,
+      seq: ack.seq, created_at: ack.created_at, reply_to_id: ack.reply_to_msg_id,
       type, client_msg_id: data.client_msg_id, content: { [MSG_TYPE_KEY[type]]: { ...file,
         name: file.file_name, thumbnail_url: type === 2 ? file.url : undefined, mime_type: file.mime_type } } });
   },

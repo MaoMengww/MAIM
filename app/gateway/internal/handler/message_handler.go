@@ -66,7 +66,7 @@ func writeSendMessageAck(c *gin.Context, dto *sendMessageDTO, resp *msgclient.Se
 		response.InternalError(c, "invalid message sequence")
 		return
 	}
-	if msg.ConversationId != dto.ConvID || msg.GetFromUserId() != dto.UserID {
+	if msg.ConversationId != dto.ConvID || msg.GetSenderId() != dto.UserID || msg.SenderType != "user" {
 		response.InternalError(c, "invalid message owner")
 		return
 	}
@@ -117,7 +117,10 @@ func writeSendMessageAck(c *gin.Context, dto *sendMessageDTO, resp *msgclient.Se
 		"id":              msg.MessageId,
 		"message_id":      msg.MessageId,
 		"conv_id":         msg.ConversationId,
-		"from_user_id":    msg.GetFromUserId(),
+		"sender_id":       msg.GetSenderId(),
+		"sender_type":     msg.SenderType,
+		"sender_name":     msg.SenderName,
+		"sender_avatar":   msg.SenderAvatar,
 		"seq":             msg.Seq,
 		"type":            msg.Type,
 		"created_at":      strconv.FormatInt(msg.CreatedAt, 10),

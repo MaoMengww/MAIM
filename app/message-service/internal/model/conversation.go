@@ -2,10 +2,7 @@ package model
 
 import "time"
 
-const (
-	MemberTypeUser = "user"
-	MemberTypeBot  = "bot"
-)
+const MemberTypeUser = "user"
 
 // Conversation types, mirroring ConversationType in the protocol.
 const (
@@ -37,7 +34,6 @@ type ConversationMember struct {
 	ConvID     string    `gorm:"type:uuid;column:conv_id"`
 	UserID     *string   `gorm:"type:uuid;column:user_id"`
 	MemberType string    `gorm:"column:member_type"`
-	BotID      *string   `gorm:"type:uuid;column:bot_id"`
 	Role       int32     `gorm:"column:role"`
 	Alias      string    `gorm:"column:alias"`
 	IsMuted    bool      `gorm:"column:is_muted"`

@@ -457,6 +457,7 @@ message StreamChatReq {
   string conv_id = 2 [(common.entity_id) = true];
   string message = 3;
   optional string reply_to_msg_id = 4 [(common.entity_id) = true];   // 可选
+  optional string history_grant_id = 5 [(common.entity_id) = true]; // 仅显式授权的会话历史范围
 }
 
 message StreamChatResp {

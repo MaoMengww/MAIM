@@ -26,15 +26,21 @@ type conversationView struct {
 }
 
 type storedMessage struct {
-	MessageID entityID       `json:"message_id"`
-	ConvID    entityID       `json:"conversation_id"`
-	SenderID  *entityID      `json:"from_user_id"`
-	Seq       sequenceNumber `json:"seq"`
-	CreatedAt int64          `json:"created_at,string"`
-	Type      int32          `json:"type"`
-	Status    int32          `json:"status"`
-	EditCount int32          `json:"edit_count"`
-	System    *struct {
+	MessageID    entityID       `json:"message_id"`
+	ConvID       entityID       `json:"conversation_id"`
+	SenderID     *entityID      `json:"sender_id"`
+	SenderType   string         `json:"sender_type"`
+	SenderName   string         `json:"sender_name"`
+	SenderAvatar string         `json:"sender_avatar"`
+	BindingID    *entityID      `json:"binding_id"`
+	RequesterID  *entityID      `json:"requester_id"`
+	RawPayload   string         `json:"raw_payload"`
+	Seq          sequenceNumber `json:"seq"`
+	CreatedAt    int64          `json:"created_at,string"`
+	Type         int32          `json:"type"`
+	Status       int32          `json:"status"`
+	EditCount    int32          `json:"edit_count"`
+	System       *struct {
 		Action         string     `json:"action"`
 		ActorID        *entityID  `json:"actor_id"`
 		ActorType      string     `json:"actor_type"`
@@ -53,13 +59,14 @@ type storedMessage struct {
 	Text struct {
 		Text string `json:"text"`
 	} `json:"text"`
-	Bot *struct {
-		Text string `json:"text"`
-	} `json:"bot"`
-	Image *attachmentPart `json:"image"`
-	Audio *attachmentPart `json:"audio"`
-	Video *attachmentPart `json:"video"`
-	File  *attachmentPart `json:"file"`
+	Image  *attachmentPart `json:"image"`
+	Audio  *attachmentPart `json:"audio"`
+	Video  *attachmentPart `json:"video"`
+	File   *attachmentPart `json:"file"`
+	Result *struct {
+		Type string `json:"type"`
+		Data string `json:"data"`
+	} `json:"result"`
 }
 
 // conversations exercises only real authenticated HTTP and WebSocket surfaces.
@@ -390,13 +397,13 @@ func (d *driver) conversationMessage(step string, caller account, expected sentM
 
 func checkStoredMessage(step string, actual storedMessage, expected sentMessage) error {
 	text := actual.Text.Text
-	if actual.Bot != nil {
-		text = actual.Bot.Text
-	}
 	if actual.MessageID != expected.MessageID || actual.ConvID != expected.ConvID || !hasEntityID(actual.SenderID, expected.SenderID) || actual.Seq != expected.Seq || text != expected.Content.Text {
 		return fmt.Errorf("conversations.%s: 持久化消息与 HTTP 确认不一致，期望 message_id=%s conv_id=%s seq=%s sender_id=%s text=%q，实际 message_id=%s conv_id=%s seq=%s sender_id=%s text=%q",
 			step, expected.MessageID, expected.ConvID, expected.Seq, expected.SenderID, expected.Content.Text,
 			actual.MessageID, actual.ConvID, actual.Seq, actual.SenderID, text)
+	}
+	if expected.SenderType != "" && (actual.SenderType != expected.SenderType || actual.SenderName != expected.SenderName || actual.SenderAvatar != expected.SenderAvatar || actual.RawPayload != expected.RawPayload || !sameEntityID(actual.BindingID, expected.BindingID) || !sameEntityID(actual.RequesterID, expected.RequesterID)) {
+		return fmt.Errorf("conversations.%s: explicit sender/binding/requester/raw_payload 在REST或同步丢失", step)
 	}
 	return nil
 }

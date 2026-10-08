@@ -27,6 +27,7 @@ service MessageService {
   // ========== Bot Reply (called by bot-service) ==========
   rpc SendBotReply(SendBotReplyReq) returns (SendBotReplyResp);
   rpc SendSystemMessage(SendSystemMessageReq) returns (SendMessageResp);
+  rpc GrantBotHistory(GrantBotHistoryReq) returns (GrantBotHistoryResp);
 
   // ========== Conversation domain ==========
   // ========== CRUD ==========
@@ -79,7 +80,8 @@ enum MessageType {
   MESSAGE_TYPE_LOCATION = 6;
   MESSAGE_TYPE_SYSTEM = 7;
   MESSAGE_TYPE_CUSTOM = 8;
-  MESSAGE_TYPE_BOT = 9;
+  reserved 9;
+  MESSAGE_TYPE_RESULT = 10;
 }
 
 enum MessageStatus {
@@ -166,15 +168,6 @@ message SystemContent {
   string payload = 6;
 }
 
-message BotContent {
-  string bot_id = 1 [(common.entity_id) = true];
-  string bot_name = 2;
-  string bot_avatar = 3;
-  string text = 4;
-  bool is_streaming = 5;
-  int32 thinking_time_ms = 6;
-  string raw_payload = 7;         // JSON: model, tokens, etc.
-}
 
 message CustomContent {
   string type = 1;
@@ -187,9 +180,15 @@ message Message {
   string message_id = 1 [(common.entity_id) = true];
   string conversation_id = 2 [(common.entity_id) = true];
   int64 seq = 3 [(common.safe_sequence) = true];
-  optional string from_user_id = 4 [(common.entity_id) = true];
+  optional string sender_id = 4 [(common.entity_id) = true];
   MessageType type = 5;
   MessageStatus status = 6;
+  string sender_type = 7;
+  string sender_name = 8;
+  string sender_avatar = 9;
+  optional string binding_id = 22 [(common.entity_id) = true];
+  optional string requester_id = 23 [(common.entity_id) = true];
+  string raw_payload = 24;
 
   oneof content {
     TextContent text = 10;
@@ -199,9 +198,10 @@ message Message {
     AudioContent audio = 14;
     LocationContent location = 15;
     SystemContent system = 16;
-    BotContent bot = 17;
+    CustomContent result = 19;
     CustomContent custom = 18;
   }
+  reserved 17;
 
   optional string reply_to_id = 20 [(common.entity_id) = true];
   ReplyMessageSummary reply_to = 21;
@@ -286,6 +286,9 @@ message GetMessagesReq {
   optional int64 before_time = 11;
   optional int64 after_time = 12;
   repeated MessageType filter_types = 13;
+  optional string bot_id = 14 [(common.entity_id) = true];
+  optional string binding_id = 15 [(common.entity_id) = true];
+  optional string history_grant_id = 16 [(common.entity_id) = true];
 }
 
 message GetMessagesResp {
@@ -402,6 +405,24 @@ message SendBotReplyReq {
   string text = 3;
   optional string reply_to_id = 4 [(common.entity_id) = true];
   string raw_payload = 5;        // JSON: model, tokens, etc.
+  string binding_id = 6 [(common.entity_id) = true];
+  optional string requester_id = 7 [(common.entity_id) = true];
+  MessageType type = 8;
+  FileContent file = 9;
+  CustomContent result = 10;
+}
+
+message GrantBotHistoryReq {
+  string conversation_id = 1 [(common.entity_id) = true];
+  string bot_id = 2 [(common.entity_id) = true];
+  string binding_id = 3 [(common.entity_id) = true];
+  string user_id = 4 [(common.entity_id) = true];
+  int64 start_seq = 5 [(common.safe_sequence) = true];
+  int64 end_seq = 6 [(common.safe_sequence) = true];
+}
+
+message GrantBotHistoryResp {
+  string grant_id = 1 [(common.entity_id) = true];
 }
 
 message SendSystemMessageReq {
@@ -439,7 +460,7 @@ enum MemberRole {
 enum MemberType {
   MEMBER_TYPE_UNSPECIFIED = 0;
   MEMBER_TYPE_USER = 1;
-  MEMBER_TYPE_BOT = 2;
+  reserved 2;
 }
 
 // ========== Conversation Entity ==========
@@ -468,7 +489,7 @@ message Conversation {
 // ========== Conversation Member ==========
 
 message ConversationMember {
-  // USER 仅提供 user_id，BOT 仅提供 bot_id；禁止用伪身份填充另一种成员引用。
+  // Human membership only; Bot participation is represented by BotInConv.
   optional string user_id = 1 [(common.entity_id) = true];
   string username = 2;
   string avatar = 3;
@@ -479,9 +500,7 @@ message ConversationMember {
   bool is_muted = 8;
   int64 mute_until = 9;
   MemberType member_type = 10;
-  optional string bot_id = 11 [(common.entity_id) = true];
-  string bot_name = 12;
-  string bot_avatar = 13;
+  reserved 11 to 13;
 }
 
 // ========== Create ==========
@@ -571,6 +590,7 @@ message GetMembersReq {
   optional string user_id = 2 [(common.entity_id) = true];
   common.Pagination pagination = 3;
   optional string bot_id = 4 [(common.entity_id) = true];
+  optional string binding_id = 5 [(common.entity_id) = true];
 }
 
 message GetMembersResp {
@@ -710,6 +730,9 @@ message BotInConv {
   string bot_settings = 6;
   string added_by = 7 [(common.entity_id) = true];
   int64 added_at = 8;
+  string binding_id = 9 [(common.entity_id) = true];
+  string owner_type = 10;
+  optional string owner_id = 11 [(common.entity_id) = true];
 }
 
 message AddBotReq {

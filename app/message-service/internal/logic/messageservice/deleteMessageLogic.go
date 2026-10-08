@@ -59,7 +59,7 @@ func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*commo
 			}
 			return publishMessageChange(l.ctx, l.svcCtx, tx, current, model.InboxMessageDeleted)
 		}
-		permission, err := l.svcCtx.ConversationRepo.CheckSendPermission(l.ctx, tx, msg.ConvID, in.UserId, model.MemberTypeUser)
+		permission, err := l.svcCtx.ConversationRepo.CheckSendPermission(l.ctx, tx, msg.ConvID, in.UserId)
 		if err != nil {
 			return err
 		}

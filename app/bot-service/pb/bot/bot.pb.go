@@ -3180,13 +3180,14 @@ func (x *GetBotWebhookConfigResp) GetType() string {
 }
 
 type StreamChatReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	BotId         string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	ConvId        string                 `protobuf:"bytes,2,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
-	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	ReplyToMsgId  *string                `protobuf:"bytes,4,opt,name=reply_to_msg_id,json=replyToMsgId,proto3,oneof" json:"reply_to_msg_id,omitempty"` // 可选
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	BotId          string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	ConvId         string                 `protobuf:"bytes,2,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	Message        string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	ReplyToMsgId   *string                `protobuf:"bytes,4,opt,name=reply_to_msg_id,json=replyToMsgId,proto3,oneof" json:"reply_to_msg_id,omitempty"`     // 可选
+	HistoryGrantId *string                `protobuf:"bytes,5,opt,name=history_grant_id,json=historyGrantId,proto3,oneof" json:"history_grant_id,omitempty"` // 仅显式授权的会话历史范围
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *StreamChatReq) Reset() {
@@ -3243,6 +3244,13 @@ func (x *StreamChatReq) GetMessage() string {
 func (x *StreamChatReq) GetReplyToMsgId() string {
 	if x != nil && x.ReplyToMsgId != nil {
 		return *x.ReplyToMsgId
+	}
+	return ""
+}
+
+func (x *StreamChatReq) GetHistoryGrantId() string {
+	if x != nil && x.HistoryGrantId != nil {
+		return *x.HistoryGrantId
 	}
 	return ""
 }
@@ -3628,13 +3636,15 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\fcallback_url\x18\x02 \x01(\tR\vcallbackUrl\x12%\n" +
 	"\x0ewebhook_secret\x18\x03 \x01(\tR\rwebhookSecret\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x12\x12\n" +
-	"\x04type\x18\x05 \x01(\tR\x04type\"\xb1\x01\n" +
+	"\x04type\x18\x05 \x01(\tR\x04type\"\xfd\x01\n" +
 	"\rStreamChatReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
 	"\aconv_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x122\n" +
-	"\x0freply_to_msg_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\freplyToMsgId\x88\x01\x01B\x12\n" +
-	"\x10_reply_to_msg_id\"\xb7\x01\n" +
+	"\x0freply_to_msg_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\freplyToMsgId\x88\x01\x01\x125\n" +
+	"\x10history_grant_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x0ehistoryGrantId\x88\x01\x01B\x12\n" +
+	"\x10_reply_to_msg_idB\x13\n" +
+	"\x11_history_grant_id\"\xb7\x01\n" +
 	"\x0eStreamChatResp\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1b\n" +

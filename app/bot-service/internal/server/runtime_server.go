@@ -17,6 +17,7 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-service/pb/bot"
+	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
 	"google.golang.org/grpc"
@@ -52,7 +53,7 @@ func extractChatCaller(ctx context.Context) (string, string, string) {
 func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStreamingServer[pb.StreamChatResp]) error {
 	ctx := stream.Context()
 	userID, username, language := extractChatCaller(ctx)
-	if identity.Validate(req.BotId) != nil || identity.Validate(req.ConvId) != nil || (req.ReplyToMsgId != nil && identity.Validate(*req.ReplyToMsgId) != nil) {
+	if req == nil || identity.Validate(req.BotId) != nil || identity.Validate(req.ConvId) != nil || (req.ReplyToMsgId != nil && identity.Validate(*req.ReplyToMsgId) != nil) || (req.HistoryGrantId != nil && identity.Validate(*req.HistoryGrantId) != nil) {
 		return errors.New(errors.CodeInvalidParam, "invalid chat identity")
 	}
 	if s.svcCtx.RuntimeClient != nil {
@@ -90,6 +91,17 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 	if bot.ModelID == nil {
 		return errors.New(errors.CodeInvalidParam, "bot chat model is not configured")
 	}
+	// Every temporary output checks the original binding, never a newly joined one.
+	sendResponse := func(resp *pb.StreamChatResp) error {
+		active, err := botRepo.HasActiveBinding(ctx, req.BotId, req.ConvId, convBot.ID)
+		if err != nil {
+			return err
+		}
+		if !active {
+			return errors.New(errors.CodeForbidden, "bot binding has been revoked")
+		}
+		return stream.Send(resp)
+	}
 
 	llmClient := client.NewLlmGatewayClient(s.svcCtx.LlmGatewayConn)
 	msgClient := client.NewMessageClient(s.svcCtx.MessageSvcConn)
@@ -97,10 +109,12 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 	resolver := graph.NewKnowledgeResolver(client.NewKnowledgeClient(s.svcCtx.KnowledgeConn))
 	ctxNode := graph.NewBuildContextNode(bot, convBot, msgClient, resolver, s.svcCtx.Logger)
 	ctxResult, err := ctxNode.Invoke(ctx, &model.BotEvent{
-		BotID:   req.BotId,
-		ConvID:  req.ConvId,
-		Message: &model.EventMessage{Text: req.Message},
-		Sender:  &model.EventSender{UserID: &userID, Username: username, Language: language},
+		BotID:          req.BotId,
+		ConvID:         req.ConvId,
+		BindingID:      convBot.ID,
+		HistoryGrantID: req.GetHistoryGrantId(),
+		Message:        &model.EventMessage{Text: req.Message},
+		Sender:         &model.EventSender{UserID: &userID, SenderType: "user", Username: username, Language: language},
 	})
 	if err != nil {
 		return errors.Wrap(errors.CodeRPCError, "load conversation context failed", err)
@@ -180,7 +194,7 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 			}
 			if chunk != nil && chunk.Content != "" {
 				fullText += chunk.Content
-				if err := stream.Send(&pb.StreamChatResp{Type: "chunk", Content: chunk.Content, ConvId: req.ConvId}); err != nil {
+				if err := sendResponse(&pb.StreamChatResp{Type: "chunk", Content: chunk.Content, ConvId: req.ConvId}); err != nil {
 					return err
 				}
 			}
@@ -189,17 +203,17 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 		var messageID *string
 		if fullText != "" {
 			if sourcesJSON != "" {
-				if err := stream.Send(&pb.StreamChatResp{Type: "sources", Content: sourcesJSON, ConvId: req.ConvId}); err != nil {
+				if err := sendResponse(&pb.StreamChatResp{Type: "sources", Content: sourcesJSON, ConvId: req.ConvId}); err != nil {
 					return err
 				}
 			}
-			id, err := msgClient.SendBotReply(ctx, req.BotId, req.ConvId, fullText, req.ReplyToMsgId, graph.BuildRawPayload(ctxResult.KbSources, usedTools))
+			id, err := msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: req.BotId, ConversationId: req.ConvId, BindingId: convBot.ID, RequesterId: &userID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: fullText, ReplyToId: req.ReplyToMsgId, RawPayload: graph.BuildRawPayload(ctxResult.KbSources, usedTools)})
 			if err != nil {
 				return errors.Wrap(errors.CodeRPCError, "send bot reply failed", err)
 			}
 			messageID = &id
 		}
-		return stream.Send(&pb.StreamChatResp{Type: "done", Content: fullText, ConvId: req.ConvId, MessageId: messageID})
+		return sendResponse(&pb.StreamChatResp{Type: "done", Content: fullText, ConvId: req.ConvId, MessageId: messageID})
 	}
 
 	msg, genErr := agent.Generate(ctx, input)
@@ -211,17 +225,17 @@ func (s *RuntimeServer) StreamChat(req *pb.StreamChatReq, stream grpc.ServerStre
 	var messageID *string
 	if msg.Content != "" {
 		if sourcesJSON != "" {
-			if err := stream.Send(&pb.StreamChatResp{Type: "sources", Content: sourcesJSON, ConvId: req.ConvId}); err != nil {
+			if err := sendResponse(&pb.StreamChatResp{Type: "sources", Content: sourcesJSON, ConvId: req.ConvId}); err != nil {
 				return err
 			}
 		}
-		id, err := msgClient.SendBotReply(ctx, req.BotId, req.ConvId, msg.Content, req.ReplyToMsgId, graph.BuildRawPayload(ctxResult.KbSources, usedTools))
+		id, err := msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: req.BotId, ConversationId: req.ConvId, BindingId: convBot.ID, RequesterId: &userID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: msg.Content, ReplyToId: req.ReplyToMsgId, RawPayload: graph.BuildRawPayload(ctxResult.KbSources, usedTools)})
 		if err != nil {
 			return errors.Wrap(errors.CodeRPCError, "send bot reply failed", err)
 		}
 		messageID = &id
 	}
-	return stream.Send(&pb.StreamChatResp{Type: "done", Content: msg.Content, ConvId: req.ConvId, MessageId: messageID})
+	return sendResponse(&pb.StreamChatResp{Type: "done", Content: msg.Content, ConvId: req.ConvId, MessageId: messageID})
 }
 
 func loadBotMcpServers(ctx context.Context, botRepo *repo.BotRepo, botID string) []model.MCPServerConfig {

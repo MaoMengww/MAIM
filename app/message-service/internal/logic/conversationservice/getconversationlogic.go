@@ -11,9 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// BotResolveLimit is the number of members to fetch when resolving bot info.
-const BotResolveLimit = 10
-
 type GetConversationLogic struct {
 	ctx    context.Context
 	svcCtx *svc.ServiceContext

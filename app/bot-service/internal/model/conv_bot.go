@@ -10,6 +10,8 @@ type ConvBot struct {
 	AddedBy     string         `gorm:"column:added_by;type:uuid" json:"added_by"`
 	BotSettings map[string]any `gorm:"column:bot_settings;serializer:json" json:"bot_settings"`
 	CreatedAt   time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	RevokedAt   *time.Time     `gorm:"column:revoked_at" json:"revoked_at,omitempty"`
+	StartSeq    int64          `gorm:"column:start_seq" json:"start_seq"`
 }
 
 func (ConvBot) TableName() string { return "messaging.conv_bots" }

@@ -6,7 +6,6 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/graph"
 	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/zeromicro/go-zero/zrpc"
-	"google.golang.org/grpc/metadata"
 )
 
 // MessageClient wraps message-service gRPC client as a graph.MsgClient.
@@ -14,105 +13,65 @@ type MessageClient struct {
 	cli msgpb.MessageServiceClient
 }
 
-// NewMessageClient creates a new message-service client wrapper.
 func NewMessageClient(c zrpc.Client) *MessageClient {
-	return &MessageClient{
-		cli: msgpb.NewMessageServiceClient(c.Conn()),
-	}
+	return &MessageClient{cli: msgpb.NewMessageServiceClient(c.Conn())}
 }
 
-// GetRecentMessages fetches recent messages from a conversation.
-func (c *MessageClient) GetRecentMessages(ctx context.Context, convID, userID string, limit int) ([]graph.Message, error) {
-	resp, err := c.cli.GetMessages(messageUserContext(ctx, userID), &msgpb.GetMessagesReq{
+// GetGrantedMessages reads only an explicitly granted history range as the bot.
+func (c *MessageClient) GetGrantedMessages(ctx context.Context, botID, convID, bindingID, grantID string, limit int) ([]graph.Message, error) {
+	resp, err := c.cli.GetMessages(serviceCallContext(ctx), &msgpb.GetMessagesReq{
 		ConversationId: convID,
-		UserId:         userID,
-		Pagination: &msgpb.MessagePagination{
-			Limit: int32(limit),
-		},
-		FilterTypes: []msgpb.MessageType{
-			msgpb.MessageType_MESSAGE_TYPE_TEXT,
-			msgpb.MessageType_MESSAGE_TYPE_IMAGE,
-			msgpb.MessageType_MESSAGE_TYPE_AUDIO,
-			msgpb.MessageType_MESSAGE_TYPE_BOT,
-		},
+		BotId:          &botID,
+		BindingId:      &bindingID,
+		HistoryGrantId: &grantID,
+		Pagination:     &msgpb.MessagePagination{Limit: int32(limit)},
 	})
 	if err != nil {
 		return nil, err
 	}
 	msgs := make([]graph.Message, len(resp.Messages))
 	for i, m := range resp.Messages {
-		content := extractText(m)
 		msgs[i] = graph.Message{
-			MsgID:      m.MessageId,
-			SenderID:   m.FromUserId,
-			SenderName: senderName(m),
-			BotID:      messageBotID(m),
-			Content:    content,
-			MsgType:    int32(m.Type),
-			Seq:        m.Seq,
-			CreatedAt:  m.CreatedAt,
+			MsgID:        m.MessageId,
+			SenderID:     m.SenderId,
+			SenderType:   m.SenderType,
+			SenderName:   m.SenderName,
+			SenderAvatar: m.SenderAvatar,
+			BindingID:    m.BindingId,
+			RequesterID:  m.RequesterId,
+			Content:      extractText(m),
+			MsgType:      int32(m.Type),
+			Seq:          m.Seq,
+			CreatedAt:    m.CreatedAt,
 		}
 	}
 	return msgs, nil
-}
-
-// extractText pulls plain text from a message's oneof content.
-func senderName(m *msgpb.Message) string {
-	if m == nil {
-		return ""
-	}
-	if c := m.GetBot(); c != nil {
-		return c.GetBotName()
-	}
-	return ""
-}
-
-func messageBotID(m *msgpb.Message) string {
-	if bot := m.GetBot(); bot != nil {
-		return bot.BotId
-	}
-	return ""
 }
 
 func extractText(m *msgpb.Message) string {
 	if m == nil {
 		return ""
 	}
-	switch c := m.Content.(type) {
-	case *msgpb.Message_Text:
-		if c.Text != nil {
-			return c.Text.GetText()
-		}
-	case *msgpb.Message_Bot:
-		if c.Bot != nil {
-			return c.Bot.GetText()
-		}
+	if text := m.GetText(); text != nil {
+		return text.Text
+	}
+	if file := m.GetFile(); file != nil {
+		return file.Name
+	}
+	if result := m.GetResult(); result != nil {
+		return result.Data
+	}
+	if custom := m.GetCustom(); custom != nil {
+		return custom.Data
 	}
 	return ""
 }
 
-// SendBotReply sends a bot reply message.
-func (c *MessageClient) SendBotReply(ctx context.Context, botID, convID string, text string, replyTo *string, rawPayload ...string) (string, error) {
-	rp := ""
-	if len(rawPayload) > 0 {
-		rp = rawPayload[0]
-	}
-	resp, err := c.cli.SendBotReply(serviceCallContext(ctx), &msgpb.SendBotReplyReq{
-		BotId:          botID,
-		ConversationId: convID,
-		Text:           text,
-		ReplyToId:      replyTo,
-		RawPayload:     rp,
-	})
+// SendBotReply never resolves a new binding: the caller supplies its captured identity.
+func (c *MessageClient) SendBotReply(ctx context.Context, req *msgpb.SendBotReplyReq) (string, error) {
+	resp, err := c.cli.SendBotReply(serviceCallContext(ctx), req)
 	if err != nil {
 		return "", err
 	}
 	return resp.MessageId, nil
-}
-
-func messageUserContext(ctx context.Context, userID string) context.Context {
-	md, _ := metadata.FromOutgoingContext(ctx)
-	md = md.Copy()
-	md.Set("user-id", userID)
-	return metadata.NewOutgoingContext(ctx, md)
 }

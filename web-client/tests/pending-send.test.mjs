@@ -22,7 +22,7 @@ before(async () => {
     requests.push(body);
     const key = `${body.conversation_id}:${body.client_msg_id}`;
     if (!submissions.has(key)) submissions.set(key, { message_id: uuid(50000 + submissions.size), conv_id: body.conversation_id,
-      from_user_id: auth.useAuthStore.getState().user.id, seq: 1, type: body.type, content: body.content,
+      sender_id: auth.useAuthStore.getState().user.id, sender_type: 'user', seq: 1, type: body.type, content: body.content,
       created_at: '123', reply_to_msg_id: body.reply_to_msg_id ?? null });
     if (loseAck) { loseAck = false; response.destroy(); return; }
     if (holdAck) await holdAck;

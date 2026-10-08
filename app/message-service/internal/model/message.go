@@ -14,6 +14,11 @@ type Message struct {
 	ConvID            string      `gorm:"type:uuid;column:conv_id;index:idx_conv_seq" json:"conv_id"`
 	SenderID          *string     `gorm:"type:uuid;column:sender_id" json:"sender_id"`
 	SenderType        string      `gorm:"column:sender_type;default:user" json:"sender_type"`
+	SenderName        string      `gorm:"column:sender_name" json:"sender_name"`
+	SenderAvatar      string      `gorm:"column:sender_avatar" json:"sender_avatar"`
+	BindingID         *string     `gorm:"type:uuid;column:binding_id" json:"binding_id,omitempty"`
+	RequesterID       *string     `gorm:"type:uuid;column:requester_id" json:"requester_id,omitempty"`
+	RawPayload        string      `gorm:"column:raw_payload" json:"raw_payload,omitempty"`
 	ClientMsgID       *string     `gorm:"type:uuid;column:client_msg_id" json:"client_msg_id"`
 	Seq               int64       `gorm:"column:seq" json:"seq"`
 	MsgType           int32       `gorm:"column:msg_type" json:"msg_type"`
@@ -216,16 +221,6 @@ type SystemContent struct {
 	Payload        string   `json:"payload"`
 }
 
-type BotContent struct {
-	BotID          string `json:"bot_id"`
-	BotName        string `json:"bot_name"`
-	BotAvatar      string `json:"bot_avatar"`
-	Text           string `json:"text"`
-	IsStreaming    bool   `json:"is_streaming"`
-	ThinkingTimeMs int32  `json:"thinking_time_ms"`
-	RawPayload     string `json:"raw_payload"`
-}
-
 type CustomContent struct {
 	Type string `json:"type"`
 	Data string `json:"data"`
@@ -262,7 +257,6 @@ func (c VideoContent) ToJSONContent() JSONContent    { return marshalFrom(c) }
 func (c AudioContent) ToJSONContent() JSONContent    { return marshalFrom(c) }
 func (c LocationContent) ToJSONContent() JSONContent { return marshalFrom(c) }
 func (c SystemContent) ToJSONContent() JSONContent   { return marshalFrom(c) }
-func (c BotContent) ToJSONContent() JSONContent      { return marshalFrom(c) }
 func (c CustomContent) ToJSONContent() JSONContent   { return marshalFrom(c) }
 
 func ParseTextContent(jc JSONContent) TextContent { var c TextContent; unmarshalTo(jc, &c); return c }
@@ -292,7 +286,6 @@ func ParseSystemContent(jc JSONContent) SystemContent {
 	unmarshalTo(jc, &c)
 	return c
 }
-func ParseBotContent(jc JSONContent) BotContent { var c BotContent; unmarshalTo(jc, &c); return c }
 func ParseCustomContent(jc JSONContent) CustomContent {
 	var c CustomContent
 	unmarshalTo(jc, &c)
@@ -333,5 +326,5 @@ const (
 	MsgTypeLocation int32 = consts.MsgTypeLocation
 	MsgTypeSystem   int32 = consts.MsgTypeSystem
 	MsgTypeCustom   int32 = consts.MsgTypeCustom
-	MsgTypeBot      int32 = consts.MsgTypeBot
+	MsgTypeResult   int32 = consts.MsgTypeResult
 )

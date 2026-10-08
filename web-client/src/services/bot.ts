@@ -1,6 +1,7 @@
 import client, { unwrap } from './client';
 import type { CreateBotReq, UpdateBotReq } from '@/types/api';
-import type { APIResponse, Bot } from '@/types/model';
+import type { APIResponse, Bot, BotInConv } from '@/types/model';
+import { entityId, optionalEntityId, quantity, sequence } from '@/utils/json';
 
 export const botApi = {
   create: (data: CreateBotReq) =>
@@ -41,8 +42,19 @@ export const botApi = {
   removeFromConv: (convId: string, botId: string) =>
     client.delete<APIResponse<null>>(`/convs/${convId}/bots/${botId}`).then(unwrap),
 
-  listConvBots: (convId: string) =>
-    client.get<APIResponse<{ bots: any[] }>>(`/convs/${convId}/bots`).then((r) => r.data.data.bots ?? []),
+  listConvBots: (convId: string): Promise<BotInConv[]> =>
+    client.get<APIResponse<{ bots: BotInConv[] }>>(`/convs/${convId}/bots`).then((r) => (r.data.data.bots ?? []).map((bot) => {
+      if (bot.owner_type !== 'user' && bot.owner_type !== 'platform') throw new Error('Bot 所有者类型无效');
+      return { ...bot, bot_id: entityId(bot.bot_id, 'bot.bot_id'), binding_id: entityId(bot.binding_id, 'bot.binding_id'),
+        owner_id: optionalEntityId(bot.owner_id, 'bot.owner_id'), added_by: entityId(bot.added_by, 'bot.added_by'),
+        added_at: quantity(bot.added_at, 'bot.added_at') };
+    })),
+
+  grantHistory: (convId: string, botId: string, bindingId: string, startSeq: number, endSeq: number) =>
+    client.post<APIResponse<{ grant_id: string }>>(`/convs/${convId}/bots/${botId}/history-grants`, {
+      binding_id: entityId(bindingId, 'grant.binding_id'), start_seq: sequence(startSeq, 'grant.start_seq', true),
+      end_seq: sequence(endSeq, 'grant.end_seq', true),
+    }).then((r) => ({ grant_id: entityId(r.data.data.grant_id, 'grant.grant_id') })),
 
   // Upload bot avatar
   uploadAvatar: (botId: string, file: File) => {

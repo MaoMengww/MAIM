@@ -54,9 +54,6 @@ func validateRequest(ctx context.Context, userID string, identities ...string) e
 }
 
 func memberIdentity(member *model.ConversationMember) string {
-	if member.MemberType == model.MemberTypeBot && member.BotID != nil {
-		return *member.BotID
-	}
 	if member.UserID != nil {
 		return *member.UserID
 	}

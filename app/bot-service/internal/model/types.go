@@ -12,6 +12,8 @@ type BotEvent struct {
 	EventType        string          `json:"event_type"`
 	BotID            string          `json:"bot_id"`
 	ConvID           string          `json:"conv_id"`
+	BindingID        string          `json:"binding_id,omitempty"`
+	HistoryGrantID   string          `json:"history_grant_id,omitempty"`
 	Message          *EventMessage   `json:"message"`
 	Sender           *EventSender    `json:"sender"`
 	MentionedUserIDs []string        `json:"mentioned_user_ids"`
@@ -24,14 +26,16 @@ type EventMessage struct {
 	Text         string  `json:"text"`
 	MsgType      int32   `json:"msg_type"`
 	CreatedAt    int64   `json:"created_at"`
+	Seq          int64   `json:"seq"`
 	ReplyToMsgID *string `json:"reply_to_msg_id,omitempty"`
 }
 
 // EventSender is the sender part of a bot event.
 type EventSender struct {
-	UserID   *string `json:"user_id,omitempty"`
-	Username string  `json:"username"`
-	Language string  `json:"language"`
+	UserID     *string `json:"user_id,omitempty"`
+	SenderType string  `json:"sender_type,omitempty"`
+	Username   string  `json:"username"`
+	Language   string  `json:"language"`
 }
 
 // EventBotConfig is the bot config snippet carried in a bot event.
@@ -66,6 +70,7 @@ func validateEntityJSONValue(value any) error {
 			switch key {
 			case "user_id", "userId", "owner_id", "ownerId", "bot_id", "botId", "sender_id", "senderId",
 				"conversation_id", "conversationId", "conv_id", "convId", "message_id", "messageId",
+				"binding_id", "bindingId", "requester_id", "requesterId", "history_grant_id", "historyGrantId",
 				"msg_id", "msgId", "reply_to_id", "replyToId", "reply_to_msg_id", "replyToMsgId",
 				"model_id", "modelId", "mcp_server_id", "mcpServerId",
 				"mcp_tool_id", "mcpToolId",

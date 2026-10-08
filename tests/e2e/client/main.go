@@ -107,7 +107,13 @@ type sentMessage struct {
 	SubmissionKey string         `json:"-"`
 	MessageID     entityID       `json:"message_id"`
 	ConvID        entityID       `json:"conv_id"`
-	SenderID      entityID       `json:"from_user_id"`
+	SenderID      entityID       `json:"sender_id"`
+	SenderType    string         `json:"sender_type"`
+	SenderName    string         `json:"sender_name"`
+	SenderAvatar  string         `json:"sender_avatar"`
+	BindingID     *entityID      `json:"binding_id"`
+	RequesterID   *entityID      `json:"requester_id"`
+	RawPayload    string         `json:"raw_payload"`
 	Seq           sequenceNumber `json:"seq"`
 	CreatedAt     int64          `json:"created_at,string"`
 	Content       struct {
@@ -119,13 +125,24 @@ type event struct {
 	Type    string    `json:"type"`
 	ConvID  *entityID `json:"conv_id"`
 	Message struct {
-		MessageID entityID       `json:"message_id"`
-		ConvID    entityID       `json:"conv_id"`
-		SenderID  *entityID      `json:"sender_id"`
-		Seq       sequenceNumber `json:"seq"`
-		ReplyToID *entityID      `json:"reply_to_msg_id"`
-		Content   struct {
-			Text string `json:"text"`
+		MessageID    entityID       `json:"message_id"`
+		ConvID       entityID       `json:"conv_id"`
+		SenderID     *entityID      `json:"sender_id"`
+		SenderType   string         `json:"sender_type"`
+		SenderName   string         `json:"sender_name"`
+		SenderAvatar string         `json:"sender_avatar"`
+		BindingID    *entityID      `json:"binding_id"`
+		RequesterID  *entityID      `json:"requester_id"`
+		RawPayload   string         `json:"raw_payload"`
+		MsgType      int32          `json:"msg_type"`
+		Seq          sequenceNumber `json:"seq"`
+		ReplyToID    *entityID      `json:"reply_to_msg_id"`
+		Content      struct {
+			Text   string    `json:"text"`
+			FileID *entityID `json:"file_id"`
+			Name   string    `json:"name"`
+			Type   string    `json:"type"`
+			Data   string    `json:"data"`
 		} `json:"content"`
 	} `json:"message"`
 }
@@ -175,7 +192,7 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://realtime-service:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|bot-runtime-cross-instance|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runtime|bot-runtime-cross-instance|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
@@ -210,6 +227,7 @@ func run(args []string) error {
 			{"same-instance-b", *realtimeB, *realtimeB},
 			{"bot-runtime", *realtimeA, *realtimeA},
 			{"bot-runtime-cross-instance", *realtimeA, *realtimeB},
+			{"bot-identity", *realtimeA, *realtimeB},
 			{"knowledge-ingest", "", ""},
 			{"cross-instance", *realtimeA, *realtimeB},
 		}
@@ -235,6 +253,8 @@ func run(args []string) error {
 			return errors.New("stage-p6 需要 run.py 生命周期控制与 -control-dir")
 		}
 		scenarios = []scenarioSpec{{"stage-p6", *realtimeA, *realtimeB}}
+	case "bot-identity":
+		scenarios = []scenarioSpec{{"bot-identity", *realtimeA, *realtimeB}}
 	case "bot-runtime":
 		scenarios = []scenarioSpec{{"bot-runtime", *realtimeA, *realtimeA}}
 	case "bot-runtime-cross-instance":
@@ -258,7 +278,7 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-runtime|bot-runtime-cross-instance|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runtime|bot-runtime-cross-instance|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	}
 	if *cross && *selected == "bot-runtime" {
 		scenarios = append(scenarios, scenarioSpec{"bot-runtime-cross-instance", *realtimeA, *realtimeB})
@@ -266,7 +286,7 @@ func run(args []string) error {
 		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
 	}
 	for _, scenario := range scenarios {
-		if scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
+		if scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
 			if _, err := endpoint(*provider, "http", "https"); err != nil {
 				return fmt.Errorf("配置外部 provider: %w", err)
 			}
@@ -280,7 +300,7 @@ func run(args []string) error {
 			}
 		}
 	}
-	if (*selected == "all" || *selected == "attachments" || *selected == "messaging" || *selected == "user-sync" || *selected == "cross-instance" || *selected == "bot-runtime-cross-instance" || *selected == "broadcasts" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
+	if (*selected == "all" || *selected == "attachments" || *selected == "messaging" || *selected == "user-sync" || *selected == "cross-instance" || *selected == "bot-identity" || *selected == "bot-runtime-cross-instance" || *selected == "broadcasts" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
 		return errors.New("realtime A/B 必须使用不同地址，不能将单实例冒充两实例")
 	}
 	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout,
@@ -306,6 +326,8 @@ func run(args []string) error {
 			err = d.broadcasts(scenario.a, scenario.b)
 		case "attachments":
 			err = d.attachments(scenario.a, scenario.b)
+		case "bot-identity":
+			err = d.botIdentity(scenario.a, scenario.b)
 		case "bot-runtime", "bot-runtime-cross-instance":
 			err = d.botRuntime(scenario.a, scenario.b)
 		case "knowledge-ingest":
@@ -331,6 +353,8 @@ func run(args []string) error {
 			fmt.Println("E2E PASS: broadcasts 并发首播唯一系统会话 → user/group/all范围 → 跨实例普通message.new → 会话复用/seq → 离线同步/重建/history → 非成员拒读")
 		} else if scenario.name == "attachments" {
 			fmt.Println("E2E PASS: attachments 真实PUT/confirm/info/download精确bytes与UUID → 四类型ACK/跨实例WS/history/byID/离线inbox → 重试/冲突 → 回复摘要/文本search引用 → 私有权限/匿名拒绝/单删/批删/消息删除对象隔离")
+		} else if scenario.name == "bot-identity" {
+			fmt.Println("E2E PASS: bot-identity 独立owner/inviter/requester → 两群binding与纯人类计数 → REST/WS text/file/result显式Bot身份 → 无binding/跨群/移出/重入旧binding拒写 → 指定seq授权/无grant/越界/跨群/个人删除/旧grant拒读 → search/引用/用户sync身份一致")
 		} else if scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" {
 			fmt.Printf("E2E PASS: %s UUID模型CRUD/私有选择拒绝/model_id省略保持与clear → Bot配置/token状态 → MCP稳定UUID发现/绑定解绑/真实调用 → Kafka精确回复/WS与REST → model/bot/user计费一致 → 语言与AI模型设置 → 已退役生成/查询/Todo管理HTTP404且provider计数不变 → 知识multipart上传/检索/绑定/WS与SSE/history来源UUID/解绑隔离 → 删除\n", scenario.name)
 		} else if scenario.name == "knowledge-ingest" {

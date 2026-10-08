@@ -16,7 +16,13 @@ func modelToPbMessage(msg *model.Message) *message.Message {
 		MessageId:      msg.ID,
 		ConversationId: msg.ConvID,
 		Seq:            msg.Seq,
-		FromUserId:     msg.SenderID,
+		SenderId:       msg.SenderID,
+		SenderType:     msg.SenderType,
+		SenderName:     msg.SenderName,
+		SenderAvatar:   msg.SenderAvatar,
+		BindingId:      msg.BindingID,
+		RequesterId:    msg.RequesterID,
+		RawPayload:     msg.RawPayload,
 		Type:           message.MessageType(msg.MsgType),
 		Status:         message.MessageStatus(msg.Status),
 		ReplyToId:      msg.ReplyToMsgID,
@@ -100,17 +106,9 @@ func modelToPbMessage(msg *model.Message) *message.Message {
 			ActorType:      c.ActorType,
 			Payload:        c.Payload,
 		}}
-	case model.MsgTypeBot:
-		c := model.ParseBotContent(content)
-		pbMsg.Content = &message.Message_Bot{Bot: &message.BotContent{
-			BotId:          c.BotID,
-			BotName:        c.BotName,
-			BotAvatar:      c.BotAvatar,
-			Text:           c.Text,
-			IsStreaming:    c.IsStreaming,
-			ThinkingTimeMs: c.ThinkingTimeMs,
-			RawPayload:     c.RawPayload,
-		}}
+	case model.MsgTypeResult:
+		c := model.ParseCustomContent(content)
+		pbMsg.Content = &message.Message_Result{Result: &message.CustomContent{Type: c.Type, Data: c.Data}}
 	case model.MsgTypeCustom:
 		c := model.ParseCustomContent(content)
 		pbMsg.Content = &message.Message_Custom{Custom: &message.CustomContent{
@@ -120,15 +118,6 @@ func modelToPbMessage(msg *model.Message) *message.Message {
 	}
 
 	return pbMsg
-}
-
-func extractBotContent(req *message.SendBotReplyReq) model.BotContent {
-	c := model.BotContent{
-		BotID:      req.BotId,
-		Text:       req.Text,
-		RawPayload: req.RawPayload,
-	}
-	return c
 }
 
 func broadcastContentJSON(content string) model.JSONContent {

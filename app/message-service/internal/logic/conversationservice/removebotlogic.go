@@ -31,17 +31,7 @@ func (l *RemoveBotLogic) RemoveBot(in *conversation.RemoveBotReq) (*common.BaseR
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
 			return err
 		}
-		member, err := r.GetBotMember(l.ctx, conv.ID, in.BotId)
-		if err != nil {
-			return err
-		}
-		if member.MemberType != model.MemberTypeBot {
-			return ErrMemberRemoveFailed
-		}
-		if err := r.RemoveBotWithMember(l.ctx, conv.ID, in.BotId); err != nil {
-			return err
-		}
-		if err := r.IncrementMemberCount(l.ctx, conv.ID, -1); err != nil {
+		if err := r.RemoveBot(l.ctx, conv.ID, in.BotId); err != nil {
 			return err
 		}
 		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)

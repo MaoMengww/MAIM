@@ -27,6 +27,9 @@ func NewGetMessagesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetMe
 }
 
 func (l *GetMessagesLogic) GetMessages(in *message.GetMessagesReq) (*message.GetMessagesResp, error) {
+	if in != nil && (in.BotId != nil || in.BindingId != nil || in.HistoryGrantId != nil) {
+		return l.getBotHistory(in)
+	}
 	if in == nil || validateIdentities(in.ConversationId, in.UserId) != nil {
 		return nil, errors.New(errors.CodeInvalidParam, "invalid history identity")
 	}

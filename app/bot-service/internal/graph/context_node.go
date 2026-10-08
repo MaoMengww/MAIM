@@ -46,7 +46,7 @@ func NewBuildContextNode(bot *model.Bot, convBot *model.ConvBot,
 	}
 }
 
-// Invoke loads history and knowledge, then renders the prompt.
+// Invoke loads explicitly granted history and knowledge, then renders the prompt.
 func (n *BuildContextNode) Invoke(ctx context.Context, event *model.BotEvent) (*BuildContextResult, error) {
 	vars := map[string]string{
 		"botname":       n.bot.Name,
@@ -118,14 +118,17 @@ func (n *BuildContextNode) withLogger(ctx context.Context) logx.Logger {
 }
 
 func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEvent) ([]*schema.Message, error) {
-	if n.msgClient == nil || event == nil || event.ConvID == "" || event.Sender == nil || event.Sender.UserID == nil {
+	if event == nil || event.HistoryGrantID == "" {
 		return nil, nil
+	}
+	if n.msgClient == nil || n.convBot == nil || event.BindingID != n.convBot.ID || event.BotID != n.convBot.BotID || event.ConvID != n.convBot.ConvID {
+		return nil, fmt.Errorf("history requires the captured bot binding")
 	}
 	limit := n.bot.MaxContextMessages
 	if limit <= 0 {
 		limit = 10
 	}
-	msgs, err := n.msgClient.GetRecentMessages(ctx, event.ConvID, *event.Sender.UserID, limit)
+	msgs, err := n.msgClient.GetGrantedMessages(ctx, n.bot.ID, event.ConvID, n.convBot.ID, event.HistoryGrantID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -141,11 +144,8 @@ func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEven
 		if currentMsgID != "" && m.MsgID == currentMsgID {
 			continue
 		}
-		role := schema.User
-		if m.BotID == n.bot.ID {
-			role = schema.Assistant
-		}
-		content := fmt.Sprintf("[%s][%s]: %s", formatMessageTime(m.CreatedAt), messageSenderName(m), m.Content)
+		// History is cited source material, not this execution's assistant trajectory.
+		content := fmt.Sprintf("[%s][sender_type=%s][sender_id=%s][%s]: %s", formatMessageTime(m.CreatedAt), m.SenderType, messageSenderID(m), messageSenderName(m), m.Content)
 		if n.bot.MaxContextTokens > 0 {
 			tokens := estimateTokens(content)
 			if totalTokens+tokens > n.bot.MaxContextTokens {
@@ -154,7 +154,7 @@ func (n *BuildContextNode) loadHistory(ctx context.Context, event *model.BotEven
 			totalTokens += tokens
 		}
 		result = append(result, &schema.Message{
-			Role:    role,
+			Role:    schema.User,
 			Content: content,
 		})
 	}

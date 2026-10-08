@@ -20,9 +20,12 @@ globalThis.localStorage = {
 };
 const msg = (id, conv, seq, text = `message-${id}`) => ({
   message_id: typeof id === 'string' ? id : uuid(id), conversation_id: typeof conv === 'string' ? conv : uuid(conv), seq,
-  from_user_id: uuid(2), type: 1, status: 1, text: { text },
+  sender_id: uuid(2), sender_type: 'user', type: 1, status: 1, text: { text },
 });
-const live = (message) => ({ message_id: message.message_id, seq: message.seq, conv_id: message.conversation_id, sender_id: message.from_user_id, msg_type: message.type, content: { text: message.text.text } });
+const live = (message) => ({ message_id: message.message_id, seq: message.seq, conv_id: message.conversation_id,
+  sender_id: message.sender_id, sender_type: message.sender_type, sender_name: message.sender_name, sender_avatar: message.sender_avatar,
+  binding_id: message.binding_id, requester_id: message.requester_id, raw_payload: message.raw_payload,
+  msg_type: message.type, content: message.type === 1 ? message.text : message.file ?? message.result });
 const snapshot = (id, messages = []) => ({
   conversation: { id: typeof id === 'string' ? id : uuid(id), type: 2, name: `conversation-${id}`, max_seq: messages.at(-1)?.seq ?? 0 },
   messages,
@@ -133,14 +136,13 @@ test('legacy numeric reply and deletion references discard the entire persisted 
 });
 
 test('numeric knowledge source references invalidate a Bot snapshot and rebuild without restoring the stale source', async () => {
-  const botMessage = { ...msg(1001, 101, 1), type: 9, text: undefined,
-    bot: { bot_id: uuid(7), bot_name: 'source Bot', text: 'answer', is_streaming: false,
-      raw_payload: JSON.stringify({ kb_sources: [{ type: 'rag', kb_id: uuid(8), doc_id: uuid(9), chunk_id: uuid(10), kb_name: 'KB', title: 'Doc', content: 'source' }] }) } };
+  const botMessage = { ...msg(1001, 101, 1), sender_id: uuid(7), sender_type: 'bot', sender_name: 'source Bot', binding_id: uuid(11), requester_id: uuid(2),
+    raw_payload: JSON.stringify({ kb_sources: [{ type: 'rag', kb_id: uuid(8), doc_id: uuid(9), chunk_id: uuid(10), kb_name: 'KB', title: 'Doc', content: 'source' }] }) };
   const account = await start(rebuild(10, [snapshot(101, [botMessage])]));
   const cache = await storage.loadUserSyncCache(account);
-  const payload = JSON.parse(cache.messages[uuid(101)][0].content.bot.raw_payload);
+  const payload = JSON.parse(cache.messages[uuid(101)][0].raw_payload);
   payload.kb_sources[0].chunk_id = 10;
-  cache.messages[uuid(101)][0].content.bot.raw_payload = JSON.stringify(payload);
+  cache.messages[uuid(101)][0].raw_payload = JSON.stringify(payload);
   await setStoredValue(account, cache, snapshotStore);
   assert.equal(await storage.loadUserSyncCache(account), null);
   engine.reset(); engine.start(account);
@@ -149,6 +151,30 @@ test('numeric knowledge source references invalidate a Bot snapshot and rebuild 
   assert.equal(positions.at(-1), '0');
   assert.deepEqual(engine.getState(uuid(101)).messages.map((message) => message.message_id), [uuid(1002)]);
   assert.equal((await storage.loadUserSyncCache(account)).position, 20);
+});
+
+test('Bot text, file and result retain one sender and independent binding identities after realtime and cache reopening', async () => {
+  const bot = { sender_id: uuid(7), sender_type: 'bot', sender_name: 'shared Bot', sender_avatar: '/bot.png', requester_id: uuid(2) };
+  const text = { ...msg(1001, 101, 1), ...bot, binding_id: uuid(11) };
+  const file = { ...msg(2001, 202, 1), ...bot, binding_id: uuid(12), type: 3, text: undefined,
+    file: { file_id: uuid(20), name: 'output.txt', mime_type: 'text/plain' } };
+  const result = { ...msg(1002, 101, 2), ...bot, binding_id: uuid(13), type: 10, text: undefined,
+    result: { type: 'report', data: '{"answer":42}' } };
+  const account = await start(rebuild(10, [snapshot(101, [text]), snapshot(202)]));
+  engine.onWsMessage(uuid(202), live(file));
+  assert.equal(engine.getState(uuid(202)).messages[0].content.file.name, 'output.txt');
+  engine.onWsMessage(uuid(101), live(result));
+  pages.push({ next_position: 12, changes: [change(11, file), change(12, result)] });
+  await engine.reSync();
+  engine.reset(); engine.start(account); pages.push({ next_position: 12 }); await engine.reSync();
+  const messages = [...engine.getState(uuid(101)).messages, ...engine.getState(uuid(202)).messages];
+  assert.deepEqual(messages.map((message) => [message.sender_id, message.sender_type, message.binding_id]), [
+    [uuid(7), 'bot', uuid(11)], [uuid(7), 'bot', uuid(13)], [uuid(7), 'bot', uuid(12)],
+  ]);
+  assert.deepEqual(messages.map((message) => [message.sender_name, message.sender_avatar, message.requester_id]),
+    messages.map(() => ['shared Bot', '/bot.png', uuid(2)]));
+  assert.equal(messages[1].content.result.data, '{"answer":42}');
+  assert.equal(messages[2].content.file.name, 'output.txt');
 });
 
 test('an invalid later entry rejects the entire page and leaves the durable position and cache unchanged', async () => {

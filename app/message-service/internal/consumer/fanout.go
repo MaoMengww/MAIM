@@ -213,11 +213,8 @@ func messagePreview(evt event.InboxChangeEvent) string {
 			return action
 		}
 		return "[系统消息]"
-	case 9:
-		if text != "" {
-			return text
-		}
-		return "[机器人消息]"
+	case 10:
+		return "[执行结果]"
 	}
 	return "[消息]"
 }

@@ -411,7 +411,7 @@ agent, err := react.NewAgent(ctx, &react.AgentConfig{
 
 1. **系统提示词**：模板渲染 `{botname}`, `{username}`, `{user_language}`, `{message}` 等变量
 2. **知识库内容**：通过 `KnowledgeResolver` 检索绑定的知识库（RAG 模式）
-3. **历史消息**：从 message-service 获取最近 N 条消息
+3. **显式历史来源**：默认不读取会话最近消息；只有携带当前绑定的 `history_grant_id` 才通过 Bot 自身限定资格读取获准 seq 范围，历史作为来源材料而非本 Bot 的旧 assistant 轨迹。
 
 #### 知识检索
 
@@ -592,6 +592,25 @@ Parent 块（~4096 字符）  ─────── 提供 LLM 上下文窗口
 | **Official** | 官方 Bot，基于模板（qa/knowledge） | 平台模型 | 内部 Kafka |
 | **Self-Deployed** | 用户自有 API Key + BaseURL | 用户自提供 | 内部 Kafka |
 | **Third-Party** | 第三方 Bot | 外部 | WebSocket 或 Webhook |
+
+#### 独立身份与会话绑定
+
+Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话，不创建用户账号或普通群成员。人类成员数、容量、角色、设备、presence、未读和已读不计入 Bot。会话管理员可邀请他人拥有的 active Bot；Bot 所有者、绑定邀请者 `added_by`、本次 `requester_id` 和消息 `sender_id` 分别表达，所有权不授予会话内容读取权。
+
+消息实体统一返回 `sender_id`、`sender_type=user|bot|system`、展示快照 `sender_name/sender_avatar`；新 Bot 输出携带开始时的 `binding_id` 与实际请求者。内容独立使用文本 1、文件 3、结果 10；结果使用 `result: {type,data}`，执行来源和工具 metadata 位于顶层 `raw_payload`。原 Bot 内容类型 9 已退出，历史、引用、搜索、收件箱和实时投递采用同一身份。非法 metadata 在持久化前统一拒绝，不能通过 Bot 输出阻断人的同步流。
+
+公开接口：
+
+- 用户 JWT：`POST /api/v1/convs/:id/bots/:bot_id/history-grants`，提交 `{binding_id,start_seq,end_seq}`，返回 `grant_id`。授权者必须仍是当前人类成员，范围不得超过已提交历史或包含其不可见来源。
+- Bot bearer：`GET /api/v1/bot-app/convs/:id/messages?binding_id=…&history_grant_id=…&cursor=0&limit=30`。没有默认全群历史；查询校验当前绑定、授权者资格和来源可见性，持久记录实际读取范围。cursor 不得越过授权范围，引用不扩张权限。
+- Bot bearer：`POST /api/v1/bot-app/messages`，提交 `{conversation_id,binding_id,requester_id?,type,text?|file?|result?,raw_payload?}`；Bot 身份来自凭据而非调用者自报。文件仅允许已确认且公开可分享的对象，不借用请求者身份读取私有文件。
+- Bot WS / 签名 Webhook：`type=message.send`、`binding_id`、可选 `requester_id`、`msg_type=text|file|result` 与对应 `content`；WS 用 `conv_id`，Webhook 用 `conversation_id`。第三方输入携带获准绑定和来源发送者；送达不代表取得其它历史权限。
+
+移出设置 `revoked_at`，重新加入产生新绑定 UUID；旧授权、旧输出和旧工作关系不能借重入恢复。绑定在邀请事务中记录会话 `start_seq`，异步输入按 seq 水位而非秒级时间过滤，避免同秒重入接收迟到旧输入。普通消息事务、seq、outbox、收件箱、扇出和实时投递继续复用，消息热路径不调用 Bot 控制进程。
+
+新库及已有 UUID 库统一应用 `003_bot_conversation_identity.sql`：清理旧伪成员、重算人类数量、保留撤销绑定，转换旧类型9消息及待发布/失败事件；旧消息无法证明的请求者和绑定保持缺失，不虚构。既有搜索投影同步退役类型9；浏览器旧身份缓存整份失效并重建。
+
+验收入口：`python3 tests/e2e/run.py --scenario bot-identity`，也包含在 `all` 中。覆盖跨会话身份、REST/WS/Webhook 文本/文件/结果、限定历史、移出重入、owner/inviter/requester 分离、搜索/引用/同步和恶意 metadata 拒绝。
 
 ---
 

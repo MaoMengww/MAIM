@@ -438,35 +438,28 @@ func TestCoalescedCheckpointExpiresBeforeSurvivingReadEntry(t *testing.T) {
 	require.Equal(t, int64(2), page.Entries[0].LastReadSeq)
 }
 
-func TestTypedMembershipAdmissionAndSendAuthority(t *testing.T) {
+func TestHumanMembershipAdmissionAndSendAuthority(t *testing.T) {
 	db, userID, convID, _ := inboxIntegrationDB(t)
 	r := NewConversationRepo(db)
-	botID, sharedID := storageID(t), storageID(t)
+	otherID, botID := storageID(t), storageID(t)
 	members := []model.ConversationMember{
 		{ID: storageID(t), ConvID: convID, MemberType: model.MemberTypeUser, UserID: &userID},
-		{ID: storageID(t), ConvID: convID, MemberType: model.MemberTypeBot, BotID: &botID, IsMuted: true},
-		{ID: storageID(t), ConvID: convID, MemberType: model.MemberTypeUser, UserID: &sharedID},
-		{ID: storageID(t), ConvID: convID, MemberType: model.MemberTypeBot, BotID: &sharedID},
+		{ID: storageID(t), ConvID: convID, MemberType: model.MemberTypeUser, UserID: &otherID, IsMuted: true},
 	}
-	added, failed, err := r.AddMembersWithinLimit(t.Context(), convID, members, 4)
+	added, failed, err := r.AddMembersWithinLimit(t.Context(), convID, members, 2)
 	require.NoError(t, err)
-	require.Equal(t, []string{userID, botID, sharedID, sharedID}, added)
+	require.Equal(t, []string{userID, otherID}, added)
 	require.Empty(t, failed)
-	added, failed, err = r.AddMembersWithinLimit(t.Context(), convID, []model.ConversationMember{members[1]}, 4)
-	require.NoError(t, err)
-	require.Empty(t, added)
-	require.Equal(t, []string{botID}, failed)
+	// A Bot binding does not consume a human slot or confer human send authority.
+	bindingID := storageID(t)
+	require.NoError(t, r.AddBot(t.Context(), &model.ConvBot{ID: bindingID, ConvID: convID, BotID: botID, AddedBy: userID}))
+	t.Cleanup(func() { require.NoError(t, db.Exec("DELETE FROM messaging.conv_bots WHERE id = ?", bindingID).Error) })
 	for _, actor := range []struct {
-		id, kind      string
+		id            string
 		member, muted bool
-	}{
-		{userID, model.MemberTypeUser, true, false},
-		{userID, model.MemberTypeBot, false, false},
-		{botID, model.MemberTypeBot, true, true},
-		{botID, model.MemberTypeUser, false, false},
-	} {
+	}{{userID, true, false}, {otherID, true, true}, {botID, false, false}} {
 		require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
-			permission, err := r.CheckSendPermission(t.Context(), tx, convID, actor.id, actor.kind)
+			permission, err := r.CheckSendPermission(t.Context(), tx, convID, actor.id)
 			if err != nil {
 				return err
 			}
@@ -476,17 +469,9 @@ func TestTypedMembershipAdmissionAndSendAuthority(t *testing.T) {
 		}))
 	}
 	newID := storageID(t)
-	_, _, err = r.AddMembersWithinLimit(t.Context(), convID, []model.ConversationMember{{ID: storageID(t), ConvID: convID, MemberType: model.MemberTypeBot, BotID: &newID}}, 4)
+	_, _, err = r.AddMembersWithinLimit(t.Context(), convID, []model.ConversationMember{{ID: storageID(t), ConvID: convID, MemberType: model.MemberTypeUser, UserID: &newID}}, 2)
 	require.ErrorIs(t, err, ErrMemberLimitReached)
-	// Mixed actor references cannot partially admit an earlier valid candidate.
-	_, _, err = r.AddMembersWithinLimit(t.Context(), convID, []model.ConversationMember{
-		{ID: storageID(t), ConvID: convID, MemberType: model.MemberTypeUser, UserID: &newID},
-		{ID: storageID(t), ConvID: convID, MemberType: model.MemberTypeBot, BotID: &newID, UserID: &newID},
-	}, 6)
-	require.Error(t, err)
 	count, err := r.CountMembers(t.Context(), convID)
 	require.NoError(t, err)
-	require.Equal(t, int64(4), count)
-	_, err = r.GetMember(t.Context(), convID, newID)
-	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	require.Equal(t, int64(2), count)
 }

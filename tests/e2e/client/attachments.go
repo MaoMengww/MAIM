@@ -59,7 +59,7 @@ type uploadedAttachment struct {
 type attachmentACK struct {
 	MessageID entityID       `json:"message_id"`
 	ConvID    entityID       `json:"conv_id"`
-	SenderID  entityID       `json:"from_user_id"`
+	SenderID  entityID       `json:"sender_id"`
 	Seq       sequenceNumber `json:"seq"`
 	CreatedAt int64          `json:"created_at,string"`
 	Type      int32          `json:"type"`

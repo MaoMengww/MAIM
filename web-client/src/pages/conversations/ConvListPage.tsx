@@ -46,7 +46,7 @@ function formatTime(ts: number): string {
 
 const MSG_TYPE_LABELS: Record<number, string> = {
   1: '文本', 2: '图片', 3: '文件', 4: '视频',
-  5: '语音', 6: '位置', 7: '系统', 8: '自定义', 9: 'Bot',
+  5: '语音', 6: '位置', 7: '系统', 8: '自定义', 10: '结果',
 };
 
 function convTitle(c: Conversation): string {
@@ -70,6 +70,7 @@ function extractTextPreview(content: any): string {
   if (content.file) return `[文件] ${content.file.name || content.file.file_name || ''}`;
   if (content.audio) return '[语音]';
   if (content.video) return '[视频]';
+  if (content.result) return `[结果] ${content.result.type || ''} ${content.result.data || ''}`;
   if (content.file_name) return `[文件] ${content.file_name}`;
   if (content.image_url) return '[图片]';
   return '';
@@ -189,10 +190,10 @@ export function ConvListPage() {
         const text = extractTextPreview(msg?.content);
         if (!text) return;
 
-        if (conv.type === 'group' && msg.from_user_id) {
-          const sender = friends.find((f: any) => f.user_id === msg.from_user_id);
-          const name = sender?.remark || sender?.username
-            || (msg.from_user_id === useAuthStore.getState().user?.id ? useAuthStore.getState().user?.username : undefined);
+        if (conv.type === 'group' && msg.sender_id) {
+          const sender = msg.sender_type === 'user' ? friends.find((friend) => friend.user_id === msg.sender_id) : undefined;
+          const name = msg.sender_name || sender?.remark || sender?.username
+            || (msg.sender_type === 'user' && msg.sender_id === useAuthStore.getState().user?.id ? useAuthStore.getState().user?.username : undefined);
           updates[conv.id] = name ? `${name}: ${text}` : text;
         } else {
           updates[conv.id] = text;
@@ -497,7 +498,8 @@ export function ConvListPage() {
               {searchResults.map((msg: any) => {
                 const conv = convMap.get(msg.conversation_id);
                 const highlight = searchHighlights[msg.message_id];
-                const senderName = friendNameMap.get(msg.from_user_id);
+                const senderName = msg.sender_name || (msg.sender_type === 'user' ? friendNameMap.get(msg.sender_id) : undefined)
+                  || `${msg.sender_type === 'bot' ? 'Bot' : '用户'} ${msg.sender_id || ''}`;
                 return (
                   <div
                     key={msg.message_id}
@@ -517,7 +519,7 @@ export function ConvListPage() {
                       </span>
                     </div>
                     {senderName && (
-                      <div className="conv-search-result-sender">{senderName}</div>
+                      <div className="conv-search-result-sender">{senderName}{msg.sender_type === 'bot' ? ' [Bot]' : ''}</div>
                     )}
                     <div className="conv-search-result-preview">
                       {highlight ? (

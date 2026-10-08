@@ -39,10 +39,12 @@ func (l *ListBotsLogic) ListBots(in *conversation.ListBotsReq) (*conversation.Li
 		botIDs[i] = cb.BotID
 	}
 	botMap := make(map[string]*botpb.Bot, len(botIDs))
-	if bots, err := l.svcCtx.ConversationRepo.GetBotsByIDs(l.ctx, botIDs); err == nil {
-		for i := range bots {
-			botMap[bots[i].Id] = bots[i]
-		}
+	botDetails, err := l.svcCtx.ConversationRepo.GetBotsByIDs(l.ctx, botIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, bot := range botDetails {
+		botMap[bot.Id] = bot
 	}
 
 	bots := make([]*conversation.BotInConv, 0, len(cbs))
@@ -56,12 +58,18 @@ func (l *ListBotsLogic) ListBots(in *conversation.ListBotsReq) (*conversation.Li
 		bot := botMap[cb.BotID]
 		name := ""
 		avatar := ""
+		ownerType := ""
+		var ownerID *string
 		if bot != nil {
 			name = bot.Name
 			avatar = bot.Avatar
+			ownerType, ownerID = bot.OwnerType, bot.OwnerId
 		}
 		bots = append(bots, &conversation.BotInConv{
 			BotId:       cb.BotID,
+			BindingId:   cb.ID,
+			OwnerType:   ownerType,
+			OwnerId:     ownerID,
 			Name:        name,
 			Avatar:      avatar,
 			BotSettings: settingsStr,

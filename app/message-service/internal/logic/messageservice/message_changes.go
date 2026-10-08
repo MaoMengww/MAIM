@@ -14,7 +14,7 @@ import (
 // lockMutableMessage follows the send path's conversation-first lock order.
 // Removal cannot race authorization, nor can concurrent edits lose edit history.
 func lockMutableMessage(ctx context.Context, s *svc.ServiceContext, tx *gorm.DB, convID, messageID, userID string) (*model.Message, error) {
-	permission, err := s.ConversationRepo.CheckSendPermission(ctx, tx, convID, userID, model.MemberTypeUser)
+	permission, err := s.ConversationRepo.CheckSendPermission(ctx, tx, convID, userID)
 	if err != nil {
 		return nil, err
 	}

@@ -123,6 +123,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}); err != nil {
 		panic(fmt.Sprintf("ensure message search index failed: %v", err))
 	}
+	if err := esClient.MigrateBotContent(context.Background(), consts.ESIndexMessages); err != nil {
+		panic(fmt.Sprintf("migrate bot search projection failed: %v", err))
+	}
 
 	fileConn := zrpc.MustNewClient(c.FileService)
 

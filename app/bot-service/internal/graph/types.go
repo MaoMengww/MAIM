@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 	"unicode/utf8"
+
+	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
 )
 
 // KnowledgeSource represents a knowledge base source attached to a bot reply.
@@ -44,8 +46,8 @@ type StreamChunk struct {
 
 // MsgClient abstracts gRPC calls to message-service.
 type MsgClient interface {
-	GetRecentMessages(ctx context.Context, convID, userID string, limit int) ([]Message, error)
-	SendBotReply(ctx context.Context, botID, convID string, text string, replyTo *string, rawPayload ...string) (string, error)
+	GetGrantedMessages(ctx context.Context, botID, convID, bindingID, grantID string, limit int) ([]Message, error)
+	SendBotReply(ctx context.Context, req *msgpb.SendBotReplyReq) (string, error)
 }
 
 // KbClient abstracts gRPC calls to knowledge-base.
@@ -59,14 +61,17 @@ type UserNamesFunc func(ctx context.Context, userIDs []string) (map[string]strin
 
 // Message is a simplified message from message-service.
 type Message struct {
-	MsgID      string
-	SenderID   *string
-	BotID      string
-	SenderName string
-	Content    string
-	MsgType    int32
-	Seq        int64
-	CreatedAt  int64
+	MsgID        string
+	SenderID     *string
+	SenderType   string
+	BindingID    *string
+	RequesterID  *string
+	SenderName   string
+	SenderAvatar string
+	Content      string
+	MsgType      int32
+	Seq          int64
+	CreatedAt    int64
 }
 
 // KbDocument is a knowledge base document snippet.
@@ -100,12 +105,12 @@ func FormatKnowledge(docs []KbDocument) string {
 	return out
 }
 
-// FormatHistory formats recent messages for prompt injection.
+// FormatHistory formats explicitly granted messages for prompt injection.
 func FormatHistory(msgs []Message) string {
 	if len(msgs) == 0 {
 		return ""
 	}
-	out := "最近的对话:\n"
+	out := "获准引用的对话:\n"
 	for _, m := range msgs {
 		out += fmt.Sprintf("[%s][%s]: %s\n", formatMessageTime(m.CreatedAt), messageSenderName(m), m.Content)
 	}
@@ -117,12 +122,16 @@ func messageSenderName(m Message) string {
 		return m.SenderName
 	}
 	if m.SenderID != nil {
-		return "user_" + *m.SenderID
-	}
-	if m.BotID != "" {
-		return "bot_" + m.BotID
+		return m.SenderType + "_" + *m.SenderID
 	}
 	return "system"
+}
+
+func messageSenderID(m Message) string {
+	if m.SenderID == nil {
+		return ""
+	}
+	return *m.SenderID
 }
 
 func formatMessageTime(ts int64) string {

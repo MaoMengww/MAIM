@@ -64,12 +64,14 @@ export function MainLayout() {
         if (typeof key[1] !== 'string' || !ids.has(key[1])) {
           queryClient.removeQueries({ queryKey: key, exact: true });
           queryClient.removeQueries({ queryKey: ['conv-members', key[1]], exact: true });
+          queryClient.removeQueries({ queryKey: ['conv-bots', key[1]], exact: true });
         }
       }
       for (const conversation of conversations) {
         queryClient.setQueryData(['conversation', conversation.id], conversation);
       }
       void queryClient.invalidateQueries({ queryKey: ['conv-members'] });
+      void queryClient.invalidateQueries({ queryKey: ['conv-bots'] });
     });
     // Realtime is a wake-up hint. Online and offline changes use the same
     // validated, ordered HTTP page and atomic cache commit.

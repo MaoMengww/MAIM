@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/app/bot-service/internal/stream"
+	msgpb "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/logx"
 )
@@ -92,6 +94,9 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 	if err != nil {
 		return fmt.Errorf("parse event: %w", err)
 	}
+	if event.Sender != nil && (event.Sender.SenderType == "bot" || event.Sender.SenderType == "system") {
+		return nil
+	}
 
 	if event.BotID == "" && event.ConvID != "" && h.convBotRepo != nil {
 		bots, err := h.convBotRepo.FindByConv(ctx, event.ConvID)
@@ -100,6 +105,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		}
 		for _, binding := range bots {
 			event.BotID = binding.BotID
+			event.BindingID = binding.ID
 			payload, err := json.Marshal(event)
 			if err != nil {
 				return err
@@ -115,11 +121,22 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		return nil
 	}
 
-	if event.Sender != nil && event.Sender.UserID != nil && *event.Sender.UserID == event.BotID {
+	bot, convBot, err := h.botRepo.FindByIDWithConvBot(ctx, event.BotID, event.ConvID)
+	if err != nil {
+		return fmt.Errorf("bot/conv not found: %w", err)
+	}
+	if event.BindingID != "" && event.BindingID != convBot.ID {
 		return nil
 	}
-
-	eventID := fmt.Sprintf("%s_%s_%s", msgID, event.EventType, event.BotID)
+	if event.Message != nil && event.Message.Seq <= convBot.StartSeq {
+		return nil
+	}
+	event.BindingID = convBot.ID
+	var requesterID *string
+	if event.Sender != nil && event.Sender.SenderType == "user" {
+		requesterID = event.Sender.UserID
+	}
+	eventID := fmt.Sprintf("%s_%s_%s", msgID, event.EventType, convBot.ID)
 	isDup, err := h.dedup.IsDuplicate(ctx, eventID)
 	if err != nil {
 		return fmt.Errorf("dedup check failed: %w", err)
@@ -128,10 +145,6 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		return nil
 	}
 
-	bot, convBot, err := h.botRepo.FindByIDWithConvBot(ctx, event.BotID, event.ConvID)
-	if err != nil || bot == nil {
-		return fmt.Errorf("bot/conv not found: %w", err)
-	}
 	if bot.Status != "active" {
 		return nil
 	}
@@ -231,7 +244,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		if event.Message != nil {
 			replyToMsgID = &event.Message.MsgID
 		}
-		pusher := stream.NewDeliveryPusher(ctx, h.deliveryClient, event.ConvID, event.BotID, replyToMsgID)
+		pusher := stream.NewDeliveryPusher(ctx, h.deliveryClient, event.ConvID, event.BotID, convBot.ID, requesterID, replyToMsgID)
 
 		stream, streamErr := agent.Stream(ctx, []*schema.Message{
 			{Role: schema.User, Content: msgText},
@@ -254,7 +267,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 			if event.Message != nil {
 				replyTo = &event.Message.MsgID
 			}
-			if _, fbErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, fallbackText, replyTo, rawPayload); fbErr != nil {
+			if _, fbErr := h.msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: event.BotID, ConversationId: event.ConvID, BindingId: convBot.ID, RequesterId: requesterID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: fallbackText, ReplyToId: replyTo, RawPayload: rawPayload}); fbErr != nil {
 				h.logger.WithContext(ctx).Errorf("send fallback failed: event_id=%s error=%v", eventID, fbErr)
 			}
 			return fmt.Errorf("agent stream: %w", streamErr)
@@ -315,7 +328,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 			})
 		}
 
-		respMsgID, sendErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, fullText, replyToMsgID, rawPayload)
+		respMsgID, sendErr := h.msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: event.BotID, ConversationId: event.ConvID, BindingId: convBot.ID, RequesterId: requesterID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: fullText, ReplyToId: replyToMsgID, RawPayload: rawPayload})
 		if sendErr != nil {
 			h.logger.WithContext(ctx).Errorf("send reply failed: event_id=%s error=%v", eventID, sendErr)
 			return fmt.Errorf("send bot reply: %w", sendErr)
@@ -351,7 +364,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		if event.Message != nil {
 			replyTo = &event.Message.MsgID
 		}
-		if _, fbErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, fallbackText, replyTo, rawPayload); fbErr != nil {
+		if _, fbErr := h.msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: event.BotID, ConversationId: event.ConvID, BindingId: convBot.ID, RequesterId: requesterID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: fallbackText, ReplyToId: replyTo, RawPayload: rawPayload}); fbErr != nil {
 			h.logger.WithContext(ctx).Errorf("send fallback failed: event_id=%s error=%v", eventID, fbErr)
 		}
 		return fmt.Errorf("agent generate: %w", genErr)
@@ -371,7 +384,7 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 	}
 	rawPayload := graph.BuildRawPayload(ctxResult.KbSources, usedTools)
 
-	if _, sendErr := h.msgClient.SendBotReply(ctx, event.BotID, event.ConvID, finalText, replyTo, rawPayload); sendErr != nil {
+	if _, sendErr := h.msgClient.SendBotReply(ctx, &msgpb.SendBotReplyReq{BotId: event.BotID, ConversationId: event.ConvID, BindingId: convBot.ID, RequesterId: requesterID, Type: msgpb.MessageType_MESSAGE_TYPE_TEXT, Text: finalText, ReplyToId: replyTo, RawPayload: rawPayload}); sendErr != nil {
 		h.logger.WithContext(ctx).Errorf("send reply failed: event_id=%s error=%v", eventID, sendErr)
 		return fmt.Errorf("send bot reply: %w", sendErr)
 	}
@@ -412,8 +425,10 @@ func parseEvent(raw []byte) (*model.BotEvent, string, error) {
 			MessageID    string  `json:"message_id"`
 			SenderID     *string `json:"sender_id"`
 			SenderName   string  `json:"sender_name"`
+			SenderType   string  `json:"sender_type"`
 			MsgType      int32   `json:"msg_type"`
 			CreatedAt    int64   `json:"created_at"`
+			Seq          int64   `json:"seq"`
 			ReplyToMsgID *string `json:"reply_to_msg_id"`
 			Content      struct {
 				Text     string   `json:"text"`
@@ -426,12 +441,15 @@ func parseEvent(raw []byte) (*model.BotEvent, string, error) {
 		if evt.EventType == "" {
 			evt.EventType = "message.created"
 		}
-		evt.Message = &model.EventMessage{MsgID: flat.MessageID, Text: flat.Content.Text, MsgType: flat.MsgType, ReplyToMsgID: flat.ReplyToMsgID, CreatedAt: flat.CreatedAt}
-		evt.Sender = &model.EventSender{UserID: flat.SenderID, Username: flat.SenderName}
+		evt.Message = &model.EventMessage{MsgID: flat.MessageID, Text: flat.Content.Text, MsgType: flat.MsgType, ReplyToMsgID: flat.ReplyToMsgID, CreatedAt: flat.CreatedAt, Seq: flat.Seq}
+		evt.Sender = &model.EventSender{UserID: flat.SenderID, SenderType: flat.SenderType, Username: flat.SenderName}
 		evt.MentionedUserIDs = flat.Content.Mentions
 	}
 	if identity.Validate(evt.ConvID) != nil || identity.Validate(evt.Message.MsgID) != nil || (evt.BotID != "" && identity.Validate(evt.BotID) != nil) {
 		return nil, "", fmt.Errorf("invalid bot event identity")
+	}
+	if (evt.BindingID != "" && identity.Validate(evt.BindingID) != nil) || (evt.HistoryGrantID != "" && identity.Validate(evt.HistoryGrantID) != nil) {
+		return nil, "", fmt.Errorf("invalid bot binding or history grant identity")
 	}
 	if evt.Sender != nil && evt.Sender.UserID != nil && identity.Validate(*evt.Sender.UserID) != nil {
 		return nil, "", fmt.Errorf("invalid event sender identity")
@@ -474,7 +492,7 @@ func shouldRespond(event *model.BotEvent, bot *model.Bot) bool {
 		case trigger == "always":
 			return true
 		case trigger == "mention":
-			if len(event.MentionedUserIDs) > 0 {
+			if slices.Contains(event.MentionedUserIDs, bot.ID) {
 				return true
 			}
 		case strings.HasPrefix(trigger, "keyword:"):

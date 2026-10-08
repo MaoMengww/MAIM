@@ -24,12 +24,6 @@ type runtimeKnowledgeSource struct {
 	Content string   `json:"content"`
 }
 
-type runtimeBotContent struct {
-	BotID entityID `json:"bot_id"`
-	Text  string   `json:"text"`
-	Raw   string   `json:"raw_payload"`
-}
-
 func runtimeSourcePayload(raw string, expected []runtimeKnowledgeSource) error {
 	var payload struct {
 		Sources []runtimeKnowledgeSource `json:"kb_sources"`
@@ -78,12 +72,19 @@ func (d *driver) runtimeCompositionExchange(caller account, address string, botI
 			Seq       int64     `json:"seq"`
 			Content   string    `json:"content"`
 			Message   struct {
-				ID        entityID          `json:"message_id"`
-				ConvID    entityID          `json:"conv_id"`
-				SenderID  *entityID         `json:"sender_id"`
-				ReplyToID *entityID         `json:"reply_to_msg_id"`
-				Seq       sequenceNumber    `json:"seq"`
-				Content   runtimeBotContent `json:"content"`
+				ID          entityID       `json:"message_id"`
+				ConvID      entityID       `json:"conv_id"`
+				SenderID    *entityID      `json:"sender_id"`
+				SenderType  string         `json:"sender_type"`
+				BindingID   *entityID      `json:"binding_id"`
+				RequesterID *entityID      `json:"requester_id"`
+				RawPayload  string         `json:"raw_payload"`
+				MsgType     int32          `json:"msg_type"`
+				ReplyToID   *entityID      `json:"reply_to_msg_id"`
+				Seq         sequenceNumber `json:"seq"`
+				Content     struct {
+					Text string `json:"text"`
+				} `json:"content"`
 			} `json:"message"`
 		}
 		if err := conn.ReadJSON(&evt); err != nil {
@@ -96,10 +97,10 @@ func (d *driver) runtimeCompositionExchange(caller account, address string, botI
 			continue
 		}
 		if evt.Type == "message.new" && hasEntityID(evt.Message.SenderID, botID) && hasEntityID(evt.Message.ReplyToID, sent.MessageID) {
-			if evt.Message.ID == "" || evt.Message.ConvID != convID || evt.Message.Seq <= sent.Seq || evt.Message.Content.BotID != botID {
+			if evt.Message.ID == "" || evt.Message.ConvID != convID || evt.Message.Seq <= sent.Seq || evt.Message.SenderType != "bot" || evt.Message.MsgType != 1 || evt.Message.BindingID == nil || !hasEntityID(evt.Message.RequesterID, caller.id) {
 				return "", errors.New("p7.bot.ws: 回复和来源所属 Bot/会话/消息身份失配")
 			}
-			replyID, replyText, raw = evt.Message.ID, evt.Message.Content.Text, evt.Message.Content.Raw
+			replyID, replyText, raw = evt.Message.ID, evt.Message.Content.Text, evt.Message.RawPayload
 		}
 		if !hasEntityID(evt.BotID, botID) {
 			continue
@@ -137,10 +138,7 @@ func (d *driver) runtimeCompositionExchange(caller account, address string, botI
 		return "", err
 	}
 	var history struct {
-		Messages []struct {
-			storedMessage
-			Bot *runtimeBotContent `json:"bot"`
-		} `json:"messages"`
+		Messages []storedMessage `json:"messages"`
 	}
 	if err := d.request(http.MethodGet, "/convs/"+convID.String()+"/messages?cursor=0&limit=50", caller.token, nil, &history); err != nil {
 		return "", err
@@ -149,10 +147,10 @@ func (d *driver) runtimeCompositionExchange(caller account, address string, botI
 		if msg.MessageID != replyID {
 			continue
 		}
-		if msg.ConvID != convID || !hasEntityID(msg.SenderID, botID) || !hasEntityID(msg.ReplyToID, sent.MessageID) || msg.Bot == nil || msg.Bot.BotID != botID || msg.Bot.Text != replyText || msg.Bot.Raw != raw {
+		if msg.ConvID != convID || !hasEntityID(msg.SenderID, botID) || msg.SenderType != "bot" || msg.Type != 1 || msg.BindingID == nil || !hasEntityID(msg.RequesterID, caller.id) || !hasEntityID(msg.ReplyToID, sent.MessageID) || msg.Text.Text != replyText || msg.RawPayload != raw {
 			return "", errors.New("p7.bot.history: WS 来源和正文未还原到同一 Bot/会话/回复 UUID")
 		}
-		return replyText, runtimeSourcePayload(msg.Bot.Raw, sources)
+		return replyText, runtimeSourcePayload(msg.RawPayload, sources)
 	}
 	return "", errors.New("p7.bot.history: WS 回复 UUID 不在真实持久历史中")
 }
@@ -424,17 +422,14 @@ func (d *driver) runtimeCompositionStream(caller account, botID, convID entityID
 		return errors.New("p7.stream: 增强正文或来源未还原真实知识身份")
 	}
 	var history struct {
-		Messages []struct {
-			MessageID entityID           `json:"message_id"`
-			Bot       *runtimeBotContent `json:"bot"`
-		} `json:"messages"`
+		Messages []storedMessage `json:"messages"`
 	}
 	if err := d.request(http.MethodGet, "/convs/"+convID.String()+"/messages?cursor=0&limit=50", caller.token, nil, &history); err != nil {
 		return err
 	}
 	for _, msg := range history.Messages {
-		if msg.MessageID == doneID && msg.Bot != nil && msg.Bot.BotID == botID && msg.Bot.Text == final {
-			return runtimeSourcePayload(msg.Bot.Raw, expected)
+		if msg.MessageID == doneID && msg.SenderType == "bot" && hasEntityID(msg.SenderID, botID) && msg.BindingID != nil && hasEntityID(msg.RequesterID, caller.id) && msg.Type == 1 && msg.Text.Text == final {
+			return runtimeSourcePayload(msg.RawPayload, expected)
 		}
 	}
 	return errors.New("p7.stream: SSE回复与持久正文/来源失配")

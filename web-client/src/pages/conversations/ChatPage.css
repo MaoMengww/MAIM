@@ -290,6 +290,7 @@
 .chat-msg-footer {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 2px;
   padding: 0 4px;
@@ -845,6 +846,22 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.group-info-bot {
+  align-items: flex-start;
+}
+
+.group-info-bot .group-info-member-info {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.group-info-binding-details {
+  font-size: 12px;
+  color: var(--aim-text-secondary);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .group-info-member-name {

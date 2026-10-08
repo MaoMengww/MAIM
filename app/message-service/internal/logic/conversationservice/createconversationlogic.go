@@ -42,7 +42,7 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 		if err != nil {
 			return nil, ErrMemberAddFailed
 		}
-		if bot.Status != "active" || (bot.OwnerType != "platform" && (bot.OwnerId == nil || *bot.OwnerId != in.CreatorId)) {
+		if bot.Status != "active" {
 			return nil, ErrInsufficientPerm
 		}
 	}
@@ -119,15 +119,10 @@ func (l *CreateConversationLogic) CreateConversation(in *conversation.CreateConv
 	}
 	var convBot *model.ConvBot
 	if in.BotId != nil {
-		memberID, err := identity.New()
-		if err != nil {
-			return nil, err
-		}
 		relationID, err := identity.New()
 		if err != nil {
 			return nil, err
 		}
-		members = append(members, model.ConversationMember{ID: memberID, ConvID: id, MemberType: model.MemberTypeBot, BotID: in.BotId, Role: int32(conversation.MemberRole_MEMBER_ROLE_MEMBER), JoinedAt: now})
 		convBot = &model.ConvBot{ID: relationID, ConvID: id, BotID: *in.BotId, AddedBy: in.CreatorId, CreatedAt: now}
 	}
 	conv.MemberCount = int32(len(members))
@@ -201,22 +196,26 @@ func (l *CreateConversationLogic) resolvePrivatePeerInfo(conv *conversation.Conv
 	if conv == nil || conv.Type != conversation.ConversationType_CONVERSATION_TYPE_PRIVATE {
 		return
 	}
-	members, err := l.svcCtx.ConversationRepo.GetMembers(l.ctx, conv.Id, 0, BotResolveLimit)
+	bindings, err := l.svcCtx.ConversationRepo.ListBotsByConv(l.ctx, conv.Id)
+	if err != nil {
+		return
+	}
+	if len(bindings) > 0 {
+		if bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, bindings[0].BotID); err == nil {
+			conv.Name, conv.Avatar = bot.Name, bot.Avatar
+		}
+		return
+	}
+	members, err := l.svcCtx.ConversationRepo.GetMembers(l.ctx, conv.Id, 0, 2)
 	if err != nil {
 		return
 	}
 	for _, member := range members {
-		if member.UserID != nil && *member.UserID == creatorID {
+		if member.UserID == nil || *member.UserID == creatorID {
 			continue
 		}
-		if member.MemberType == model.MemberTypeBot && member.BotID != nil {
-			if bot, err := l.svcCtx.ConversationRepo.GetBot(l.ctx, *member.BotID); err == nil {
-				conv.Name, conv.Avatar = bot.Name, bot.Avatar
-			}
-		} else if member.UserID != nil {
-			if user, err := l.svcCtx.ProfileRepo.UserProfile(l.ctx, *member.UserID); err == nil {
-				conv.Name, conv.Avatar = user.Username, user.Avatar
-			}
+		if user, err := l.svcCtx.ProfileRepo.UserProfile(l.ctx, *member.UserID); err == nil {
+			conv.Name, conv.Avatar = user.Username, user.Avatar
 		}
 		return
 	}

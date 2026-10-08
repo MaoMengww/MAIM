@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/maomeng/aim/pkg/identity"
-	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/repo"
@@ -38,7 +37,7 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 		l.Errorf("get bot failed: bot_id=%s, err=%v", in.BotId, err)
 		return nil, ErrMemberAddFailed
 	}
-	if bot.Status != "active" || (bot.OwnerType != "platform" && (bot.OwnerId == nil || *bot.OwnerId != in.OperatorId)) {
+	if bot.Status != "active" {
 		return nil, ErrInsufficientPerm
 	}
 
@@ -54,43 +53,27 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 	}
 	if in.BotSettings != "" {
 		var settings map[string]any
-		if err := json.Unmarshal([]byte(in.BotSettings), &settings); err == nil {
-			cb.BotSettings = settings
+		if err := json.Unmarshal([]byte(in.BotSettings), &settings); err != nil {
+			return nil, ErrConvUpdateFailed
 		}
-	}
-
-	memberID, err := identity.New()
-	if err != nil {
-		return nil, fmt.Errorf("generate member id failed: %w", err)
-	}
-	member := &model.ConversationMember{
-		ID:         memberID,
-		ConvID:     in.ConversationId,
-		MemberType: model.MemberTypeBot,
-		BotID:      &in.BotId,
-		Role:       int32(conversation.MemberRole_MEMBER_ROLE_MEMBER),
-		JoinedAt:   time.Now(),
+		cb.BotSettings = settings
 	}
 
 	err = withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {
 			return err
 		}
-		added, _, err := r.AddMembersWithinLimit(l.ctx, conv.ID, []model.ConversationMember{*member}, l.svcCtx.Config.Conv.MaxMemberCount)
-		if err != nil {
+		if _, err := r.GetBotInConv(l.ctx, conv.ID, in.BotId); err == nil {
+			return ErrMemberAddFailed
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		if len(added) == 0 {
-			return ErrMemberAddFailed
-		}
+		cb.StartSeq = conv.MaxSeq
 		if err := r.AddBot(l.ctx, cb); err != nil {
 			return err
 		}
 		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)
 	})
-	if errors.Is(err, repo.ErrMemberLimitReached) {
-		return nil, ErrConvMaxMembers
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +83,7 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 			"event_type": "bot.added_to_conv",
 			"conv_id":    in.ConversationId,
 			"bot_id":     in.BotId,
+			"binding_id": cb.ID,
 			"added_by":   in.OperatorId,
 		})
 		if err := l.svcCtx.BotEventProducer.Send(l.ctx, "", eventData); err != nil {

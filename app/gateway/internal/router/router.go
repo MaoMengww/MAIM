@@ -7,6 +7,7 @@ import (
 	"github.com/maomeng/aim/app/gateway/internal/grpc"
 	"github.com/maomeng/aim/app/gateway/internal/handler"
 	"github.com/maomeng/aim/app/gateway/internal/middleware"
+	messagepb "github.com/maomeng/aim/app/message-service/pb/message"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
 	"github.com/maomeng/aim/pkg/jwt"
 	"github.com/maomeng/aim/pkg/logx"
@@ -44,6 +45,7 @@ func New(
 	notifH := handler.NewRealtimeHandler(clients.Realtime.Conn())
 	botClient := botpb.NewBotServiceClient(clients.BotService.Conn())
 	botH := handler.NewBotHandler(botClient, clients.Message.Conn(), clients.File.Conn())
+	botHistoryH := handler.NewBotHistoryHandler(botClient, messagepb.NewMessageServiceClient(clients.Message.Conn()))
 	kbH := handler.NewKnowledgeHandler(clients.KnowledgeBase.Conn())
 	var modelH *handler.ModelHandler
 	if clients.LLMGateway != nil {
@@ -133,6 +135,7 @@ func New(
 	convs.GET("", convH.ListConversations)
 	convs.PUT("/:id/read", convH.MarkAsRead)
 	convs.GET("/:id/read_status/:message_id", convH.GetReadStatus)
+	convs.POST("/:id/bots/:bot_id/history-grants", botHistoryH.Grant)
 
 	// Message
 	msgs := protected.Group("/messages")
@@ -245,6 +248,9 @@ func New(
 	}
 	// Webhook (no auth, HMAC signature — bot resolved by secret)
 	r.POST("/api/v1/webhook", botH.Webhook)
+	botApp := api.Group("/bot-app")
+	botApp.GET("/convs/:id/messages", botHistoryH.Read)
+	botApp.POST("/messages", botHistoryH.Send)
 
 	return r
 }

@@ -79,6 +79,7 @@ type botView struct {
 	ID          entityID  `json:"id"`
 	OwnerID     *entityID `json:"owner_id"`
 	Name        string    `json:"name"`
+	Avatar      string    `json:"avatar"`
 	ModelID     *entityID `json:"model_id"`
 	Prompt      string    `json:"system_prompt"`
 	Callback    string    `json:"callback_url"`
@@ -351,10 +352,12 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 		if evt.Type != "message.new" || !hasEntityID(evt.Message.SenderID, bot.ID) || !hasEntityID(evt.ConvID, conv.ID) || !hasEntityID(evt.Message.ReplyToID, sent.MessageID) {
 			continue
 		}
-		if evt.Message.Content.Text != "fixture-reply:"+text || evt.Message.MessageID == "" || evt.Message.Seq <= sent.Seq || evt.Message.ConvID != conv.ID {
+		if evt.Message.SenderType != "bot" || evt.Message.BindingID == nil || !hasEntityID(evt.Message.RequesterID, owner.id) || evt.Message.MsgType != 1 || evt.Message.Content.Text != "fixture-reply:"+text || evt.Message.MessageID == "" || evt.Message.Seq <= sent.Seq || evt.Message.ConvID != conv.ID {
 			return errors.New("bot.reply: Bot回复不是精确provider结果（拒绝fallback），或消息标识/seq无效")
 		}
 		reply.MessageID, reply.ConvID, reply.SenderID, reply.Seq = evt.Message.MessageID, conv.ID, bot.ID, evt.Message.Seq
+		reply.SenderType, reply.SenderName, reply.BindingID, reply.RequesterID, reply.RawPayload = evt.Message.SenderType, evt.Message.SenderName, evt.Message.BindingID, evt.Message.RequesterID, evt.Message.RawPayload
+		reply.SenderAvatar = evt.Message.SenderAvatar
 		reply.Content.Text = evt.Message.Content.Text
 		break
 	}
@@ -920,31 +923,34 @@ func (d *driver) runtimeConversationContracts(owner, outsider account, convID en
 }
 
 func (d *driver) runtimePrivateBotConversation(owner, outsider account, address string, botID entityID, suffix string) (result error) {
-	if err := d.runtimeReject(http.MethodPost, "/convs", outsider, map[string]any{"type": "single", "bot_id": botID}, http.StatusForbidden); err != nil {
-		return err
-	}
 	var conv struct {
 		ID entityID `json:"conversation_id"`
 	}
-	if err := d.request(http.MethodPost, "/convs", owner.token, map[string]any{"type": "single", "bot_id": botID}, &conv); err != nil {
+	if err := d.request(http.MethodPost, "/convs", outsider.token, map[string]any{"type": "single", "bot_id": botID}, &conv); err != nil {
 		return err
 	}
 	if conv.ID == "" {
 		return errors.New("bot.single: typed Bot单聊未返回UUID")
 	}
 	defer func() {
-		result = errors.Join(result, d.request(http.MethodDelete, "/convs/"+conv.ID.String(), owner.token, nil, nil))
+		result = errors.Join(result, d.request(http.MethodDelete, "/convs/"+conv.ID.String(), outsider.token, nil, nil))
 	}()
 	var repeated struct {
 		ID entityID `json:"conversation_id"`
 	}
-	if err := d.request(http.MethodPost, "/convs", owner.token, map[string]any{"type": "single", "bot_id": botID}, &repeated); err != nil {
+	if err := d.request(http.MethodPost, "/convs", outsider.token, map[string]any{"type": "single", "bot_id": botID}, &repeated); err != nil {
 		return err
 	}
 	if repeated.ID != conv.ID {
 		return errors.New("bot.single: 重复打开typed Bot单聊改变会话UUID")
 	}
-	user, err := d.inboxLoginDevice(owner, "bot_single")
+	if err := d.identityHumans(outsider, conv.ID, outsider.id); err != nil {
+		return err
+	}
+	if err := d.conversationForbidden("bot-owner-private-no-read", http.MethodGet, "/convs/"+conv.ID.String()+"/messages?cursor=0&limit=30", owner, nil); err != nil {
+		return err
+	}
+	user, err := d.inboxLoginDevice(outsider, "bot_single")
 	if err != nil {
 		return err
 	}
@@ -953,7 +959,7 @@ func (d *driver) runtimePrivateBotConversation(owner, outsider account, address 
 		return err
 	}
 	defer socket.close()
-	sent, err := d.sendMessage(owner, conv.ID, "P5_BOT_REQUEST_"+suffix+"_single", 0)
+	sent, err := d.sendMessage(outsider, conv.ID, "P5_BOT_REQUEST_"+suffix+"_single", 0)
 	if err != nil {
 		return err
 	}
@@ -963,10 +969,12 @@ func (d *driver) runtimePrivateBotConversation(owner, outsider account, address 
 	if err != nil {
 		return err
 	}
-	if evt.Message.MessageID == "" || evt.Message.ConvID != conv.ID || evt.Message.Seq <= sent.Seq || evt.Message.Content.Text != "fixture-reply:"+sent.Content.Text {
+	if evt.Message.SenderType != "bot" || evt.Message.MsgType != 1 || evt.Message.BindingID == nil || !hasEntityID(evt.Message.RequesterID, outsider.id) || evt.Message.MessageID == "" || evt.Message.ConvID != conv.ID || evt.Message.Seq <= sent.Seq || evt.Message.Content.Text != "fixture-reply:"+sent.Content.Text {
 		return errors.New("bot.single: typed Bot单聊没有精确provider回复与消息UUID")
 	}
 	reply := sentMessage{MessageID: evt.Message.MessageID, ConvID: conv.ID, SenderID: botID, Seq: evt.Message.Seq}
+	reply.SenderType, reply.SenderName, reply.BindingID, reply.RequesterID, reply.RawPayload = evt.Message.SenderType, evt.Message.SenderName, evt.Message.BindingID, evt.Message.RequesterID, evt.Message.RawPayload
+	reply.SenderAvatar = evt.Message.SenderAvatar
 	reply.Content.Text = evt.Message.Content.Text
-	return d.conversationMessage("bot.single.read", owner, reply)
+	return d.conversationMessage("bot.single.read", outsider, reply)
 }
