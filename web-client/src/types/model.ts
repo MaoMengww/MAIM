@@ -127,6 +127,7 @@ export interface BotInConv {
   name: string;
   avatar: string;
   type: string;
+  status: string;
   response_triggers: string[];
   bot_settings: string;
   added_by: string;
@@ -155,6 +156,12 @@ export interface BotRun {
   conv_id: string;
   binding_id: string;
   requester_id: string;
+  controller_id: string;
+  control_user_ids: string[];
+  stop_status: 'none' | 'requested' | 'confirmed' | 'rejected' | 'unknown';
+  stream_status: 'open' | 'closed';
+  stop_reason: string;
+  can_control?: boolean;
   input_key: string;
   source_message_id?: string;
   input_version: number;
@@ -170,7 +177,7 @@ export interface BotRun {
     parent_run_id?: string;
   }[];
   generation: number;
-  status: 'accepted' | 'running' | 'waiting_input' | 'stopping' | 'stopped' | 'succeeded' | 'failed';
+  status: 'accepted' | 'running' | 'waiting_input' | 'waiting_authorization' | 'stopping' | 'stopped' | 'succeeded' | 'failed';
   stage: string;
   waiting_reason: string;
   result_text: string;
@@ -179,7 +186,7 @@ export interface BotRun {
   executor_type: 'builtin' | 'third_party';
   executor_capabilities: { input_types: string[]; supports_input: boolean; supports_stop: boolean; supports_resume: boolean };
   delivery_status: 'pending' | 'delivered' | 'acknowledged';
-  executor_status: 'pending' | 'accepted' | 'completed';
+  executor_status: 'pending' | 'accepted' | 'completed' | 'stopped' | 'stop_rejected';
   output_status: 'none' | 'generated' | 'pending' | 'committed' | 'failed';
   message_id?: string;
   error?: string;

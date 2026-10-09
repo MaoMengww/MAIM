@@ -56,6 +56,11 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 		if err := json.Unmarshal([]byte(in.BotSettings), &settings); err != nil {
 			return nil, ErrConvUpdateFailed
 		}
+		if enabled, exists := settings["enabled"]; exists {
+			if _, ok := enabled.(bool); !ok {
+				return nil, ErrInvalidParam
+			}
+		}
 		cb.BotSettings = settings
 	}
 

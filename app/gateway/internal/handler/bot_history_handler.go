@@ -100,10 +100,6 @@ func (h *BotHistoryHandler) Read(c *gin.Context) {
 
 // ExecutorUpdate forwards the original update for runtime-owned validation.
 func (h *BotHistoryHandler) ExecutorUpdate(c *gin.Context) {
-	botID := h.authenticatedBot(c)
-	if botID == "" {
-		return
-	}
 	_, token, _ := strings.Cut(c.GetHeader("Authorization"), " ")
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 	raw, err := c.GetRawData()
@@ -111,7 +107,14 @@ func (h *BotHistoryHandler) ExecutorUpdate(c *gin.Context) {
 		response.BadRequest(c, "invalid executor update body")
 		return
 	}
-	resp, err := h.bots.ExecutorUpdate(c.Request.Context(), &botpb.ExecutorUpdateReq{BotId: botID, Token: token, Body: raw})
+	parts := strings.SplitN(c.GetHeader("Authorization"), " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || token == "" {
+		response.Unauthorized(c, "bot credential required")
+		return
+	}
+	// Runtime authenticates the token and permits only narrow stop outcomes when
+	// normal Bot eligibility has been revoked. No resource API uses this route.
+	resp, err := h.bots.ExecutorUpdate(c.Request.Context(), &botpb.ExecutorUpdateReq{Token: token, Body: raw})
 	if err != nil {
 		runRPCError(c, err)
 		return

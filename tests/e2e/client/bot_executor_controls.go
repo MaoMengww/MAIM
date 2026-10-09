@@ -151,13 +151,8 @@ func (d *driver) executorControls(owner, admin, requester, member account, bot b
 	if err != nil {
 		return err
 	}
-	if stopRequest.Run.Status != "stopping" || stopRequest.Generation != request.Generation {
+	if stopRequest.Operation != "stop" || stopRequest.ID() != started.ID || stopRequest.Generation != request.Generation || len(stopRequest.Inputs) != 0 {
 		return errors.New("executor controls: stop not delivered to current executor")
-	}
-	prohibited := executorPayload(request, "run.update", "completed", 1)
-	prohibited["result_text"] = "must not publish after stop"
-	if _, err = x.update(prohibited, true, false); err != nil {
-		return err
 	}
 	stoppedPayload := executorPayload(stopRequest, "run.update", "stopped", 1)
 	stopped, err := x.update(stoppedPayload, false, false)
@@ -177,6 +172,37 @@ func (d *driver) executorControls(owner, admin, requester, member account, bot b
 	}
 	if restored.Status != "stopped" || restored.MessageID != nil || restored.RequesterID != requester.id {
 		return errors.New("executor controls: terminal state not recoverable")
+	}
+	// Completion can win a stop request before any stop confirmation. This is a
+	// distinct execution, not a forbidden late completion of the stopped Run.
+	race, err := d.startRun(requester, bot.ID, conv, "completion race "+suffix, uuid.NewString(), nil)
+	if err != nil {
+		return err
+	}
+	raceRequest, err := x.request(race.ID)
+	if err != nil {
+		return err
+	}
+	if _, err = x.update(executorPayload(raceRequest, "run.claim", "accepted", 0), false, false); err != nil {
+		return err
+	}
+	if _, err = d.controlExecutorRun(requester, race.ID, "stop", "", uuid.NewString()); err != nil {
+		return err
+	}
+	completion := executorPayload(raceRequest, "run.update", "completed", 1)
+	completion["result_text"] = executorText(raceRequest.Text())
+	if _, err = x.update(completion, false, x.conn == nil); err != nil {
+		return err
+	}
+	finished, err := d.publishedRun(requester, race.ID)
+	if err != nil {
+		return err
+	}
+	if finished.Status != "succeeded" || finished.ExecutorStatus != "completed" || finished.StopStatus == "confirmed" {
+		return errors.New("executor controls: actual completion lost to unconfirmed stop request")
+	}
+	if _, err = x.update(executorPayload(raceRequest, "run.update", "running", 2), true, false); err != nil {
+		return err
 	}
 	return nil
 }

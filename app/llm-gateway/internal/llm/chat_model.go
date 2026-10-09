@@ -217,11 +217,16 @@ func StreamChat(ctx context.Context, req *pb.ChatReq, cfg *pb.ModelExecutionConf
 		return err
 	}
 	defer response.Close()
+	stopClose := context.AfterFunc(ctx, func() { _ = response.Close() })
+	defer stopClose()
 	scanner := bufio.NewScanner(response)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	var firstToken *int64
 	finished := map[int32]bool{}
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		line := strings.TrimSpace(scanner.Text())
 		data, ok := strings.CutPrefix(line, "data:")
 		if !ok {
@@ -277,6 +282,9 @@ func StreamChat(ctx context.Context, req *pb.ChatReq, cfg *pb.ModelExecutionConf
 		if err := send(out); err != nil {
 			return err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("provider stream read failed: %w", err)

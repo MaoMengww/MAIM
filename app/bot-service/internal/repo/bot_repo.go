@@ -328,6 +328,7 @@ func (r *BotRepo) HasActiveBinding(ctx context.Context, botID, convID, bindingID
 	var count int64
 	err := r.DB.WithContext(ctx).Model(&model.ConvBot{}).
 		Where("id = ? AND bot_id = ? AND conv_id = ? AND revoked_at IS NULL", bindingID, botID, convID).
+		Where("COALESCE(bot_settings::jsonb->'enabled', 'true'::jsonb) = 'true'::jsonb").
 		Where("EXISTS (SELECT 1 FROM bots WHERE bots.id = messaging.conv_bots.bot_id AND bots.status = ?)", "active").
 		Count(&count).Error
 	return count == 1, err

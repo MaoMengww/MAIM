@@ -1676,6 +1676,8 @@
 }
 .chat-run-header .ant-tag {
   margin-inline-end: 0;
+  max-width: 100%;
+  white-space: normal;
 }
 .chat-run-updated {
   margin-left: auto;
@@ -1710,6 +1712,41 @@
   margin-top: 8px;
 }
 .chat-run-controls label, .chat-run-controls textarea { flex-basis: 100%; }
+.chat-run-control-members {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 8px;
+}
+.chat-run-control-members label { flex-basis: 100%; }
+.chat-run-control-members .ant-select { flex: 1 1 240px; min-width: 0; max-width: 100%; }
+.chat-run-stop {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--aim-border);
+  border-radius: var(--aim-radius-md, 8px);
+  background: var(--aim-surface-hover);
+  font-size: 13px;
+}
+.chat-run-stop .chat-run-meta { margin-top: 0; }
+.chat-run-stop p { margin: 4px 0 0; }
+.chat-run-stop .ant-tag { max-width: 100%; white-space: normal; margin-inline-end: 0; }
+.chat-run-permissions > summary { min-height: 44px; display: list-item; padding: 12px 0; }
+.chat-run-card summary:focus-visible {
+  outline: 2px solid var(--aim-primary);
+  outline-offset: 2px;
+}
+.group-info-binding-permission {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 8px 0;
+}
+.group-info-binding-permission label { flex: 1; min-width: 0; }
 .chat-run-result pre {
   max-width: 100%;
   white-space: pre-wrap;
@@ -1858,6 +1895,10 @@
   .chat-work-history { display: grid; grid-template-columns: minmax(0, 1fr); }
   .chat-work-history .ant-input-number { width: 100%; }
   .chat-run-controls { gap: 8px; }
+  .chat-run-control-members .ant-select { flex-basis: 100%; }
+  .chat-run-control-members .ant-select-selector, .chat-run-control-members .ant-btn { min-height: 44px; }
+  .chat-run-stop { padding: 8px; }
+  .chat-run-card .ant-btn, .chat-run-card summary { min-height: 44px; }
   .chat-work-source-fields { max-height: 32vh; }
   .chat-work-relation { padding: 8px; }
 }

@@ -239,7 +239,7 @@ func (d *driver) botInteractions(address, secondAddress string) error {
 	if err != nil {
 		return err
 	}
-	if waiting.WaitingReason == "" || waiting.OutputStatus != "none" || waiting.MessageID != nil || waiting.InteractionStatus != "active" || !waiting.ExecutorCapabilities.SupportsInput || waiting.ExecutorCapabilities.SupportsStop || waiting.ExecutorCapabilities.SupportsResume {
+	if waiting.WaitingReason == "" || waiting.OutputStatus != "none" || waiting.MessageID != nil || waiting.InteractionStatus != "active" || !waiting.ExecutorCapabilities.SupportsInput || !waiting.ExecutorCapabilities.SupportsStop || !waiting.ExecutorCapabilities.SupportsResume {
 		return errors.New("interaction.wait: ask_for_input missing reason, published success, or wrong builtin capabilities")
 	}
 	if _, err = d.p6Wait(socket, 0, "interaction-wait", func(e p6Event) bool {

@@ -19,6 +19,16 @@ func NewValidateBotTokenLogic(ctx context.Context, svcCtx *svc.ServiceContext) *
 }
 
 func (l *ValidateBotTokenLogic) ValidateBotToken(in *pb.ValidateBotTokenReq) (*pb.ValidateBotTokenResp, error) {
+	return l.validateToken(in, false)
+}
+
+// ValidateExecutorStopToken authenticates an existing executor without granting
+// any active Bot/resource privilege. It is used only for material-free outcomes.
+func (l *ValidateBotTokenLogic) ValidateExecutorStopToken(in *pb.ValidateBotTokenReq) (*pb.ValidateBotTokenResp, error) {
+	return l.validateToken(in, true)
+}
+
+func (l *ValidateBotTokenLogic) validateToken(in *pb.ValidateBotTokenReq, stopConfirmation bool) (*pb.ValidateBotTokenResp, error) {
 	claims, err := l.svcCtx.BotJWT.ParseBotToken(in.Token)
 	if err != nil {
 		l.Infof("bot token parse failed: err=%v", err)
@@ -26,10 +36,22 @@ func (l *ValidateBotTokenLogic) ValidateBotToken(in *pb.ValidateBotTokenReq) (*p
 	}
 
 	bot, err := l.svcCtx.Repo.GetBot(l.ctx, claims.BotID)
-	if err != nil || bot.Status != "active" || bot.OwnerType != claims.OwnerType || bot.Type != claims.Type || !sameOwner(bot.OwnerID, claims.OwnerID) {
+	if err != nil || (!stopConfirmation && bot.Status != "active") || bot.OwnerType != claims.OwnerType || bot.Type != claims.Type || !sameOwner(bot.OwnerID, claims.OwnerID) {
 		return &pb.ValidateBotTokenResp{Valid: false}, nil
 	}
-	if bot.CredentialsRevokedAt != nil {
+	if stopConfirmation {
+		var issued int64
+		if l.svcCtx.DB == nil {
+			return &pb.ValidateBotTokenResp{Valid: false}, nil
+		}
+		if err := l.svcCtx.DB.WithContext(l.ctx).Table("bot.issued_tokens").Where("token_id = ? AND bot_id = ?", claims.ID, bot.ID).Count(&issued).Error; err != nil {
+			return nil, err
+		}
+		if issued != 1 {
+			return &pb.ValidateBotTokenResp{Valid: false}, nil
+		}
+	}
+	if !stopConfirmation && bot.CredentialsRevokedAt != nil {
 		if l.svcCtx.DB == nil {
 			return &pb.ValidateBotTokenResp{Valid: false}, nil
 		}

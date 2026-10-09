@@ -416,6 +416,8 @@ message SendBotReplyReq {
   FileContent file = 9;
   CustomContent result = 10;
   optional string output_key = 11; // Stable publication identity within this Bot binding
+  optional string controller_id = 12 [(common.entity_id) = true];
+  optional string run_id = 13 [(common.entity_id) = true];
 }
 
 message GrantBotHistoryReq {
@@ -739,6 +741,7 @@ message BotInConv {
   string binding_id = 9 [(common.entity_id) = true];
   string owner_type = 10;
   optional string owner_id = 11 [(common.entity_id) = true];
+  string status = 12;
 }
 
 message AddBotReq {

@@ -220,10 +220,20 @@ func (h *WSHandler) accept(c *gin.Context, kind registry.Kind, id string) {
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(heartbeat * 2))
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := authenticate(ctx); err != nil {
-			cancel()
-			return
+		var outcome struct {
+			Type   string `json:"type"`
+			Status string `json:"status"`
 		}
+		_ = json.Unmarshal(raw, &outcome)
+		stopConfirmation := kind == registry.Bot && outcome.Type == "run.update" && (outcome.Status == "stopped" || outcome.Status == "stop_rejected")
+		if !stopConfirmation {
+			if err := authenticate(ctx); err != nil {
+				cancel()
+				return
+			}
+		}
+		// A stop-only callback is fully authenticated and validated by runtime;
+		// disabled participation must not block its real execution outcome.
 		owned, err := h.Router.Registry.Refresh(ctx, route)
 		if err != nil || !owned {
 			cancel()

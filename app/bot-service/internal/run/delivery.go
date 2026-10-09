@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
+	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -23,24 +24,38 @@ func (s *Service) deliverRun(ctx context.Context, item *model.RunOutbox) error {
 	if err := json.Unmarshal(item.Payload, &payload); err != nil {
 		return err
 	}
-	if r.ExecutionGeneration != payload.Generation || r.InputVersion != payload.InputVersion || r.Status == "succeeded" || r.Status == "failed" || r.Status == "stopped" || r.OutputStatus == "pending" {
+	if r.ExecutionGeneration != payload.Generation || r.InputVersion != payload.InputVersion || repo.TerminalRun(r) || r.OutputStatus == "pending" || r.ControlOperation != payload.Operation {
 		return nil
 	}
-	if r.ControlOperation != payload.Operation {
+	stop := payload.Operation == "stop"
+	if stop && (r.StopStatus == "confirmed" || r.StopStatus == "rejected") {
 		return nil
 	}
-	if (payload.Operation == "" || payload.Operation == "resume") && r.ExecutorStatus != "pending" {
-		return nil
-	}
-	if payload.Operation == "input" && r.DeliveryStatus == "acknowledged" {
-		return nil
-	}
-	if err := s.authorize(ctx, r, false); err != nil {
-		switch status.Code(err) {
-		case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.FailedPrecondition:
-			return s.fail(ctx, r, r.ExecutionGeneration, "executor delivery authorization revoked", false)
+	if !stop {
+		if (payload.Operation == "" || payload.Operation == "resume") && r.ExecutorStatus != "pending" {
+			return nil
 		}
-		return err
+		if payload.Operation == "input" && r.DeliveryStatus == "acknowledged" {
+			return nil
+		}
+		current, err := s.reconcile(ctx, r)
+		if err != nil {
+			return err
+		}
+		r = current
+		if r.Status == "stopping" || r.Status == "waiting_authorization" || r.StreamStatus == "closed" {
+			return nil
+		}
+		if err := s.authorize(ctx, r, false); err != nil {
+			switch status.Code(err) {
+			case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.FailedPrecondition:
+				_, err = s.repo.ChangeLifecycle(ctx, r.ID, r.ExecutionGeneration, func(tx *gorm.DB, current *model.Run) error {
+					return requestRunStop(tx, current, "authorization_revoked")
+				})
+				return err
+			}
+			return err
+		}
 	}
 	bot, err := s.svc.BotRepo.GetBot(ctx, r.BotID)
 	if err != nil {
@@ -50,14 +65,22 @@ func (s *Service) deliverRun(ctx context.Context, item *model.RunOutbox) error {
 	if err := json.Unmarshal(r.Config, &config); err != nil {
 		return err
 	}
-	// A route change between authorize and this fresh lookup must not send
-	// captured Run materials to the new endpoint or use its replacement secret.
-	if bot.Status != "active" || bot.Type != "third_party" || bot.ExecutorRevision != config.ExecutorRevision || bot.ConnMode != config.ConnMode || bot.CallbackURL != config.CallbackURL {
-		return s.fail(ctx, r, r.ExecutionGeneration, "executor authorization or routing changed", false)
-	}
-	err = s.deliverPayload(ctx, bot, r.ConvID, item.Payload)
-	if err != nil {
+	// Stop may use the same current route after disabled/revoked participation,
+	// but never copy materials or a secret to a replacement endpoint.
+	if bot.Type != "third_party" || bot.ConnMode != config.ConnMode || bot.CallbackURL != config.CallbackURL || (!stop && (bot.Status != "active" || bot.ExecutorRevision != config.ExecutorRevision)) {
+		if stop {
+			return status.Error(codes.Unavailable, "original executor stop route unavailable")
+		}
+		_, err = s.repo.ChangeLifecycle(ctx, r.ID, r.ExecutionGeneration, func(tx *gorm.DB, current *model.Run) error {
+			return requestRunStop(tx, current, "executor_routing_changed")
+		})
 		return err
+	}
+	if err := s.deliverPayload(ctx, bot, r.ConvID, item.Payload); err != nil {
+		return err
+	}
+	if stop {
+		return status.Error(codes.Unavailable, "awaiting actual executor stop confirmation")
 	}
 	if bot.ConnMode == "ws" {
 		return status.Error(codes.Unavailable, "awaiting executor delivery acknowledgement or claim")
@@ -71,7 +94,6 @@ func (s *Service) deliverRun(ctx context.Context, item *model.RunOutbox) error {
 		}
 		return nil
 	})
-	// A fast executor can finish while the transport acknowledgement is in flight.
 	if status.Code(err) == codes.FailedPrecondition || status.Code(err) == codes.Aborted {
 		return nil
 	}

@@ -182,12 +182,17 @@ export interface StartRunReq extends RunMaterialsReq {
   parent_run_id?: string;
 }
 
-export interface ControlRunReq extends RunMaterialsReq {
-  operation: 'input' | 'stop' | 'resume' | 'close_interaction' | 'clear_context';
+export type ControlRunReq = RunMaterialsReq & {
   submission_key: string;
   message?: string;
   source_message_id?: string;
-}
+} & ({
+  operation: 'grant_control' | 'revoke_control';
+  target_user_id: string;
+} | {
+  operation: 'input' | 'stop' | 'resume' | 'takeover' | 'close_interaction' | 'clear_context';
+  target_user_id?: never;
+});
 
 // ─── MCP ───
 export interface CreateMcpServerReq {

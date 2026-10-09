@@ -51,7 +51,7 @@ func (l *HandleIncomingWebhookLogic) resolveBot(in *pb.WebhookReq) (*botWithSecr
 		if err != nil {
 			return nil, ErrBotNotFound
 		}
-		if bot.Status != "active" || bot.Type != "third_party" || bot.SubType != SubTypeWebhook || bot.WebhookSecret == "" {
+		if (bot.Status != "active" && !run.IsStopConfirmation(in.Body)) || bot.Type != "third_party" || bot.SubType != SubTypeWebhook || bot.WebhookSecret == "" {
 			return nil, ErrBotForbidden
 		}
 		return &botWithSecret{ID: bot.ID, WebhookSecret: bot.WebhookSecret}, nil
@@ -59,6 +59,11 @@ func (l *HandleIncomingWebhookLogic) resolveBot(in *pb.WebhookReq) (*botWithSecr
 	bots, err := l.svcCtx.Repo.ListActiveWebhookBots(l.ctx)
 	if err != nil {
 		return nil, ErrBotNotFound
+	}
+	if run.IsStopConfirmation(in.Body) {
+		if err := l.svcCtx.DB.WithContext(l.ctx).Table("bot.bots").Select("id, webhook_secret").Where("type = 'third_party' AND sub_type = ?", SubTypeWebhook).Find(&bots).Error; err != nil {
+			return nil, ErrBotNotFound
+		}
 	}
 	for _, bot := range bots {
 		if verifyWebhookSignature(in.Body, in.Signature, in.Timestamp, bot.WebhookSecret) == nil {

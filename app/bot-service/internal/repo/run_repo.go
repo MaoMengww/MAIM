@@ -19,6 +19,80 @@ type RunRepo struct{ DB *database.DB }
 
 func NewRunRepo(db *database.DB) *RunRepo { return &RunRepo{DB: db} }
 
+// All Run writes take the conversation barrier before work/participation locks.
+// Source RPCs must finish before entering this transaction: messaging also takes
+// the conversation lock and must never call back through a held Run lock.
+func lockRunConversation(tx *gorm.DB, convID string) error {
+	var conv struct{ ID string }
+	return tx.Table("messaging.conversations").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", convID).Take(&conv).Error
+}
+
+func RunMember(tx *gorm.DB, convID, userID string) (string, int32, error) {
+	var member struct {
+		ID   string
+		Role int32
+	}
+	err := tx.Table("messaging.conv_members").Where("conv_id = ? AND user_id = ? AND member_type = 'user'", convID, userID).Take(&member).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		err = status.Error(codes.PermissionDenied, "current conversation membership required")
+	}
+	return member.ID, member.Role, err
+}
+
+func RunController(tx *gorm.DB, run *model.Run, user string) error {
+	member, role, err := RunMember(tx, run.ConvID, user)
+	if err != nil {
+		return err
+	}
+	if role <= 2 || (user == run.RequesterID && run.RequesterMemberID != nil && *run.RequesterMemberID == member) || (user == run.ControllerID && run.ControllerMemberID != nil && *run.ControllerMemberID == member) || run.ControlMemberships[user] == member {
+		return nil
+	}
+	return status.Error(codes.PermissionDenied, "Run control requires current requester, controller, grant or administrator")
+}
+
+func lockRunAuthority(tx *gorm.DB, run *model.Run, controller bool) error {
+	var binding model.ConvBot
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND revoked_at IS NULL", run.BindingID, run.BotID, run.ConvID).First(&binding).Error; err != nil {
+		return status.Error(codes.PermissionDenied, "binding revoked")
+	}
+	if enabled, exists := binding.BotSettings["enabled"]; exists && enabled != true {
+		return status.Error(codes.PermissionDenied, "participation permission revoked")
+	}
+	var bot model.Bot
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND status = 'active'", run.BotID).First(&bot).Error; err != nil {
+		return status.Error(codes.PermissionDenied, "Bot unavailable")
+	}
+	if run.AccessRevoked || bot.AuthorizationVersion != run.BotAuthorizationVersion || binding.AuthorizationVersion != run.BindingAuthorizationVersion {
+		return status.Error(codes.PermissionDenied, "captured authorization revoked")
+	}
+	if run.ExecutorType == "third_party" {
+		var config struct {
+			ExecutorRevision int64  `json:"executor_revision"`
+			ConnMode         string `json:"conn_mode"`
+			CallbackURL      string `json:"callback_url"`
+		}
+		if err := json.Unmarshal(run.Config, &config); err != nil {
+			return err
+		}
+		if bot.Type != "third_party" || bot.ExecutorRevision != config.ExecutorRevision || bot.ConnMode != config.ConnMode || bot.CallbackURL != config.CallbackURL {
+			return status.Error(codes.PermissionDenied, "executor authorization or route changed")
+		}
+	}
+	if controller {
+		member, _, err := RunMember(tx, run.ConvID, run.ControllerID)
+		if err != nil || run.ControllerMemberID == nil || *run.ControllerMemberID != member {
+			return status.Error(codes.FailedPrecondition, "controller membership lost; explicit takeover required")
+		}
+	}
+	return nil
+}
+
+type ReportAuthority struct {
+	UserID           string
+	Control          bool
+	StopConfirmation bool
+}
+
 func (r *RunRepo) Get(ctx context.Context, id string) (*model.Run, error) {
 	var run model.Run
 	err := r.DB.WithContext(ctx).Where("id = ?", id).First(&run).Error
@@ -47,15 +121,20 @@ func queueRun(tx *gorm.DB, run *model.Run, kind string) error {
 		}
 	}
 	if kind == "deliver" {
-		var inputs []model.RunInput
-		if err := tx.Where("run_id = ?", run.ID).Order("version ASC").Find(&inputs).Error; err != nil {
-			return err
+		if run.ControlOperation == "stop" {
+			// Revocation still permits a stop instruction, never another material copy.
+			raw, err = json.Marshal(map[string]any{"type": "bot.run.request", "run_id": run.ID, "bot_id": run.BotID, "conv_id": run.ConvID, "binding_id": run.BindingID, "generation": run.ExecutionGeneration, "input_version": run.InputVersion, "operation": "stop", "reason": run.StopReason})
+		} else {
+			var inputs []model.RunInput
+			if err := tx.Where("run_id = ?", run.ID).Order("version ASC").Find(&inputs).Error; err != nil {
+				return err
+			}
+			ordered := make([]map[string]any, 0, len(inputs))
+			for _, input := range inputs {
+				ordered = append(ordered, map[string]any{"version": input.Version, "requester_id": input.RequesterID, "sender_type": "user", "source_message_id": input.SourceMessageID, "content": input.Content, "materials": input.Materials, "sources": input.Sources, "created_at": input.CreatedAt.Unix()})
+			}
+			raw, err = json.Marshal(map[string]any{"type": "bot.run.request", "run": run.Public(), "generation": run.ExecutionGeneration, "input_version": run.InputVersion, "inputs": ordered, "operation": run.ControlOperation})
 		}
-		ordered := make([]map[string]any, 0, len(inputs))
-		for _, input := range inputs {
-			ordered = append(ordered, map[string]any{"version": input.Version, "requester_id": input.RequesterID, "sender_type": "user", "source_message_id": input.SourceMessageID, "content": input.Content, "materials": input.Materials, "sources": input.Sources, "created_at": input.CreatedAt.Unix()})
-		}
-		raw, err = json.Marshal(map[string]any{"type": "bot.run.request", "run": run.Public(), "generation": run.ExecutionGeneration, "input_version": run.InputVersion, "inputs": ordered, "operation": run.ControlOperation})
 		if err != nil {
 			return err
 		}
@@ -67,6 +146,12 @@ func queueRun(tx *gorm.DB, run *model.Run, kind string) error {
 // publication intents in one Bot-domain transaction.
 func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*model.Run, error) {
 	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockRunConversation(tx, run.ConvID); err != nil {
+			return err
+		}
+		if err := lockRunAuthority(tx, run, true); err != nil {
+			return err
+		}
 		key := run.BotID + ":" + run.BindingID + ":" + run.RequesterID + ":" + run.InputKey
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", key).Error; err != nil {
 			return err
@@ -76,6 +161,16 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*mo
 		if err == nil {
 			if prior.InputHash != run.InputHash {
 				return status.Error(codes.AlreadyExists, "submission key has different content")
+			}
+			member, _, err := RunMember(tx, prior.ConvID, prior.RequesterID)
+			if err != nil {
+				return err
+			}
+			if prior.RequesterMemberID == nil || *prior.RequesterMemberID != member {
+				return status.Error(codes.PermissionDenied, "submission belongs to earlier membership")
+			}
+			if err := lockRunAuthority(tx, &prior, false); err != nil {
+				return err
 			}
 			*run = prior
 			return nil
@@ -97,6 +192,9 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*mo
 			}
 			if !TerminalRun(&parent) {
 				return status.Error(codes.FailedPrecondition, "continuation requires a terminal parent Run")
+			}
+			if err := lockRunAuthority(tx, &parent, false); err != nil {
+				return err
 			}
 		}
 		// Capture the existing lifecycle; rejoining never revives a stale input.
@@ -137,8 +235,23 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*mo
 
 // Change fences every worker mutation with its current execution generation.
 func (r *RunRepo) Change(ctx context.Context, id string, generation int64, fn func(*gorm.DB, *model.Run) error) (*model.Run, error) {
+	return r.change(ctx, id, generation, true, fn)
+}
+
+func (r *RunRepo) ChangeLifecycle(ctx context.Context, id string, generation int64, fn func(*gorm.DB, *model.Run) error) (*model.Run, error) {
+	return r.change(ctx, id, generation, false, fn)
+}
+
+func (r *RunRepo) change(ctx context.Context, id string, generation int64, execution bool, fn func(*gorm.DB, *model.Run) error) (*model.Run, error) {
 	var run model.Run
-	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	prior, err := r.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	err = r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockRunConversation(tx, prior.ConvID); err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&run).Error; err != nil {
 			return err
 		}
@@ -148,12 +261,23 @@ func (r *RunRepo) Change(ctx context.Context, id string, generation int64, fn fu
 		if run.Status == "succeeded" || run.Status == "failed" || run.Status == "stopped" {
 			return status.Error(codes.FailedPrecondition, "run is terminal")
 		}
+		if execution {
+			if run.Status == "stopping" || run.Status == "waiting_authorization" {
+				return status.Error(codes.FailedPrecondition, "Run execution is suspended")
+			}
+			if err := lockRunAuthority(tx, &run, true); err != nil {
+				return err
+			}
+		}
 		before := run.Stage
 		if err := fn(tx, &run); err != nil {
 			return err
 		}
 		run.Version++
 		run.UpdatedAt = time.Now()
+		if TerminalRun(&run) {
+			run.StreamStatus = "closed"
+		}
 		if run.Stage != before {
 			run.Steps = append(run.Steps, model.RunStep{Version: run.Version, Stage: run.Stage, CreatedAt: run.UpdatedAt.Unix()})
 		}
@@ -259,11 +383,40 @@ func (r *RunRepo) Retry(ctx context.Context, item *model.RunOutbox) error {
 	return r.DB.WithContext(ctx).Model(&model.RunOutbox{}).Where("id = ? AND lease_token = ?", item.ID, item.LeaseToken).Updates(map[string]any{"available_at": time.Now().Add(time.Duration(min(item.Attempts, 30)) * time.Second), "lease_until": nil, "lease_token": nil}).Error
 }
 
+var errRunAuthorizationChanged = errors.New("Run changed during authorization")
+
 // Report serializes executor and user commands with durable retry receipts.
 // Authorization precedes receipt lookup, including terminal replay.
-func (r *RunRepo) Report(ctx context.Context, id, key, digest string, authorize func(*model.Run) error, apply func(*gorm.DB, *model.Run) error) (*model.PublicRun, error) {
+func (r *RunRepo) Report(ctx context.Context, id, key, digest string, authority ReportAuthority, authorize func(*model.Run) error, apply func(*gorm.DB, *model.Run) error) (*model.PublicRun, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		receipt, err := r.reportOnce(ctx, id, key, digest, authority, authorize, apply)
+		if !errors.Is(err, errRunAuthorizationChanged) {
+			return receipt, err
+		}
+		// No command was applied. Re-read and reauthorize the new version; never
+		// retry rejected permissions, stale generations or conflicting input keys.
+	}
+}
+
+func (r *RunRepo) reportOnce(ctx context.Context, id, key, digest string, authority ReportAuthority, authorize func(*model.Run) error, apply func(*gorm.DB, *model.Run) error) (*model.PublicRun, error) {
 	var receipt model.PublicRun
-	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	checked, err := r.Get(ctx, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, status.Error(codes.NotFound, "Run not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := authorize(checked); err != nil {
+		return nil, err
+	}
+	err = r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockRunConversation(tx, checked.ConvID); err != nil {
+			return err
+		}
 		var run model.Run
 		if err := tx.Where("id = ?", id).First(&run).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -281,31 +434,21 @@ func (r *RunRepo) Report(ctx context.Context, id, key, digest string, authorize 
 			}
 			return err
 		}
-		// Cross-domain source authorization takes its own binding lock. Complete
-		// those RPCs before holding local participation locks, then fence revocation
-		// and executor routing against the freshly locked authoritative rows.
-		if err := authorize(&run); err != nil {
-			return err
+		if run.Version != checked.Version {
+			return errRunAuthorizationChanged
 		}
-		var binding model.ConvBot
-		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND revoked_at IS NULL", run.BindingID, run.BotID, run.ConvID).First(&binding).Error; err != nil {
-			return status.Error(codes.PermissionDenied, "binding revoked")
-		}
-		var bot model.Bot
-		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND status = 'active'", run.BotID).First(&bot).Error; err != nil {
-			return status.Error(codes.PermissionDenied, "Bot unavailable")
-		}
-		if run.ExecutorType == "third_party" {
-			var config struct {
-				ExecutorRevision int64  `json:"executor_revision"`
-				ConnMode         string `json:"conn_mode"`
-				CallbackURL      string `json:"callback_url"`
-			}
-			if err := json.Unmarshal(run.Config, &config); err != nil {
+		if !authority.StopConfirmation {
+			if err := lockRunAuthority(tx, &run, authority.UserID == ""); err != nil {
 				return err
 			}
-			if bot.Type != "third_party" || bot.ExecutorRevision != config.ExecutorRevision || bot.ConnMode != config.ConnMode || bot.CallbackURL != config.CallbackURL {
-				return status.Error(codes.PermissionDenied, "executor authorization or routing changed")
+		}
+		if authority.UserID != "" {
+			if authority.Control {
+				if err := RunController(tx, &run, authority.UserID); err != nil {
+					return err
+				}
+			} else if _, _, err := RunMember(tx, run.ConvID, authority.UserID); err != nil {
+				return err
 			}
 		}
 		var prior model.RunReceipt
@@ -322,7 +465,7 @@ func (r *RunRepo) Report(ctx context.Context, id, key, digest string, authorize 
 		if interaction.Status != "active" {
 			return status.Error(codes.FailedPrecondition, "interaction is closed")
 		}
-		if run.Status == "succeeded" || run.Status == "failed" || run.Status == "stopped" || run.OutputStatus == "pending" || run.OutputStatus == "generated" {
+		if TerminalRun(&run) {
 			return status.Error(codes.FailedPrecondition, "Run no longer accepts updates")
 		}
 		before := run.Stage
@@ -331,6 +474,9 @@ func (r *RunRepo) Report(ctx context.Context, id, key, digest string, authorize 
 		}
 		run.Version++
 		run.UpdatedAt = time.Now()
+		if TerminalRun(&run) {
+			run.StreamStatus = "closed"
+		}
 		if before != run.Stage {
 			run.Steps = append(run.Steps, model.RunStep{Version: run.Version, Stage: run.Stage, CreatedAt: run.UpdatedAt.Unix()})
 		}
@@ -356,9 +502,19 @@ func (r *RunRepo) Report(ctx context.Context, id, key, digest string, authorize 
 
 // CloseInteraction takes the interaction lock before any Run lock, as Accept
 // and Report do. It cuts continuation atomically without deleting work facts.
-func (r *RunRepo) CloseInteraction(ctx context.Context, id, key, digest string, authorize func(*model.Run) error) (*model.PublicRun, error) {
+func (r *RunRepo) CloseInteraction(ctx context.Context, id, key, digest, user string, authorize func(*model.Run) error) (*model.PublicRun, error) {
 	var receipt model.PublicRun
-	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	checked, err := r.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := authorize(checked); err != nil {
+		return nil, err
+	}
+	err = r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockRunConversation(tx, checked.ConvID); err != nil {
+			return err
+		}
 		var target model.Run
 		if err := tx.Where("id = ?", id).First(&target).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -379,16 +535,14 @@ func (r *RunRepo) CloseInteraction(ctx context.Context, id, key, digest string, 
 				target = run
 			}
 		}
-		if err := authorize(&target); err != nil {
+		if target.Version != checked.Version {
+			return status.Error(codes.Aborted, "Run changed during authorization")
+		}
+		if err := RunController(tx, &target, user); err != nil {
 			return err
 		}
-		var binding model.ConvBot
-		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND revoked_at IS NULL", target.BindingID, target.BotID, target.ConvID).First(&binding).Error; err != nil {
-			return status.Error(codes.PermissionDenied, "binding revoked")
-		}
-		var bot model.Bot
-		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND status = 'active'", target.BotID).First(&bot).Error; err != nil {
-			return status.Error(codes.PermissionDenied, "Bot unavailable")
+		if err := lockRunAuthority(tx, &target, false); err != nil {
+			return err
 		}
 		var prior model.RunReceipt
 		err := tx.Where("run_id = ? AND update_key = ?", id, key).First(&prior).Error

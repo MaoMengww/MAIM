@@ -14,7 +14,6 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	msg "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/identity"
-	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/maomeng/aim/pkg/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -75,12 +74,15 @@ func decodeUpdate(body []byte) (executorUpdate, error) {
 			return update, status.Error(codes.InvalidArgument, "updates require positive sequence")
 		}
 		switch update.Status {
-		case "running", "waiting_input", "stopped", "failed", "completed":
+		case "running", "waiting_input", "stopped", "stop_rejected", "failed", "completed":
 		default:
 			return update, status.Error(codes.InvalidArgument, "invalid executor status")
 		}
 		if update.Status != "completed" && (update.ResultText != "" || update.MsgType != "" || len(update.Content) > 0) {
 			return update, status.Error(codes.InvalidArgument, "result requires completion")
+		}
+		if (update.Status == "stopped" || update.Status == "stop_rejected") && update.Stage != "" && update.Stage != update.Status {
+			return update, status.Error(codes.InvalidArgument, "stop confirmation cannot contain material stage text")
 		}
 		if update.Status == "completed" {
 			if err := normalizeResult(&update); err != nil {
@@ -152,25 +154,39 @@ func normalizeResult(update *executorUpdate) error {
 	return nil
 }
 
+// IsStopConfirmation validates the entire narrow callback before transport
+// authentication may omit active-participation eligibility.
+func IsStopConfirmation(body []byte) bool {
+	update, err := decodeUpdate(body)
+	return err == nil && update.Type == "run.update" && (update.Status == "stopped" || update.Status == "stop_rejected")
+}
+
 // ExecutorUpdate accepts only authenticated updates to platform-owned work.
 func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte) (*model.PublicRun, error) {
 	update, err := decodeUpdate(body)
 	if err != nil {
 		return nil, err
 	}
+	confirmation := update.Type == "run.update" && (update.Status == "stopped" || update.Status == "stop_rejected")
 	digest, err := hash(update)
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.Report(ctx, update.RunID, "executor:"+update.UpdateKey, digest, func(r *model.Run) error {
+	receipt, err := s.repo.Report(ctx, update.RunID, "executor:"+update.UpdateKey, digest, repo.ReportAuthority{StopConfirmation: confirmation}, func(r *model.Run) error {
 		if r.BotID != botID || r.ExecutorType != "third_party" {
 			return status.Error(codes.PermissionDenied, "executor does not own this Run")
 		}
-		if err := s.authorize(ctx, r, false); err != nil {
-			return err
-		}
 		if r.ExecutionGeneration != update.Generation || r.InputVersion != update.InputVersion {
 			return status.Error(codes.Aborted, "stale executor generation or input version")
+		}
+		if confirmation {
+			if r.StopStatus == "none" {
+				return status.Error(codes.FailedPrecondition, "stop was not requested")
+			}
+			return nil
+		}
+		if err := s.authorize(ctx, r, false); err != nil {
+			return err
 		}
 		if update.Type == "run.delivery_ack" && r.ControlOperation != update.Operation {
 			return status.Error(codes.Aborted, "delivery acknowledgment belongs to a superseded operation")
@@ -194,21 +210,27 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 		case "run.delivery_ack":
 			r.DeliveryStatus = "acknowledged"
 		case "run.claim":
-			if r.ExecutorStatus != "pending" || r.Status == "stopping" {
+			if r.ExecutorStatus != "pending" || r.Status == "stopping" || r.Status == "waiting_authorization" {
 				return status.Error(codes.FailedPrecondition, "Run already claimed or stopping")
 			}
 			r.ExecutorStatus = "accepted"
 			r.Status = "running"
 			r.Stage = "running"
 		case "run.update":
-			if r.ExecutorStatus != "accepted" && !(r.Status == "stopping" && update.Status == "stopped") {
+			if !confirmation && r.ExecutorStatus != "accepted" && r.ExecutorStatus != "stop_rejected" {
 				return status.Error(codes.FailedPrecondition, "Run must be claimed")
 			}
 			if update.Sequence != r.ExecutorSequence+1 {
 				return status.Error(codes.Aborted, "executor sequence is not continuous")
 			}
-			if r.Status == "stopping" && update.Status != "stopped" && update.Status != "failed" {
+			if r.Status == "stopping" && update.Status != "stopped" && update.Status != "stop_rejected" && update.Status != "failed" && update.Status != "completed" {
 				return status.Error(codes.FailedPrecondition, "stop request must be acknowledged")
+			}
+			if r.OutputStatus != "none" {
+				return status.Error(codes.FailedPrecondition, "completion already accepted")
+			}
+			if r.Status == "waiting_authorization" && !confirmation {
+				return status.Error(codes.FailedPrecondition, "explicit takeover required")
 			}
 			if r.Status == "waiting_input" && update.Status == "running" {
 				return status.Error(codes.FailedPrecondition, "waiting Run needs explicit input or resume")
@@ -219,10 +241,27 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 			if update.Status == "waiting_input" && !r.ExecutorCapabilities.SupportsInput {
 				return status.Error(codes.FailedPrecondition, "executor does not support input")
 			}
-			if update.Status == "stopped" && r.Status != "stopping" {
-				return status.Error(codes.FailedPrecondition, "stop was not requested")
-			}
 			r.ExecutorSequence = update.Sequence
+			if confirmation {
+				if r.StopStatus != "requested" && r.StopStatus != "unknown" && !(r.StopStatus == "rejected" && update.Status == "stopped") {
+					return status.Error(codes.FailedPrecondition, "stop outcome already recorded")
+				}
+				r.StreamStatus = "closed"
+				if update.Status == "stop_rejected" {
+					r.StopStatus, r.ExecutorStatus, r.Stage = "rejected", "stop_rejected", "stop_rejected"
+					if !r.AccessRevoked && r.Status != "waiting_authorization" {
+						r.Status = "running"
+					}
+					return nil
+				}
+				r.StopStatus, r.ExecutorStatus = "confirmed", "stopped"
+				if r.Status != "waiting_authorization" {
+					r.Status, r.Stage = "stopped", "stopped"
+				} else {
+					r.Stage = "awaiting_takeover"
+				}
+				return nil
+			}
 			r.Stage = update.Status
 			if update.Stage != "" {
 				r.Stage = update.Stage
@@ -257,6 +296,9 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 				r.ResultType = update.MsgType
 				r.ResultContent = update.Content
 				r.ExecutorStatus = "completed"
+				// Completion is authoritative even when a stop closed transient output.
+				// Final publication still checks current binding and resource authority.
+				r.Status = "running"
 				r.OutputStatus = "pending"
 				r.Stage = "pending"
 				next := *r
@@ -268,6 +310,10 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 		}
 		return nil
 	})
+	if err == nil && confirmation {
+		return stopReceipt(receipt), nil
+	}
+	return receipt, err
 }
 
 type ControlInput struct {
@@ -279,6 +325,7 @@ type ControlInput struct {
 	MessageIDs      []string
 	FileIDs         []string
 	HistoryGrantID  *string
+	TargetUserID    string
 }
 
 // Control accepts explicit input independently of controller rights. Receipts
@@ -302,8 +349,12 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 		command.FileIDs = []string{}
 	}
 	operation := command.Operation
-	if !slices.Contains([]string{"input", "stop", "resume", "close_interaction", "clear_context"}, operation) {
+	if !slices.Contains([]string{"input", "stop", "resume", "takeover", "grant_control", "revoke_control", "close_interaction", "clear_context"}, operation) {
 		return nil, status.Error(codes.InvalidArgument, "unknown Run operation")
+	}
+	targeted := operation == "grant_control" || operation == "revoke_control"
+	if (targeted && identity.Validate(command.TargetUserID) != nil) || (!targeted && command.TargetUserID != "") {
+		return nil, status.Error(codes.InvalidArgument, "only grant/revoke_control accept a current target_user_id")
 	}
 	if operation == "input" && strings.TrimSpace(command.Message) == "" {
 		return nil, status.Error(codes.InvalidArgument, "input message required")
@@ -313,6 +364,9 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 	}
 	// Empty optional material selections do not change a command's identity.
 	content := []string{operation, command.Message}
+	if targeted {
+		content = append(content, command.TargetUserID)
+	}
 	if command.SourceMessageID != nil || command.ReplyToMsgID != nil || command.HistoryGrantID != nil || len(command.MessageIDs) != 0 || len(command.FileIDs) != 0 {
 		selection, err := hash(struct {
 			Source, Reply, Grant *string
@@ -332,14 +386,43 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 	var sources []map[string]any
 	var sourceMismatch bool
 	authorize := func(r *model.Run) error {
-		if err := s.visible(ctx, user, r); err != nil {
+		if err := s.RequireMember(ctx, user, r.ConvID); err != nil {
 			return err
 		}
-		if err := s.authorize(ctx, r, false); err != nil {
-			return err
+		if targeted {
+			if _, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, command.TargetUserID); err != nil {
+				return err
+			}
 		}
-		if operation != "input" && user != r.RequesterID {
-			if err := s.requireAdministrator(ctx, r.ConvID, user); err != nil {
+		if operation != "input" {
+			if err := repo.RunController(s.svc.DB.WithContext(ctx), r, user); err != nil {
+				return err
+			}
+		}
+		if reason, err := s.authorityState(ctx, r); err != nil {
+			return err
+		} else if reason != "" && reason != "controller_membership_lost" {
+			return status.Error(codes.PermissionDenied, reason)
+		}
+		if operation == "input" || operation == "resume" {
+			if err := s.visible(ctx, user, r); err != nil {
+				return err
+			}
+			if err := s.authorize(ctx, r, false); err != nil {
+				return err
+			}
+		}
+		if operation == "takeover" {
+			if !sharedMaterials(r) {
+				return status.Error(codes.FailedPrecondition, "personal source grants cannot transfer with controller")
+			}
+			candidate := *r
+			member, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, user)
+			if err != nil {
+				return err
+			}
+			candidate.ControllerID, candidate.ControllerMemberID = user, &member
+			if err := s.authorize(ctx, &candidate, false); err != nil {
 				return err
 			}
 		}
@@ -374,18 +457,72 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 		return nil
 	}
 	if operation == "close_interaction" || operation == "clear_context" {
-		return s.repo.CloseInteraction(ctx, id, key, digest, authorize)
+		receipt, err := s.repo.CloseInteraction(ctx, id, key, digest, user, authorize)
+		if err == nil {
+			s.decorateControl(ctx, receipt, user)
+		}
+		return receipt, err
 	}
-	return s.repo.Report(ctx, id, key, digest, authorize, func(tx *gorm.DB, r *model.Run) error {
+	receipt, err := s.repo.Report(ctx, id, key, digest, repo.ReportAuthority{UserID: user, Control: operation != "input"}, authorize, func(tx *gorm.DB, r *model.Run) error {
 		caps := r.ExecutorCapabilities
 		if (operation == "input" && !caps.SupportsInput) || (operation == "stop" && !caps.SupportsStop) || (operation == "resume" && !caps.SupportsResume) {
 			return status.Error(codes.FailedPrecondition, "executor does not support this operation")
 		}
-		if r.Status == "stopping" {
+		if r.Status == "stopping" && operation != "stop" && operation != "grant_control" && operation != "revoke_control" {
 			return status.Error(codes.FailedPrecondition, "Run is stopping")
 		}
 		wasWaiting := r.Status == "waiting_input"
+		if (r.OutputStatus == "pending" || r.OutputStatus == "generated") && operation != "stop" {
+			return status.Error(codes.FailedPrecondition, "Run execution is already complete")
+		}
 		switch operation {
+		case "grant_control", "revoke_control":
+			member, _, err := repo.RunMember(tx, r.ConvID, command.TargetUserID)
+			if err != nil {
+				return err
+			}
+			if r.ControlMemberships == nil {
+				r.ControlMemberships = map[string]string{}
+			}
+			if operation == "grant_control" {
+				r.ControlMemberships[command.TargetUserID] = member
+				if !slices.Contains(r.ControlUserIDs, command.TargetUserID) {
+					r.ControlUserIDs = append(r.ControlUserIDs, command.TargetUserID)
+					slices.Sort(r.ControlUserIDs)
+				}
+			} else {
+				delete(r.ControlMemberships, command.TargetUserID)
+				r.ControlUserIDs = slices.DeleteFunc(r.ControlUserIDs, func(id string) bool { return id == command.TargetUserID })
+			}
+			return nil
+		case "takeover":
+			member, _, err := repo.RunMember(tx, r.ConvID, user)
+			if err != nil {
+				return err
+			}
+			r.ControllerID, r.ControllerMemberID = user, &member
+			r.ControlUserIDs, r.ControlMemberships = []string{}, map[string]string{}
+			if r.Status != "waiting_authorization" {
+				return nil
+			}
+			if r.ExecutorType == "third_party" && r.StopStatus != "confirmed" {
+				return status.Error(codes.FailedPrecondition, "executor must confirm suspension before shared takeover")
+			}
+			r.StopStatus, r.StopReason, r.StopRequestedAt, r.StreamStatus = "none", "", nil, "open"
+			r.Status, r.Stage, r.WaitingReason, r.ControlOperation = "accepted", "resuming", "", "resume"
+			if r.ExecutorType == "builtin" {
+				if err := tx.Model(&model.RunModelCall{}).Where("run_id = ? AND status = 'requested'", r.ID).Updates(map[string]any{"status": "cancelled", "completed_at": time.Now()}).Error; err != nil {
+					return err
+				}
+				next := *r
+				next.Version++
+				return repo.QueueRunExecution(tx, &next)
+			}
+			r.ExecutionGeneration++
+			r.ExecutorSequence, r.ExecutorStatus, r.DeliveryStatus = 0, "pending", "pending"
+			next := *r
+			next.Version++
+			return repo.QueueRunDelivery(tx, &next)
 		case "input":
 			if sourceMismatch {
 				return status.Error(codes.InvalidArgument, "input differs from its source message")
@@ -432,7 +569,7 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 				r.Status, r.Stage, r.WaitingReason = "running", "input_received", ""
 			}
 		case "stop":
-			r.Status, r.Stage, r.WaitingReason = "stopping", "stop_requested", ""
+			return requestRunStop(tx, r, "user_requested")
 		case "resume":
 			if !wasWaiting {
 				return status.Error(codes.FailedPrecondition, "only unfinished waiting work may resume")
@@ -455,22 +592,8 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 		next.DeliveryStatus = "pending"
 		return repo.QueueRunDelivery(tx, &next)
 	})
-}
-
-func (s *Service) requireAdministrator(ctx context.Context, conv, user string) error {
-	for page := int32(1); ; page++ {
-		result, err := s.messages.GetMembers(userContext(ctx, user), &msg.GetMembersReq{ConversationId: conv, UserId: &user, Pagination: &common.Pagination{Page: page, PageSize: 100}})
-		if err != nil {
-			return err
-		}
-		for _, member := range result.Members {
-			if member.GetUserId() == user && (member.Role == msg.MemberRole_MEMBER_ROLE_OWNER || member.Role == msg.MemberRole_MEMBER_ROLE_ADMIN) {
-				return nil
-			}
-		}
-		if len(result.Members) < 100 {
-			break
-		}
+	if err == nil {
+		s.decorateControl(ctx, receipt, user)
 	}
-	return status.Error(codes.PermissionDenied, "Run control requires requester or conversation administrator")
+	return receipt, err
 }

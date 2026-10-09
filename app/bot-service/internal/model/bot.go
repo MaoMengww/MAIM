@@ -32,6 +32,7 @@ type Bot struct {
 	CallbackURL          string     `gorm:"column:callback_url"`
 	AppSecretHash        string     `gorm:"column:app_secret_hash"`
 	ExecutorRevision     int64      `gorm:"column:executor_revision"`
+	AuthorizationVersion int64      `gorm:"column:authorization_version;default:1"`
 	CredentialsRevokedAt *time.Time `gorm:"column:credentials_revoked_at"`
 	BotTags              []string   `gorm:"column:bot_tags;type:jsonb;serializer:json"`
 	ResponseTriggers     []string   `gorm:"column:response_triggers;type:jsonb;serializer:json"`

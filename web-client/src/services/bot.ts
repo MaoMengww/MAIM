@@ -35,8 +35,8 @@ export const botApi = {
   controlRun: (runId: string, data: ControlRunReq): Promise<BotRun> =>
     client.post<APIResponse<unknown>>(`/runs/${runId}/control`, data).then((r) => normalizeRun(unwrap(r))),
 
-  listRuns: (convId: string): Promise<BotRun[]> =>
-    client.get<APIResponse<unknown>>(`/conversations/${convId}/runs`, { params: { limit: 100 } }).then((r) => {
+  listRuns: (convId: string, signal?: AbortSignal): Promise<BotRun[]> =>
+    client.get<APIResponse<unknown>>(`/conversations/${convId}/runs`, { params: { limit: 100 }, signal }).then((r) => {
       const data = unwrap(r);
       if (!Array.isArray(data)) throw new Error('执行列表必须是数组');
       return data.map(normalizeRun);
@@ -50,9 +50,13 @@ export const botApi = {
   removeFromConv: (convId: string, botId: string) =>
     client.delete<APIResponse<null>>(`/convs/${convId}/bots/${botId}`).then(unwrap),
 
+  setParticipation: (convId: string, botId: string, botSettings: string) =>
+    client.put<APIResponse<null>>(`/convs/${convId}/bots/${botId}`, { bot_settings: botSettings }).then(unwrap),
+
   listConvBots: (convId: string): Promise<BotInConv[]> =>
     client.get<APIResponse<{ bots: BotInConv[] }>>(`/convs/${convId}/bots`).then((r) => (r.data.data.bots ?? []).map((bot) => {
       if (bot.owner_type !== 'user' && bot.owner_type !== 'platform') throw new Error('Bot 所有者类型无效');
+      if (typeof bot.status !== 'string') throw new Error('Bot 当前状态无效');
       return { ...bot, bot_id: entityId(bot.bot_id, 'bot.bot_id'), binding_id: entityId(bot.binding_id, 'bot.binding_id'),
         owner_id: optionalEntityId(bot.owner_id, 'bot.owner_id'), added_by: entityId(bot.added_by, 'bot.added_by'),
         added_at: quantity(bot.added_at, 'bot.added_at') };
@@ -82,15 +86,30 @@ export const botApi = {
     }),
 };
 
+export function botParticipationEnabled(bot: BotInConv): boolean {
+  try {
+    const settings: unknown = JSON.parse(bot.bot_settings || '{}');
+    return !!settings && typeof settings === 'object' && !Array.isArray(settings)
+      && (settings as Record<string, unknown>).enabled !== false;
+  } catch { return false; }
+}
+
+export function isBotBindingActive(bot: BotInConv | undefined): bot is BotInConv {
+  return !!bot && bot.status === 'active' && botParticipationEnabled(bot);
+}
+
 // Project only the public contract: private snapshots and trajectory never enter UI state.
 export function normalizeRun(value: unknown): BotRun {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('执行必须是对象');
   const run = value as Record<string, unknown>;
   const status = run.status;
   const output = run.output_status;
-  if (!['accepted', 'running', 'waiting_input', 'stopping', 'stopped', 'succeeded', 'failed'].includes(String(status))) throw new Error('执行状态无效');
+  if (!['accepted', 'running', 'waiting_input', 'waiting_authorization', 'stopping', 'stopped', 'succeeded', 'failed'].includes(String(status))) throw new Error('执行状态无效');
   if (output !== 'none' && output !== 'generated' && output !== 'pending' && output !== 'committed' && output !== 'failed') throw new Error('结果提交状态无效');
   if (run.interaction_status !== 'active' && run.interaction_status !== 'closed') throw new Error('交互状态无效');
+  if (!['none', 'requested', 'confirmed', 'rejected', 'unknown'].includes(String(run.stop_status))) throw new Error('停止确认状态无效');
+  if (run.stream_status !== 'open' && run.stream_status !== 'closed') throw new Error('输出流状态无效');
+  if (!Array.isArray(run.control_user_ids)) throw new Error('显式控制者必须是数组');
   const text = (value: unknown, field: string): string => {
     if (typeof value !== 'string') throw new Error(`${field} 必须是文本`);
     return value;
@@ -101,7 +120,7 @@ export function normalizeRun(value: unknown): BotRun {
   if ((output === 'committed' && !run.message_id) || (status === 'succeeded' && output !== 'committed')) throw new Error('执行提交结果缺少最终消息确认');
   if (run.executor_type !== 'builtin' && run.executor_type !== 'third_party') throw new Error('执行器类型无效');
   if (!['pending', 'delivered', 'acknowledged'].includes(String(run.delivery_status))) throw new Error('投递状态无效');
-  if (!['pending', 'accepted', 'completed'].includes(String(run.executor_status))) throw new Error('执行器接受状态无效');
+  if (!['pending', 'accepted', 'completed', 'stopped', 'stop_rejected'].includes(String(run.executor_status))) throw new Error('执行器接受状态无效');
   const capabilities = run.executor_capabilities;
   if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)) throw new Error('执行器能力无效');
   const caps = capabilities as Record<string, unknown>;
@@ -109,11 +128,17 @@ export function normalizeRun(value: unknown): BotRun {
     || typeof caps.supports_input !== 'boolean' || typeof caps.supports_stop !== 'boolean' || typeof caps.supports_resume !== 'boolean') throw new Error('执行器能力声明无效');
   if (run.result_type != null && run.result_type !== '' && !['text', 'file', 'result'].includes(String(run.result_type))) throw new Error('结果类型无效');
   if (run.result_content != null && (typeof run.result_content !== 'object' || Array.isArray(run.result_content))) throw new Error('结果内容无效');
+  if (run.can_control !== undefined && typeof run.can_control !== 'boolean') throw new Error('当前查看者控制资格无效');
   return {
     id: entityId(run.id, 'run.id'), interaction_id: entityId(run.interaction_id, 'run.interaction_id'),
     parent_run_id: optionalEntityId(run.parent_run_id, 'run.parent_run_id'), interaction_status: run.interaction_status,
     bot_id: entityId(run.bot_id, 'run.bot_id'), conv_id: entityId(run.conv_id, 'run.conv_id'),
     binding_id: entityId(run.binding_id, 'run.binding_id'), requester_id: entityId(run.requester_id, 'run.requester_id'),
+    controller_id: entityId(run.controller_id, 'run.controller_id'),
+    control_user_ids: run.control_user_ids.map((id) => entityId(id, 'run.control_user_id')),
+    stop_status: run.stop_status as BotRun['stop_status'], stream_status: run.stream_status,
+    stop_reason: text(run.stop_reason, 'run.stop_reason'),
+    ...(run.can_control === undefined ? {} : { can_control: run.can_control as boolean }),
     input_key: text(run.input_key, 'run.input_key'), source_message_id: optionalEntityId(run.source_message_id, 'run.source_message_id'),
     input_version: sequence(run.input_version, 'run.input_version', true), version: sequence(run.version, 'run.version', true),
     generation: sequence(run.generation, 'run.generation'),
@@ -174,8 +199,18 @@ export function mergeRuns(previous: BotRun[] | undefined, updates: BotRun[]): Bo
   for (const update of updates) {
     const current = runs.get(update.id);
     if (!current || update.version > current.version) {
-      runs.set(update.id, update);
+      runs.set(update.id, current && update.can_control === undefined ? { ...update, can_control: current.can_control } : update);
       changed = true;
+    } else if (update.can_control !== undefined) {
+      // Current access projections can change without changing the shared version.
+      const sameVersion = update.version === current.version;
+      if (update.can_control !== current.can_control || sameVersion && (
+        update.interaction_status !== current.interaction_status || update.stop_reason !== current.stop_reason
+        || update.stream_status !== current.stream_status || update.control_user_ids.length !== current.control_user_ids.length
+        || update.control_user_ids.some((userId, index) => userId !== current.control_user_ids[index]))) {
+        runs.set(update.id, sameVersion ? update : { ...current, can_control: update.can_control });
+        changed = true;
+      }
     }
   }
   if (previous && !changed) return previous;

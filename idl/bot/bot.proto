@@ -487,5 +487,6 @@ message ControlRunReq {
   repeated string message_ids = 6 [(common.entity_id) = true];
   repeated string file_ids = 7 [(common.entity_id) = true];
   optional string history_grant_id = 8 [(common.entity_id) = true];
+  optional string target_user_id = 9 [(common.entity_id) = true];
 }
 

@@ -48,6 +48,16 @@ func (l *GetMembersLogic) GetMembers(in *conversation.GetMembersReq) (*conversat
 			if binding.ID != in.GetBindingId() {
 				return ErrInsufficientPerm
 			}
+			if enabled, exists := binding.BotSettings["enabled"]; exists && enabled != true {
+				return ErrInsufficientPerm
+			}
+			var active int64
+			if err := l.svcCtx.DB.WithContext(l.ctx).Table("bot.bots").Where("id = ? AND status = 'active'", *in.BotId).Count(&active).Error; err != nil {
+				return err
+			}
+			if active != 1 {
+				return ErrInsufficientPerm
+			}
 			response, err = l.getMembers(in, r)
 			return err
 		})

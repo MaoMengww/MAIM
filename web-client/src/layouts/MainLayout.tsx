@@ -67,6 +67,12 @@ export function MainLayout() {
           queryClient.removeQueries({ queryKey: ['conv-bots', key[1]], exact: true });
         }
       }
+      for (const [key] of queryClient.getQueriesData({ queryKey: ['bot-runs'] })) {
+        if (typeof key[3] !== 'string' || !ids.has(key[3])) {
+          void queryClient.cancelQueries({ queryKey: key, exact: true });
+          queryClient.removeQueries({ queryKey: key, exact: true });
+        }
+      }
       for (const conversation of conversations) {
         queryClient.setQueryData(['conversation', conversation.id], conversation);
       }

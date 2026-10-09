@@ -39,6 +39,7 @@ func (s *Service) Start(ctx context.Context) {
 		go s.worker(ctx, []string{"deliver"})
 	}
 	go s.worker(ctx, []string{"updated"})
+	go s.monitorAuthority(ctx)
 }
 func (s *Service) worker(ctx context.Context, kinds []string) {
 	for ctx.Err() == nil {
@@ -94,7 +95,7 @@ func (s *Service) worker(ctx context.Context, kinds []string) {
 	}
 }
 func (s *Service) fail(ctx context.Context, r *model.Run, generation int64, reason string, output bool) error {
-	_, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
+	_, err := s.repo.ChangeLifecycle(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
 		current.Status = "failed"
 		current.Stage = "failed"
 		current.Error = reason
@@ -113,14 +114,38 @@ func (s *Service) execute(ctx context.Context, item *model.RunOutbox) error {
 	if err != nil {
 		return err
 	}
-	if r.Status == "failed" || r.Status == "succeeded" || r.Status == "stopped" || r.Status == "waiting_input" {
+	if repo.TerminalRun(r) || r.Status == "waiting_input" || r.Status == "waiting_authorization" {
 		return nil
+	}
+	if r.Status == "stopping" {
+		// A queued cancellation waits for any live execute lease. No model/tool
+		// call remains by the time this item can confirm the local worker stopped.
+		return s.confirmBuiltinStop(ctx, r, 0)
 	}
 	generation := item.ExecutionGeneration
 	if generation <= 0 || r.ExecutionGeneration != generation {
 		return status.Error(codes.Aborted, "execution lease superseded")
 	}
-	err = s.advance(ctx, r, generation)
+	executionCtx, cancel := s.guardExecution(ctx, r, generation)
+	err = s.advance(executionCtx, r, generation)
+	cancel()
+	current, lookupErr := s.repo.Get(ctx, r.ID)
+	if lookupErr != nil {
+		return lookupErr
+	}
+	current, lookupErr = s.reconcile(ctx, current)
+	if lookupErr != nil {
+		return lookupErr
+	}
+	if current.ExecutionGeneration != generation {
+		return nil
+	}
+	if current.Status == "stopping" {
+		return s.confirmBuiltinStop(ctx, current, generation)
+	}
+	if repo.TerminalRun(current) || current.Status == "waiting_authorization" {
+		return nil
+	}
 	if err == nil {
 		return nil
 	}
@@ -157,6 +182,14 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 	if config.AssemblyVersion != assemblyVersion {
 		return status.Error(codes.FailedPrecondition, "unsupported request assembly version")
 	}
+	if r.TrajectoryVersion > 0 && r.Status == "accepted" {
+		if _, err := s.repo.Change(ctx, r.ID, generation, func(_ *gorm.DB, current *model.Run) error {
+			current.Status, current.ExecutorStatus = "running", "accepted"
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
 	if r.TrajectoryVersion == 0 {
 		_, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
 			if current.TrajectoryVersion != 0 {
@@ -184,6 +217,9 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 			return err
 		}
 		r = current
+		if repo.TerminalRun(r) || r.Status == "stopping" || r.Status == "waiting_authorization" {
+			return nil
+		}
 		if r.Status == "waiting_input" {
 			return nil
 		}
@@ -453,9 +489,11 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 			return err
 		}
 	}
-	if err := s.authorize(ctx, r, false); err != nil {
+	current, err := s.executionBoundary(ctx, r, generation)
+	if err != nil {
 		return err
 	}
+	r = current
 	timeout := s.svc.Config.Bot.RequestTimeout
 	if timeout <= 0 {
 		timeout = 120 * time.Second
@@ -463,6 +501,9 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	response, chunks, err := s.invokeModel(callCtx, request, config.Streaming)
 	cancel()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil {
 		return err
 	}
@@ -625,9 +666,11 @@ func (s *Service) invokeModel(ctx context.Context, req *llm.ChatReq, streaming b
 	return response, chunks, nil
 }
 func (s *Service) performTool(ctx context.Context, r *model.Run, generation int64, config ExecutionConfig, call *llm.ToolCall) error {
-	if err := s.authorize(ctx, r, false); err != nil {
+	current, err := s.executionBoundary(ctx, r, generation)
+	if err != nil {
 		return err
 	}
+	r = current
 	index := slices.IndexFunc(config.Tools, func(t component.RunTool) bool { return t.Name == call.Function.Name })
 	if index < 0 {
 		return status.Error(codes.PermissionDenied, "external write or unknown-risk tool is not authorized")
@@ -651,6 +694,9 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 	if _, err := s.repo.Change(ctx, r.ID, generation, func(_ *gorm.DB, current *model.Run) error { current.Stage = "tool"; return nil }); err != nil {
 		return err
 	}
+	if _, err := s.executionBoundary(ctx, r, generation); err != nil {
+		return err
+	}
 	toolCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	var result string
@@ -659,6 +705,12 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 		result, toolErr = component.CallBuiltinRunTool(toolCtx, frozen, call.Function.Arguments)
 	} else {
 		result, toolErr = component.CallRunTool(toolCtx, server, frozen, call.Function.Arguments)
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if _, err := s.executionBoundary(ctx, r, generation); err != nil {
+		return err
 	}
 	if len(result) > 131072 {
 		return status.Error(codes.ResourceExhausted, "tool result exceeds the work budget")
@@ -670,7 +722,7 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 			result = `{"error":"tool invocation failed or no longer authorized"}`
 		}
 	}
-	_, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
+	_, err = s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
 		if err := repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "tool", Name: call.Function.Name, ToolCallId: call.Id, Content: result}); err != nil {
 			return err
 		}
@@ -701,7 +753,11 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	if err != nil {
 		return err
 	}
-	if r.Status == "succeeded" || r.Status == "failed" {
+	r, err = s.reconcile(ctx, r)
+	if err != nil {
+		return err
+	}
+	if repo.TerminalRun(r) {
 		return nil
 	}
 	if r.OutputStatus != "pending" {
@@ -756,7 +812,7 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	if replyTo == nil {
 		replyTo = r.ReplyToMsgID
 	}
-	request := &msg.SendBotReplyReq{BotId: r.BotID, ConversationId: r.ConvID, BindingId: r.BindingID, RequesterId: &r.RequesterID, Type: msg.MessageType_MESSAGE_TYPE_TEXT, Text: r.ResultText, ReplyToId: replyTo, RawPayload: string(raw), OutputKey: &key}
+	request := &msg.SendBotReplyReq{BotId: r.BotID, ConversationId: r.ConvID, BindingId: r.BindingID, RequesterId: &r.RequesterID, ControllerId: &r.ControllerID, Type: msg.MessageType_MESSAGE_TYPE_TEXT, Text: r.ResultText, ReplyToId: replyTo, RawPayload: string(raw), OutputKey: &key, RunId: &r.ID}
 	switch r.ResultType {
 	case "file":
 		request.Type = msg.MessageType_MESSAGE_TYPE_FILE
@@ -784,13 +840,16 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	if identity.Validate(response.MessageId) != nil {
 		return fmt.Errorf("messaging returned an invalid final message identity")
 	}
-	_, err = s.repo.Change(ctx, r.ID, 0, func(_ *gorm.DB, current *model.Run) error {
+	_, err = s.repo.ChangeLifecycle(ctx, r.ID, 0, func(_ *gorm.DB, current *model.Run) error {
 		current.Status = "succeeded"
 		current.Stage = "committed"
 		current.OutputStatus = "committed"
 		current.MessageID = &response.MessageId
 		return nil
 	})
+	if status.Code(err) == codes.FailedPrecondition {
+		return nil
+	}
 	return err
 }
 func (s *Service) publishUpdate(ctx context.Context, item *model.RunOutbox) error {
@@ -798,11 +857,8 @@ func (s *Service) publishUpdate(ctx context.Context, item *model.RunOutbox) erro
 	if err != nil {
 		return err
 	}
-	members, err := s.members(ctx, r.ConvID, r.RequesterID)
-	if err != nil {
-		if status.Code(err) == codes.PermissionDenied || status.Code(err) == codes.NotFound || status.Code(err) == codes.Unauthenticated {
-			return nil
-		}
+	var members []string
+	if err := s.svc.DB.WithContext(ctx).Table("messaging.conv_members").Where("conv_id = ? AND member_type = 'user'", r.ConvID).Pluck("user_id", &members).Error; err != nil {
 		return err
 	}
 	users := make([]string, 0, len(members))

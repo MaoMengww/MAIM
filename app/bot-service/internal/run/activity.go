@@ -44,6 +44,9 @@ func (s *Service) Observe(ctx context.Context, input Input) error {
 	if err != nil {
 		return err
 	}
+	if enabled, exists := binding.BotSettings["enabled"]; exists && enabled != true {
+		return nil
+	}
 	if binding.ID != input.BindingID {
 		return status.Error(codes.PermissionDenied, "activity binding is stale")
 	}
@@ -73,6 +76,9 @@ func (s *Service) Observe(ctx context.Context, input Input) error {
 	}
 	if err != nil {
 		return err
+	}
+	if enabled, exists := binding.BotSettings["enabled"]; exists && enabled != true {
+		return nil
 	}
 	if binding.ID != input.BindingID || source.Seq <= binding.StartSeq {
 		return status.Error(codes.PermissionDenied, "activity binding is stale")

@@ -60,10 +60,12 @@ func (l *ListBotsLogic) ListBots(in *conversation.ListBotsReq) (*conversation.Li
 		avatar := ""
 		ownerType := ""
 		var ownerID *string
+		botStatus := "disabled"
 		if bot != nil {
 			name = bot.Name
 			avatar = bot.Avatar
 			ownerType, ownerID = bot.OwnerType, bot.OwnerId
+			botStatus = bot.Status
 		}
 		bots = append(bots, &conversation.BotInConv{
 			BotId:       cb.BotID,
@@ -73,6 +75,7 @@ func (l *ListBotsLogic) ListBots(in *conversation.ListBotsReq) (*conversation.Li
 			Name:        name,
 			Avatar:      avatar,
 			BotSettings: settingsStr,
+			Status:      botStatus,
 			AddedBy:     cb.AddedBy,
 			AddedAt:     cb.CreatedAt.Unix(),
 		})

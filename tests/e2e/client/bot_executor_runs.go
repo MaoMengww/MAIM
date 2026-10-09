@@ -23,6 +23,11 @@ const executorCapabilities = `{"input_types":["text"],"supports_input":false,"su
 type executorRequest struct {
 	Type         string    `json:"type"`
 	Run          publicRun `json:"run"`
+	RunID        entityID  `json:"run_id"`
+	BotID        entityID  `json:"bot_id"`
+	ConvID       entityID  `json:"conv_id"`
+	BindingID    entityID  `json:"binding_id"`
+	Reason       string    `json:"reason"`
 	Generation   int64     `json:"generation"`
 	InputVersion int64     `json:"input_version"`
 	Operation    string    `json:"operation"`
@@ -32,6 +37,13 @@ type executorRequest struct {
 		Content     string            `json:"content"`
 		Materials   []json.RawMessage `json:"materials"`
 	} `json:"inputs"`
+}
+
+func (r executorRequest) ID() entityID {
+	if r.RunID != "" {
+		return r.RunID
+	}
+	return r.Run.ID
 }
 
 func (r executorRequest) Text() string {
@@ -122,7 +134,7 @@ func (x *controlledExecutor) request(id entityID) (executorRequest, error) {
 
 func (x *controlledExecutor) requestVersion(id entityID, generation, inputVersion int64, status string) (executorRequest, error) {
 	matches := func(request executorRequest) bool {
-		return request.Type == "bot.run.request" && (id == "" || request.Run.ID == id) && (generation == 0 || request.Generation == generation) && (inputVersion == 0 || request.InputVersion == inputVersion) && (status == "" || request.Run.Status == status)
+		return request.Type == "bot.run.request" && (id == "" || request.ID() == id) && (generation == 0 || request.Generation == generation) && (inputVersion == 0 || request.InputVersion == inputVersion) && (status == "" || request.Run.Status == status || status == "stopping" && request.Operation == "stop")
 	}
 	for i, request := range x.pending {
 		if matches(request) {
@@ -253,7 +265,7 @@ func (x *controlledExecutor) update(payload map[string]any, reject bool, compute
 }
 
 func executorPayload(request executorRequest, kind, status string, sequence int64) map[string]any {
-	payload := map[string]any{"type": kind, "run_id": request.Run.ID, "generation": request.Generation, "input_version": request.InputVersion, "sequence": sequence, "update_key": uuid.NewString(), "status": status}
+	payload := map[string]any{"type": kind, "run_id": request.ID(), "generation": request.Generation, "input_version": request.InputVersion, "sequence": sequence, "update_key": uuid.NewString(), "status": status}
 	if kind == "run.delivery_ack" {
 		payload["operation"] = request.Operation
 	}

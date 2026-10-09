@@ -620,12 +620,12 @@ func (r *ConversationRepo) GetBotsByIDs(ctx context.Context, ids []string) ([]*b
 		return nil, nil
 	}
 	var records []botProjection
-	if err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar, owner_type, owner_id").Where("id IN ?", ids).Find(&records).Error; err != nil {
+	if err := r.DB.WithContext(ctx).Table("bot.bots").Select("id, name, avatar, owner_type, owner_id, status").Where("id IN ?", ids).Find(&records).Error; err != nil {
 		return nil, err
 	}
 	bots := make([]*botpb.Bot, len(records))
 	for i, bot := range records {
-		bots[i] = &botpb.Bot{Id: bot.ID, Name: bot.Name, Avatar: bot.Avatar, OwnerType: bot.OwnerType, OwnerId: bot.OwnerID}
+		bots[i] = &botpb.Bot{Id: bot.ID, Name: bot.Name, Avatar: bot.Avatar, OwnerType: bot.OwnerType, OwnerId: bot.OwnerID, Status: bot.Status}
 	}
 	return bots, nil
 }

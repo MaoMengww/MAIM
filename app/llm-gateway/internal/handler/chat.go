@@ -15,6 +15,7 @@ import (
 	pb "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/interceptor"
+	"google.golang.org/grpc/status"
 )
 
 // ResolveExecutionModel freezes routing, not permission or credentials.
@@ -112,6 +113,9 @@ func (h *LLMGatewayHandler) Chat(ctx context.Context, req *pb.ChatReq) (resp *pb
 	defer h.svcCtx.RateLimiter.DecrConcurrency(context.WithoutCancel(ctx), modelName)
 	resp, err = llm.CompleteChat(ctx, req, cfg, info.ModelEntry.APIKey)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, status.FromContextError(ctx.Err()).Err()
+		}
 		var input *llm.RequestError
 		if stderrors.As(err, &input) {
 			return nil, errors.New(errors.CodeInvalidParam, input.Error())
@@ -168,6 +172,9 @@ func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_Cha
 		return stream.Send(chunk)
 	})
 	if err != nil {
+		if ctx.Err() != nil {
+			return status.FromContextError(ctx.Err()).Err()
+		}
 		var input *llm.RequestError
 		if stderrors.As(err, &input) {
 			return errors.New(errors.CodeInvalidParam, input.Error())

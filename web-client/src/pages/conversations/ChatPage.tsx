@@ -17,7 +17,7 @@ import {
 import { convApi } from '@/services/conversation';
 import { msgApi, normalizeRealtimeMessageContent } from '@/services/message';
 import { fileApi } from '@/services/file';
-import { botApi } from '@/services/bot';
+import { botApi, isBotBindingActive } from '@/services/bot';
 import { messageSync } from '@/services/messageSync';
 import { createPendingSend, retryPendingSend, loadPendingSends, type PendingSend } from '@/services/pendingSend';
 import { createPendingRun, retryPendingRun, loadPendingRuns, type PendingRun } from '@/services/pendingRun';
@@ -31,7 +31,7 @@ import { Avatar } from '@/components/common/Avatar';
 import { GroupInfoDrawer } from './GroupInfoDrawer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { Message, MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource, BotRun, RunSource } from '@/types/model';
+import type { Message, MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource, BotRun, RunSource, BotInConv } from '@/types/model';
 import type { SendMsgContent, SearchMessagesReq, RunMaterialsReq, ControlRunReq } from '@/types/api';
 import { entityId, sequence, knowledgeSources } from '@/utils/json';
 
@@ -383,6 +383,7 @@ const RUN_STATUS: Record<BotRun['status'], { label: string; color: string }> = {
   accepted: { label: '已接受', color: 'default' }, running: { label: '运行中', color: 'processing' },
   succeeded: { label: '成功', color: 'success' }, failed: { label: '失败', color: 'error' },
   waiting_input: { label: '等待补充', color: 'warning' }, stopping: { label: '停止待确认', color: 'warning' },
+  waiting_authorization: { label: '等待明确接手', color: 'warning' },
   stopped: { label: '已停止', color: 'default' },
 };
 const RUN_STAGE: Record<string, string> = {
@@ -390,10 +391,25 @@ const RUN_STAGE: Record<string, string> = {
   generated: '结果已生成', pending: '等待提交消息', committed: '消息已提交', failed: '执行失败',
   delivered: '工作已投递', executor_accepted: '执行器已接受', waiting_input: '等待补充输入',
   stopping: '等待执行器确认停止', stopped: '执行器确认停止', resumed: '恢复工作',
+  awaiting_takeover: '负责人失去当前资格 · 暂停等待接手', takeover: '当前有权成员接手',
+  control_granted: '授予执行控制权', control_revoked: '撤销执行控制权', stop_rejected: '执行器拒绝停止',
+  stop_unknown: '停止结果未知', stream_closed: '会话输出流关闭',
 };
 const RUN_OUTPUT: Record<BotRun['output_status'], string> = {
   none: '尚无结果', generated: '结果已生成 · 尚未发送', pending: '结果待提交 · 尚未发送',
   committed: '最终消息已提交', failed: '输出提交失败 · 未发送',
+};
+const RUN_STOP: Record<BotRun['stop_status'], { label: string; description: string; color: string }> = {
+  none: { label: '未请求停止', description: '尚无停止请求，输出流关闭也不等于实际停工。', color: 'default' },
+  requested: { label: '停止请求已接受 · 待确认', description: 'AIM 已接受停止请求；尚未收到执行器实际停工确认。', color: 'warning' },
+  confirmed: { label: '执行器已确认停止', description: '执行器确认后续工作已停止；已发生的行动或副作用不会自动回滚。', color: 'default' },
+  rejected: { label: '执行器拒绝停止 · 无法取消', description: '执行器明确表示无法取消；AIM 不能据此声称外部工作已停止。', color: 'error' },
+  unknown: { label: '停止结果未知', description: '执行器失联或未及时确认，实际工作可能仍在进行。请查询状态，不将断流当作停工。', color: 'warning' },
+};
+const RUN_STOP_REASON: Record<string, string> = {
+  user_requested: '有权成员请求停止', binding_revoked: 'Bot 已移出，旧绑定不再获准访问',
+  bot_disabled: 'Bot 已停用', participation_revoked: 'Bot 当前绑定参与许可已撤销',
+  controller_membership_lost: '负责人已失去当前成员资格',
 };
 const RUN_SOURCE_LABEL: Record<string, string> = { request_source: '发起请求', reference: '明确引用', history: '获准历史', file: '文件', parent_run: '承接结果' };
 const SOURCE_SENDER_LABEL: Record<string, string> = { user: '用户', bot: 'Bot', system: '系统' };
@@ -403,9 +419,14 @@ function isTerminalRun(run: BotRun): boolean {
 }
 
 function acceptsRunInput(run: BotRun): boolean {
-  return run.interaction_status === 'active' && run.output_status === 'none'
+  return run.interaction_status === 'active' && run.output_status === 'none' && run.stop_status === 'none' && run.stream_status === 'open'
     && (run.status === 'accepted' || run.status === 'running' || run.status === 'waiting_input')
     && run.executor_capabilities.supports_input;
+}
+
+function hasCurrentRunBinding(run: BotRun, bots: BotInConv[]): boolean {
+  return !['binding_revoked', 'bot_disabled', 'participation_revoked'].includes(run.stop_reason)
+    && bots.some((bot) => bot.bot_id === run.bot_id && bot.binding_id === run.binding_id && isBotBindingActive(bot));
 }
 
 function runOperationError(error: unknown): string {
@@ -413,6 +434,7 @@ function runOperationError(error: unknown): string {
     return typeof error.response?.data?.message === 'string' ? error.response.data.message
       : '操作接受结果尚未确认，请查询状态或用原内容重试；重试保留提交键。';
   }
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message;
   return error instanceof Error ? error.message : '操作未被接受，请查询当前状态后重试';
 }
 
@@ -473,9 +495,10 @@ function WorkSourcePicker({ materials, onChange, messages, uploadedFiles, disabl
   </details>;
 }
 
-function RunCard({ run, botName, requesterName, nameForUser, canContinue, activeWork, canManage, onLocate, onLocateFile, onRefresh, onCompose, onNew, onUpdated }: {
+function RunCard({ run, botName, requesterName, nameForUser, canContinue, activeWork, canManage, bindingActive, currentUserId, members, onLocate, onLocateFile, onRefresh, onCompose, onNew, onUpdated }: {
   run: BotRun; botName: string; requesterName: string; nameForUser: (id: string) => string;
-  canContinue: boolean; activeWork: boolean; canManage: boolean;
+  canContinue: boolean; activeWork: boolean; canManage: boolean; bindingActive: boolean;
+  currentUserId: string; members: ConvMember[];
   onLocate: (messageId: string) => Promise<void>; onLocateFile: (fileId: string) => Promise<void>;
   onRefresh: (runId: string) => Promise<void>; onCompose: (run: BotRun, mode: WorkRelation['mode']) => void;
   onNew: (run: BotRun) => void; onUpdated: (run: BotRun) => Promise<void>;
@@ -483,17 +506,39 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
   const [refreshing, setRefreshing] = useState(false);
   const [controlling, setControlling] = useState(false);
   const [controlError, setControlError] = useState('');
-  const controlKey = useRef<{ operation: ControlRunReq['operation']; key: string }>();
+  const [controlTarget, setControlTarget] = useState<string>();
+  const controlKey = useRef<{ signature: string; key: string }>();
   const controlLock = useRef(false);
   const terminal = isTerminalRun(run);
-  const control = async (operation: Exclude<ControlRunReq['operation'], 'input'>) => {
+  const canOperate = canManage && bindingActive && run.interaction_status === 'active';
+  const latest = useRef({ canOperate, members });
+  latest.current = { canOperate, members };
+  useEffect(() => {
+    if (!canOperate || !members.some((member) => member.user_id === controlTarget)) setControlTarget(undefined);
+    if (!canOperate) controlKey.current = undefined;
+  }, [canOperate, members, controlTarget]);
+  useEffect(() => {
+    latest.current.canOperate = canOperate;
+    return () => { latest.current.canOperate = false; };
+  }, [canOperate]);
+  const control = async (operation: Exclude<ControlRunReq['operation'], 'input'>, targetUserId?: string) => {
     if (controlLock.current) return;
+    if (!latest.current.canOperate) { setControlError('当前已无执行控制资格或绑定已失效，请查询最新状态。'); return; }
+    const targetsMember = operation === 'grant_control' || operation === 'revoke_control';
+    if (targetsMember && !latest.current.members.some((member) => member.user_id === targetUserId)) {
+      setControlError('请选择当前会话成员；已离开的成员不能获授或撤销当前控制权。'); return;
+    }
     controlLock.current = true;
-    if (!controlKey.current || controlKey.current.operation !== operation) controlKey.current = { operation, key: crypto.randomUUID() };
+    const signature = JSON.stringify({ operation, targetUserId: targetsMember ? targetUserId : undefined });
+    if (controlKey.current?.signature !== signature) controlKey.current = { signature, key: crypto.randomUUID() };
+    const submission_key = controlKey.current.key;
+    const request: ControlRunReq = targetsMember
+      ? { operation, submission_key, target_user_id: targetUserId! }
+      : { operation, submission_key };
     setControlling(true);
     setControlError('');
     try {
-      const updated = await botApi.controlRun(run.id, { operation, submission_key: controlKey.current.key });
+      const updated = await botApi.controlRun(run.id, request);
       controlKey.current = undefined;
       await onUpdated(updated);
     } catch (error) { setControlError(runOperationError(error)); }
@@ -505,9 +550,14 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
     okText: operation === 'clear_context' ? '清空上下文' : '结束交互', cancelText: '取消',
     onOk: () => control(operation),
   });
-  const state = RUN_STATUS[run.status];
+  const state = run.status === 'stopping' && (run.stop_status === 'rejected' || run.stop_status === 'unknown')
+    ? RUN_STOP[run.stop_status] : RUN_STATUS[run.status];
+  const stop = RUN_STOP[run.stop_status];
+  const targetHasGrant = !!controlTarget && run.control_user_ids.includes(controlTarget);
+  const controllerPresent = members.some((member) => member.user_id === run.controller_id);
   const materialSources = run.sources.filter((source): source is Extract<RunSource, { type: 'request_source' | 'reference' | 'history' | 'file' | 'parent_run' }> => source.type !== 'rag' && source.type !== 'tool');
   return <article className="chat-run-card" data-run-id={run.id} data-run-version={run.version} data-run-status={run.status}
+    data-stop-status={run.stop_status} data-stream-status={run.stream_status}
     data-output-status={run.output_status} data-interaction-status={run.interaction_status} aria-label={`${botName} 执行：${state.label}`}>
     <div className="chat-run-header">
       <strong>{botName} · 执行</strong>
@@ -523,6 +573,8 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
     </div>
     <div className="chat-run-meta">
       <span title={run.requester_id}>请求者：{requesterName}</span>
+      <span title={run.controller_id}>当前负责人：{nameForUser(run.controller_id)}{run.status === 'waiting_authorization' ? '（资格已失效，等待接手）' : !controllerPresent ? '（已非当前成员）' : ''}</span>
+      <span>显式控制者：{run.control_user_ids.length > 0 ? run.control_user_ids.map((userId) => `${nameForUser(userId)}${members.some((member) => member.user_id === userId) ? '' : '（已非当前成员）'}`).join('、') : '无'}</span>
       {run.source_message_id
         ? <Button type="link" size="small" onClick={() => void onLocate(run.source_message_id!).catch(() => message.error('来源消息无法读取'))}>查看输入来源消息</Button>
         : <span>输入来源：明确操作</span>}
@@ -530,6 +582,21 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
     </div>
     <div className="chat-run-stage" role="status">当前阶段：{RUN_STAGE[run.stage] || run.stage} · {RUN_OUTPUT[run.output_status]}</div>
     {run.status === 'waiting_input' && <div className="chat-run-waiting" role="status">待补充事项：{run.waiting_reason || '执行器正在等待补充信息'}</div>}
+    {run.status === 'waiting_authorization' && <div className="chat-run-waiting" role="status">
+      {run.executor_type === 'third_party' && run.stop_status !== 'confirmed'
+        ? '原负责人已失去当前资格，会话输出已关闭，仍须等待第三方执行器确认实际暂停；确认前不能接手。普通成员不能抢接，重新入群不会自动恢复原工作。'
+        : '原负责人已失去当前资格，工作已暂停，等待仍有控制权的成员明确接手；普通成员不能抢接，重新入群也不会自动恢复原工作。'}
+    </div>}
+    <div className="chat-run-stop" role="status" aria-live="polite">
+      <div className="chat-run-meta">
+        <Tag color={stop.color}>{stop.label}</Tag>
+        <Tag>{run.stream_status === 'closed' ? '会话输出流已关闭' : '会话输出流开放'}</Tag>
+      </div>
+      <p>{stop.description}</p>
+      {run.stream_status === 'closed' && run.stop_status !== 'confirmed' && <p>临时输出流已关闭，但不能据此判断执行器已停止；仍获授权的实际完成结果可提交为最终消息。</p>}
+      {run.stop_reason && <p>停止原因：{RUN_STOP_REASON[run.stop_reason] || run.stop_reason}</p>}
+      {run.stop_status !== 'none' && run.executor_status === 'completed' && run.status !== 'stopped' && <p>执行器实际完成；停止请求不会改写已完成的事实。</p>}
+    </div>
     {run.input_sources.length > 0 && <details className="chat-run-details"><summary>已接受输入与补充者 · {run.input_sources.length} 条</summary>
       <ol className="chat-run-steps">{run.input_sources.map((source) => <li key={source.version}>
         输入 v{source.version} · <span title={source.requester_id}>{SOURCE_SENDER_LABEL[source.sender_type]} {nameForUser(source.requester_id)}</span>
@@ -545,7 +612,7 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       <div className="chat-run-meta" role="status">
         <span>第三方执行器</span>
         <span>送达：{{ pending: '等待投递', delivered: '传输已送达', acknowledged: '执行器确认收到' }[run.delivery_status]}</span>
-        <span>工作：{{ pending: '执行器尚未接受', accepted: '执行器已接受', completed: '执行器已完成' }[run.executor_status]}</span>
+        <span>工作：{{ pending: '执行器尚未接受', accepted: '执行器已接受', completed: '执行器已完成', stopped: '执行器已停止', stop_rejected: '执行器拒绝取消' }[run.executor_status]}</span>
       </div>
       <details className="chat-run-details"><summary>执行器实际能力</summary>
         <p>输入类型：{run.executor_capabilities.input_types.join('、')}。传输确认不表示工作完成。</p>
@@ -554,20 +621,46 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       {!run.executor_capabilities.supports_input && <p className="chat-run-notice" role="status">此第三方执行器不支持补充输入，请发起独立新请求。</p>}
     </>}
     <div className="chat-run-controls">
-      {acceptsRunInput(run) && <Button disabled={controlling} onClick={() => onCompose(run, 'input')}>补充输入</Button>}
+      {bindingActive && acceptsRunInput(run) && <Button disabled={controlling} onClick={() => onCompose(run, 'input')}>补充输入</Button>}
       {canContinue && <Button disabled={controlling} onClick={() => onCompose(run, 'continue')}>继续此结果</Button>}
-      <Button disabled={controlling} onClick={() => onNew(run)}>独立新话题</Button>
-      {!terminal && run.output_status === 'none' && run.executor_capabilities.supports_stop && run.status !== 'stopping'
-        && <Button danger disabled={!canManage} loading={controlling} onClick={() => void control('stop')}>请求停止</Button>}
-      {!terminal && run.output_status === 'none' && run.executor_capabilities.supports_resume && run.status === 'waiting_input'
-        && <Button disabled={!canManage} loading={controlling} onClick={() => void control('resume')}>请求恢复</Button>}
-      {run.interaction_status === 'active' && <>
-        <Button disabled={!canManage || activeWork || !terminal} loading={controlling} onClick={() => closeInteraction('close_interaction')}>结束交互</Button>
-        <Button disabled={!canManage || activeWork || !terminal} loading={controlling} onClick={() => closeInteraction('clear_context')}>清空上下文</Button>
+      {bindingActive && <Button disabled={controlling} onClick={() => onNew(run)}>独立新话题</Button>}
+      {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_stop && run.stop_status === 'none'
+        && <Button danger loading={controlling} onClick={() => void control('stop')}>请求停止</Button>}
+      {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_resume && run.status === 'waiting_input' && run.stop_status === 'none'
+        && <Button loading={controlling} onClick={() => void control('resume')}>请求恢复</Button>}
+      {canOperate && !terminal && run.status !== 'stopping'
+        && (run.status === 'waiting_authorization'
+          ? run.stop_status === (run.executor_type === 'third_party' ? 'confirmed' : 'none')
+          : run.stop_status === 'none')
+        && (run.controller_id !== currentUserId || run.status === 'waiting_authorization')
+        && <Button loading={controlling} onClick={() => AntModal.confirm({
+          title: '由你接手此工作？', content: '接手只变更后续负责人，不改写原请求来源、不继承他人的个人资源许可；共享工作由你明确接续。',
+          okText: '由我接手', cancelText: '取消', onOk: () => control('takeover'),
+        })}>由我接手</Button>}
+      {canOperate && <>
+        <Button disabled={activeWork || !terminal} loading={controlling} onClick={() => closeInteraction('close_interaction')}>结束交互</Button>
+        <Button disabled={activeWork || !terminal} loading={controlling} onClick={() => closeInteraction('clear_context')}>清空上下文</Button>
       </>}
     </div>
+    {canOperate && <details className="chat-run-details chat-run-permissions">
+      <summary>管理显式控制权</summary>
+      <div className="chat-run-control-members">
+        <label htmlFor={`run-control-target-${run.id}`}>当前会话成员</label>
+        <Select id={`run-control-target-${run.id}`} aria-label="控制权目标成员" value={controlTarget} allowClear showSearch
+          disabled={controlling} optionFilterProp="label" placeholder="选择授予或撤销控制权的成员"
+          onChange={(userId: string | undefined) => setControlTarget(userId)}
+          options={members.map((member) => ({ value: member.user_id, label: `${member.username || member.user_id}${run.control_user_ids.includes(member.user_id) ? ' · 已获显式控制权' : ''}` }))} />
+        <Button disabled={!controlTarget} loading={controlling} onClick={() => void control(targetHasGrant ? 'revoke_control' : 'grant_control', controlTarget)}>
+          {targetHasGrant ? '撤销显式控制权' : '授予控制权'}
+        </Button>
+      </div>
+      <p className="chat-run-notice">控制权只覆盖此工作，不授予会话读取或个人资源许可。撤销显式授权不改变请求者、当前负责人或当前群管理员自身的控制资格。</p>
+      <p className="chat-run-notice">控制资格以当前成员身份与服务端检查为准；退出后重入不会继承原成员身份获得的控制权。</p>
+    </details>}
+    {!terminal && !run.executor_capabilities.supports_stop && <p className="chat-run-notice" role="status">此执行器不支持停止，AIM 无法强制停止其外部进程；不提供可用停止入口。</p>}
+    {!bindingActive && <p className="chat-run-notice" role="status">当前 Bot 绑定已失效、停用或参与许可被撤销。只能查看执行事实，不能继续、补充、恢复或接手；重新绑定不会恢复旧交互。</p>}
     {run.interaction_status === 'active' && activeWork && <p className="chat-run-notice">清空或结束交互须先结束其中所有活动工作；聊天历史与执行事实始终保留。</p>}
-    {run.interaction_status === 'active' && !canManage && <p className="chat-run-notice">补充不授予控制权；结束、清空及执行控制仅限请求者或会话管理员。</p>}
+    {run.interaction_status === 'active' && !canManage && <p className="chat-run-notice">你当前没有执行控制权。普通成员可按输入合同补充；停止、接手、授权与撤销仅限当前合资格请求者、负责人、显式控制者或群管理员。</p>}
     {run.interaction_status === 'closed' && <p className="chat-run-notice">继续关系已关闭。历史与结果仍可回看，新请求不会继承此交互。</p>}
     {controlError && <div className="chat-run-error" role="alert">{controlError}</div>}
     {run.error && <div className="chat-run-error" role="alert">{run.error}</div>}
@@ -738,6 +831,7 @@ export function ChatPage() {
   const [workError, setWorkError] = useState('');
   const inputRetry = useRef<{ signature: string; runId: string; request: ControlRunReq }>();
   const historyGrant = useRef<{ signature: string; id: string }>();
+  const selectedBinding = useRef<{ botId: string; bindingId: string }>();
   const runRetryLock = useRef(false);
   pageConversation.current = id;
   const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
@@ -771,6 +865,7 @@ export function ChatPage() {
     setReplyTo(null);
     inputRetry.current = undefined;
     historyGrant.current = undefined;
+    selectedBinding.current = undefined;
   }, [id, authRevision]);
   useEffect(() => {
     setPendingSends([]);
@@ -984,6 +1079,7 @@ export function ChatPage() {
   };
   const beginWork = (run: BotRun, mode: WorkRelation['mode']) => {
     if (creatingRun || requestingKey !== null) return;
+    if (!hasCurrentRunBinding(run, runnableBots)) { setWorkError('原执行绑定已失效，不恢复旧交互。请为当前 Bot 明确发起独立新请求。'); return; }
     setRunTarget(run.bot_id);
     setWorkRelation({ runId: run.id, mode });
     setWorkMaterials(emptyWorkMaterials());
@@ -1068,9 +1164,9 @@ export function ChatPage() {
     setCreatingRun(true);
     setWorkError('');
     try {
-      const bot = convBots.find((candidate) => candidate.bot_id === runTarget);
-      if (!bot) throw new Error('Bot 已不在当前会话中，请选择当前绑定的 Bot');
-      if (workRelation && (!relatedRun || relatedRun.binding_id !== bot.binding_id)) throw new Error('关联执行已不可见或不属于当前绑定，请发起独立新话题');
+      const bot = runnableBots.find((candidate) => candidate.bot_id === runTarget);
+      if (!bot) throw new Error('Bot 当前不可参与此会话，请查询当前绑定或选择其他 Bot');
+      if (workRelation && (!relatedRun || !hasCurrentRunBinding(relatedRun, runnableBots) || relatedRun.binding_id !== bot.binding_id)) throw new Error('关联执行已不可见或不属于当前获准绑定，请发起独立新话题');
       if (workRelation?.mode === 'continue' && (!relatedRun || !isTerminalRun(relatedRun) || relatedRun.interaction_status !== 'active')) {
         throw new Error('仅可继续当前绑定中交互开放的已结束执行，请发起独立新话题');
       }
@@ -1277,24 +1373,45 @@ export function ChatPage() {
     }
   }, [id, messages, queryClient]);
 
-  const { data: members = [], refetch: refetchMembers } = useQuery({
+  const { data: members = [], refetch: refetchMembers, isError: membersError } = useQuery({
     queryKey: ['conv-members', id],
     queryFn: () => convApi.getMembers(id!),
     enabled: !!id,
+    refetchInterval: 5000,
   });
 
-  const { data: convBots = [] } = useQuery({
-    queryKey: ['conv-bots', id], queryFn: () => botApi.listConvBots(id!), enabled: !!id,
+  const { data: convBots = [], isError: bindingsError, isPending: bindingsPending } = useQuery({
+    queryKey: ['conv-bots', id], queryFn: () => botApi.listConvBots(id!), enabled: !!id, refetchInterval: 5000,
   });
   const privateBot = conv?.type === 'private' ? convBots[0] : undefined;
-  const runnableBots = convBots;
-  const currentBinding = convBots.find((bot) => bot.bot_id === runTarget);
-  const inputBlocked = workRelation?.mode === 'input' && (!relatedRun || !acceptsRunInput(relatedRun));
+  const runnableBots = bindingsError ? [] : convBots.filter(isBotBindingActive);
+  const currentBinding = runnableBots.find((bot) => bot.bot_id === runTarget);
+  const inputBlocked = workRelation?.mode === 'input' && (!relatedRun || !hasCurrentRunBinding(relatedRun, runnableBots) || !acceptsRunInput(relatedRun));
   const continuationAllowed = !!relatedRun && isTerminalRun(relatedRun) && relatedRun.interaction_status === 'active'
-    && currentBinding?.binding_id === relatedRun.binding_id;
+    && hasCurrentRunBinding(relatedRun, runnableBots) && currentBinding?.binding_id === relatedRun.binding_id;
   const retryInputReady = !!inputRetry.current && inputRetry.current.signature === JSON.stringify({
     botId: runTarget, relation: workRelation, text: input, materials: workMaterials, replyTo,
   });
+  useEffect(() => {
+    if (!runTarget) { selectedBinding.current = undefined; return; }
+    if (bindingsPending || bindingsError) return;
+    const previous = selectedBinding.current;
+    if (!currentBinding || (previous?.botId === runTarget && previous.bindingId !== currentBinding.binding_id)
+      || (relatedRun && (!hasCurrentRunBinding(relatedRun, runnableBots) || relatedRun.interaction_status === 'closed'))) {
+      selectedBinding.current = undefined;
+      setRunTarget(undefined);
+      setWorkRelation(undefined);
+      setWorkMaterials(emptyWorkMaterials());
+      setUploadedWorkFiles([]);
+      setReplyTo(null);
+      setInput('');
+      inputRetry.current = undefined;
+      historyGrant.current = undefined;
+      setWorkError('Bot 绑定或原交互已失效，已清除旧工作选择；重新绑定后请明确发起新请求。');
+      return;
+    }
+    selectedBinding.current = { botId: runTarget, bindingId: currentBinding.binding_id };
+  }, [runTarget, currentBinding, relatedRun, runnableBots, bindingsPending, bindingsError]);
 
   const mentionTargets = useMemo(() => [
     ...members.map((member) => ({ id: member.user_id, name: member.username, avatar: member.avatar, isBot: false })),
@@ -1325,8 +1442,8 @@ export function ChatPage() {
   }, [id, messages, conv, currentUserId, members]);
 
   const currentMember = members.find((m) => m.user_id === currentUserId);
-  const isOwner = conv?.owner_id === currentUserId;
-  const isAdmin = isOwner || currentMember?.role === 'MEMBER_ROLE_ADMIN' || currentMember?.role === 2;
+  const isOwner = !membersError && !!currentMember && (currentMember.role === 'MEMBER_ROLE_OWNER' || currentMember.role === 1);
+  const isAdmin = !membersError && !!currentMember && (isOwner || currentMember.role === 'MEMBER_ROLE_ADMIN' || currentMember.role === 2);
 
   const userMap = useMemo(() => {
     const map = new Map<string, { username: string; avatar: string }>();
@@ -2138,24 +2255,30 @@ export function ChatPage() {
           <section className="chat-run-list" aria-label="Bot 执行记录">
             {(runnableBots.length > 0 || runQuery.runs.length > 0 || runQuery.isError) && <div className="chat-run-list-header">
               <strong>Bot 执行记录</strong>
-              <Button size="small" loading={runQuery.isFetching} onClick={() => void runQuery.refetch()}>刷新执行</Button>
+              <Button size="small" loading={runQuery.isFetching} onClick={() => { void runQuery.refetch(); void refetchMembers(); void queryClient.invalidateQueries({ queryKey: ['conv-bots', id] }); }}>刷新执行</Button>
             </div>}
             {runQuery.isPending && runnableBots.length > 0 && <div role="status">正在读取执行记录…</div>}
             {runQuery.connection !== 'connected' && runQuery.runs.length > 0 && <div className="chat-run-notice" role="status">实时连接已断开；执行不因此结束，查询将恢复最新状态。</div>}
             {runQuery.isError && <div className="chat-run-error" role="alert">执行记录读取失败，请刷新重试。</div>}
+            {membersError && <div className="chat-run-error" role="alert">当前成员资格读取失败，控制入口暂不可用；请刷新执行。</div>}
+            {bindingsError && <div className="chat-run-error" role="alert">当前 Bot 绑定读取失败，补充、继续及控制入口暂不可用；请刷新执行。</div>}
             {!runQuery.isError && !runQuery.isPending && runnableBots.length > 0 && runQuery.runs.length === 0 && <div className="chat-run-notice">尚无执行。选择 Bot 并明确发起工作，或在消息中提及它。</div>}
             {!runQuery.isError && runQuery.runs.map((run) => <RunCard key={run.id} run={run}
               botName={convBots.find((bot) => bot.bot_id === run.bot_id)?.name || `Bot ${run.bot_id}`}
               requesterName={userMap.get(run.requester_id)?.username || run.requester_id}
               nameForUser={(userId) => userMap.get(userId)?.username || convBots.find((bot) => bot.bot_id === userId)?.name || userId}
-              canContinue={isTerminalRun(run) && run.interaction_status === 'active' && convBots.some((bot) => bot.bot_id === run.bot_id && bot.binding_id === run.binding_id)}
+              canContinue={!membersError && !!currentMember && isTerminalRun(run) && run.interaction_status === 'active' && hasCurrentRunBinding(run, runnableBots)}
               activeWork={runQuery.runs.some((candidate) => candidate.interaction_id === run.interaction_id && !isTerminalRun(candidate))}
-              canManage={isAdmin || run.requester_id === currentUserId}
+              canManage={!membersError && !!currentMember && run.can_control === true}
+              bindingActive={!membersError && !!currentMember && hasCurrentRunBinding(run, runnableBots)} currentUserId={currentUserId} members={members}
               onLocate={locateRunMessage} onLocateFile={async (fileId) => {
                 const file = await fileApi.getDownloadUrl(fileId);
                 if (pageConversation.current === id && authRevision === useAuthStore.getState().revision) setFilePreview({ ...file.file, url: file.download_url });
               }}
-              onRefresh={async (runId) => { await runQuery.refreshRun(runId); await runQuery.refetch(); }}
+              onRefresh={async (runId) => {
+                try { await runQuery.refreshRun(runId); }
+                finally { await runQuery.refetch(); await refetchMembers(); void queryClient.invalidateQueries({ queryKey: ['conv-bots', id] }); }
+              }}
               onCompose={beginWork} onNew={(run) => beginNewTopic(run.bot_id)} onUpdated={handleUpdatedRun} />)}
           </section>
         </div>
@@ -2374,7 +2497,7 @@ export function ChatPage() {
           currentUserId={currentUserId}
           open={groupInfoOpen}
           onClose={() => setGroupInfoOpen(false)}
-          onMembersChange={() => { refetchMembers(); queryClient.invalidateQueries({ queryKey: ['conversation', id] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }}
+          onMembersChange={() => { refetchMembers(); queryClient.invalidateQueries({ queryKey: ['conversation', id] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); queryClient.invalidateQueries({ queryKey: ['bot-runs', currentUserId, authRevision, id] }); }}
         />
       )}
 

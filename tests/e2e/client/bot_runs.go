@@ -20,6 +20,11 @@ type publicRun struct {
 	ConvID          entityID        `json:"conv_id"`
 	BindingID       entityID        `json:"binding_id"`
 	RequesterID     entityID        `json:"requester_id"`
+	ControllerID    entityID        `json:"controller_id"`
+	ControlUserIDs  []entityID      `json:"control_user_ids"`
+	StopStatus      string          `json:"stop_status"`
+	StreamStatus    string          `json:"stream_status"`
+	StopReason      string          `json:"stop_reason"`
 	SourceMessageID *entityID       `json:"source_message_id"`
 	Version         int64           `json:"version"`
 	Status          string          `json:"status"`
@@ -69,7 +74,7 @@ func (d *driver) waitRun(caller account, id entityID) (publicRun, error) {
 		if err := d.request(http.MethodGet, "/runs/"+id.String(), caller.token, nil, &run); err != nil {
 			return run, err
 		}
-		if run.Status == "succeeded" || run.Status == "failed" {
+		if run.Status == "succeeded" || run.Status == "failed" || run.Status == "stopped" {
 			return run, nil
 		}
 		time.Sleep(40 * time.Millisecond)
@@ -330,7 +335,7 @@ func (d *driver) botRuns(address, secondAddress string) error {
 	if err != nil {
 		return err
 	}
-	if revoked.Status != "failed" || revoked.MessageID != nil {
+	if revoked.Status != "stopped" || revoked.StopStatus != "confirmed" || revoked.MessageID != nil {
 		return errors.New("bot-runs.revoke: 移出后仍提交最终消息")
 	}
 	if _, err = d.startRun(member, bots[1].ID, conv.ID, revokedText, revokeKey, nil); err == nil {

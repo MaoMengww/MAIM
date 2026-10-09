@@ -7,47 +7,60 @@ import (
 
 // Run owns work facts. Private snapshots and trajectory are never serialized publicly.
 type Run struct {
-	ID                   string  `gorm:"type:uuid;primaryKey"`
-	InteractionID        string  `gorm:"type:uuid"`
-	ParentRunID          *string `gorm:"type:uuid"`
-	InteractionStatus    string
-	BotID                string `gorm:"type:uuid"`
-	ConvID               string `gorm:"type:uuid"`
-	BindingID            string `gorm:"type:uuid"`
-	RequesterID          string `gorm:"type:uuid"`
-	InputKey             string
-	InputHash            string
-	SourceMessageID      *string `gorm:"type:uuid"`
-	ReplyToMsgID         *string `gorm:"type:uuid"`
-	HistoryGrantID       *string `gorm:"type:uuid"`
-	InputVersion         int64
-	AppliedInputVersion  int64
-	InputSources         []InputSource `gorm:"type:jsonb;serializer:json"`
-	Version              int64
-	TrajectoryVersion    int64
-	ExecutionGeneration  int64
-	ExecutorType         string
-	ExecutorCapabilities ExecutorCapabilities `gorm:"type:jsonb;serializer:json"`
-	DeliveryStatus       string
-	ExecutorStatus       string
-	ExecutorSequence     int64
-	ControlOperation     string
-	TriggerKind          string
-	Status               string
-	Stage                string
-	WaitingReason        string
-	ResultText           string
-	ResultType           string
-	ResultContent        json.RawMessage `gorm:"type:jsonb"`
-	OutputStatus         string
-	MessageID            *string `gorm:"type:uuid"`
-	Error                string
-	Config               json.RawMessage `gorm:"type:jsonb"`
-	Sources              json.RawMessage `gorm:"type:jsonb"`
-	Materials            json.RawMessage `gorm:"type:jsonb"`
-	Steps                []RunStep       `gorm:"type:jsonb;serializer:json"`
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                          string  `gorm:"type:uuid;primaryKey"`
+	InteractionID               string  `gorm:"type:uuid"`
+	ParentRunID                 *string `gorm:"type:uuid"`
+	InteractionStatus           string
+	BotID                       string            `gorm:"type:uuid"`
+	ConvID                      string            `gorm:"type:uuid"`
+	BindingID                   string            `gorm:"type:uuid"`
+	RequesterID                 string            `gorm:"type:uuid"`
+	RequesterMemberID           *string           `gorm:"type:uuid"`
+	ControllerID                string            `gorm:"type:uuid"`
+	ControllerMemberID          *string           `gorm:"type:uuid"`
+	ControlUserIDs              []string          `gorm:"type:jsonb;serializer:json"`
+	ControlMemberships          map[string]string `gorm:"type:jsonb;serializer:json"`
+	StopStatus                  string
+	StreamStatus                string
+	StopReason                  string
+	StopRequestedAt             *time.Time
+	AccessRevoked               bool
+	BotAuthorizationVersion     int64
+	BindingAuthorizationVersion int64
+	ViewerCanControl            *bool `gorm:"-"`
+	InputKey                    string
+	InputHash                   string
+	SourceMessageID             *string `gorm:"type:uuid"`
+	ReplyToMsgID                *string `gorm:"type:uuid"`
+	HistoryGrantID              *string `gorm:"type:uuid"`
+	InputVersion                int64
+	AppliedInputVersion         int64
+	InputSources                []InputSource `gorm:"type:jsonb;serializer:json"`
+	Version                     int64
+	TrajectoryVersion           int64
+	ExecutionGeneration         int64
+	ExecutorType                string
+	ExecutorCapabilities        ExecutorCapabilities `gorm:"type:jsonb;serializer:json"`
+	DeliveryStatus              string
+	ExecutorStatus              string
+	ExecutorSequence            int64
+	ControlOperation            string
+	TriggerKind                 string
+	Status                      string
+	Stage                       string
+	WaitingReason               string
+	ResultText                  string
+	ResultType                  string
+	ResultContent               json.RawMessage `gorm:"type:jsonb"`
+	OutputStatus                string
+	MessageID                   *string `gorm:"type:uuid"`
+	Error                       string
+	Config                      json.RawMessage `gorm:"type:jsonb"`
+	Sources                     json.RawMessage `gorm:"type:jsonb"`
+	Materials                   json.RawMessage `gorm:"type:jsonb"`
+	Steps                       []RunStep       `gorm:"type:jsonb;serializer:json"`
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
 }
 
 func (Run) TableName() string { return "bot.runs" }
@@ -95,6 +108,12 @@ type PublicRun struct {
 	ConvID               string               `json:"conv_id"`
 	BindingID            string               `json:"binding_id"`
 	RequesterID          string               `json:"requester_id"`
+	ControllerID         string               `json:"controller_id"`
+	ControlUserIDs       []string             `json:"control_user_ids"`
+	StopStatus           string               `json:"stop_status"`
+	StreamStatus         string               `json:"stream_status"`
+	StopReason           string               `json:"stop_reason"`
+	CanControl           *bool                `json:"can_control,omitempty"`
 	InputKey             string               `json:"input_key"`
 	InputSources         []InputSource        `json:"input_sources"`
 	SourceMessageID      *string              `json:"source_message_id,omitempty"`
@@ -140,9 +159,15 @@ func (r *Run) Public() PublicRun {
 	if steps == nil {
 		steps = []RunStep{}
 	}
+	controllers := r.ControlUserIDs
+	if controllers == nil {
+		controllers = []string{}
+	}
 	return PublicRun{ID: r.ID, InteractionID: r.InteractionID, BotID: r.BotID, ConvID: r.ConvID,
 		ParentRunID: r.ParentRunID, InteractionStatus: r.InteractionStatus, WaitingReason: r.WaitingReason,
 		BindingID: r.BindingID, RequesterID: r.RequesterID, InputKey: r.InputKey, SourceMessageID: r.SourceMessageID,
+		ControllerID: r.ControllerID, ControlUserIDs: controllers, StopStatus: r.StopStatus, StreamStatus: r.StreamStatus, StopReason: r.StopReason,
+		CanControl:   r.ViewerCanControl,
 		InputVersion: r.InputVersion, Version: r.Version, Status: r.Status, Stage: r.Stage,
 		InputSources: r.InputSources,
 		ExecutorType: r.ExecutorType, ExecutorCapabilities: r.ExecutorCapabilities, DeliveryStatus: r.DeliveryStatus, ExecutorStatus: r.ExecutorStatus, Generation: r.ExecutionGeneration, TriggerKind: r.TriggerKind, ResultType: r.ResultType, ResultContent: r.ResultContent,

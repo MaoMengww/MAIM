@@ -3497,6 +3497,7 @@ type ControlRunReq struct {
 	MessageIds      []string               `protobuf:"bytes,6,rep,name=message_ids,json=messageIds,proto3" json:"message_ids,omitempty"`
 	FileIds         []string               `protobuf:"bytes,7,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
 	HistoryGrantId  *string                `protobuf:"bytes,8,opt,name=history_grant_id,json=historyGrantId,proto3,oneof" json:"history_grant_id,omitempty"`
+	TargetUserId    *string                `protobuf:"bytes,9,opt,name=target_user_id,json=targetUserId,proto3,oneof" json:"target_user_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -3583,6 +3584,13 @@ func (x *ControlRunReq) GetFileIds() []string {
 func (x *ControlRunReq) GetHistoryGrantId() string {
 	if x != nil && x.HistoryGrantId != nil {
 		return *x.HistoryGrantId
+	}
+	return ""
+}
+
+func (x *ControlRunReq) GetTargetUserId() string {
+	if x != nil && x.TargetUserId != nil {
+		return *x.TargetUserId
 	}
 	return ""
 }
@@ -3915,7 +3923,7 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\x11ExecutorUpdateReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12\x12\n" +
-	"\x04body\x18\x03 \x01(\fR\x04body\"\xfc\x02\n" +
+	"\x04body\x18\x03 \x01(\fR\x04body\"\xc2\x03\n" +
 	"\rControlRunReq\x12\x1d\n" +
 	"\x06run_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05runId\x12\x1c\n" +
 	"\toperation\x18\x02 \x01(\tR\toperation\x12\x18\n" +
@@ -3925,9 +3933,11 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\vmessage_ids\x18\x06 \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\n" +
 	"messageIds\x12!\n" +
 	"\bfile_ids\x18\a \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\afileIds\x125\n" +
-	"\x10history_grant_id\x18\b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x0ehistoryGrantId\x88\x01\x01B\x14\n" +
+	"\x10history_grant_id\x18\b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\x0ehistoryGrantId\x88\x01\x01\x121\n" +
+	"\x0etarget_user_id\x18\t \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x02R\ftargetUserId\x88\x01\x01B\x14\n" +
 	"\x12_source_message_idB\x13\n" +
-	"\x11_history_grant_id*p\n" +
+	"\x11_history_grant_idB\x11\n" +
+	"\x0f_target_user_id*p\n" +
 	"\aBotType\x12\x18\n" +
 	"\x14BOT_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11BOT_TYPE_OFFICIAL\x10\x01\x12\x1a\n" +

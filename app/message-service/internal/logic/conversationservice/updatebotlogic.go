@@ -33,6 +33,11 @@ func (l *UpdateBotLogic) UpdateBot(in *conversation.UpdateBotReq) (*common.BaseR
 		if err := json.Unmarshal([]byte(in.BotSettings), &settings); err != nil {
 			return nil, ErrConvUpdateFailed
 		}
+		if enabled, exists := settings["enabled"]; exists {
+			if _, ok := enabled.(bool); !ok {
+				return nil, ErrInvalidParam
+			}
+		}
 	}
 	err := withLockedConversation(l.ctx, l.svcCtx, in.ConversationId, func(tx *gorm.DB, r *repo.ConversationRepo, conv *model.Conversation) error {
 		if err := requireRole(l.ctx, r, conv.ID, in.OperatorId, adminRole); err != nil {

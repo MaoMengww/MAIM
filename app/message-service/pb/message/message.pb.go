@@ -3069,6 +3069,8 @@ type SendBotReplyReq struct {
 	File           *FileContent           `protobuf:"bytes,9,opt,name=file,proto3" json:"file,omitempty"`
 	Result         *CustomContent         `protobuf:"bytes,10,opt,name=result,proto3" json:"result,omitempty"`
 	OutputKey      *string                `protobuf:"bytes,11,opt,name=output_key,json=outputKey,proto3,oneof" json:"output_key,omitempty"` // Stable publication identity within this Bot binding
+	ControllerId   *string                `protobuf:"bytes,12,opt,name=controller_id,json=controllerId,proto3,oneof" json:"controller_id,omitempty"`
+	RunId          *string                `protobuf:"bytes,13,opt,name=run_id,json=runId,proto3,oneof" json:"run_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -3176,6 +3178,20 @@ func (x *SendBotReplyReq) GetResult() *CustomContent {
 func (x *SendBotReplyReq) GetOutputKey() string {
 	if x != nil && x.OutputKey != nil {
 		return *x.OutputKey
+	}
+	return ""
+}
+
+func (x *SendBotReplyReq) GetControllerId() string {
+	if x != nil && x.ControllerId != nil {
+		return *x.ControllerId
+	}
+	return ""
+}
+
+func (x *SendBotReplyReq) GetRunId() string {
+	if x != nil && x.RunId != nil {
+		return *x.RunId
 	}
 	return ""
 }
@@ -5538,6 +5554,7 @@ type BotInConv struct {
 	BindingId     string                 `protobuf:"bytes,9,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
 	OwnerType     string                 `protobuf:"bytes,10,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"`
 	OwnerId       *string                `protobuf:"bytes,11,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
+	Status        string                 `protobuf:"bytes,12,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5638,6 +5655,13 @@ func (x *BotInConv) GetOwnerType() string {
 func (x *BotInConv) GetOwnerId() string {
 	if x != nil && x.OwnerId != nil {
 		return *x.OwnerId
+	}
+	return ""
+}
+
+func (x *BotInConv) GetStatus() string {
+	if x != nil {
+		return x.Status
 	}
 	return ""
 }
@@ -6222,7 +6246,7 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\x11SendBroadcastResp\x12)\n" +
 	"\fbroadcast_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\vbroadcastId\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x02 \x01(\x03R\tcreatedAt\"\xf2\x03\n" +
+	"created_at\x18\x02 \x01(\x03R\tcreatedAt\"\xe5\x04\n" +
 	"\x0fSendBotReplyReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12/\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12\x12\n" +
@@ -6238,10 +6262,14 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\x06result\x18\n" +
 	" \x01(\v2\x16.message.CustomContentR\x06result\x12\"\n" +
 	"\n" +
-	"output_key\x18\v \x01(\tH\x02R\toutputKey\x88\x01\x01B\x0e\n" +
+	"output_key\x18\v \x01(\tH\x02R\toutputKey\x88\x01\x01\x120\n" +
+	"\rcontroller_id\x18\f \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x03R\fcontrollerId\x88\x01\x01\x12\"\n" +
+	"\x06run_id\x18\r \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x04R\x05runId\x88\x01\x01B\x0e\n" +
 	"\f_reply_to_idB\x0f\n" +
 	"\r_requester_idB\r\n" +
-	"\v_output_key\"\xf2\x01\n" +
+	"\v_output_keyB\x10\n" +
+	"\x0e_controller_idB\t\n" +
+	"\a_run_id\"\xf2\x01\n" +
 	"\x12GrantBotHistoryReq\x12/\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12\x1d\n" +
 	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12%\n" +
@@ -6475,7 +6503,7 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\x0fconversation_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12\x1f\n" +
 	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x18\n" +
 	"\astopped\x18\x03 \x01(\bR\astopped\"\x15\n" +
-	"\x13SendTypingEventResp\"\xcc\x02\n" +
+	"\x13SendTypingEventResp\"\xe4\x02\n" +
 	"\tBotInConv\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
@@ -6489,7 +6517,8 @@ const file_message_service_message_proto_rawDesc = "" +
 	"\n" +
 	"owner_type\x18\n" +
 	" \x01(\tR\townerType\x12&\n" +
-	"\bowner_id\x18\v \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01B\v\n" +
+	"\bowner_id\x18\v \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\x16\n" +
+	"\x06status\x18\f \x01(\tR\x06statusB\v\n" +
 	"\t_owner_idJ\x04\b\x05\x10\x06\"\xad\x01\n" +
 	"\tAddBotReq\x12/\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x0econversationId\x12\x1d\n" +

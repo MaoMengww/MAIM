@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { message, Drawer, Button, Tag, Divider, Input, InputNumber, Switch, Popconfirm, Select, Radio, Modal as AntModal } from 'antd';
+import { isAxiosError } from 'axios';
 import {
   EditOutlined, UserAddOutlined, DeleteOutlined,
   CrownOutlined, CloseOutlined, CameraOutlined,
@@ -9,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { convApi } from '@/services/conversation';
 import { friendApi } from '@/services/friend';
-import { botApi } from '@/services/bot';
+import { botApi, botParticipationEnabled, isBotBindingActive } from '@/services/bot';
 import { Avatar } from '@/components/common/Avatar';
 import type { ConvMember, BotInConv } from '@/types/model';
 import './ChatPage.css';
@@ -62,6 +63,11 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
     queryFn: () => botApi.listConvBots(convId!),
     enabled: open && !!convId,
   });
+  useEffect(() => {
+    if (!open || !isAdmin || !grantBot || !convBots.some((bot) => bot.binding_id === grantBot.binding_id && isBotBindingActive(bot))) {
+      setGrantBot(null); setStartSeq(null); setEndSeq(null);
+    }
+  }, [convId, convBots, grantBot, isAdmin, open]);
 
   const { data: userBotsData, isLoading: availableBotsLoading, isError: availableBotsError } = useQuery({
     queryKey: ['user-bots'],
@@ -237,11 +243,33 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
     onError: (err: any) => message.error(err?.response?.data?.message || '操作失败'),
   });
 
+  const participationMutation = useMutation({
+    mutationFn: async ({ bot, enabled }: { bot: BotInConv; enabled: boolean }) => {
+      if (!isAdmin) throw new Error('当前无权管理 Bot 绑定参与许可');
+      const current = (await botApi.listConvBots(convId!)).find((candidate) => candidate.binding_id === bot.binding_id);
+      if (!current || current.status !== 'active') throw new Error('此 Bot 已移出或停用，请刷新当前绑定');
+      const settings: unknown = JSON.parse(current.bot_settings || '{}');
+      if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('绑定设置无效，请刷新后重试');
+      await botApi.setParticipation(convId!, bot.bot_id, JSON.stringify({ ...settings, enabled }));
+    },
+    onSuccess: async (_data, { enabled }) => {
+      setGrantBot(null); setStartSeq(null); setEndSeq(null);
+      await refetchBots();
+      props.onMembersChange();
+      message.success(enabled ? '已允许此绑定接收新工作，旧执行和交互不会恢复' : '已撤销此绑定参与许可，停止实际结果请在执行记录中查询');
+    },
+    onError: (error: unknown) => {
+      if (isAxiosError(error) && typeof error.response?.data?.message === 'string') message.error(error.response.data.message);
+      else if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') message.error(error.message);
+      else message.error('参与许可更新失败，请刷新当前绑定后重试');
+    },
+  });
+
   const grantHistoryMutation = useMutation({
     mutationFn: async () => {
       if (!grantBot || startSeq === null || endSeq === null || !Number.isSafeInteger(startSeq)
         || !Number.isSafeInteger(endSeq) || startSeq < 1 || endSeq < startSeq || endSeq > conv.max_seq) throw new Error('请选择会话内有效的消息序号范围');
-      if (!convBots.some((bot) => bot.binding_id === grantBot.binding_id)) throw new Error('此 Bot 绑定已失效，请重新选择');
+      if (!isAdmin || !convBots.some((bot) => bot.binding_id === grantBot.binding_id && isBotBindingActive(bot))) throw new Error('此 Bot 绑定已失效或当前无授权资格，请重新选择');
       return botApi.grantHistory(convId!, grantBot.bot_id, grantBot.binding_id, startSeq, endSeq);
     },
     onSuccess: ({ grant_id }) => {
@@ -256,7 +284,7 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
       <Drawer
         title={isPrivate ? 'Bot 绑定信息' : '群聊信息'}
         placement="right"
-        width={380}
+        width="min(380px, 100vw)"
         open={open}
         onClose={() => { onClose(); setEditingName(false); setEditingAnnouncement(false); }}
         styles={{ body: { padding: '16px 20px' } }}
@@ -462,8 +490,22 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                         <div>所有者: {bot.owner_type === 'platform' ? '平台' : members.find((member) => member.user_id === bot.owner_id)?.username || bot.owner_id}</div>
                         <div>邀请者: {members.find((member) => member.user_id === bot.added_by)?.username || bot.added_by}</div>
                         <div>加入时间: {new Date(bot.added_at * 1000).toLocaleString('zh-CN')}</div>
+                        <div>Bot 状态: {bot.status === 'active' ? '启用' : '已停用'}</div>
+                        <div>绑定参与许可: {botParticipationEnabled(bot) ? '允许' : '已撤销'}</div>
                       </div>
-                      {isAdmin && <Button size="small" disabled={!conv?.max_seq} onClick={() => { setGrantBot(bot); setStartSeq(null); setEndSeq(null); }}>授权历史范围</Button>}
+                      {isAdmin && <div className="group-info-binding-permission">
+                        <label htmlFor={`binding-enabled-${bot.binding_id}`}>允许参与此会话</label>
+                        <Switch id={`binding-enabled-${bot.binding_id}`} aria-label={`允许 ${bot.name || 'Bot'} 参与此会话`}
+                          checked={botParticipationEnabled(bot)} disabled={bot.status !== 'active'} loading={participationMutation.isPending}
+                          onChange={(enabled) => AntModal.confirm({
+                            title: enabled ? '恢复此绑定接收新工作？' : '撤销 Bot 参与许可？',
+                            content: enabled ? '只恢复新工作的参与许可，旧执行、历史授权和交互不会自动复活。'
+                              : '停止后续会话访问和输出，并请求停止当前工作；实际停工仍须执行器确认，不能据此保证撤销已发生的行动。',
+                            okText: enabled ? '允许新工作' : '撤销许可', cancelText: '取消', okButtonProps: { danger: !enabled },
+                            onOk: () => participationMutation.mutateAsync({ bot, enabled }),
+                          })} />
+                      </div>}
+                      {isAdmin && <Button size="small" disabled={!conv?.max_seq || !isBotBindingActive(bot)} onClick={() => { setGrantBot(bot); setStartSeq(null); setEndSeq(null); }}>授权历史范围</Button>}
                     </div>
                     {isAdmin && (
                       <Popconfirm

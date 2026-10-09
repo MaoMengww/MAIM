@@ -45,7 +45,7 @@ type botOutputSubmission struct {
 func (botOutputSubmission) TableName() string { return "bot_output_submissions" }
 
 func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.SendBotReplyResp, error) {
-	if in == nil || validateIdentities(in.ConversationId, in.BotId, in.BindingId) != nil || (in.ReplyToId != nil && identity.Validate(*in.ReplyToId) != nil) || (in.RequesterId != nil && identity.Validate(*in.RequesterId) != nil) {
+	if in == nil || validateIdentities(in.ConversationId, in.BotId, in.BindingId) != nil || (in.ReplyToId != nil && identity.Validate(*in.ReplyToId) != nil) || (in.RequesterId != nil && identity.Validate(*in.RequesterId) != nil) || (in.ControllerId != nil && identity.Validate(*in.ControllerId) != nil) || (in.RunId != nil && identity.Validate(*in.RunId) != nil) {
 		return nil, errors.New(errors.CodeInvalidParam, "invalid bot sending identity")
 	}
 	// Bot credentials and domain calls never borrow a user's access identity.
@@ -98,9 +98,43 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 			return errors.New(errors.CodeForbidden, "bot is unavailable")
 		}
 		msg.SenderName, msg.SenderAvatar = bot.Name, bot.Avatar
-		if in.RequesterId != nil {
+		controller := in.GetControllerId()
+		if controller == "" {
+			controller = in.GetRequesterId()
+		}
+		if in.RunId != nil {
+			// Runtime source RPCs finish before taking the conversation barrier.
+			var run struct {
+				ControllerID                string
+				ControllerMemberID          *string
+				Status                      string
+				AccessRevoked               bool
+				BotAuthorizationVersion     int64
+				BindingAuthorizationVersion int64
+			}
+			if err := tx.Table("bot.runs").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *in.RunId, in.BotId, in.ConversationId, in.BindingId).Take(&run).Error; err != nil {
+				return errors.New(errors.CodeForbidden, "Run output authorization unavailable")
+			}
+			if run.AccessRevoked || run.Status == "stopping" || run.Status == "waiting_authorization" || run.Status == "stopped" || run.ControllerID != controller {
+				return errors.New(errors.CodeForbidden, "Run output permission revoked")
+			}
+			var member struct{ ID string }
+			if err := tx.Table("conv_members").Where("conv_id = ? AND user_id = ? AND member_type = 'user'", in.ConversationId, controller).Take(&member).Error; err != nil || run.ControllerMemberID == nil || *run.ControllerMemberID != member.ID {
+				return ErrNotMember
+			}
+			var epoch struct {
+				BotVersion     int64
+				BindingVersion int64
+			}
+			if err := tx.Raw("SELECT b.authorization_version AS bot_version,c.authorization_version AS binding_version FROM bot.bots b JOIN messaging.conv_bots c ON c.bot_id=b.id WHERE b.id=? AND c.id=?", in.BotId, in.BindingId).Scan(&epoch).Error; err != nil {
+				return err
+			}
+			if epoch.BotVersion != run.BotAuthorizationVersion || epoch.BindingVersion != run.BindingAuthorizationVersion {
+				return errors.New(errors.CodeForbidden, "Run authorization epoch revoked")
+			}
+		} else if controller != "" {
 			var count int64
-			if err := tx.Model(&model.ConversationMember{}).Where("conv_id = ? AND user_id = ?", in.ConversationId, *in.RequesterId).Count(&count).Error; err != nil {
+			if err := tx.Model(&model.ConversationMember{}).Where("conv_id = ? AND user_id = ? AND member_type = 'user'", in.ConversationId, controller).Count(&count).Error; err != nil {
 				return err
 			}
 			if count == 0 {
@@ -214,6 +248,9 @@ func lockBotBinding(ctx context.Context, tx *gorm.DB, convID, botID, bindingID s
 	var binding model.ConvBot
 	if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND conv_id = ? AND bot_id = ? AND revoked_at IS NULL", bindingID, convID, botID).
 		Where("EXISTS (SELECT 1 FROM bot.bots b WHERE b.id = conv_bots.bot_id AND b.status = 'active')").Take(&binding).Error; err != nil {
+		return nil, ErrBotNotInConversation
+	}
+	if enabled, exists := binding.BotSettings["enabled"]; exists && enabled != true {
 		return nil, ErrBotNotInConversation
 	}
 	return &binding, nil

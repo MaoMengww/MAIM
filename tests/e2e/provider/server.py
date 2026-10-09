@@ -13,6 +13,7 @@ import uuid
 from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+import run_control
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8099"))
@@ -38,7 +39,7 @@ def vector(text):
     return [value / norm for value in values]
 
 
-def rpc_result(body):
+def rpc_result(body, handler=None):
     method = body.get("method")
     if method == "initialize":
         result = {"protocolVersion": body.get("params", {}).get("protocolVersion", "2024-11-05"),
@@ -52,6 +53,8 @@ def rpc_result(body):
         text = args.get("text", "")
         with LOCK:
             OBSERVATIONS["tool_texts"].append(text)
+        if handler is not None and run_control.tool(body, handler):
+            return {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": -32800, "message": "cancelled external computation"}}
         result = {"content": [{"type": "text", "text": "fixture-tool:" + text}], "isError": False}
     elif method == "ping":
         result = {}
@@ -153,6 +156,16 @@ def executor_update(body):
     with LOCK:
         config = dict(EXECUTORS[body["bot_id"]])
         requests = list(OBSERVATIONS["executor_requests"])
+    if body.get("bot_token"):
+        raw = json.dumps(body["update"], separators=(",", ":")).encode()
+        request = Request(config["gateway"] + "/api/v1/bot-app/runs/update", data=raw,
+                          headers={"Content-Type": "application/json", "Authorization": "Bearer " + body["bot_token"]}, method="POST")
+        try:
+            response = urlopen(request, timeout=15)
+        except HTTPError as error:
+            response = error
+        with response:
+            return {"status": response.status, "body": json.loads(response.read(1024 * 1024))}
     update = dict(body["update"])
     if body.get("compute"):
         request = next(item["request"] for item in reversed(requests)
@@ -244,6 +257,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path in ("/run-control/arm", "/run-control/observe", "/run-control/release", "/run-control/finish", "/run-control/confirm", "/run-control/reject"):
+            self._json(200, run_control.command(path, body))
+            return
         if path in ("/interaction/arm", "/interaction/held", "/interaction/release"):
             token = body.get("token", "")
             with LOCK:
@@ -283,6 +299,8 @@ class Handler(BaseHTTPRequestHandler):
                 key = "executor_activities" if body.get("type") == "bot.activity" else "executor_requests"
                 OBSERVATIONS[key].append({"request": body, "signature_valid": valid,
                                           "timestamp": timestamp})
+            if valid and body.get("type") == "bot.run.request":
+                run_control.accept(body, executor_update)
             self._json(200 if valid else 403, {"delivered": valid})
             return
         if path == "/v1/chat/completions":
@@ -292,6 +310,8 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 OBSERVATIONS["chat_models"].append(model)
                 OBSERVATIONS["chat_requests"].append(body)
+            if run_control.model(body, self, text):
+                return
             if "RUN_FAIL_PROVIDER" in text:
                 self._json(503, {"error": {"message": "fixture unavailable"}})
                 return
@@ -396,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
                     with LOCK:
                         OBSERVATIONS["active_ingest"] -= 1
         elif path == "/mcp/sse":
-            result = rpc_result(body)
+            result = rpc_result(body, self)
             if result is None:
                 self._json(202, {})
             else:
@@ -408,7 +428,7 @@ class Handler(BaseHTTPRequestHandler):
             if events is None:
                 self._json(404, {"error": "unknown session"})
                 return
-            result = rpc_result(body)
+            result = rpc_result(body, self)
             if result is not None:
                 events.put(result)
             self._json(202, {})

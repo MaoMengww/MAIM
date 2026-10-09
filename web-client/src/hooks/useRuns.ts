@@ -15,9 +15,10 @@ export function useRuns(convId: string) {
   const queryClient = useQueryClient();
   const queryKey = ['bot-runs', account, revision, convId] as const;
   const committed = useRef(new Set<string>());
+  const removed = useRef(false);
   const query = useQuery({
     queryKey,
-    queryFn: () => botApi.listRuns(convId),
+    queryFn: ({ signal }) => botApi.listRuns(convId, signal),
     enabled: !!account && !!convId,
     // Queries repair missed updates; the WS connection is not a Run lifecycle.
     refetchInterval: 5000,
@@ -32,7 +33,7 @@ export function useRuns(convId: string) {
   });
 
   const applyRun = useCallback((run: BotRun) => {
-    if (run.conv_id !== convId || revision !== useAuthStore.getState().revision || account !== useAuthStore.getState().user?.id) return;
+    if (removed.current || run.conv_id !== convId || revision !== useAuthStore.getState().revision || account !== useAuthStore.getState().user?.id) return;
     queryClient.setQueryData<BotRun[]>(['bot-runs', account, revision, convId], (previous) => mergeRuns(previous, [run]));
   }, [queryClient, account, revision, convId]);
 
@@ -44,7 +45,10 @@ export function useRuns(convId: string) {
       try {
         const run = normalizeRun(event.run);
         if (run.bot_id !== event.bot_id) return;
+        // Shared events carry lifecycle facts, never viewer-specific authority.
+        delete run.can_control;
         applyRun(run);
+        void queryClient.invalidateQueries({ queryKey: ['bot-runs', account, revision, convId] });
       } catch {
         void queryClient.invalidateQueries({ queryKey: ['bot-runs', account, revision, convId] });
       }
@@ -56,9 +60,23 @@ export function useRuns(convId: string) {
   }, [queryClient, account, revision, convId, reconnectVersion]);
 
   useEffect(() => {
+    removed.current = false;
     committed.current.clear();
     return () => { queryClient.removeQueries({ queryKey: ['bot-runs', account, revision, convId] }); };
   }, [queryClient, account, revision, convId]);
+  useEffect(() => messageSync.subscribe((_id, snapshotChanged, removedConversations) => {
+    if (removedConversations.includes(convId)) {
+      removed.current = true;
+      committed.current.clear();
+      void queryClient.cancelQueries({ queryKey: ['bot-runs', account, revision, convId] });
+      queryClient.setQueryData<BotRun[]>(['bot-runs', account, revision, convId], []);
+      return;
+    }
+    if (snapshotChanged && messageSync.getConversations().some((conversation) => conversation.id === convId)) {
+      removed.current = false;
+      void queryClient.invalidateQueries({ queryKey: ['bot-runs', account, revision, convId] });
+    }
+  }), [queryClient, account, revision, convId]);
   useEffect(() => {
     let changed = false;
     for (const run of query.data ?? []) {

@@ -36,7 +36,7 @@ USER_IDENTITY_APPLICATIONS = {"user-service", "realtime-service", "gateway"}
 MESSAGING_APPLICATIONS = USER_IDENTITY_APPLICATIONS | {"message-service"}
 ATTACHMENT_APPLICATIONS = MESSAGING_APPLICATIONS | {"file-service"}
 BOT_RUNTIME_APPLICATIONS = MESSAGING_APPLICATIONS | {"llm-gateway", "bot-service", "bot-runtime", "knowledge-base", "knowledge-ingest", "file-service"}
-BOT_RUNTIME_SCENARIOS = {"bot-runtime", "bot-runtime-cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs"}
+BOT_RUNTIME_SCENARIOS = {"bot-runtime", "bot-runtime-cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls"}
 MESSAGING_SCENARIOS = {"messaging", "conversations", "conversation-unread", "broadcasts",
                        "user-sync", "same-instance-a", "same-instance-b", "cross-instance"}
 OPTIONAL = {"prometheus", "kibana", "grafana"}
@@ -284,6 +284,9 @@ class Runner:
             for name, port in (("gateway", 8080), ("realtime-service", 8081), ("realtime-b", 8081)):
                 services[name]["ports"] = [{"target": port, "published": "0",
                                             "host_ip": "127.0.0.1", "protocol": "tcp"}]
+            if self.args.scenario == "bot-run-controls":
+                services["e2e-provider"]["ports"] = [{"target": 8099, "published": "0",
+                                                     "host_ip": "127.0.0.1", "protocol": "tcp"}]
             if "minio" in services:
                 services["minio"]["ports"] = [{"target": 9000, "published": "0",
                                                "host_ip": "127.0.0.1", "protocol": "tcp"}]
@@ -369,6 +372,8 @@ class Runner:
                     "-timeout", f"{self.args.timeout:g}s",
                     "-provider", "http://e2e-provider:8099",
                     "-ingest-timeout", "10m", "-query-deadline", "5s"]
+        if self.args.scenario in ("all", "bot-run-controls"):
+            scenario.extend(["-control-dir", "/control"])
         scenario.extend(["-scenario", self.args.scenario])
         if self.args.cross_instance:
             scenario.append("-cross-instance")
@@ -414,6 +419,12 @@ class Runner:
                 if not address.startswith("127.0.0.1:") or "\n" in address:
                     raise LayerFailure("browser-access: minio did not publish a single loopback address")
                 access["minio"] = "http://" + address
+            if self.args.scenario == "bot-run-controls":
+                address = self.compose("browser-port-provider", "port", "e2e-provider", "8099", capture=True).strip()
+                if not address.startswith("127.0.0.1:") or "\n" in address:
+                    raise LayerFailure("browser-access: provider did not publish a single loopback address")
+                access["provider"] = "http://" + address
+        access["browser_fixtures"] = str(self.control / "browser-fixtures.json")
         manifest = self.directory / "environment.json"
         manifest.write_text(json.dumps(access, indent=2) + "\n")
         manifest.chmod(0o600)
@@ -548,7 +559,7 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery")
-    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-runtime", "bot-runtime-cross-instance", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
+    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-runtime", "bot-runtime-cross-instance", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")

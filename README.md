@@ -632,11 +632,19 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 
 - 创建或更新第三方 Bot 必须在 `capabilities` JSON 中明确声明 `input_types:["text"]`、`supports_input`、`supports_stop`、`supports_resume`。无需采用 AIM 的模型、记忆或工具框架；最低能力为接受文本工作并提交结果。
 - 工作投递和 Webhook 回报归 `bot-runtime`，控制面只管理配置/凭据并转发运行请求。`006_third_party_run.sql` 保存执行器事实、补充输入来源、报告重试 receipt 和凭据签发/撤销事实。
-- `run.delivery_ack` 只确认收到，`run.claim`（`status=accepted`）确认接受工作，`run.update` 报告 `running/waiting_input/failed/completed/stopped`。三者均包含 `run_id,generation,input_version,sequence,update_key`；ACK 还须原样携带该投递的 `operation`，认领 sequence=0，更新从1严格连续。同键同内容返回原 receipt，异义冲突；重试重新鉴权，错误代次/版本、回退及终态后推进被拒绝。
+- `run.delivery_ack` 只确认收到，`run.claim`（`status=accepted`）确认接受工作，`run.update` 报告 `running/waiting_input/failed/completed/stopped/stop_rejected`。三者均包含 `run_id,generation,input_version,sequence,update_key`；ACK 还须原样携带该投递的 `operation`，认领 sequence=0，更新从1严格连续。同键同内容返回原 receipt，异义冲突；重试重新鉴权，错误代次/版本、回退及终态后推进被拒绝。`stop_rejected` 明确无法取消，不伪称工作已停；之后真实停工仍可报告 `stopped`。
 - WS 回报返回 `bot.run.receipt`；Webhook 回报使用 `POST /api/v1/webhook`、`X-AIM-Signature`（原始 body HMAC-SHA256）与 `X-AIM-Timestamp`（Unix 秒），返回公开 Run。Webhook 2xx 只表示传输送达，WS 入 Kafka 不标为已送达；未认领工作持久重投同一代次。只有消息提交后 Run 才成功。
-- 用户 `POST /api/v1/runs/:id/control` 提交 `{operation:input|stop|resume|close_interaction|clear_context,submission_key,message?,source_message_id?,message_ids?,file_ids?,history_grant_id?}`。有权查看工作的当前成员可在接受、运行或等待阶段补充；补充不授予授权或控制权，终态拒绝推进。停止/恢复/交互结束限请求者和管理员，且受执行器能力约束。不支持操作明确409且不改变状态。第三方 `bot.run.request.inputs` 按版本保存每位作者、正文、材料和来源；可合并已过时投递，但不丢已接受输入。停止请求仅表示 `stopping`，不能强杀外部进程或撤销副作用。
+- 用户 `POST /api/v1/runs/:id/control` 提交 `{operation:input|stop|resume|takeover|grant_control|revoke_control|close_interaction|clear_context,submission_key,message?,source_message_id?,message_ids?,file_ids?,history_grant_id?,target_user_id?}`。只有 grant/revoke 接收且要求目标为当前成员。请求者、当前负责人、明确获授控制权者及当前会话管理员可控制；普通成员可按输入合同补充，但不能停止或抢接。重复请求也重新检查当前资格。不支持的执行操作明确409且不改状态。第三方 `bot.run.request.inputs` 按版本保留作者、正文、材料和来源；停止则仅投递 root `run_id,bot_id,conv_id,binding_id,generation,input_version,operation=stop,reason`，不复制输入或材料。
 - 最低活动订阅通过管理员的会话绑定 `bot_settings.activity_types:["message.created"]` 显式启用，平台写入安全整数 `activity_start_seq`，不补授此前历史。当前绑定/来源可见性复核后独立投递 `bot.activity`，不带 Run、不创建工作、不授权输出；默认无订阅。更完整订阅/自动规则仍由后续票处理。
 - 公开卡片展示投递、执行器接受/完成、实际能力、输入来源、认领代次、结果和最终消息；断线后以权威查询恢复。验收 `python3 tests/e2e/run.py --scenario bot-executor-runs` 覆盖真实 WS/Webhook 计算、凭据隔离、顺序/幂等、补充/停止/恢复、获准活动、跨实例输出和历史。
+
+#### 停止、接手与当前资格
+
+- `008_run_control_membership.sql` 持久化原请求者、后续负责人、显式控制授权及成员资格代次。`takeover` 只改变后续负责人并清空旧显式授权，不改原来源、不转移私人资源许可；退群重入不会复活旧控制权。REST 的 `can_control` 是当前查看者投影，不随共享 WS 或执行器信封广播。
+- `stop_status=none|requested|confirmed|rejected|unknown` 与 `stream_status=open|closed` 独立。请求接受或临时断流不等于停工；第三方五秒未确认显示 unknown，只有实际确认才显示已停止。真实完成可赢过未确认停止，在资格仍有效时提交最终消息，不重新开启临时流、不改写已有副作用。
+- 内置模型与工具调用继承取消 context，并在后续读取、工具、模型和提交边界重新检查权威资格。负责人离群使工作进入 `waiting_authorization/awaiting_takeover`；仍有权者明确接手共享工作后才继续，第三方必须先确认暂停。Bot 所有权不授予群内容读取权，新人访问执行记录沿用当前成员历史规则。
+- 管理员通过现有绑定 PUT 的 `bot_settings` JSON 设置 `enabled:false` 撤销参与许可。移出、全局停用及参与许可撤销立即阻止后续访问与输出并请求停止；Bot/绑定授权代次阻止再次启用或重入恢复旧 Run/交互。撤销后的执行器仅能通过已签发凭据报告无材料的停止确认或拒绝，不能借确认入口读取来源或发布结果。
+- 验收：`python3 tests/e2e/run.py --scenario bot-run-controls --timeout 60s`。受控第三方实际计算计数证明确认后停工、未确认和拒绝时仍计算；受控模型与 MCP 网络端证明取消及无后续步骤。`--keep-environment DIR --browser-access` 保留实际浏览器旅程及私有 fixture，凭据不进入版本库。
 
 
 ---

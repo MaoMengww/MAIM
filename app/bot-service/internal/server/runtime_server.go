@@ -85,14 +85,19 @@ func (s *RuntimeServer) ExecutorUpdate(ctx context.Context, req *pb.ExecutorUpda
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "executor update required")
 	}
-	authenticated, err := bot.NewValidateBotTokenLogic(ctx, s.svcCtx).ValidateBotToken(&pb.ValidateBotTokenReq{Token: req.Token})
+	tokenLogic := bot.NewValidateBotTokenLogic(ctx, s.svcCtx)
+	validate := tokenLogic.ValidateBotToken
+	if run.IsStopConfirmation(req.Body) {
+		validate = tokenLogic.ValidateExecutorStopToken
+	}
+	authenticated, err := validate(&pb.ValidateBotTokenReq{Token: req.Token})
 	if err != nil {
 		return nil, err
 	}
-	if !authenticated.Valid || authenticated.GetBotId() != req.BotId || authenticated.Type != "third_party" {
+	if !authenticated.Valid || (req.BotId != "" && authenticated.GetBotId() != req.BotId) || authenticated.Type != "third_party" {
 		return nil, status.Error(codes.Unauthenticated, "invalid executor credential")
 	}
-	receipt, err := s.runs.ExecutorUpdate(ctx, req.BotId, req.Body)
+	receipt, err := s.runs.ExecutorUpdate(ctx, authenticated.GetBotId(), req.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +115,7 @@ func (s *RuntimeServer) ControlRun(ctx context.Context, req *pb.ControlRunReq) (
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "Run command required")
 	}
-	receipt, err := s.runs.Control(ctx, req.RunId, runtimeUserID(ctx), run.ControlInput{Operation: req.Operation, Message: req.Message, SubmissionKey: req.SubmissionKey, SourceMessageID: req.SourceMessageId, MessageIDs: req.MessageIds, FileIDs: req.FileIds, HistoryGrantID: req.HistoryGrantId})
+	receipt, err := s.runs.Control(ctx, req.RunId, runtimeUserID(ctx), run.ControlInput{Operation: req.Operation, Message: req.Message, SubmissionKey: req.SubmissionKey, SourceMessageID: req.SourceMessageId, MessageIDs: req.MessageIds, FileIDs: req.FileIds, HistoryGrantID: req.HistoryGrantId, TargetUserID: req.GetTargetUserId()})
 	if err != nil {
 		return nil, err
 	}

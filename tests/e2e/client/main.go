@@ -192,12 +192,12 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://realtime-service:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-executor-runs|bot-runtime|bot-runtime-cross-instance|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-executor-runs|bot-run-controls|bot-runtime|bot-runtime-cross-instance|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
 	queryDeadline := flags.Duration("query-deadline", 5*time.Second, "入库负载下每次检索的硬截止时间")
-	controlDir := flags.String("control-dir", "", "stage-p6 runner 生命周期检查点目录")
+	controlDir := flags.String("control-dir", "", "runner 生命周期检查点和私有browser fixtures目录")
 	realtimeRPC := flags.String("realtime-rpc", "realtime-service:50059", "现有通知domain gRPC入口")
 	userRPC := flags.String("user-rpc", "user-service:50051", "现有用户domain gRPC入口")
 	fileRPC := flags.String("file-rpc", "file-service:50054", "文件domain批量删除 gRPC入口")
@@ -231,6 +231,7 @@ func run(args []string) error {
 			{"bot-runs", *realtimeA, *realtimeB},
 			{"bot-interactions", *realtimeA, *realtimeB},
 			{"bot-executor-runs", *realtimeA, *realtimeB},
+			{"bot-run-controls", *realtimeA, *realtimeB},
 			{"knowledge-ingest", "", ""},
 			{"cross-instance", *realtimeA, *realtimeB},
 		}
@@ -264,6 +265,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"bot-interactions", *realtimeA, *realtimeB}}
 	case "bot-executor-runs":
 		scenarios = []scenarioSpec{{"bot-executor-runs", *realtimeA, *realtimeB}}
+	case "bot-run-controls":
+		scenarios = []scenarioSpec{{"bot-run-controls", *realtimeA, *realtimeB}}
 	case "bot-runtime":
 		scenarios = []scenarioSpec{{"bot-runtime", *realtimeA, *realtimeA}}
 	case "bot-runtime-cross-instance":
@@ -287,7 +290,7 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-executor-runs|bot-runtime|bot-runtime-cross-instance|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-executor-runs|bot-run-controls|bot-runtime|bot-runtime-cross-instance|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	}
 	if *cross && *selected == "bot-runtime" {
 		scenarios = append(scenarios, scenarioSpec{"bot-runtime-cross-instance", *realtimeA, *realtimeB})
@@ -295,7 +298,7 @@ func run(args []string) error {
 		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
 	}
 	for _, scenario := range scenarios {
-		if scenario.name == "bot-interactions" || scenario.name == "bot-executor-runs" || scenario.name == "bot-runs" || scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
+		if scenario.name == "bot-run-controls" || scenario.name == "bot-interactions" || scenario.name == "bot-executor-runs" || scenario.name == "bot-runs" || scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
 			if _, err := endpoint(*provider, "http", "https"); err != nil {
 				return fmt.Errorf("配置外部 provider: %w", err)
 			}
@@ -309,7 +312,7 @@ func run(args []string) error {
 			}
 		}
 	}
-	if (*selected == "bot-interactions" || *selected == "bot-executor-runs" || *selected == "bot-runs" || *selected == "all" || *selected == "attachments" || *selected == "messaging" || *selected == "user-sync" || *selected == "cross-instance" || *selected == "bot-identity" || *selected == "bot-runtime-cross-instance" || *selected == "broadcasts" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
+	if (*selected == "bot-run-controls" || *selected == "bot-interactions" || *selected == "bot-executor-runs" || *selected == "bot-runs" || *selected == "all" || *selected == "attachments" || *selected == "messaging" || *selected == "user-sync" || *selected == "cross-instance" || *selected == "bot-identity" || *selected == "bot-runtime-cross-instance" || *selected == "broadcasts" || *selected == "stage-p6" || *cross) && *realtimeA == *realtimeB {
 		return errors.New("realtime A/B 必须使用不同地址，不能将单实例冒充两实例")
 	}
 	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout,
@@ -343,6 +346,8 @@ func run(args []string) error {
 			err = d.botInteractions(scenario.a, scenario.b)
 		case "bot-executor-runs":
 			err = d.botExecutorRuns(scenario.a, scenario.b)
+		case "bot-run-controls":
+			err = d.botRunControls(scenario.a, scenario.b)
 		case "bot-runtime", "bot-runtime-cross-instance":
 			err = d.botRuntime(scenario.a, scenario.b)
 		case "knowledge-ingest":
@@ -376,6 +381,8 @@ func run(args []string) error {
 			fmt.Println("E2E PASS: bot-interactions 实际ask_for_input/多人并发receipt → in-flight不可变prefix与后续输入 → 同Bot并行隔离 → 终态/显式parent/close/clear历史保留 → 消息/history/file/其他Bot来源与授权拒绝 → WS/Webhook有序补充/unsupported明确拒绝")
 		} else if scenario.name == "bot-executor-runs" {
 			fmt.Println("E2E PASS: bot-executor-runs WS/Webhook真实请求/验签/确定性计算 → delivery ACK/claim/running/completed分离 → 凭据/代次/版本/连续序列/重复键/终态/撤绑拒绝 → unsupported控制明确失败 → 跨实例WS/REST/源消息/历史/输入隔离")
+		} else if scenario.name == "bot-run-controls" {
+			fmt.Println("E2E PASS: bot-run-controls 当前控制权限/重放 → 实际模型及工具取消 → 第三方工作循环确认/未确认/拒绝/完成竞态 → 接手来源与个人许可隔离 → 退群暂停/明确接手/新成员历史 → Bot撤绑停用许可撤销即刻拒读输出/无材料确认/重入不复活")
 		} else if scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" {
 			fmt.Printf("E2E PASS: %s UUID模型CRUD/私有选择拒绝/model_id省略保持与clear → Bot配置/token状态 → MCP稳定UUID发现/绑定解绑/真实调用 → Kafka精确回复/WS与REST → model/bot/user计费一致 → 语言与AI模型设置 → 已退役生成/查询/Todo管理HTTP404且provider计数不变 → 知识multipart上传/检索/绑定/WS与SSE/history来源UUID/解绑隔离 → 删除\n", scenario.name)
 		} else if scenario.name == "knowledge-ingest" {
