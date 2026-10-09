@@ -3,10 +3,8 @@ package handler
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/json"
 	stderrors "errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/maomeng/aim/app/llm-gateway/internal/domain"
@@ -141,7 +139,7 @@ func (h *LLMGatewayHandler) calcCost(info *modelEntryInfo, inputTokens, outputTo
 	return inputCost + outputCost
 }
 
-// ----- Embed (direct HTTP, manual billing) -----
+// ----- Embed (component or provider-specific adapter, manual billing) -----
 
 func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.EmbedResp, error) {
 	log := h.svcCtx.Logger.WithContext(ctx)
@@ -220,12 +218,16 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 	}
 	embeddings, promptTokens, err := llm.CreateEmbeddings(ctx, apiKey, baseURL, modelName, req.Input, dim)
 	if err != nil {
-		log.Errorf("method=Embed model=%s error=%v", modelName, err)
+		log.Errorf("method=Embed model=%s embeddings failed", modelName)
+		var invalid *llm.RequestError
+		if stderrors.As(err, &invalid) {
+			return nil, errors.New(errors.CodeInvalidParam, "invalid embedding input")
+		}
 		var rejection *llm.HTTPError
 		if stderrors.As(err, &rejection) && (rejection.StatusCode == http.StatusBadRequest || rejection.StatusCode == http.StatusUnprocessableEntity) {
-			return nil, errors.Wrap(errors.CodeInvalidParam, "embedding input rejected", err)
+			return nil, errors.New(errors.CodeInvalidParam, "embedding input rejected")
 		}
-		return nil, errors.Wrap(errors.CodeRPCError, "embeddings failed: "+err.Error(), err)
+		return nil, errors.New(errors.CodeRPCError, "embeddings failed")
 	}
 
 	if promptTokens != nil && *promptTokens > 0 {
@@ -659,83 +661,34 @@ func (h *LLMGatewayHandler) VlmChat(ctx context.Context, req *pb.VlmChatReq) (*p
 	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, modelName); err != nil {
 		return nil, err
 	}
-	defer h.svcCtx.RateLimiter.DecrConcurrency(ctx, modelName)
-
-	// Build VLM payload with image content
-	baseURL := strings.TrimRight(info.ModelEntry.BaseURL, "/")
-	messages := make([]map[string]any, 0, 2)
-	if req.SystemPrompt != "" {
-		messages = append(messages, map[string]any{"role": "system", "content": req.SystemPrompt})
-	}
-	content := []map[string]any{
-		{"type": "text", "text": req.UserPrompt},
-		{"type": "image_url", "image_url": map[string]string{"url": req.ImageData}},
-	}
-	messages = append(messages, map[string]any{"role": "user", "content": content})
-
-	body := map[string]any{
-		"model":    modelName,
-		"messages": messages,
-	}
-	if req.MaxTokens > 0 {
-		body["max_tokens"] = req.MaxTokens
-	}
-	if req.Temperature > 0 {
-		body["temperature"] = req.Temperature
-	}
-
-	respBytes, err := llm.DoRequest(ctx, baseURL+"/chat/completions", info.ModelEntry.APIKey, body)
-	if err != nil {
-		log.Errorf("method=VlmChat model=%s error=%v", modelName, err)
-		return nil, errors.Wrap(errors.CodeRPCError, "vlm chat failed", err)
-	}
-
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		} `json:"choices"`
-		Usage *struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-			TotalTokens      int `json:"total_tokens"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal(respBytes, &result); err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "decode vlm response", err)
-	}
-
-	resp := &pb.ChatResp{Model: modelName}
-	if len(result.Choices) > 0 {
-		c := result.Choices[0]
-		resp.Choices = []*pb.ChatResp_Choice{{
-			Index:        0,
-			Message:      &pb.Message{Role: "assistant", Content: c.Message.Content},
-			FinishReason: c.FinishReason,
-		}}
-	}
-	if result.Usage != nil {
-		resp.Usage = &pb.UsageInfo{
-			PromptTokens:     int32(result.Usage.PromptTokens),
-			CompletionTokens: int32(result.Usage.CompletionTokens),
-			TotalTokens:      int32(result.Usage.TotalTokens),
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := h.svcCtx.RateLimiter.DecrConcurrency(releaseCtx, modelName); err != nil {
+			log.Errorf("vlm concurrency release failed: model=%s", modelName)
 		}
+	}()
+
+	resp, err := llm.CompleteVLMChat(ctx, req, info.ModelEntry)
+	if err != nil {
+		log.Errorf("method=VlmChat model=%s vlm chat failed", modelName)
+		return nil, errors.New(errors.CodeRPCError, "vlm chat failed")
+	}
+	if resp.Usage != nil {
 		log.Infof("method=VlmChat model=%s input_tokens=%d output_tokens=%d total_tokens=%d",
-			modelName, result.Usage.PromptTokens, result.Usage.CompletionTokens, result.Usage.TotalTokens)
+			modelName, resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.TotalTokens)
 	}
 
 	// Persist usage for private and platform models; charge only platform calls.
-	if result.Usage != nil && result.Usage.TotalTokens > 0 {
+	if resp.Usage != nil && resp.Usage.TotalTokens > 0 {
 		h.recordBilling(info.ModelEntry, req.BotId, req.OwnerId, "vlm",
 			&domain.UsageInfo{
-				PromptTokens:     result.Usage.PromptTokens,
-				CompletionTokens: result.Usage.CompletionTokens,
-				TotalTokens:      result.Usage.TotalTokens,
+				PromptTokens:     int(resp.Usage.PromptTokens),
+				CompletionTokens: int(resp.Usage.CompletionTokens),
+				TotalTokens:      int(resp.Usage.TotalTokens),
 			})
 		if info.TrackBilling {
-			cost := h.calcCost(info, result.Usage.PromptTokens, result.Usage.CompletionTokens)
+			cost := h.calcCost(info, int(resp.Usage.PromptTokens), int(resp.Usage.CompletionTokens))
 			h.deductBalance(ctx, req.OwnerId, cost)
 		}
 	}

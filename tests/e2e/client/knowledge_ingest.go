@@ -412,6 +412,54 @@ func (d *driver) knowledgeLifecycle(owner account, kbID, modelID entityID, known
 	if err := d.awaitKnowledgeDocument(owner, failed, "ready", time.Now().Add(d.ingestTimeout)); err != nil {
 		return err
 	}
+	// Retry is the existing failed-document rebuild boundary. The ready-document
+	// contract intentionally remains unchanged; no DB mutation simulates a rebuild.
+	var recoveredContent struct {
+		Content string `json:"content"`
+	}
+	failedPath := "/knowledge/documents/" + failed.ID.String()
+	wantRecovered := "P5_FAIL_INGEST external provider rejects this document " + suffix
+	if err := d.request(http.MethodGet, failedPath+"/content", owner.token, nil, &recoveredContent); err != nil {
+		return err
+	}
+	if recoveredContent.Content != wantRecovered {
+		return errors.New("knowledge.retry.rebuild: 对象内容未保持原失败文档")
+	}
+	var recoveredChunks struct {
+		Items []knowledgeChunkView `json:"chunks"`
+	}
+	if err := d.request(http.MethodGet, failedPath+"/chunks", owner.token, nil, &recoveredChunks); err != nil {
+		return err
+	}
+	if len(recoveredChunks.Items) != 1 || recoveredChunks.Items[0].DocID != failed.ID || recoveredChunks.Items[0].Content != wantRecovered {
+		return errors.New("knowledge.retry.rebuild: 新embedding模型未重建原文档关系片段")
+	}
+	if err := d.broadcastPoll("knowledge.retry.rebuild.sources", func(bounded *driver) (bool, error) {
+		var recoveredSources struct {
+			Items []struct {
+				ChunkID entityID `json:"chunk_id"`
+				DocID   entityID `json:"doc_id"`
+				KBID    entityID `json:"kb_id"`
+				Title   string   `json:"doc_title"`
+				Content string   `json:"content"`
+			} `json:"items"`
+		}
+		if err := bounded.request(http.MethodPost, basePath+"/search", owner.token, map[string]string{"query": wantRecovered}, &recoveredSources); err != nil {
+			return false, err
+		}
+		for _, source := range recoveredSources.Items {
+			if source.DocID == failed.ID {
+				if source.ChunkID != recoveredChunks.Items[0].ID || source.KBID != kbID || source.Title != failed.Title || source.Content != wantRecovered {
+					return false, errors.New("knowledge.retry.rebuild: 来源不是重建后同一document/chunk/content")
+				}
+				return true, nil
+			}
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	fmt.Println("E2E evidence: failed document retry rebuild using replacement embedding model, original object/content and rebuilt chunk/retrieval source PASS")
 	if err := d.request(http.MethodDelete, docPath, owner.token, nil, nil); err != nil {
 		return err
 	}

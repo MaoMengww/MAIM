@@ -24,6 +24,110 @@ INTERACTION_GATES = {}
 OBSERVATIONS = {"mcp_lists": 0, "tool_texts": [], "chat_models": [], "embed_models": [], "active_ingest": 0,
                 "tool_call_ids": [], "chat_requests": [], "executor_requests": [], "executor_activities": []}
 LLM_CHAT_OBSERVATIONS = []
+COMPONENT_OBSERVATIONS = []
+COMPONENT_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jfWQAAAAASUVORK5CYII="
+
+
+def llm_component(body, handler, path):
+    """Only implement third-party HTTP protocols; model identity and RPCs are AIM's."""
+    model = body.get("model", "")
+    if not model.startswith("e2e-component-"):
+        return False
+    vision = model.startswith("e2e-component-vlm-")
+    messages = body.get("messages", [])
+    parts = messages[-1].get("content", []) if messages else []
+    inputs = body.get("texts" if "cohere" in path else "input", [])
+    token = next((part.get("text", "") for part in parts if isinstance(part, dict)), "") if vision else (inputs[0] if inputs else "")
+    row = {"model": model, "token": token, "path": path, "body": body,
+           "auth_digest": hashlib.sha256(handler.headers.get("Authorization", "").encode()).hexdigest(),
+           "state": "received"}
+    with LOCK:
+        COMPONENT_OBSERVATIONS.append(row)
+
+    def state(value):
+        with LOCK:
+            row["state"] = value
+
+    if vision:
+        expected = [{"role": "system", "content": "component system"},
+                    {"role": "user", "content": [{"type": "text", "text": token},
+                                                  {"type": "image_url", "image_url": {"url": COMPONENT_PNG}}]}]
+        valid = (path == "/v1/chat/completions" and messages == expected
+                 and body.get("stream", False) is False and body.get("max_tokens") == 37
+                 and body.get("temperature") == .25)
+    elif "cohere" in path:
+        valid = (path == "/cohere/v2/embed" and body.get("input_type") == "search_document"
+                 and isinstance(inputs, list) and len(inputs) == 2 and "input" not in body)
+    else:
+        valid = path == "/v1/embeddings" and isinstance(inputs, list) and len(inputs) == 2
+    if not valid:
+        state("invalid_request")
+        handler._json(400, {"error": {"message": "component protocol mismatch"}})
+        return True
+    if "HTTP_ERROR" in token:
+        state("http_error")
+        handler._json(400 if not vision else 503, {"error": {"message": "LLM_PROVIDER_PRIVATE_BODY|" + token + "|" + handler.headers.get("Authorization", "")}})
+        return True
+    if "REDIRECT" in token:
+        state("redirected")
+        handler.send_response(307)
+        handler.send_header("Location", "/llm-components/redirect-target")
+        handler.send_header("Content-Length", "0")
+        handler.end_headers()
+        return True
+    if "CANCEL" in token:
+        # Observe socket EOF from the gateway's real unary HTTP cancellation.
+        import select
+        import socket
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            try:
+                readable, _, _ = select.select([handler.connection], [], [], .03)
+                cancelled = readable and handler.connection.recv(1, socket.MSG_PEEK) == b""
+            except (ConnectionResetError, ConnectionAbortedError):
+                cancelled = True
+            if cancelled:
+                state("cancelled")
+                handler.close_connection = True
+                return True
+        state("cancel_not_observed")
+        handler._json(504, {"error": {"message": "cancellation not observed"}})
+        return True
+    if vision:
+        response = {"id": "component-vision", "object": "chat.completion", "created": 1, "model": model,
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": "component-vision:" + token}, "finish_reason": "stop"}]}
+        if "NO_USAGE" not in token:
+            response["usage"] = ({"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0} if "ZERO" in token
+                                 else {"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12})
+    else:
+        vectors = [[.1000000001, -.2000000001, 1.00000006], [.333333333333, 2.00000013, -.123456789]]
+        if "cohere" in path:
+            response = {"embeddings": vectors}
+            if "NO_USAGE" not in token:
+                response["meta"] = {"billed_units": {"input_tokens": 0 if "ZERO" in token else 9}}
+        else:
+            data = [{"object": "embedding", "index": i, "embedding": values} for i, values in reversed(list(enumerate(vectors)))]
+            if "EMPTY" in token:
+                data = []
+            elif "INVALID_INDEX" in token:
+                data[0]["index"] = 2
+            elif "NEGATIVE_INDEX" in token:
+                data[0]["index"] = -1
+            elif "DUPLICATE" in token:
+                data[0]["index"] = data[1]["index"]
+            elif "MISSING_INDEX" in token:
+                del data[0]["index"]
+            elif "MISSING_VECTOR" in token:
+                data.pop()
+            elif "WRONG_DIMENSION" in token:
+                data[0]["embedding"].pop()
+            response = {"object": "list", "model": model, "data": data}
+            if "NO_USAGE" not in token:
+                count = 0 if "ZERO" in token else 9
+                response["usage"] = {"prompt_tokens": count, "total_tokens": count}
+    state("completed")
+    handler._json(200, response)
+    return True
 
 
 def llm_chat(body, handler, path):
@@ -169,7 +273,7 @@ def vector(text):
     # Known content and its query share a keyword direction; bulk documents do not.
     digest = hashlib.sha256(text.encode()).digest()
     values = [0.0] * 1536
-    values[0 if "P5_KNOWN_ANCHOR" in text else 1] = 1.0
+    values[0 if "P5_KNOWN_ANCHOR" in text else 3 if "P5_FAIL_INGEST" in text else 1] = 1.0
     values[2] = digest[0] / 25500.0
     norm = math.sqrt(sum(value * value for value in values))
     return [value / norm for value in values]
@@ -393,6 +497,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path == "/llm-components/observe":
+            with LOCK:
+                snapshot = json.loads(json.dumps([row for row in COMPONENT_OBSERVATIONS if row["model"] == body.get("model")]))
+            self._json(200, {"requests": snapshot})
+            return
+        if path == "/llm-components/redirect-target":
+            with LOCK:
+                COMPONENT_OBSERVATIONS.append({"model": body.get("model", ""), "token": "redirect-target", "state": "redirect_followed", "path": path})
+            self._json(400, {"error": {"message": "redirect must not be followed"}})
+            return
+        if path in ("/v1/chat/completions", "/v1/embeddings", "/cohere/v2/embed") and llm_component(body, self, path):
+            return
         if path == "/llm-chat/observe":
             with LOCK:
                 rows = [row for row in LLM_CHAT_OBSERVATIONS if row["model"] == body.get("model")]

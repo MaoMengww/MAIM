@@ -192,7 +192,7 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://realtime-service:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-executor-runs|bot-run-controls|bot-runtime|bot-runtime-cross-instance|llm-chat|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-executor-runs|bot-run-controls|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
@@ -234,6 +234,7 @@ func run(args []string) error {
 			{"bot-run-controls", *realtimeA, *realtimeB},
 			{"knowledge-ingest", "", ""},
 			{"llm-chat", "", ""},
+			{"llm-components", "", ""},
 			{"cross-instance", *realtimeA, *realtimeB},
 		}
 	case "messaging":
@@ -274,6 +275,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"bot-runtime-cross-instance", *realtimeA, *realtimeB}}
 	case "llm-chat":
 		scenarios = []scenarioSpec{{"llm-chat", "", ""}}
+	case "llm-components":
+		scenarios = []scenarioSpec{{"llm-components", "", ""}}
 	case "knowledge-ingest":
 		scenarios = []scenarioSpec{{"knowledge-ingest", "", ""}}
 	case "conversations", "conversation-unread":
@@ -293,7 +296,7 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-executor-runs|bot-run-controls|bot-runtime|bot-runtime-cross-instance|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-executor-runs|bot-run-controls|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	}
 	if *cross && *selected == "bot-runtime" {
 		scenarios = append(scenarios, scenarioSpec{"bot-runtime-cross-instance", *realtimeA, *realtimeB})
@@ -301,12 +304,12 @@ func run(args []string) error {
 		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
 	}
 	for _, scenario := range scenarios {
-		if scenario.name == "llm-chat" || scenario.name == "bot-run-controls" || scenario.name == "bot-interactions" || scenario.name == "bot-executor-runs" || scenario.name == "bot-runs" || scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
+		if scenario.name == "llm-components" || scenario.name == "llm-chat" || scenario.name == "bot-run-controls" || scenario.name == "bot-interactions" || scenario.name == "bot-executor-runs" || scenario.name == "bot-runs" || scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
 			if _, err := endpoint(*provider, "http", "https"); err != nil {
 				return fmt.Errorf("配置外部 provider: %w", err)
 			}
 		}
-		if scenario.name == "llm-chat" || scenario.name == "relationships" || scenario.name == "knowledge-ingest" {
+		if scenario.name == "llm-components" || scenario.name == "llm-chat" || scenario.name == "relationships" || scenario.name == "knowledge-ingest" {
 			continue
 		}
 		for _, address := range []string{scenario.a, scenario.b} {
@@ -357,6 +360,8 @@ func run(args []string) error {
 			err = d.knowledgeIngest()
 		case "llm-chat":
 			err = d.llmChatScenario()
+		case "llm-components":
+			err = d.llmComponentsScenario()
 		case "stage-p6":
 			err = d.realtimeP6(scenario.a, scenario.b)
 		default:
@@ -392,6 +397,8 @@ func run(args []string) error {
 			fmt.Printf("E2E PASS: %s UUID模型CRUD/私有选择拒绝/model_id省略保持与clear → Bot配置/token状态 → MCP稳定UUID发现/绑定解绑/真实调用 → Kafka精确回复/WS与REST → model/bot/user计费一致 → 语言与AI模型设置 → 已退役生成/查询/Todo管理HTTP404且provider计数不变 → 知识multipart上传/检索/绑定/WS与SSE/history来源UUID/解绑隔离 → 删除\n", scenario.name)
 		} else if scenario.name == "llm-chat" {
 			fmt.Println("E2E PASS: llm-chat 当前模型权限 → 同步/流式/工具与私有reasoning回放 → usage/cache存在性与真实首token → 截断/错误/取消 → 端点快照拒绝/当前密钥")
+		} else if scenario.name == "llm-components" {
+			fmt.Println("E2E PASS: llm-components 真实VLM PNG/system/user/参数与usage → OpenAI index顺序/维度/float32/usage → 畸形/HTTP400/凭据安全 → 取消与额度释放 → Cohere原生HTTP协议 → 公开计费记录")
 		} else if scenario.name == "knowledge-ingest" {
 			fmt.Printf("E2E PASS: knowledge-ingest multipart上传 → 异步ready → 精确内容检索 → 大文档并发入库时每次查询 <=%s → 失败入库不伤查询\n", d.queryDeadline)
 		} else if scenario.name == "conversations" || scenario.name == "conversation-unread" {

@@ -18,6 +18,8 @@ type RerankResult struct {
 	Tokens int          `json:"tokens"`
 }
 
+// Remote semantic reranking stays on the native Cohere/DashScope APIs. Eino's
+// document score sorter does not replace inference by these providers.
 func Rerank(ctx context.Context, apiKey, baseURL, model, query string, docs []string, topN int, returnDocs bool) (*RerankResult, error) {
 	switch {
 	case strings.Contains(baseURL, "cohere"):
