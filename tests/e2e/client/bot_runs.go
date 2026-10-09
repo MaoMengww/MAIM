@@ -282,6 +282,47 @@ func (d *driver) botRuns(address, secondAddress string) error {
 	if len(runs) != 2 {
 		return errors.New("bot-runs.trigger: 普通群消息/其他mention/Bot输出启动了额外Run")
 	}
+	for i := range bots {
+		if err = d.botRunMixedTools(member, bots[i].ID, conv.ID, socket, fmt.Sprintf("RUN_MIXED_WAIT_%s_%d", suffix, i)); err != nil {
+			return err
+		}
+	}
+	budgetToken := "RUN_BUDGET_WAIT_" + suffix
+	budget, err := d.startRun(member, bots[0].ID, conv.ID, budgetToken, uuid.NewString(), nil)
+	if err != nil {
+		return err
+	}
+	// The platform's existing five-call budget must survive five distinct
+	// input interrupts and Runner resumes, not restart with each Runner.
+	for round := range 5 {
+		if _, err = d.interactionWait(member, budget.ID, "waiting_input"); err != nil {
+			return err
+		}
+		if _, err = d.interactionControl(member, budget.ID, "input", fmt.Sprintf("BUDGET_CONTINUE_%d", round), uuid.NewString(), nil); err != nil {
+			return err
+		}
+	}
+	budget, err = d.waitRun(member, budget.ID)
+	if err != nil {
+		return err
+	}
+	if budget.Status != "failed" || budget.Error == "" || budget.MessageID != nil {
+		return errors.New("bot-runs.budget: 恢复重置预算或发布伪成功")
+	}
+	budgetObservation, err := d.observeProvider()
+	if err != nil {
+		return err
+	}
+	budgetCalls := 0
+	for _, request := range budgetObservation.ChatRequests {
+		encoded, _ := json.Marshal(request["messages"])
+		if strings.Contains(string(encoded), budgetToken) {
+			budgetCalls++
+		}
+	}
+	if budgetCalls != 5 {
+		return fmt.Errorf("bot-runs.budget: 真实供应商调用越过累计预算 calls=%d", budgetCalls)
+	}
 	failed, err := d.startRun(member, bots[0].ID, conv.ID, "RUN_FAIL_PROVIDER_"+suffix, uuid.NewString(), nil)
 	if err != nil {
 		return err
@@ -391,6 +432,80 @@ func (d *driver) botRuns(address, secondAddress string) error {
 			}
 		}
 	}
-	fmt.Printf("Run evidence PASS: run=%s interaction=%s message=%s; explicit/mention, duplicate/conflict, real MCP, stable append requests, failure, WS and reconnect/history\n", done.ID, done.InteractionID, *done.MessageID)
+	fmt.Printf("Run evidence PASS: run=%s interaction=%s message=%s; explicit/mention, duplicate/conflict, real MCP, stable append requests, mixed tool/input rounds with no replay in stream and sync, failure, WS and reconnect/history\n", done.ID, done.InteractionID, *done.MessageID)
+	return nil
+}
+
+// A model round spans real network work on both sides of an input interrupt.
+// Recovering it must retain complete pairing and not repeat completed network work.
+func (d *driver) botRunMixedTools(caller account, bot, conv entityID, socket *p6Socket, token string) error {
+	accepted, err := d.startRun(caller, bot, conv, token, uuid.NewString(), nil)
+	if err != nil {
+		return err
+	}
+	waiting, err := d.interactionWait(caller, accepted.ID, "waiting_input")
+	if err != nil {
+		return err
+	}
+	if waiting.WaitingReason == "" || waiting.OutputStatus != "none" || waiting.MessageID != nil || waiting.ResultText != "" {
+		return errors.New("bot-runs.mixed-wait: 输入中断被伪装为空结果成功")
+	}
+	if _, err = d.p6Wait(socket, 0, "mixed-wait", func(e p6Event) bool {
+		return e.Type == "bot.run.updated" && e.Run.ID == waiting.ID && e.Run.Status == "waiting_input"
+	}); err != nil {
+		return err
+	}
+	checkTools := func(resumed bool) error {
+		observed, err := d.observeProvider()
+		if err != nil {
+			return err
+		}
+		before, after := 0, 0
+		for _, text := range observed.ToolTexts {
+			switch text {
+			case token + ":before":
+				before++
+			case token + ":after":
+				after++
+			}
+		}
+		if before != 1 || after > 1 || resumed && after != 1 {
+			return fmt.Errorf("bot-runs.mixed-tools: MCP执行遗漏或重复 before=%d after=%d resumed=%t", before, after, resumed)
+		}
+		return nil
+	}
+	if err = checkTools(false); err != nil {
+		return err
+	}
+	supplement := "CONTINUE_MIXED_" + token
+	receipt, err := d.interactionControl(caller, waiting.ID, "input", supplement, uuid.NewString(), nil)
+	if err != nil {
+		return err
+	}
+	if receipt.ID != waiting.ID || receipt.InputVersion != waiting.InputVersion+1 {
+		return errors.New("bot-runs.mixed-input: 恢复未接受同Run的新输入版本")
+	}
+	done, err := d.interactionWait(caller, waiting.ID, "succeeded")
+	if err != nil {
+		return err
+	}
+	if done.MessageID == nil || done.ResultText != "fixture-resumed:"+token+"|"+supplement || done.InputVersion != receipt.InputVersion {
+		return errors.New("bot-runs.mixed-result: 恢复丢失原输入、补充或真实最终结果")
+	}
+	if err = checkTools(true); err != nil {
+		return err
+	}
+	if _, err = d.p6Wait(socket, 0, "mixed-resumed", func(e p6Event) bool {
+		return e.Type == "bot.run.updated" && e.Run.ID == done.ID && e.Run.Status == "succeeded" && e.Run.MessageID != nil && *e.Run.MessageID == *done.MessageID
+	}); err != nil {
+		return err
+	}
+	message, err := d.identityMessage(caller, *done.MessageID)
+	if err != nil {
+		return err
+	}
+	if message.Text.Text != done.ResultText || message.SenderType != "bot" || !hasEntityID(message.SenderID, bot) || !hasEntityID(message.RequesterID, caller.id) {
+		return errors.New("bot-runs.mixed-history: 最终消息身份或内容失配")
+	}
 	return nil
 }

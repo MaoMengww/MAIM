@@ -349,6 +349,59 @@ def user_text(messages):
     return ""
 
 
+def mixed_run_reply(body, messages):
+    inputs = [value for item in messages if (value := accepted_input(item)) is not None]
+    token = inputs[0]["content"]
+    tools = body.get("tools") or []
+    echo = next((item["function"]["name"] for item in tools
+                 if "fixture_echo" in item.get("function", {}).get("name", "")), "")
+    ask = next((item["function"]["name"] for item in tools
+                if item.get("function", {}).get("name") == "ask_for_input"), "")
+    if not echo or not ask:
+        raise ValueError("mixed round requires network echo and input capabilities")
+    ids = ["mixed-before", "mixed-ask", "mixed-after"]
+    batches = [[call["id"] for call in item["tool_calls"]]
+               for item in messages if item.get("tool_calls")]
+    results = [item for item in messages if item.get("role") == "tool"]
+    if not batches:
+        if results or len(inputs) != 1:
+            raise ValueError("mixed round lost its initial tool calls")
+        calls = [
+            {"id": ids[0], "type": "function", "function": {
+                "name": echo, "arguments": json.dumps({"text": token + ":before"})}},
+            {"id": ids[1], "type": "function", "function": {
+                "name": ask, "arguments": json.dumps({"reason": "Supply the continuation text"})}},
+            {"id": ids[2], "type": "function", "function": {
+                "name": echo, "arguments": json.dumps({"text": token + ":after"})}},
+        ]
+        return {"role": "assistant", "content": None, "tool_calls": calls}, "tool_calls"
+    if batches != [ids] or len(results) != len(ids) or {item.get("tool_call_id") for item in results} != set(ids):
+        raise ValueError("mixed round requires each tool result paired exactly once")
+    pending = set()
+    for item in messages:
+        if item.get("role") == "tool":
+            call_id = item.get("tool_call_id")
+            if call_id not in pending:
+                raise ValueError("mixed round has an orphan or repeated tool response")
+            pending.remove(call_id)
+        else:
+            if pending:
+                raise ValueError("mixed round inserted input before completing tool responses")
+            if item.get("tool_calls"):
+                if item.get("role") != "assistant":
+                    raise ValueError("mixed round tool calls require an assistant message")
+                pending = {call["id"] for call in item["tool_calls"]}
+    if pending:
+        raise ValueError("mixed round has incomplete tool responses")
+    by_id = {item["tool_call_id"]: item for item in results}
+    for call_id, suffix in ((ids[0], ":before"), (ids[2], ":after")):
+        if "fixture-tool:" + token + suffix not in str(by_id[call_id].get("content", "")):
+            raise ValueError("mixed round lost its network tool result")
+    if len(inputs) != 2 or not by_id[ids[1]].get("content"):
+        raise ValueError("mixed round resumed without accepted input or input tool result")
+    return {"role": "assistant", "content": "fixture-resumed:" + token + "|" + inputs[1]["content"]}, "stop"
+
+
 def interaction_reply(body, messages):
     inputs = [value for item in messages if (value := accepted_input(item)) is not None]
     if not inputs:
@@ -594,6 +647,18 @@ class Handler(BaseHTTPRequestHandler):
                 except (KeyError, ValueError, TypeError) as error:
                     self._json(400, {"error": {"message": str(error)}})
                     return
+            elif any((accepted_input(item) or {}).get("content", "").startswith("RUN_MIXED_WAIT_") for item in messages):
+                try:
+                    message, reason = mixed_run_reply(body, messages)
+                except (KeyError, ValueError, TypeError) as error:
+                    self._json(400, {"error": {"message": str(error)}})
+                    return
+            elif any((accepted_input(item) or {}).get("content", "").startswith("RUN_BUDGET_WAIT_") for item in messages):
+                inputs = [value for item in messages if (value := accepted_input(item)) is not None]
+                message = {"role": "assistant", "content": None, "tool_calls": [{
+                    "id": "budget-ask-" + str(len(inputs)), "type": "function", "function": {
+                        "name": "ask_for_input", "arguments": json.dumps({"reason": "Supply the next budget input"})}}]}
+                reason = "tool_calls"
             elif not tool_messages:
                 tools = body.get("tools") or []
                 echo = next((item["function"]["name"] for item in tools if "fixture_echo" in item.get("function", {}).get("name", "")), "")
@@ -622,7 +687,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Connection", "close")
                 self.end_headers()
                 if reason == "tool_calls":
-                    deltas = [{"role": "assistant", "tool_calls": [dict(message["tool_calls"][0], index=0)]}]
+                    deltas = [{"role": "assistant", "tool_calls": [dict(call, index=index)
+                               for index, call in enumerate(message["tool_calls"])]}]
                 else:
                     content = message["content"]
                     split = max(1, len(content) // 2)

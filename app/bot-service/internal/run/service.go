@@ -33,7 +33,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const assemblyVersion = "builtin-run-v1"
+const assemblyVersion = "eino-builtin-run-v2"
 
 type ExecutionConfig struct {
 	AssemblyVersion  string                     `json:"assembly_version"`

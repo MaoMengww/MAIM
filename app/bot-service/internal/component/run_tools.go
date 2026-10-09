@@ -77,22 +77,29 @@ func BuiltinRunTools(names []string) ([]RunTool, error) {
 		if err != nil {
 			return nil, err
 		}
-		info, err := base.Info(context.Background())
+		definition, err := builtinRunToolDefinition(context.Background(), base)
 		if err != nil {
 			return nil, err
 		}
-		schema, err := info.ParamsOneOf.ToJSONSchema()
-		if err != nil {
-			return nil, err
-		}
-		parameters, err := json.Marshal(schema)
-		if err != nil {
-			return nil, err
-		}
-		digest := sha256.Sum256(append([]byte(info.Name+"\x00"+info.Desc+"\x00"), parameters...))
-		tools = append(tools, RunTool{ServerID: "builtin", Name: info.Name, Description: info.Desc, Parameters: parameters, DefinitionHash: hex.EncodeToString(digest[:])})
+		tools = append(tools, definition)
 	}
 	return tools, nil
+}
+func builtinRunToolDefinition(ctx context.Context, base tool.BaseTool) (RunTool, error) {
+	info, err := base.Info(ctx)
+	if err != nil {
+		return RunTool{}, err
+	}
+	schema, err := info.ParamsOneOf.ToJSONSchema()
+	if err != nil {
+		return RunTool{}, err
+	}
+	parameters, err := json.Marshal(schema)
+	if err != nil {
+		return RunTool{}, err
+	}
+	digest := sha256.Sum256(append([]byte(info.Name+"\x00"+info.Desc+"\x00"), parameters...))
+	return RunTool{ServerID: "builtin", Name: info.Name, Description: info.Desc, Parameters: parameters, DefinitionHash: hex.EncodeToString(digest[:])}, nil
 }
 func CallBuiltinRunTool(ctx context.Context, frozen RunTool, arguments string) (string, error) {
 	if frozen.ServerID != "builtin" || frozen.Name != "web_search" {
@@ -105,6 +112,13 @@ func CallBuiltinRunTool(ctx context.Context, frozen RunTool, arguments string) (
 	invokable, ok := base.(tool.InvokableTool)
 	if !ok {
 		return "", fmt.Errorf("builtin tool is not invokable")
+	}
+	definition, err := builtinRunToolDefinition(ctx, base)
+	if err != nil {
+		return "", err
+	}
+	if definition.DefinitionHash != frozen.DefinitionHash {
+		return "", fmt.Errorf("tool definition changed; a new Run is required")
 	}
 	var args map[string]any
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil || args == nil {

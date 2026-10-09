@@ -235,6 +235,14 @@ type RunModelCall struct {
 
 func (RunModelCall) TableName() string { return "bot.run_model_calls" }
 
+type RunAgentCheckpoint struct {
+	RunID      string    `gorm:"type:uuid;primaryKey"`
+	Checkpoint []byte    `gorm:"type:bytea;not null"`
+	UpdatedAt  time.Time `gorm:"not null"`
+}
+
+func (RunAgentCheckpoint) TableName() string { return "bot.run_agent_checkpoints" }
+
 type RunOutbox struct {
 	ID                  string `gorm:"type:uuid;primaryKey"`
 	RunID               string `gorm:"type:uuid"`
