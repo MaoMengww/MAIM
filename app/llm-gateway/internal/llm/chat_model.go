@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -16,11 +15,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 	pb "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 )
 
 // AdapterVersion changes when the wire rendering or trajectory contract changes.
-const AdapterVersion = "openai-chat-v2"
+const AdapterVersion = "eino-openai-chat-v3"
 
 func ChatBaseURL(provider, baseURL string) (string, error) {
 	if baseURL == "" {
@@ -42,82 +44,66 @@ func ChatBaseURL(provider, baseURL string) (string, error) {
 	return strings.TrimRight(baseURL, "/"), nil
 }
 
-// BuildChatBody preserves the recorded message/tool order and canonicalizes schemas
-// without converting them through another schema model that could drop keywords.
-func BuildChatBody(req *pb.ChatReq, cfg *pb.ModelExecutionConfig, apiKey string) (map[string]any, error) {
+// buildChatInput validates the recorded trajectory before giving it to Eino.
+// Only raw tool schemas and provider extensions bypass the component renderer.
+func buildChatInput(req *pb.ChatReq, cfg *pb.ModelExecutionConfig, apiKey string) ([]*schema.Message, map[string]any, error) {
 	if req == nil || cfg == nil || cfg.ModelName == "" || len(req.Messages) == 0 {
-		return nil, fmt.Errorf("model and messages required")
+		return nil, nil, fmt.Errorf("model and messages required")
 	}
-	messages := make([]map[string]any, 0, len(req.Messages))
+	messages := make([]*schema.Message, 0, len(req.Messages))
 	pending := map[string]bool{}
 	seen := map[string]bool{}
 	for _, msg := range req.Messages {
 		if msg == nil {
-			return nil, fmt.Errorf("nil message")
+			return nil, nil, fmt.Errorf("nil message")
 		}
 		if len(pending) > 0 && msg.Role != "tool" {
-			return nil, fmt.Errorf("tool calls require adjacent paired results")
+			return nil, nil, fmt.Errorf("tool calls require adjacent paired results")
 		}
 		switch msg.Role {
 		case "system", "developer", "user", "assistant":
 			if msg.ToolCallId != "" || (msg.Role != "assistant" && len(msg.ToolCalls) > 0) {
-				return nil, fmt.Errorf("invalid message tool role")
+				return nil, nil, fmt.Errorf("invalid message tool role")
 			}
 		case "tool":
 			if !pending[msg.ToolCallId] || len(msg.ToolCalls) > 0 {
-				return nil, fmt.Errorf("unpaired tool result")
+				return nil, nil, fmt.Errorf("unpaired tool result")
 			}
 			delete(pending, msg.ToolCallId)
 		default:
-			return nil, fmt.Errorf("unsupported message role")
+			return nil, nil, fmt.Errorf("unsupported message role")
 		}
-		m := map[string]any{"role": msg.Role, "content": msg.Content}
-		if msg.Name != "" {
-			m["name"] = msg.Name
-		}
-		if msg.ToolCallId != "" {
-			m["tool_call_id"] = msg.ToolCallId
-		}
+		m := &schema.Message{Role: schema.RoleType(msg.Role), Content: msg.Content, Name: msg.Name, ToolCallID: msg.ToolCallId}
 		if msg.ReasoningContent != "" && cfg.Provider == "deepseek" {
 			if msg.Role != "assistant" {
-				return nil, fmt.Errorf("unsupported reasoning replay")
+				return nil, nil, fmt.Errorf("unsupported reasoning replay")
 			}
-			m["reasoning_content"] = msg.ReasoningContent
+			m.ReasoningContent = msg.ReasoningContent
 		}
 		if len(msg.ToolCalls) > 0 {
-			calls := make([]map[string]any, 0, len(msg.ToolCalls))
 			for _, call := range msg.ToolCalls {
 				if call == nil || call.Id == "" || seen[call.Id] || call.Function == nil || call.Function.Name == "" || (call.Type != "" && call.Type != "function") {
-					return nil, fmt.Errorf("invalid assistant tool call")
+					return nil, nil, fmt.Errorf("invalid assistant tool call")
 				}
 				seen[call.Id], pending[call.Id] = true, true
-				calls = append(calls, map[string]any{"id": call.Id, "type": "function", "function": map[string]any{"name": call.Function.Name, "arguments": call.Function.Arguments}})
+				m.ToolCalls = append(m.ToolCalls, schema.ToolCall{ID: call.Id, Type: "function", Function: schema.FunctionCall{Name: call.Function.Name, Arguments: call.Function.Arguments}})
 			}
-			m["tool_calls"] = calls
 		}
 		messages = append(messages, m)
 	}
 	if len(pending) > 0 {
-		return nil, fmt.Errorf("missing tool results")
+		return nil, nil, fmt.Errorf("missing tool results")
 	}
-	body := map[string]any{"model": cfg.ModelName, "messages": messages, "stream": true, "stream_options": map[string]any{"include_usage": true}}
+	extra := map[string]any{}
+	// The SDK uses omitempty on temperature, which otherwise drops explicit zero.
 	if req.ExecutionModel != nil || req.Temperature > 0 {
-		body["temperature"] = req.Temperature
-	}
-	if req.TopP > 0 {
-		body["top_p"] = req.TopP
-	}
-	if req.MaxTokens > 0 {
-		body["max_tokens"] = req.MaxTokens
-	}
-	if len(req.Stop) > 0 {
-		body["stop"] = req.Stop
+		extra["temperature"] = req.Temperature
 	}
 	names := map[string]bool{}
 	tools := make([]map[string]any, 0, len(req.Tools))
 	for _, tool := range req.Tools {
 		if tool == nil || tool.Name == "" || names[tool.Name] {
-			return nil, fmt.Errorf("invalid or duplicate tool name")
+			return nil, nil, fmt.Errorf("invalid or duplicate tool name")
 		}
 		names[tool.Name] = true
 		fn := map[string]any{"name": tool.Name, "description": tool.Description}
@@ -126,18 +112,18 @@ func BuildChatBody(req *pb.ChatReq, cfg *pb.ModelExecutionConfig, apiKey string)
 			dec.UseNumber()
 			var params map[string]any
 			if err := dec.Decode(&params); err != nil || params == nil {
-				return nil, fmt.Errorf("invalid tool parameters")
+				return nil, nil, fmt.Errorf("invalid tool parameters")
 			}
 			var extra any
 			if err := dec.Decode(&extra); err != io.EOF {
-				return nil, fmt.Errorf("invalid trailing tool parameters")
+				return nil, nil, fmt.Errorf("invalid trailing tool parameters")
 			}
 			fn["parameters"] = params
 		}
 		tools = append(tools, map[string]any{"type": "function", "function": fn})
 	}
 	if len(tools) > 0 {
-		body["tools"] = tools
+		extra["tools"] = tools
 	}
 	// Only the actual OpenAI endpoint is known to support prompt_cache_key.
 	// Auth identity is hashed, never sent as a credential or logged.
@@ -145,9 +131,9 @@ func BuildChatBody(req *pb.ChatReq, cfg *pb.ModelExecutionConfig, apiKey string)
 	if cfg.Provider == "openai" && u != nil && u.Hostname() == "api.openai.com" && req.CacheScope != "" {
 		scope, _ := json.Marshal([]string{AdapterVersion, apiKey, cfg.ModelId, cfg.ModelName, cfg.Provider, cfg.BaseUrl, cfg.Version, req.GetOwnerId(), req.GetBotId(), req.CacheScope})
 		sum := sha256.Sum256(scope)
-		body["prompt_cache_key"] = hex.EncodeToString(sum[:])
+		extra["prompt_cache_key"] = hex.EncodeToString(sum[:])
 	}
-	return body, nil
+	return messages, extra, nil
 }
 
 type providerUsage struct {
@@ -207,89 +193,43 @@ func (e *RequestError) Error() string { return e.Err.Error() }
 // StreamChat reports provider deltas verbatim, including final usage-only chunks.
 // A clean socket EOF without [DONE] is not a successful completion.
 func StreamChat(ctx context.Context, req *pb.ChatReq, cfg *pb.ModelExecutionConfig, apiKey string, send func(*pb.ChatStreamChunk) error) error {
-	body, err := BuildChatBody(req, cfg, apiKey)
+	messages, extra, err := buildChatInput(req, cfg, apiKey)
 	if err != nil {
 		return &RequestError{Err: err}
 	}
-	start := time.Now()
-	response, err := doRequestStream(ctx, cfg.BaseUrl+"/chat/completions", apiKey, body)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	bridge := &chatWireBridge{ctx: ctx, provider: cfg.Provider, send: send, start: time.Now(), finished: map[int32]bool{}}
+	component, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
+		APIKey: apiKey, Model: cfg.ModelName, BaseURL: cfg.BaseUrl,
+		HTTPClient: &http.Client{Transport: bridge, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("provider component initialization failed")
 	}
-	defer response.Close()
-	stopClose := context.AfterFunc(ctx, func() { _ = response.Close() })
-	defer stopClose()
-	scanner := bufio.NewScanner(response)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	var firstToken *int64
-	finished := map[int32]bool{}
-	for scanner.Scan() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		line := strings.TrimSpace(scanner.Text())
-		data, ok := strings.CutPrefix(line, "data:")
-		if !ok {
-			continue
-		}
-		data = strings.TrimSpace(data)
-		if data == "[DONE]" {
-			if len(finished) == 0 {
-				return fmt.Errorf("provider returned no choices")
-			}
-			for _, done := range finished {
-				if !done {
-					return fmt.Errorf("provider completion has no finish reason")
-				}
-			}
-			return nil
-		}
-		if data == "" {
-			continue
-		}
-		var wire struct {
-			ID      string `json:"id"`
-			Model   string `json:"model"`
-			Choices []struct {
-				Index        int32           `json:"index"`
-				Delta        providerMessage `json:"delta"`
-				FinishReason string          `json:"finish_reason"`
-			} `json:"choices"`
-			Usage *providerUsage  `json:"usage"`
-			Error json.RawMessage `json:"error"`
-		}
-		if err := json.Unmarshal([]byte(data), &wire); err != nil {
-			return fmt.Errorf("invalid provider stream payload")
-		}
-		if len(wire.Error) > 0 && string(wire.Error) != "null" {
-			return fmt.Errorf("provider stream rejected")
-		}
-		out := &pb.ChatStreamChunk{Id: wire.ID, Model: wire.Model, Usage: wire.Usage.proto(cfg.Provider)}
-		for _, c := range wire.Choices {
-			if _, exists := finished[c.Index]; !exists {
-				finished[c.Index] = false
-			}
-			if c.FinishReason != "" {
-				finished[c.Index] = true
-			}
-			if firstToken == nil && (c.Delta.Content != "" || c.Delta.ReasoningContent != "" || len(c.Delta.ToolCalls) > 0) {
-				elapsed := time.Since(start).Milliseconds()
-				firstToken = &elapsed
-			}
-			out.Choices = append(out.Choices, &pb.ChatStreamChunk_Choice{Index: c.Index, Delta: c.Delta.proto(), FinishReason: c.FinishReason})
-		}
-		out.FirstTokenLatencyMs = firstToken
-		if err := send(out); err != nil {
-			return err
+	opts := []model.Option{openai.WithExtraFields(extra)}
+	if req.TopP > 0 {
+		opts = append(opts, model.WithTopP(float32(req.TopP)))
+	}
+	if req.MaxTokens > 0 {
+		opts = append(opts, model.WithMaxTokens(int(req.MaxTokens)))
+	}
+	if len(req.Stop) > 0 {
+		opts = append(opts, model.WithStop(req.Stop))
+	}
+	reader, err := component.Stream(ctx, messages, opts...)
+	if err != nil {
+		return bridge.result(err)
+	}
+	defer reader.Close()
+	// Eino owns the HTTP request, SSE decoding and stream lifecycle. The bridge
+	// observes the exact frames before Eino coalesces empty deltas or drops choices.
+	for {
+		_, err = reader.Recv()
+		if err != nil {
+			return bridge.result(err)
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("provider stream read failed: %w", err)
-	}
-	return fmt.Errorf("provider stream ended before completion")
 }
 
 // CompleteChat uses the same wire request as streaming so TTFT is measured from

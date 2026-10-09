@@ -234,6 +234,7 @@ python3 tests/e2e/run.py --scenario all --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario user-identity --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario messaging --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario attachments --artifacts /tmp/aim-e2e-artifacts
+python3 tests/e2e/run.py --scenario llm-chat --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --cross-instance --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p3 --artifacts /tmp/aim-e2e-artifacts
 python3 tests/e2e/run.py --scenario stage-p5 --artifacts /tmp/aim-e2e-artifacts
@@ -244,7 +245,7 @@ python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifact
 
 每次使用独立 Compose project、网络与数据卷，默认无宿主端口映射。所选场景全部依赖就绪后才施加流量；realtime 的两个实例分别可寻址，但共用一个 Kafka 消费组。成功或失败后均清理该 project 的容器、数据卷与本次构建的镜像，不清理共享 BuildKit 缓存；`--artifacts` 保留诊断日志。显式 `--keep-environment DIR` 保留本轮私有环境，`environment.json` 记录清理命令；配合 `--browser-access` 或 `--database-access` 只发布随机回环端口。浏览器验收须将保留环境的 realtime 心跳/登记 TTL 恢复生产配置（30/90 秒），不能让 Web 的 25 秒心跳运行于故障场景的 1/6 秒配置。
 
-默认 `all` 启动全部 10 个工作负载与 realtime B，检查 relationships、user-identity、conversations、conversation-unread、broadcasts、user-sync、attachments、同实例 A/B、Bot 同/跨实例、knowledge-ingest 和跨实例双向投递；`--scenario` 可选择单个场景。同实例与跨实例走同一条 Redis 定向投递路径。隔离 runner 限定 Java heap 与 Milvus 线程并行度，保留真实后端、四个大文档、既有 online/ingest 配额与检索截止时间；不要与宿主全仓编译同时运行重负载存储验收。
+默认 `all` 启动全部 10 个工作负载与 realtime B，检查 relationships、user-identity、conversations、conversation-unread、broadcasts、user-sync、attachments、同实例 A/B、Bot 同/跨实例、knowledge-ingest、llm-chat 和跨实例双向投递；`--scenario` 可选择单个场景。同实例与跨实例走同一条 Redis 定向投递路径。隔离 runner 限定 Java heap 与 Milvus 线程并行度，保留真实后端、四个大文档、既有 online/ingest 配额与检索截止时间；不要与宿主全仓编译同时运行重负载存储验收。
 
 `user-identity` 只启动 user、gateway、双 realtime 及其真实中间件，复用 relationships 并验证注册/登录/刷新/资料/设置、跨账号拒绝、通知持久化/跨实例 WS/离线列表、设备稳定重连和撤销后旧 token 不复活。单场景结果不能代替 `all` 的完整 domain 验收。
 
@@ -263,6 +264,12 @@ python3 tests/e2e/run.py --scenario broadcasts --artifacts /tmp/aim-e2e-artifact
 `stage-p5` 在 P4 场景上追加 Bot 配置/令牌、真实网络 MCP 工具发现与调用、Kafka 回复及 WS/REST 精确内容核对，以及四个大文档并发入库期间的检索和失败隔离。OpenAI/MCP 外部协议由 `e2e-provider` 提供；AIM 内部 RPC、Kafka、PostgreSQL、Milvus 不替换。在线查询每次硬截止 5 秒；入库总截止 10 分钟，容纳默认 20 RPM 预算，不提高配额或缩小文档负载。
 
 `bot-runtime` / `bot-runtime-cross-instance` 在不启动 Neo4j、不创建长期记忆集合的隔离环境中运行真实 knowledge online/ingest、文件与 Milvus：覆盖 Bot/会话绑定、模型所有权、真实网络 MCP 调用、目标提及启动 Run，以及知识来源在 Run、WS 和持久消息正文中的一致性。旧群摘要、Todo、回复候选、专用翻译和直接 chat/stream 接口不再提供。外部 provider fixture 只决定模型/MCP 响应，不替换 AIM 内部服务与存储。
+
+`llm-chat` 经公开模型 CRUD 和现有 LLM gRPC 调用真实网关，受控 HTTP provider 验证同步/流式请求、工具流及结果配对、DeepSeek 私有 reasoning 回放、真实首 token、usage 缺失/零值/缓存读写、截断流/错误/取消、端点快照拒绝与当前密钥轮换。它不验证远端缓存实际命中；Bot Run、计费、知识库与跨实例链路仍由 `all` 的既有场景覆盖。
+
+Chat/ChatStream 锁定 Eino 核心 `v0.9.21`、OpenAI component `v0.1.13`、ACL `v0.1.17`，通过兼容接口连接 OpenAI、DeepSeek、Qwen 和配置的端点。同步调用也消费组件的 Stream，以实际内容/reasoning/tool delta 计算首 token；窄 wire bridge 保留 SDK 无法表达的全部 choices、usage presence、usage-only 帧及 `[DONE]` 证据。模型授权、HMAC 快照、当前密钥、计费与额度仍由网关负责；没有旧 Chat HTTP/SSE fallback。Cohere embedding、远程 rerank 和 VLM 在各自后续票处理，不由本次 Chat 迁移改写。
+
+本地 Go 验证使用与容器一致的工具链：`GOTOOLCHAIN=go1.26.8 go test ./...`；网关流生命周期回归为 `GOTOOLCHAIN=go1.26.8 go test -race ./app/llm-gateway/internal/handler ./app/llm-gateway/internal/llm`。
 
 `stage-p6` 覆盖 P3/P4 主链路、跨实例 Bot 最终回复与版本化 Run 状态、发送方其它设备回显、非成员隔离、撤回/编辑/删除与未读同步。验收通过 `presence.query` 查询设备所在实例，并真实执行强制终止、TTL 自然失效、TTL 内投递失败负反馈、重启恢复，以及 readiness 摘流量后的多连接平滑排空；遗漏消息按用户同步位点补拉，Run 过程通过权威查询恢复。
 

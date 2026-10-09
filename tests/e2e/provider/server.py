@@ -23,6 +23,142 @@ EXECUTORS = {}
 INTERACTION_GATES = {}
 OBSERVATIONS = {"mcp_lists": 0, "tool_texts": [], "chat_models": [], "embed_models": [], "active_ingest": 0,
                 "tool_call_ids": [], "chat_requests": [], "executor_requests": [], "executor_activities": []}
+LLM_CHAT_OBSERVATIONS = []
+
+
+def llm_chat(body, handler, path):
+    """Controlled HTTP provider only; AIM registry and RPC remain real."""
+    model = body.get("model", "")
+    if not model.startswith("e2e-llm-"):
+        return False
+    messages = body.get("messages", [])
+    token = next((item.get("content", "") for item in reversed(messages)
+                  if item.get("role") == "user"), "")
+    row = {"model": model, "token": token, "path": path, "body": body,
+           "auth_digest": hashlib.sha256(handler.headers.get("Authorization", "").encode()).hexdigest(),
+           "state": "received", "usage_reported": False, "finish_sent": False, "done_sent": False}
+    with LOCK:
+        LLM_CHAT_OBSERVATIONS.append(row)
+    def state(value):
+        with LOCK:
+            row["state"] = value
+    if body.get("stream") is not True or body.get("temperature") != 0:
+        state("invalid_request")
+        handler._json(400, {"error": {"message": "stream=true and explicit zero temperature required"}})
+        return True
+    if token.startswith("LLM_REPLAY"):
+        assistant = next((item for item in messages if item.get("tool_calls")), {})
+        calls = assistant.get("tool_calls", [])
+        results = [item for item in messages if item.get("role") == "tool"]
+        expected = [("call-a", "fixture_echo_a", '{"text":"a"}'),
+                    ("call-b", "fixture_echo_b", '{"text":"b"}')]
+        actual = [(item.get("id"), item.get("function", {}).get("name"),
+                   item.get("function", {}).get("arguments")) for item in calls]
+        if (actual != expected or [(item.get("tool_call_id"), item.get("content")) for item in results]
+                != [("call-a", "fixture-tool:a"), ("call-b", "fixture-tool:b")]
+                or [item.get("role") for item in messages] != ["system", "user", "assistant", "tool", "tool"]
+                or token.endswith("DEEPSEEK") and assistant.get("reasoning_content") != "private-tool-reasoning"):
+            state("invalid_replay")
+            handler._json(400, {"error": {"message": "tool order/result/reasoning mismatch"}})
+            return True
+    tools = body.get("tools", [])
+    if token.startswith(("LLM_TOOLS", "LLM_REPLAY")):
+        expected_schema = {"type": "object", "properties": {"text": {"type": "string", "minLength": 1}},
+                           "required": ["text"], "additionalProperties": False,
+                           "anyOf": [{"properties": {"text": {"enum": ["a", "b"]}}}]}
+        if ([item.get("function", {}).get("name") for item in tools] != ["fixture_echo_a", "fixture_echo_b"]
+                or any(item.get("function", {}).get("parameters") != expected_schema for item in tools)):
+            state("invalid_schema")
+            handler._json(400, {"error": {"message": "ordered tools and exact JSON Schema required"}})
+            return True
+    secret_error = "LLM_PROVIDER_PRIVATE_BODY|" + token + "|" + handler.headers.get("Authorization", "")
+    if token == "LLM_HTTP_ERROR":
+        state("http_error")
+        handler._json(503, {"error": {"message": secret_error}})
+        return True
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/event-stream")
+    handler.send_header("Connection", "close")
+    handler.end_headers()
+    handler.close_connection = True
+    def event(delta=None, reason=None, usage=None, choices=True):
+        chunk = {"id": "e2e-chat", "object": "chat.completion.chunk", "created": 1, "model": model,
+                 "choices": [{"index": 0, "delta": delta or {}, "finish_reason": reason}] if choices else []}
+        if reason is not None:
+            with LOCK:
+                row["finish_sent"] = True
+        if usage is not None:
+            chunk["usage"] = usage
+            with LOCK:
+                row["usage_reported"] = True
+        handler.wfile.write(("data: " + json.dumps(chunk) + "\n\n").encode())
+        handler.wfile.flush()
+    try:
+        event({"role": "assistant"})
+        time.sleep(.18)  # A role-only delta must not start TTFT.
+        if token.startswith("LLM_TOOLS"):
+            # Deliberately arrive in reverse index order, and fragment arguments.
+            event({"reasoning_content": "private-tool-reasoning"} if token.endswith("DEEPSEEK") else
+                  {"tool_calls": [{"index": 1, "id": "call-b", "type": "function",
+                                   "function": {"name": "fixture_echo_b", "arguments": '{"text":'}}]})
+            if token.endswith("DEEPSEEK"):
+                event({"tool_calls": [{"index": 1, "id": "call-b", "type": "function",
+                                       "function": {"name": "fixture_echo_b", "arguments": '{"text":'}}]})
+            event({"tool_calls": [{"index": 0, "id": "call-a", "type": "function",
+                                   "function": {"name": "fixture_echo_a", "arguments": '{"text":'}}]})
+            event({"tool_calls": [{"index": 1, "function": {"arguments": '"b"}'}},
+                                   {"index": 0, "function": {"arguments": '"a"}'}}]})
+            reason = "tool_calls"
+        elif token == "LLM_REASONING":
+            if not any(item.get("role") == "assistant" and item.get("reasoning_content") == "private-chain-of-thought" for item in messages):
+                raise ValueError("missing private reasoning replay")
+            event({"reasoning_content": "fixture-reasoning:"})
+            event({"reasoning_content": "private-chain-of-thought"})
+            event({"content": "fixture-chat:" + token})
+            reason = "stop"
+        else:
+            event({"content": "fixture-chat:"})
+            event({"content": token})
+            reason = "stop"
+        state("first_delta")
+        if token == "LLM_CANCEL":
+            # The socket write observes actual gateway HTTP cancellation, not just
+            # a client-side gRPC cancellation status. No finish or DONE is sent.
+            for _ in range(300):
+                time.sleep(.03)
+                handler.wfile.write(b": waiting-for-cancellation\n\n")
+                handler.wfile.flush()
+            state("cancel_not_observed")
+            return True
+        time.sleep(.3)  # TTFT must differ from full completion latency.
+        if token == "LLM_STREAM_ERROR":
+            handler.wfile.write(("data: " + json.dumps({"error": {"message": secret_error}}) + "\n\n").encode())
+            handler.wfile.flush()
+            state("stream_error")
+            return True
+        event(reason=None if token == "LLM_NO_FINISH" else reason)
+        if token != "LLM_NO_USAGE":
+            usage = {"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12}
+            if token == "LLM_ZERO":
+                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            elif token == "LLM_CACHE":
+                usage["prompt_tokens_details"] = {"cached_tokens": 2, "cache_write_tokens": 3}
+            elif token == "LLM_CACHE_ZERO":
+                usage["prompt_tokens_details"] = {"cached_tokens": 0, "cache_write_tokens": 0}
+            elif token == "LLM_DEEPSEEK_CACHE":
+                usage.update({"prompt_cache_hit_tokens": 2, "prompt_cache_miss_tokens": 5})
+            event(usage=usage, choices=False)
+        if token != "LLM_NO_DONE":
+            handler.wfile.write(b"data: [DONE]\n\n")
+            handler.wfile.flush()
+            with LOCK:
+                row["done_sent"] = True
+        state("truncated" if token in ("LLM_NO_DONE", "LLM_NO_FINISH") else "completed")
+    except (BrokenPipeError, ConnectionResetError):
+        state("cancelled")
+    except ValueError:
+        state("invalid_replay")
+    return True
 TOOL = {"name": "fixture_echo", "description": "Echo text over the MCP network", "inputSchema": {
     "type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]
 }, "annotations": {"readOnlyHint": True, "destructiveHint": False}}
@@ -257,6 +393,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path == "/llm-chat/observe":
+            with LOCK:
+                rows = [row for row in LLM_CHAT_OBSERVATIONS if row["model"] == body.get("model")]
+                snapshot = json.loads(json.dumps(rows))
+            self._json(200, {"requests": snapshot})
+            return
+        if path in ("/v1/chat/completions", "/v1-changed/chat/completions") and llm_chat(body, self, path):
+            return
         if path in ("/run-control/arm", "/run-control/observe", "/run-control/release", "/run-control/finish", "/run-control/confirm", "/run-control/reject"):
             self._json(200, run_control.command(path, body))
             return
