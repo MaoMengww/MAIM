@@ -162,15 +162,16 @@ func (s *Service) reconcile(ctx context.Context, r *model.Run) (*model.Run, erro
 func requestRunStop(tx *gorm.DB, r *model.Run, reason string) error {
 	if r.ExecutorStatus == "completed" {
 		r.StreamStatus, r.StopReason = "closed", "completed_before_stop"
+		var receipt struct{ MessageID string }
+		if err := tx.Table("messaging.bot_output_submissions").Select("message_id").Where("bot_id = ? AND binding_id = ? AND output_key = ?", r.BotID, r.BindingID, r.ID+":final").Take(&receipt).Error; err == nil {
+			r.Status, r.Stage, r.OutputStatus, r.MessageID = "succeeded", "committed", "committed", &receipt.MessageID
+			return nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
 		if r.AccessRevoked {
 			r.Status, r.Stage, r.Error, r.OutputStatus = "failed", "output_revoked", reason, "failed"
 			return nil
-		}
-		var receipt struct{ MessageID string }
-		if err := tx.Table("messaging.bot_output_submissions").Where("bot_id = ? AND binding_id = ? AND output_key = ?", r.BotID, r.BindingID, r.ID+":final").Take(&receipt).Error; err == nil {
-			r.Status, r.Stage, r.OutputStatus, r.MessageID = "succeeded", "committed", "committed", &receipt.MessageID
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
 		}
 		return nil
 	}

@@ -954,14 +954,17 @@ func (s *Service) authorizeMaterials(ctx context.Context, r *model.Run, visited 
 			input.RequesterID = r.ControllerID
 		}
 		if material.MessageID != "" {
-			var unavailable int64
-			if err := s.svc.DB.WithContext(ctx).Table("messaging.personal_message_deletions").Where("conv_id = ? AND user_id = ? AND message_id = ?", r.ConvID, requester, material.MessageID).Count(&unavailable).Error; err != nil {
-				return err
-			}
-			if unavailable != 0 {
-				return status.Error(codes.PermissionDenied, "original source selection is no longer visible")
-			}
-			if _, err := s.source(ctx, input, material.MessageID, material.Shared || material.Kind != "request_source" || material.SourceExplicit); err != nil {
+			if material.Shared {
+				// A member's deletion overlay hides their view, not an already
+				// accepted group work snapshot. Only shared-source revocation stops it.
+				var available int64
+				if err := s.svc.DB.WithContext(ctx).Table("messaging.messages").Where("id = ? AND conv_id = ? AND status <> 2", material.MessageID, r.ConvID).Count(&available).Error; err != nil {
+					return err
+				}
+				if available != 1 {
+					return status.Error(codes.PermissionDenied, "shared source is no longer available")
+				}
+			} else if _, err := s.source(ctx, input, material.MessageID, material.Kind != "request_source" || material.SourceExplicit); err != nil {
 				return err
 			}
 		}
@@ -998,6 +1001,16 @@ func (s *Service) authorizeMaterials(ctx context.Context, r *model.Run, visited 
 			}
 			if parent.BotID != r.BotID || parent.ConvID != r.ConvID || parent.BindingID != r.BindingID || parent.InteractionID != r.InteractionID {
 				return status.Error(codes.PermissionDenied, "parent material is outside this interaction")
+			}
+			if repo.TerminalRun(parent) && sharedMaterials(parent) {
+				// A completed shared result is material, not live work owned by
+				// its former controller. Check it under the child's current member
+				// while retaining every original personal/resource grant and epoch.
+				member, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, r.ControllerID)
+				if err != nil {
+					return err
+				}
+				parent.ControllerID, parent.ControllerMemberID = r.ControllerID, &member
 			}
 			if err := s.authorizeRun(ctx, parent, false, visited); err != nil {
 				return err

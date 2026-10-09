@@ -112,7 +112,7 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 				BotAuthorizationVersion     int64
 				BindingAuthorizationVersion int64
 			}
-			if err := tx.Table("bot.runs").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *in.RunId, in.BotId, in.ConversationId, in.BindingId).Take(&run).Error; err != nil {
+			if err := tx.Table("bot.runs").Select("controller_id, controller_member_id, status, access_revoked, bot_authorization_version, binding_authorization_version").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *in.RunId, in.BotId, in.ConversationId, in.BindingId).Take(&run).Error; err != nil {
 				return errors.New(errors.CodeForbidden, "Run output authorization unavailable")
 			}
 			if run.AccessRevoked || run.Status == "stopping" || run.Status == "waiting_authorization" || run.Status == "stopped" || run.ControllerID != controller {
