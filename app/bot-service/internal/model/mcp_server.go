@@ -3,6 +3,7 @@ package model
 import (
 	"database/sql/driver"
 	"encoding/json"
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"time"
 )
 
@@ -33,9 +34,10 @@ type MCPAuthConfig struct {
 }
 
 type MCPAdvancedConfig struct {
-	Timeout    int `json:"timeout"`
-	RetryCount int `json:"retry_count"`
-	RetryDelay int `json:"retry_delay"`
+	Timeout      int                                 `json:"timeout"`
+	RetryCount   int                                 `json:"retry_count"`
+	RetryDelay   int                                 `json:"retry_delay"`
+	ToolPolicies map[string]resourcegrant.ToolPolicy `json:"tool_policies,omitempty"`
 }
 
 // Value/Scan for MCPAuthConfig

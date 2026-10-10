@@ -3,6 +3,8 @@ package database
 import (
 	"context"
 	"fmt"
+	stdlog "log"
+	"os"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -55,7 +57,13 @@ func NewDB(cfg config.DatabaseConfig, log logx.Logger) (*DB, error) {
 		return nil, fmt.Errorf("unsupported database driver: %s", cfg.Driver)
 	}
 
-	gormLog := logger.Default.LogMode(logger.Warn)
+	// Slow/error queries remain diagnosable without copying private Run inputs,
+	// tool arguments or credentials into the diagnostic stream.
+	gormLog := logger.New(stdlog.New(os.Stdout, "\r\n", stdlog.LstdFlags), logger.Config{
+		SlowThreshold:        200 * time.Millisecond,
+		LogLevel:             logger.Warn,
+		ParameterizedQueries: true,
+	})
 	db, err := gorm.Open(dialector, &gorm.Config{Logger: gormLog})
 	if err != nil {
 		return nil, fmt.Errorf("database open failed: %w", err)

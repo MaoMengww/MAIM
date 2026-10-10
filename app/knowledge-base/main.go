@@ -104,6 +104,7 @@ func main() {
 	}
 
 	h := &handler.KnowledgeBaseHandler{
+		DB:     resources.DB.DB,
 		KBRepo: resources.KBRepo, DocRepo: resources.DocRepo, FileStore: resources.FileStore,
 		VectorStore: vecStore, Producer: resources.Producer,
 		RetrievePipe: &pipeline.RetrievePipeline{
@@ -112,6 +113,10 @@ func main() {
 		},
 		Logger: logger,
 	}
+	c.Middlewares.StatConf.IgnoreContentMethods = append(c.Middlewares.StatConf.IgnoreContentMethods,
+		pb.KnowledgeBase_ResourceAuthorization_FullMethodName,
+		pb.KnowledgeBase_Retrieve_FullMethodName,
+	)
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
 		pb.RegisterKnowledgeBaseServer(grpcServer, h)
 		if c.Mode == service.DevMode || c.Mode == service.TestMode {

@@ -33,6 +33,7 @@ async function updatePending(userId: string, update: (items: PendingRun[]) => Pe
 }
 
 export async function createPendingRun(userId: string, botId: string, data: Omit<StartRunReq, 'submission_key'>): Promise<PendingRun> {
+  if (data.visibility === 'personal') throw new Error('个人工作不得写入浏览器持久缓存');
   entityId(userId, 'requester');
   entityId(botId, 'bot_id');
   entityId(data.conv_id, 'conv_id');

@@ -380,51 +380,33 @@ Embedding 的 online/ingest RPM 与并发预算通过 Redis 跨副本共享且�
 
 ### AI Bot 执行引擎
 
-bot-service 的 runtime 角色是 AI 能力的核心引擎，基于 **CloudWeGo Eino** 框架构建 ReAct Agent，实现 LLM 推理、工具调用、知识检索、记忆管理的完整闭环；控制面与其共享领域、数据 schema 和 BotService 协议。
+bot-service 的 runtime 角色使用锁定版本的 **CloudWeGo Eino `ChatModelAgent + Runner`** 编排模型与工具。Run、接受输入、当前授权、执行代次、轨迹、预算和输出 receipt 仍由 AIM 持有；模型经 llm-gateway，框架 checkpoint 不授予资源许可。
 
 #### 整体处理流程
 
 ```
-Kafka message.created 事件
-  → 去重(Redis SETNX, 2小时TTL)
-  → 查找 Bot + ConvBot 配置
-  → 判断是否应响应(shouldRespond)
-  → 构建 MCP 工具列表
-  → 构建 Context（BuildContextNode）
-  → 创建 ReAct Agent
-  → 流式/非流式推理
-  → 发送回复 + 触发记忆提取
+公开请求 / 目标 mention
+  → 校验当前 Bot、会话绑定、请求者及明确来源
+  → 持久接受输入与 Run / outbox，重试按原提交键去重
+  → 以资源属主许可读取文件与知识材料
+  → Eino Runner 经网关推理，在统一工具边界检查当前许可
+  → 外部写操作等待具体行动批准或匹配受限自动许可
+  → 生成结果，重新授权后提交群消息或保留个人可见结果
 ```
 
-#### ReAct Agent 架构
+#### 唯一模型与工具执行边界
 
-基于 Eino 的 `react.Agent` 实现 ReAct (Reasoning + Acting) 推理循环：
+`ChatModelAgent` 负责模型—工具调度；桥接器从 AIM 的持久轨迹组装完整请求。已完成工具往返不重放，未结束的外部写操作不能因恢复而再次调用。批准等待使用 `compose.Interrupt`，恢复使用同一 Runner；恢复数据、普通补充和框架 checkpoint 都不能绕过当前具体行动权限。
 
-```go
-agent, err := react.NewAgent(ctx, &react.AgentConfig{
-    ToolCallingModel: einoChatModel,    // LLM 模型（通过 llm-gateway）
-    ToolsConfig: compose.ToolsNodeConfig{
-        Tools:               mcpTools,  // MCP 工具列表
-        ToolCallMiddlewares: []compose.ToolMiddleware{toolMiddleware},
-    },
-    MessageModifier: func(c context.Context, msgs []*schema.Message) []*schema.Message {
-        // 每次推理前注入：系统提示词 + 知识上下文 + 历史消息
-    },
-    MaxStep: bot.MaxStep,  // 限制推理循环轮数（默认5）
-})
-```
-
-**MessageModifier** 在每次推理前注入三类上下文：
-
-1. **系统提示词**：模板渲染 `{botname}`, `{username}`, `{user_language}`, `{message}` 等变量
-2. **知识库内容**：通过 `KnowledgeResolver` 检索绑定的知识库（RAG 模式）
-3. **显式历史来源**：默认不读取会话最近消息；只有携带当前绑定的 `history_grant_id` 才通过 Bot 自身限定资格读取获准 seq 范围，历史作为来源材料而非本 Bot 的旧 assistant 轨迹。
+1. **固定执行配置**：冻结模型路由、系统指令、工具定义和累计预算，不复制供应商或工具凭据。
+2. **资源材料**：仅使用此次选定的有效资源许可；读取与向会话披露分别授权。个人材料进入个人 Run，不混入群共享请求、轨迹投影或结果。
+3. **显式历史来源**：Bot 使用自己的绑定与历史许可，同时尊重请求者的个人删除覆盖；引用来源不变成本 Bot 的旧 assistant 发言。
 
 #### 知识检索
 
-`kbClient.Retrieve()` 向量检索，返回 top-5 文档片段，用于精确文档片段检索。
+知识属主 RPC 使用明确的 Bot、绑定、请求者、可见范围与资源许可，不借用户调用身份绕过知识权限。检索在 embedding、rerank 与返回来源边界复核当前许可；知识绑定移除后重新加入也不复活旧许可。
 
-检索结果生成 `KnowledgeSource`（包含 type/kb_name/kb_id/doc_id/chunk_id/title/content），最终注入到 LLM 上下文中。KB、文档和 chunk UUID 原样进入 sources 流与持久消息 raw payload；页面按 KB UUID 分组，按文档/chunk UUID 跳转，失效切片不会按同名内容替代。检索权限使用触发者身份，不冒用 Bot 所有者。
+KB、文档和 chunk UUID 保留在获准 sources 与共享消息 metadata 中。私人正文与派生结果仅对个人请求者可见；撤权阻止后续模型请求和输出，不声称已经发给外部系统的材料被收回。
 
 #### 已退役能力与数据保留
 
@@ -445,7 +427,7 @@ MCP (Model Context Protocol) 工具集成流程：
 1. 从 bot 域仓储读取 Bot 绑定的 MCP Server 配置，不调用控制面 RPC
 2. 创建 `mcp-go` 客户端（支持 SSE 和 StreamableHTTP 两种传输）
 3. 发送 MCP `Initialize` 请求（协议版本协商）
-4. 通过 `einoMCP.GetTools()` 获取所有工具定义
+4. 经 `ListTools` 获取定义，与资源管理者的可信风险及分享范围配置合并；远端 annotations 和模型自判不构成许可
 
 内置工具：`web_search`
 
@@ -621,11 +603,11 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 
 #### 内置 Bot 的持久执行
 
-- `POST /api/v1/bots/:id/runs`：提交 `{conv_id,submission_key,message,reply_to_msg_id?,history_grant_id?,message_ids?,file_ids?,parent_run_id?}`。默认独立交互；`parent_run_id` 明确承接当前绑定中可见终态 Run，在同交互创建有独立输入快照和模型轨迹的新 Run。普通 Bot 输出、无关 mention 和群活动不启动内置 Run。
-- `GET /api/v1/runs/:id` 与 `GET /api/v1/conversations/:id/runs?limit=50`：按当前会话与来源可见性查询。默认每次请求新建独立交互与 Run，只包含本次输入、明确引用及获准知识，不读取群最近消息。
-- `bot.run.updated` WS 事件携带 `{type,conv_id,bot_id,run}`；按 `run.version` 合并，断线后重新查询。卡片区分 `accepted/running/waiting_input/stopping/stopped/succeeded/failed`、交互 `active/closed` 及输出状态，不把临时 token 或生成完成当作消息已发送。内置缺信息通过 `ask_for_input` 保留工具配对后进入等待，并公开 `waiting_reason`。
+- `POST /api/v1/bots/:id/runs`：提交 `{conv_id,submission_key,message,visibility?,resource_grant_ids?,reply_to_msg_id?,history_grant_id?,message_ids?,file_ids?,parent_run_id?}`。`visibility` 默认 `conversation`，个人工作显式为 `personal`。默认独立交互；`parent_run_id` 仅承接相同绑定和可见范围的终态工作，不转移个人许可。
+- `GET /api/v1/runs/:id` 按当前身份、来源与许可查询；`GET /api/v1/conversations/:id/runs?limit=50` 只列共享 Run。个人工作仅请求者可通过 ID 查询，不进入群消息、共享 WS、共享列表或浏览器持久重试缓存。
+- `bot.run.updated` WS 事件携带 `{type,conv_id,bot_id,run}`；按 `run.version` 合并，断线后重新查询。卡片区分 `accepted/running/waiting_input/waiting_authorization/stopping/stopped/succeeded/failed` 与输出状态。缺信息通过 `ask_for_input` 等待补充；具体行动等待授权与负责人离群等待接手是不同阶段。
 - `004_single_run.sql` 持有交互、接受输入、追加轨迹、不可变模型调用快照和 Bot outbox；`005_bot_output_submission.sql` 在消息事务内保存最终输出 receipt。重复输入返回同一 Run，重复输出返回同一消息，同键不同内容冲突；重试仍校验当前绑定和权限。
-- 开始时固定模型路由、提示词、排序后的工具/schema 和预算；当前密钥只在 LLM domain 使用。调用工具和提交输出重新授权，外部写操作明确拒绝。模型端点/供应商变更使旧路由快照失效，不把新端点密钥发给旧端点。
+- 开始时固定模型路由、提示词、工具/schema 和预算；密钥仅在所属 domain 瞬时取得。读取、模型派发、工具与输出检查当前许可；外部写操作要求具体批准或匹配有效受限自动许可。端点变更使旧路由快照失效，不向旧端点发送新密钥。
 - 固定指令、真实 assistant/tool 往返只追加；模型调用保留输入上界、轨迹版本、实际请求/输出和 nullable usage/首 token 延迟。支持的官方 OpenAI 端点使用原生 `prompt_cache_key`；不支持缓存照常执行，缺失缓存字段不推断命中，不自建 KV 状态。
 - `007_interaction_input_continuity.sql` 分离已接受 `input_version` 和实际入轨 `applied_input_version`，每条输入保存作者与固定材料表示。本次模型调用冻结输入上界；调用中的补充进入下一轮，旧材料不重新读取正文、不前插或重排。
 - 消息与历史范围检查当前绑定和补充者可见性；文件读取真实正文并验证群共享许可。当前支持不超过 1 MiB 的 UTF-8 文本、JSON/XML/YAML；未知二进制明确拒绝。过大历史范围要求缩小选择，不静默截断。
@@ -634,6 +616,19 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 交互验收：`python3 tests/e2e/run.py --scenario bot-interactions`，覆盖多人并发补充、调用中的新增输入、同 Bot 并行隔离、显式来源、承接与清空，以及内置和 WS/Webhook 执行器的共同输入语义。
 
 验收入口：`python3 tests/e2e/run.py --scenario bot-runs`，覆盖明确操作/目标提及、同键并发重试/冲突、真实网络工具、稳定前缀、模型失败、配置冻结/撤权、最终历史与 WS/断线恢复。外部 fixture 证明协议与输入，不代表真实远端 KV 命中。
+
+#### 资源、分享与具体行动授权
+
+- 用户 JWT：`POST /api/v1/bot-authorizations/resources`。`op=create` 提交 `{bot_id,conv_id,resource_type:file|knowledge,resource_id,scope:conversation|personal,can_read,can_share,expires_at}`；`expires_at` 为 Unix 秒，响应期限为 RFC3339。`list` 返回当前用户自己授予的许可；`revoke` 使用 `grant_id`。仅实际资源所有者可授予；许可绑定 Bot、会话绑定代次、成员资格、资源绑定及有效期。
+- 明确请求通过 `resource_grant_ids` 选定许可，文件还通过 `file_ids` 选定正文。群工作须同时可读、可分享；个人工作只需有效读取许可。不能分享的知识或文件不先进入群模型输入再遮盖输出。群内目标 mention 可使用该绑定已经获准分享的会话资源，不继承 Bot 所有者的私人资源。
+- MCP 管理者通过 `advanced_config.tool_policies` 配置工具的 `risk=read|draft|send|modify|delete|pay`、`target_parameter`、`can_share` 与精确 `conversation_ids`。用户 MCP 未配置风险时不执行；平台既有公开网络读取白名单和内置 `web_search` 保留可信读取语义。工具可调用不等于结果可分享到所有 Bot 会话。
+- 用户 JWT：`POST /api/v1/bot-authorizations/actions`。`list` 查询 `run_id` 的行动；`approve|deny|revoke` 关联具体 `action_id,generation,input_version,submission_key,expires_at`。实际工具资源所有者才能批准，会话管理员或请求者不自动代批。批准绑定目标、精确参数、当前负责人、成员代次和有效期；变参、接手、过期、撤权或代次变化不能沿用旧批准。
+- 个人工作默认不向工具所有者披露确认。请求者可对当前某一待批行动显式 `share_confirmation`，分享该行动的具体目标与参数给当时的工具所有者；这不是批准、整份工作读取权或未来行动许可。所有者使用 `{op:list,bot_id,conv_id}` 的窄确认收件箱处理获准条目，不获取私人 Run、来源或结果。秘密和参数内容可能含个人资料，界面在分享前明确提示披露对象与范围。
+- 个人面板通过同一 `ControlRun` 合同补充、停止与明确恢复；工作 ID、私人输入、结果和重试键只保留在组件内存，账号或会话切换后清除。
+- `op=grant` 提交 `{bot_id,conv_id,server_id,tool_name,arguments,expires_at}` 授予精确参数的自动许可，`revoke` 使用 `grant_id`。许可限定资源所有者作为请求者的原成员资格与绑定，不跨接手或委派扩张。不提供无限 Run 批准或通配范围；平台写工具没有既有管理员批准入口时拒绝自动放行。
+- 第三方 Bot bearer：`POST /api/v1/bots/:id/executor/resources` 的 `read` 使用 `{run_id,grant_id,generation,input_version,query?}`；`POST /api/v1/bots/:id/executor/actions` 的 `request|execute` 使用当前已认领 Run 与具体行动合同。实际 AIM 工具调用通过同一批准与认领边界，重复批准不重复外部行动；不明结局记录 `unknown` 并禁止盲目重放。
+- 私人参数对无批准权者脱敏，凭据不进入执行记录。RPC 不记录私人请求正文，SQL 诊断不展开参数。AIM 能撤销后续自有资源访问与输出，但无法追回已经复制给第三方的材料、已经签发的存储 URL，或全面拦截第三方自行持有外部凭据的动作。
+- `010_resource_authorization.sql`、`011_run_actions.sql` 与 `012_action_confirmation_sharing.sql` 为顺序、可重复执行迁移。公开验收：`python3 tests/e2e/run.py --scenario bot-authorizations --timeout 60s`；受控外部端验证实际模型输入和工具副作用，不在真实外部系统执行删除或付费。
 
 #### 第三方执行器的共同运行合同
 

@@ -148,6 +148,9 @@ export type RunSource = (Omit<KnowledgeSource, 'content'> | {
 };
 
 export interface BotRun {
+  visibility: 'conversation' | 'personal';
+  personal_user_id?: string;
+  actions: PublicAction[];
   id: string;
   interaction_id: string;
   parent_run_id?: string;
@@ -194,6 +197,26 @@ export interface BotRun {
   steps: { version: number; stage: string; created_at: number }[];
   created_at: number;
   updated_at: number;
+}
+
+export interface PublicAction {
+  id: string;
+  run_id: string;
+  server_id: string;
+  tool_name: string;
+  risk: string;
+  target: string;
+  parameters: Record<string, unknown>;
+  parameters_json: string;
+  status: string;
+  expires_at: number;
+  generation: number;
+  input_version: number;
+  can_approve: boolean;
+  confirmation_shared: boolean;
+  can_share_confirmation: boolean;
+  result?: string;
+  error?: string;
 }
 
 // ─── Message ───

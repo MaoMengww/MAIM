@@ -14,6 +14,7 @@ import (
 	"github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -102,21 +103,36 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		if controller == "" {
 			controller = in.GetRequesterId()
 		}
+		var runAccess *resourcegrant.Access
 		if in.RunId != nil {
 			// Runtime source RPCs finish before taking the conversation barrier.
 			var run struct {
 				ControllerID                string
 				ControllerMemberID          *string
+				RequesterID                 string
+				Visibility                  string
+				ResourceGrantIDs            []string `gorm:"serializer:json"`
 				Status                      string
 				AccessRevoked               bool
 				BotAuthorizationVersion     int64
 				BindingAuthorizationVersion int64
 			}
-			if err := tx.Table("bot.runs").Select("controller_id, controller_member_id, status, access_revoked, bot_authorization_version, binding_authorization_version").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *in.RunId, in.BotId, in.ConversationId, in.BindingId).Take(&run).Error; err != nil {
+			if err := tx.Table("bot.runs").Select("controller_id, controller_member_id, requester_id, visibility, resource_grant_ids, status, access_revoked, bot_authorization_version, binding_authorization_version").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *in.RunId, in.BotId, in.ConversationId, in.BindingId).Take(&run).Error; err != nil {
 				return errors.New(errors.CodeForbidden, "Run output authorization unavailable")
 			}
 			if run.AccessRevoked || run.Status == "stopping" || run.Status == "waiting_authorization" || run.Status == "stopped" || run.ControllerID != controller {
 				return errors.New(errors.CodeForbidden, "Run output permission revoked")
+			}
+			if run.Visibility != "conversation" {
+				return errors.New(errors.CodeForbidden, "personal work cannot be published to a conversation")
+			}
+			access := resourcegrant.Access{BotID: in.BotId, ConvID: in.ConversationId, BindingID: in.BindingId, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}
+			runAccess = &access
+			if err := resourcegrant.CheckIDs(tx, access, true, true); err != nil {
+				return errors.New(errors.CodeForbidden, "Run sharing authorization revoked")
+			}
+			if err := resourcegrant.CheckRunToolPermissions(tx, access, *in.RunId, true); err != nil {
+				return errors.New(errors.CodeForbidden, "Run tool sharing authorization revoked")
 			}
 			var member struct{ ID string }
 			if err := tx.Table("conv_members").Where("conv_id = ? AND user_id = ? AND member_type = 'user'", in.ConversationId, controller).Take(&member).Error; err != nil || run.ControllerMemberID == nil || *run.ControllerMemberID != member.ID {
@@ -142,17 +158,25 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 			}
 		}
 		if kind == message.MessageType_MESSAGE_TYPE_FILE {
-			// Only a public, confirmed object can be disclosed without a separate resource
-			// grant. Neither Bot ownership nor the requester authorizes private files.
+			// Public objects or current owner-authorized conversation disclosure only.
 			var file struct {
 				ID       string
 				Name     string
 				Size     int64
 				Ext      string
 				MimeType string
+				Access   int32
 			}
-			if err := tx.Table("file.files").Select("id, name, size, ext, mime_type").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND access = 3", in.File.FileId).Take(&file).Error; err != nil {
-				return errors.New(errors.CodeForbidden, "file is not publicly shareable")
+			if err := tx.Table("file.files").Select("id, name, size, ext, mime_type, access").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", in.File.FileId).Take(&file).Error; err != nil {
+				return errors.New(errors.CodeForbidden, "file output unavailable")
+			}
+			if file.Access != 3 {
+				if runAccess == nil {
+					return errors.New(errors.CodeForbidden, "file sharing requires resource authorization")
+				}
+				if _, err := resourcegrant.Check(tx, *runAccess, "file", file.ID, true, true); err != nil {
+					return errors.New(errors.CodeForbidden, "file sharing authorization revoked")
+				}
 			}
 			msg.Content = model.FileContent{FileID: file.ID, Name: file.Name, Size: file.Size, Ext: file.Ext, MimeType: file.MimeType}.ToJSONContent()
 		}

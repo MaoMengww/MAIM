@@ -25,6 +25,7 @@ service FileService {
   rpc BatchDeleteFiles(BatchDeleteFilesReq) returns (common.BaseResponse);
   // upload avatar (server-side processing: resize/crop)
   rpc UploadAvatar(UploadAvatarReq) returns (UploadAvatarResp);
+  rpc ResourceAuthorization(ResourceAuthorizationReq) returns (ResourceAuthorizationResp);
 }
 
 // ========== Enums ==========
@@ -167,3 +168,6 @@ message UploadAvatarResp {
   int32 width = 4;
   int32 height = 5;
 }
+
+message ResourceAuthorizationReq { bytes body = 1; }
+message ResourceAuthorizationResp { bytes body = 1; }

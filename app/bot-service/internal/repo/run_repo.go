@@ -9,6 +9,7 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -40,6 +41,9 @@ func RunMember(tx *gorm.DB, convID, userID string) (string, int32, error) {
 }
 
 func RunController(tx *gorm.DB, run *model.Run, user string) error {
+	if run.Visibility == "personal" && (run.PersonalUserID == nil || *run.PersonalUserID != user) {
+		return status.Error(codes.PermissionDenied, "personal Run control is restricted to requester")
+	}
 	member, role, err := RunMember(tx, run.ConvID, user)
 	if err != nil {
 		return err
@@ -78,6 +82,9 @@ func lockRunAuthority(tx *gorm.DB, run *model.Run, controller bool) error {
 			return status.Error(codes.PermissionDenied, "executor authorization or route changed")
 		}
 	}
+	if err := resourcegrant.CheckIDs(tx, resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}, run.Visibility != "personal", true); err != nil {
+		return err
+	}
 	if controller {
 		member, _, err := RunMember(tx, run.ConvID, run.ControllerID)
 		if err != nil || run.ControllerMemberID == nil || *run.ControllerMemberID != member {
@@ -105,10 +112,13 @@ func (r *RunRepo) FindInput(ctx context.Context, botID, bindingID, requesterID, 
 }
 func (r *RunRepo) List(ctx context.Context, convID string, limit int) ([]model.Run, error) {
 	runs := make([]model.Run, 0)
-	err := r.DB.WithContext(ctx).Where("conv_id = ?", convID).Order("created_at DESC,id DESC").Limit(limit).Find(&runs).Error
+	err := r.DB.WithContext(ctx).Where("conv_id = ? AND visibility = 'conversation'", convID).Order("created_at DESC,id DESC").Limit(limit).Find(&runs).Error
 	return runs, err
 }
 func queueRun(tx *gorm.DB, run *model.Run, kind string) error {
+	if kind == "updated" && run.Visibility == "personal" {
+		return nil
+	}
 	id, err := identity.New()
 	if err != nil {
 		return err
@@ -190,6 +200,9 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*mo
 			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND interaction_id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *run.ParentRunID, run.InteractionID, run.BotID, run.ConvID, run.BindingID).First(&parent).Error; err != nil {
 				return status.Error(codes.PermissionDenied, "parent Run is unavailable")
 			}
+			if parent.Visibility != run.Visibility || (parent.Visibility == "personal" && (parent.PersonalUserID == nil || run.PersonalUserID == nil || *parent.PersonalUserID != *run.PersonalUserID)) {
+				return status.Error(codes.PermissionDenied, "private interaction cannot transfer")
+			}
 			if !TerminalRun(&parent) {
 				return status.Error(codes.FailedPrecondition, "continuation requires a terminal parent Run")
 			}
@@ -207,7 +220,7 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*mo
 			return err
 		}
 		if run.ParentRunID == nil {
-			if err := tx.Create(&model.Interaction{ID: run.InteractionID, BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Status: "active"}).Error; err != nil {
+			if err := tx.Create(&model.Interaction{ID: run.InteractionID, BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Status: "active", Visibility: run.Visibility, PersonalUserID: run.PersonalUserID}).Error; err != nil {
 				return err
 			}
 		}
@@ -355,9 +368,11 @@ func (r *RunRepo) Claim(ctx context.Context, kinds []string) (*model.RunOutbox, 
 				return gorm.ErrRecordNotFound
 			}
 			if claimed.Status == "accepted" || claimed.Status == "running" {
-				claimed.ExecutionGeneration++
-				if err := tx.Model(&claimed).UpdateColumn("execution_generation", claimed.ExecutionGeneration).Error; err != nil {
-					return err
+				if claimed.Stage != "action_decided" || item.Attempts != 1 {
+					claimed.ExecutionGeneration++
+					if err := tx.Model(&claimed).UpdateColumn("execution_generation", claimed.ExecutionGeneration).Error; err != nil {
+						return err
+					}
 				}
 				item.ExecutionGeneration = claimed.ExecutionGeneration
 			}
@@ -443,6 +458,9 @@ func (r *RunRepo) reportOnce(ctx context.Context, id, key, digest string, author
 			}
 		}
 		if authority.UserID != "" {
+			if run.Visibility == "personal" && (run.PersonalUserID == nil || *run.PersonalUserID != authority.UserID) {
+				return status.Error(codes.PermissionDenied, "personal Run inaccessible")
+			}
 			if authority.Control {
 				if err := RunController(tx, &run, authority.UserID); err != nil {
 					return err
@@ -471,6 +489,9 @@ func (r *RunRepo) reportOnce(ctx context.Context, id, key, digest string, author
 		before := run.Stage
 		if err := apply(tx, &run); err != nil {
 			return err
+		}
+		if before == "pending_action" && run.Stage != "pending_action" && run.Status != "stopping" && run.Status != "stopped" {
+			return status.Error(codes.FailedPrecondition, "concrete action authorization required")
 		}
 		run.Version++
 		run.UpdatedAt = time.Now()

@@ -20,6 +20,7 @@ import (
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/logx"
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"gorm.io/gorm"
@@ -27,6 +28,7 @@ import (
 
 type KnowledgeBaseHandler struct {
 	pb.UnimplementedKnowledgeBaseServer
+	DB           *gorm.DB
 	KBRepo       domain.KBRepo
 	DocRepo      domain.DocumentRepo
 	FileStore    domain.FileStore
@@ -503,7 +505,7 @@ func (h *KnowledgeBaseHandler) RetryDocument(ctx context.Context, req *pb.RetryD
 }
 
 func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq) (*pb.RetrieveRsp, error) {
-	if getCallerID(ctx) == "" {
+	if _, bot := resourcegrant.Incoming(ctx); !bot && getCallerID(ctx) == "" {
 		return nil, errors.ErrUnauthorized
 	}
 	for _, targetID := range []*string{req.BotId, req.ConvId} {
@@ -538,6 +540,7 @@ func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq
 		}
 	}
 	var firstKB *domain.KnowledgeBase
+ names:=make(map[string]string,len(kbIDs))
 	for _, kbID := range kbIDs {
 		kb, err := h.loadKnowledgeBase(ctx, kbID, false)
 		if err != nil {
@@ -546,6 +549,7 @@ func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq
 		if kb.Status != "active" {
 			return nil, domain.ErrKBNotFound
 		}
+ names[kb.ID]=kb.Name
 		if firstKB == nil {
 			firstKB = kb
 		}
@@ -561,7 +565,13 @@ func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq
 		return nil, errors.Wrap(errors.CodeInvalidParam, "embedding model unavailable", err)
 	}
 	metrics.KbSearchTotal.Inc("rag")
-	items, err := h.RetrievePipe.Retrieve(ctx, kbIDs, req.Query, firstKB.PipelineConfig.Retrieval, embeddingModelID, firstKB.OwnerID)
+	pipe := *h.RetrievePipe
+	if access, bot := resourcegrant.Incoming(ctx); bot {
+		pipe.Authorize = func(ctx context.Context) error {
+			return resourcegrant.CheckIDs(h.DB.WithContext(ctx), access, access.Visibility != "personal", false)
+		}
+	}
+	items, err := pipe.Retrieve(ctx, kbIDs, req.Query, firstKB.PipelineConfig.Retrieval, embeddingModelID, firstKB.OwnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -570,7 +580,7 @@ func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq
 		pbItems[i] = &pb.RetrieveItem{
 			ChunkId: item.ChunkID, Content: item.Content, Score: item.Score,
 			DocId: item.DocID, DocTitle: item.DocTitle, KbId: item.KBID,
-			KbName: item.KBName, MatchedContent: item.MatchedContent,
+ KbName: names[item.KBID], MatchedContent: item.MatchedContent,
 		}
 	}
 	h.Logger.WithContext(ctx).Infof("retrieve: kb_id=%s query_len=%d doc_count=%d", firstKB.ID, len(req.Query), len(pbItems))
@@ -693,8 +703,9 @@ func (h *KnowledgeBaseHandler) loadKnowledgeBase(ctx context.Context, id string,
 	if err := identity.Validate(id); err != nil {
 		return nil, errors.Wrap(errors.CodeInvalidParam, "invalid kb_id", err)
 	}
+	access, bot := resourcegrant.Incoming(ctx)
 	callerID := getCallerID(ctx)
-	if callerID == "" {
+	if !bot && callerID == "" {
 		return nil, errors.ErrUnauthorized
 	}
 	kb, err := h.KBRepo.Get(ctx, id)
@@ -707,6 +718,15 @@ func (h *KnowledgeBaseHandler) loadKnowledgeBase(ctx context.Context, id string,
 	if err := kb.ValidateOwner(); err != nil {
 		return nil, domain.ErrForbidden
 	}
+	if bot {
+		if write || h.DB == nil {
+			return nil, domain.ErrForbidden
+		}
+		if _, err := resourcegrant.Check(h.DB.WithContext(ctx), access, "knowledge", id, access.Visibility != "personal", false); err != nil {
+			return nil, err
+		}
+		return kb, nil
+	}
 	if !ownsKnowledgeBase(kb, callerID) && !isAdmin(ctx) && (write || kb.OwnerType != "platform") {
 		return nil, domain.ErrForbidden
 	}
@@ -717,7 +737,7 @@ func (h *KnowledgeBaseHandler) loadDocument(ctx context.Context, id string, writ
 	if err := identity.Validate(id); err != nil {
 		return nil, errors.Wrap(errors.CodeInvalidParam, "invalid doc_id", err)
 	}
-	if getCallerID(ctx) == "" {
+	if _, bot := resourcegrant.Incoming(ctx); !bot && getCallerID(ctx) == "" {
 		return nil, errors.ErrUnauthorized
 	}
 	doc, err := h.DocRepo.Get(ctx, id)

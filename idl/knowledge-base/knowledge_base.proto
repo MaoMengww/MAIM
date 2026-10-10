@@ -35,7 +35,11 @@ service KnowledgeBase {
     // ========== Document Content & Chunks ==========
     rpc GetDocumentContent(GetDocumentContentReq) returns (GetDocumentContentResp);
     rpc ListChunks(ListChunksReq) returns (ListChunksResp);
+    rpc ResourceAuthorization(ResourceAuthorizationReq) returns (ResourceAuthorizationResp);
 }
+
+message ResourceAuthorizationReq { bytes body = 1; }
+message ResourceAuthorizationResp { bytes body = 1; }
 
 // ============================================================
 // KB

@@ -29,6 +29,8 @@ import { useMessages } from '@/hooks/useMessages';
 import { useRuns } from '@/hooks/useRuns';
 import { Avatar } from '@/components/common/Avatar';
 import { GroupInfoDrawer } from './GroupInfoDrawer';
+import { AuthorizationPanel } from './AuthorizationPanel';
+import { RunActions } from './RunActions';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Message, MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource, BotRun, RunSource, BotInConv } from '@/types/model';
@@ -550,8 +552,10 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
     okText: operation === 'clear_context' ? '清空上下文' : '结束交互', cancelText: '取消',
     onOk: () => control(operation),
   });
-  const state = run.status === 'stopping' && (run.stop_status === 'rejected' || run.stop_status === 'unknown')
-    ? RUN_STOP[run.stop_status] : RUN_STATUS[run.status];
+  const state = run.status === 'waiting_authorization' && run.stage === 'pending_action'
+    ? { label: '等待具体行动确认', color: 'warning' }
+    : run.status === 'stopping' && (run.stop_status === 'rejected' || run.stop_status === 'unknown')
+      ? RUN_STOP[run.stop_status] : RUN_STATUS[run.status];
   const stop = RUN_STOP[run.stop_status];
   const targetHasGrant = !!controlTarget && run.control_user_ids.includes(controlTarget);
   const controllerPresent = members.some((member) => member.user_id === run.controller_id);
@@ -573,7 +577,7 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
     </div>
     <div className="chat-run-meta">
       <span title={run.requester_id}>请求者：{requesterName}</span>
-      <span title={run.controller_id}>当前负责人：{nameForUser(run.controller_id)}{run.status === 'waiting_authorization' ? '（资格已失效，等待接手）' : !controllerPresent ? '（已非当前成员）' : ''}</span>
+      <span title={run.controller_id}>当前负责人：{nameForUser(run.controller_id)}{!controllerPresent ? '（已非当前成员）' : ''}</span>
       <span>显式控制者：{run.control_user_ids.length > 0 ? run.control_user_ids.map((userId) => `${nameForUser(userId)}${members.some((member) => member.user_id === userId) ? '' : '（已非当前成员）'}`).join('、') : '无'}</span>
       {run.source_message_id
         ? <Button type="link" size="small" onClick={() => void onLocate(run.source_message_id!).catch(() => message.error('来源消息无法读取'))}>查看输入来源消息</Button>
@@ -581,11 +585,12 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       {run.parent_run_id && <span>承接父执行：{run.parent_run_id}</span>}
     </div>
     <div className="chat-run-stage" role="status">当前阶段：{RUN_STAGE[run.stage] || run.stage} · {RUN_OUTPUT[run.output_status]}</div>
+    <RunActions run={run} onUpdated={onUpdated} />
     {run.status === 'waiting_input' && <div className="chat-run-waiting" role="status">待补充事项：{run.waiting_reason || '执行器正在等待补充信息'}</div>}
     {run.status === 'waiting_authorization' && <div className="chat-run-waiting" role="status">
-      {run.executor_type === 'third_party' && run.stop_status !== 'confirmed'
-        ? '原负责人已失去当前资格，会话输出已关闭，仍须等待第三方执行器确认实际暂停；确认前不能接手。普通成员不能抢接，重新入群不会自动恢复原工作。'
-        : '原负责人已失去当前资格，工作已暂停，等待仍有控制权的成员明确接手；普通成员不能抢接，重新入群也不会自动恢复原工作。'}
+      {run.actions.some((action) => action.status === 'pending')
+        ? '具体行动正在等待有权主体确认；补充输入、工作控制权或一句同意不构成许可。'
+        : run.waiting_reason || '工作已暂停，等待当前有权主体明确授权或接手。'}
     </div>}
     <div className="chat-run-stop" role="status" aria-live="polite">
       <div className="chat-run-meta">
@@ -827,6 +832,7 @@ export function ChatPage() {
   const [runTarget, setRunTarget] = useState<string>();
   const [workRelation, setWorkRelation] = useState<WorkRelation>();
   const [workMaterials, setWorkMaterials] = useState<WorkMaterials>(emptyWorkMaterials);
+  const [resourceGrantIDs, setResourceGrantIDs] = useState<string[]>([]);
   const [uploadedWorkFiles, setUploadedWorkFiles] = useState<{ file_id: string; name: string }[]>([]);
   const [workError, setWorkError] = useState('');
   const inputRetry = useRef<{ signature: string; runId: string; request: ControlRunReq }>();
@@ -862,6 +868,7 @@ export function ChatPage() {
     setWorkMaterials(emptyWorkMaterials());
     setUploadedWorkFiles([]);
     setWorkError('');
+    setResourceGrantIDs([]);
     setReplyTo(null);
     inputRetry.current = undefined;
     historyGrant.current = undefined;
@@ -1208,7 +1215,7 @@ export function ChatPage() {
         return;
       }
       const pending = await createPendingRun(account, runTarget, {
-        ...materials, conv_id: id, message: text,
+        ...materials, conv_id: id, message: text, visibility: 'conversation', resource_grant_ids: resourceGrantIDs,
         ...(replyTo ? { reply_to_msg_id: replyTo.msg_id } : {}),
         ...(workRelation?.mode === 'continue' ? { parent_run_id: workRelation.runId } : {}),
       });
@@ -2339,6 +2346,8 @@ export function ChatPage() {
               historyGrant.current = undefined; inputRetry.current = undefined;
             }}
             options={runnableBots.map((bot) => ({ value: bot.bot_id, label: `交给 ${bot.name} 开展工作` }))} />
+          {id && <AuthorizationPanel convId={id} bots={runnableBots} onSelect={setResourceGrantIDs} />}
+          {resourceGrantIDs.length > 0 && <Tag>本次资源许可：{resourceGrantIDs.length} 项</Tag>}
           <span>{workRelation?.mode === 'input' ? '向明确 Run 追加输入；参与者身份与接受顺序保留，补充不等于授权'
             : workRelation?.mode === 'continue' ? '明确承接父 Run 的获准材料与结果，创建关联新 Run，不改写旧执行'
             : runTarget ? '独立新请求：只提交本次输入与明确来源，不继承其他交互或群最近消息' : '选择 Bot 可发起独立执行'}</span>

@@ -3136,18 +3136,20 @@ func (x *GetBotWebhookConfigResp) GetType() string {
 }
 
 type StartRunReq struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	BotId          string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
-	ConvId         string                 `protobuf:"bytes,2,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
-	SubmissionKey  string                 `protobuf:"bytes,3,opt,name=submission_key,json=submissionKey,proto3" json:"submission_key,omitempty"`
-	Message        string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
-	ReplyToMsgId   *string                `protobuf:"bytes,5,opt,name=reply_to_msg_id,json=replyToMsgId,proto3,oneof" json:"reply_to_msg_id,omitempty"`
-	HistoryGrantId *string                `protobuf:"bytes,6,opt,name=history_grant_id,json=historyGrantId,proto3,oneof" json:"history_grant_id,omitempty"`
-	ParentRunId    *string                `protobuf:"bytes,7,opt,name=parent_run_id,json=parentRunId,proto3,oneof" json:"parent_run_id,omitempty"`
-	MessageIds     []string               `protobuf:"bytes,8,rep,name=message_ids,json=messageIds,proto3" json:"message_ids,omitempty"`
-	FileIds        []string               `protobuf:"bytes,9,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	BotId            string                 `protobuf:"bytes,1,opt,name=bot_id,json=botId,proto3" json:"bot_id,omitempty"`
+	ConvId           string                 `protobuf:"bytes,2,opt,name=conv_id,json=convId,proto3" json:"conv_id,omitempty"`
+	SubmissionKey    string                 `protobuf:"bytes,3,opt,name=submission_key,json=submissionKey,proto3" json:"submission_key,omitempty"`
+	Message          string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	ReplyToMsgId     *string                `protobuf:"bytes,5,opt,name=reply_to_msg_id,json=replyToMsgId,proto3,oneof" json:"reply_to_msg_id,omitempty"`
+	HistoryGrantId   *string                `protobuf:"bytes,6,opt,name=history_grant_id,json=historyGrantId,proto3,oneof" json:"history_grant_id,omitempty"`
+	ParentRunId      *string                `protobuf:"bytes,7,opt,name=parent_run_id,json=parentRunId,proto3,oneof" json:"parent_run_id,omitempty"`
+	MessageIds       []string               `protobuf:"bytes,8,rep,name=message_ids,json=messageIds,proto3" json:"message_ids,omitempty"`
+	FileIds          []string               `protobuf:"bytes,9,rep,name=file_ids,json=fileIds,proto3" json:"file_ids,omitempty"`
+	Visibility       string                 `protobuf:"bytes,10,opt,name=visibility,proto3" json:"visibility,omitempty"`
+	ResourceGrantIds []string               `protobuf:"bytes,11,rep,name=resource_grant_ids,json=resourceGrantIds,proto3" json:"resource_grant_ids,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *StartRunReq) Reset() {
@@ -3239,6 +3241,20 @@ func (x *StartRunReq) GetMessageIds() []string {
 func (x *StartRunReq) GetFileIds() []string {
 	if x != nil {
 		return x.FileIds
+	}
+	return nil
+}
+
+func (x *StartRunReq) GetVisibility() string {
+	if x != nil {
+		return x.Visibility
+	}
+	return ""
+}
+
+func (x *StartRunReq) GetResourceGrantIds() []string {
+	if x != nil {
+		return x.ResourceGrantIds
 	}
 	return nil
 }
@@ -3595,6 +3611,118 @@ func (x *ControlRunReq) GetTargetUserId() string {
 	return ""
 }
 
+type AuthorizationReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Body          []byte                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
+	ExecutorBotId string                 `protobuf:"bytes,3,opt,name=executor_bot_id,json=executorBotId,proto3" json:"executor_bot_id,omitempty"`
+	Token         string                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthorizationReq) Reset() {
+	*x = AuthorizationReq{}
+	mi := &file_bot_bot_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizationReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizationReq) ProtoMessage() {}
+
+func (x *AuthorizationReq) ProtoReflect() protoreflect.Message {
+	mi := &file_bot_bot_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizationReq.ProtoReflect.Descriptor instead.
+func (*AuthorizationReq) Descriptor() ([]byte, []int) {
+	return file_bot_bot_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *AuthorizationReq) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *AuthorizationReq) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+func (x *AuthorizationReq) GetExecutorBotId() string {
+	if x != nil {
+		return x.ExecutorBotId
+	}
+	return ""
+}
+
+func (x *AuthorizationReq) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+type AuthorizationResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Body          []byte                 `protobuf:"bytes,1,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthorizationResponse) Reset() {
+	*x = AuthorizationResponse{}
+	mi := &file_bot_bot_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizationResponse) ProtoMessage() {}
+
+func (x *AuthorizationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bot_bot_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizationResponse.ProtoReflect.Descriptor instead.
+func (*AuthorizationResponse) Descriptor() ([]byte, []int) {
+	return file_bot_bot_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *AuthorizationResponse) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
 var File_bot_bot_proto protoreflect.FileDescriptor
 
 const file_bot_bot_proto_rawDesc = "" +
@@ -3896,7 +4024,7 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\fcallback_url\x18\x02 \x01(\tR\vcallbackUrl\x12%\n" +
 	"\x0ewebhook_secret\x18\x03 \x01(\tR\rwebhookSecret\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x12\x12\n" +
-	"\x04type\x18\x05 \x01(\tR\x04type\"\xb9\x03\n" +
+	"\x04type\x18\x05 \x01(\tR\x04type\"\x8f\x04\n" +
 	"\vStartRunReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
 	"\aconv_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06convId\x12-\n" +
@@ -3907,7 +4035,12 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\rparent_run_id\x18\a \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x02R\vparentRunId\x88\x01\x01\x12'\n" +
 	"\vmessage_ids\x18\b \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\n" +
 	"messageIds\x12!\n" +
-	"\bfile_ids\x18\t \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\afileIdsB\x12\n" +
+	"\bfile_ids\x18\t \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\afileIds\x12\x1e\n" +
+	"\n" +
+	"visibility\x18\n" +
+	" \x01(\tR\n" +
+	"visibility\x124\n" +
+	"\x12resource_grant_ids\x18\v \x03(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x10resourceGrantIdsB\x12\n" +
 	"\x10_reply_to_msg_idB\x13\n" +
 	"\x11_history_grant_idB\x10\n" +
 	"\x0e_parent_run_id\"*\n" +
@@ -3937,7 +4070,14 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\x0etarget_user_id\x18\t \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x02R\ftargetUserId\x88\x01\x01B\x14\n" +
 	"\x12_source_message_idB\x13\n" +
 	"\x11_history_grant_idB\x11\n" +
-	"\x0f_target_user_id*p\n" +
+	"\x0f_target_user_id\"\x80\x01\n" +
+	"\x10AuthorizationReq\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04body\x18\x02 \x01(\fR\x04body\x12.\n" +
+	"\x0fexecutor_bot_id\x18\x03 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\rexecutorBotId\x12\x14\n" +
+	"\x05token\x18\x04 \x01(\tR\x05token\"+\n" +
+	"\x15AuthorizationResponse\x12\x12\n" +
+	"\x04body\x18\x01 \x01(\fR\x04body*p\n" +
 	"\aBotType\x12\x18\n" +
 	"\x14BOT_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11BOT_TYPE_OFFICIAL\x10\x01\x12\x1a\n" +
@@ -3950,7 +4090,7 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\bConnMode\x12\x19\n" +
 	"\x15CONN_MODE_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fCONN_MODE_WS\x10\x01\x12\x15\n" +
-	"\x11CONN_MODE_WEBHOOK\x10\x022\xde\f\n" +
+	"\x11CONN_MODE_WEBHOOK\x10\x022\xa2\r\n" +
 	"\n" +
 	"BotService\x12.\n" +
 	"\bStartRun\x12\x10.bot.StartRunReq\x1a\x10.bot.RunResponse\x12*\n" +
@@ -3958,7 +4098,8 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\bListRuns\x12\x10.bot.ListRunsReq\x1a\x15.bot.ListRunsResponse\x12:\n" +
 	"\x0eExecutorUpdate\x12\x16.bot.ExecutorUpdateReq\x1a\x10.bot.RunResponse\x122\n" +
 	"\n" +
-	"ControlRun\x12\x12.bot.ControlRunReq\x1a\x10.bot.RunResponse\x12(\n" +
+	"ControlRun\x12\x12.bot.ControlRunReq\x1a\x10.bot.RunResponse\x12B\n" +
+	"\rAuthorization\x12\x15.bot.AuthorizationReq\x1a\x1a.bot.AuthorizationResponse\x12(\n" +
 	"\tCreateBot\x12\x11.bot.CreateBotReq\x1a\b.bot.Bot\x12(\n" +
 	"\tUpdateBot\x12\x11.bot.UpdateBotReq\x1a\b.bot.Bot\x124\n" +
 	"\tDeleteBot\x12\x11.bot.DeleteBotReq\x1a\x14.common.BaseResponse\x12\"\n" +
@@ -3995,7 +4136,7 @@ func file_bot_bot_proto_rawDescGZIP() []byte {
 }
 
 var file_bot_bot_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_bot_bot_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
+var file_bot_bot_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_bot_bot_proto_goTypes = []any{
 	(BotType)(0),                    // 0: bot.BotType
 	(BotStatus)(0),                  // 1: bot.BotStatus
@@ -4043,17 +4184,19 @@ var file_bot_bot_proto_goTypes = []any{
 	(*ListRunsResponse)(nil),        // 43: bot.ListRunsResponse
 	(*ExecutorUpdateReq)(nil),       // 44: bot.ExecutorUpdateReq
 	(*ControlRunReq)(nil),           // 45: bot.ControlRunReq
-	(*common.Pagination)(nil),       // 46: common.Pagination
-	(*common.PaginationResp)(nil),   // 47: common.PaginationResp
-	(*common.BaseResponse)(nil),     // 48: common.BaseResponse
+	(*AuthorizationReq)(nil),        // 46: bot.AuthorizationReq
+	(*AuthorizationResponse)(nil),   // 47: bot.AuthorizationResponse
+	(*common.Pagination)(nil),       // 48: common.Pagination
+	(*common.PaginationResp)(nil),   // 49: common.PaginationResp
+	(*common.BaseResponse)(nil),     // 50: common.BaseResponse
 }
 var file_bot_bot_proto_depIdxs = []int32{
-	46, // 0: bot.ListBotsReq.pagination:type_name -> common.Pagination
+	48, // 0: bot.ListBotsReq.pagination:type_name -> common.Pagination
 	3,  // 1: bot.ListBotsResp.bots:type_name -> bot.Bot
-	47, // 2: bot.ListBotsResp.pagination:type_name -> common.PaginationResp
-	46, // 3: bot.ListMcpServersReq.pagination:type_name -> common.Pagination
+	49, // 2: bot.ListBotsResp.pagination:type_name -> common.PaginationResp
+	48, // 3: bot.ListMcpServersReq.pagination:type_name -> common.Pagination
 	17, // 4: bot.ListMcpServersResp.servers:type_name -> bot.McpServerInfo
-	47, // 5: bot.ListMcpServersResp.pagination:type_name -> common.PaginationResp
+	49, // 5: bot.ListMcpServersResp.pagination:type_name -> common.PaginationResp
 	27, // 6: bot.ListBotMcpServersResp.servers:type_name -> bot.BotMcpServerInfo
 	30, // 7: bot.DiscoverMcpToolsResp.tools:type_name -> bot.McpToolInfo
 	30, // 8: bot.ListMcpToolsResp.tools:type_name -> bot.McpToolInfo
@@ -4063,57 +4206,59 @@ var file_bot_bot_proto_depIdxs = []int32{
 	41, // 12: bot.BotService.ListRuns:input_type -> bot.ListRunsReq
 	44, // 13: bot.BotService.ExecutorUpdate:input_type -> bot.ExecutorUpdateReq
 	45, // 14: bot.BotService.ControlRun:input_type -> bot.ControlRunReq
-	4,  // 15: bot.BotService.CreateBot:input_type -> bot.CreateBotReq
-	5,  // 16: bot.BotService.UpdateBot:input_type -> bot.UpdateBotReq
-	6,  // 17: bot.BotService.DeleteBot:input_type -> bot.DeleteBotReq
-	7,  // 18: bot.BotService.GetBot:input_type -> bot.GetBotReq
-	8,  // 19: bot.BotService.ListBots:input_type -> bot.ListBotsReq
-	10, // 20: bot.BotService.RotateSecret:input_type -> bot.RotateSecretReq
-	12, // 21: bot.BotService.HandleIncomingWebhook:input_type -> bot.WebhookReq
-	13, // 22: bot.BotService.IssueBotToken:input_type -> bot.IssueBotTokenReq
-	15, // 23: bot.BotService.ValidateBotToken:input_type -> bot.ValidateBotTokenReq
-	18, // 24: bot.BotService.CreateMcpServer:input_type -> bot.CreateMcpServerReq
-	19, // 25: bot.BotService.UpdateMcpServer:input_type -> bot.UpdateMcpServerReq
-	20, // 26: bot.BotService.DeleteMcpServer:input_type -> bot.DeleteMcpServerReq
-	21, // 27: bot.BotService.GetMcpServer:input_type -> bot.GetMcpServerReq
-	22, // 28: bot.BotService.ListMcpServers:input_type -> bot.ListMcpServersReq
-	24, // 29: bot.BotService.AssignMcpToBot:input_type -> bot.AssignMcpToBotReq
-	25, // 30: bot.BotService.UnassignMcpFromBot:input_type -> bot.UnassignMcpFromBotReq
-	26, // 31: bot.BotService.ListBotMcpServers:input_type -> bot.ListBotMcpServersReq
-	29, // 32: bot.BotService.UpdateBotMcpServer:input_type -> bot.UpdateBotMcpServerReq
-	31, // 33: bot.BotService.DiscoverMcpTools:input_type -> bot.DiscoverMcpToolsReq
-	33, // 34: bot.BotService.ListMcpTools:input_type -> bot.ListMcpToolsReq
-	35, // 35: bot.BotService.BatchGetBots:input_type -> bot.BatchGetBotsReq
-	37, // 36: bot.BotService.GetBotWebhookConfig:input_type -> bot.GetBotWebhookConfigReq
-	42, // 37: bot.BotService.StartRun:output_type -> bot.RunResponse
-	42, // 38: bot.BotService.GetRun:output_type -> bot.RunResponse
-	43, // 39: bot.BotService.ListRuns:output_type -> bot.ListRunsResponse
-	42, // 40: bot.BotService.ExecutorUpdate:output_type -> bot.RunResponse
-	42, // 41: bot.BotService.ControlRun:output_type -> bot.RunResponse
-	3,  // 42: bot.BotService.CreateBot:output_type -> bot.Bot
-	3,  // 43: bot.BotService.UpdateBot:output_type -> bot.Bot
-	48, // 44: bot.BotService.DeleteBot:output_type -> common.BaseResponse
-	3,  // 45: bot.BotService.GetBot:output_type -> bot.Bot
-	9,  // 46: bot.BotService.ListBots:output_type -> bot.ListBotsResp
-	11, // 47: bot.BotService.RotateSecret:output_type -> bot.RotateSecretResp
-	42, // 48: bot.BotService.HandleIncomingWebhook:output_type -> bot.RunResponse
-	14, // 49: bot.BotService.IssueBotToken:output_type -> bot.IssueBotTokenResp
-	16, // 50: bot.BotService.ValidateBotToken:output_type -> bot.ValidateBotTokenResp
-	17, // 51: bot.BotService.CreateMcpServer:output_type -> bot.McpServerInfo
-	17, // 52: bot.BotService.UpdateMcpServer:output_type -> bot.McpServerInfo
-	48, // 53: bot.BotService.DeleteMcpServer:output_type -> common.BaseResponse
-	17, // 54: bot.BotService.GetMcpServer:output_type -> bot.McpServerInfo
-	23, // 55: bot.BotService.ListMcpServers:output_type -> bot.ListMcpServersResp
-	48, // 56: bot.BotService.AssignMcpToBot:output_type -> common.BaseResponse
-	48, // 57: bot.BotService.UnassignMcpFromBot:output_type -> common.BaseResponse
-	28, // 58: bot.BotService.ListBotMcpServers:output_type -> bot.ListBotMcpServersResp
-	48, // 59: bot.BotService.UpdateBotMcpServer:output_type -> common.BaseResponse
-	32, // 60: bot.BotService.DiscoverMcpTools:output_type -> bot.DiscoverMcpToolsResp
-	34, // 61: bot.BotService.ListMcpTools:output_type -> bot.ListMcpToolsResp
-	36, // 62: bot.BotService.BatchGetBots:output_type -> bot.BatchGetBotsResp
-	38, // 63: bot.BotService.GetBotWebhookConfig:output_type -> bot.GetBotWebhookConfigResp
-	37, // [37:64] is the sub-list for method output_type
-	10, // [10:37] is the sub-list for method input_type
+	46, // 15: bot.BotService.Authorization:input_type -> bot.AuthorizationReq
+	4,  // 16: bot.BotService.CreateBot:input_type -> bot.CreateBotReq
+	5,  // 17: bot.BotService.UpdateBot:input_type -> bot.UpdateBotReq
+	6,  // 18: bot.BotService.DeleteBot:input_type -> bot.DeleteBotReq
+	7,  // 19: bot.BotService.GetBot:input_type -> bot.GetBotReq
+	8,  // 20: bot.BotService.ListBots:input_type -> bot.ListBotsReq
+	10, // 21: bot.BotService.RotateSecret:input_type -> bot.RotateSecretReq
+	12, // 22: bot.BotService.HandleIncomingWebhook:input_type -> bot.WebhookReq
+	13, // 23: bot.BotService.IssueBotToken:input_type -> bot.IssueBotTokenReq
+	15, // 24: bot.BotService.ValidateBotToken:input_type -> bot.ValidateBotTokenReq
+	18, // 25: bot.BotService.CreateMcpServer:input_type -> bot.CreateMcpServerReq
+	19, // 26: bot.BotService.UpdateMcpServer:input_type -> bot.UpdateMcpServerReq
+	20, // 27: bot.BotService.DeleteMcpServer:input_type -> bot.DeleteMcpServerReq
+	21, // 28: bot.BotService.GetMcpServer:input_type -> bot.GetMcpServerReq
+	22, // 29: bot.BotService.ListMcpServers:input_type -> bot.ListMcpServersReq
+	24, // 30: bot.BotService.AssignMcpToBot:input_type -> bot.AssignMcpToBotReq
+	25, // 31: bot.BotService.UnassignMcpFromBot:input_type -> bot.UnassignMcpFromBotReq
+	26, // 32: bot.BotService.ListBotMcpServers:input_type -> bot.ListBotMcpServersReq
+	29, // 33: bot.BotService.UpdateBotMcpServer:input_type -> bot.UpdateBotMcpServerReq
+	31, // 34: bot.BotService.DiscoverMcpTools:input_type -> bot.DiscoverMcpToolsReq
+	33, // 35: bot.BotService.ListMcpTools:input_type -> bot.ListMcpToolsReq
+	35, // 36: bot.BotService.BatchGetBots:input_type -> bot.BatchGetBotsReq
+	37, // 37: bot.BotService.GetBotWebhookConfig:input_type -> bot.GetBotWebhookConfigReq
+	42, // 38: bot.BotService.StartRun:output_type -> bot.RunResponse
+	42, // 39: bot.BotService.GetRun:output_type -> bot.RunResponse
+	43, // 40: bot.BotService.ListRuns:output_type -> bot.ListRunsResponse
+	42, // 41: bot.BotService.ExecutorUpdate:output_type -> bot.RunResponse
+	42, // 42: bot.BotService.ControlRun:output_type -> bot.RunResponse
+	47, // 43: bot.BotService.Authorization:output_type -> bot.AuthorizationResponse
+	3,  // 44: bot.BotService.CreateBot:output_type -> bot.Bot
+	3,  // 45: bot.BotService.UpdateBot:output_type -> bot.Bot
+	50, // 46: bot.BotService.DeleteBot:output_type -> common.BaseResponse
+	3,  // 47: bot.BotService.GetBot:output_type -> bot.Bot
+	9,  // 48: bot.BotService.ListBots:output_type -> bot.ListBotsResp
+	11, // 49: bot.BotService.RotateSecret:output_type -> bot.RotateSecretResp
+	42, // 50: bot.BotService.HandleIncomingWebhook:output_type -> bot.RunResponse
+	14, // 51: bot.BotService.IssueBotToken:output_type -> bot.IssueBotTokenResp
+	16, // 52: bot.BotService.ValidateBotToken:output_type -> bot.ValidateBotTokenResp
+	17, // 53: bot.BotService.CreateMcpServer:output_type -> bot.McpServerInfo
+	17, // 54: bot.BotService.UpdateMcpServer:output_type -> bot.McpServerInfo
+	50, // 55: bot.BotService.DeleteMcpServer:output_type -> common.BaseResponse
+	17, // 56: bot.BotService.GetMcpServer:output_type -> bot.McpServerInfo
+	23, // 57: bot.BotService.ListMcpServers:output_type -> bot.ListMcpServersResp
+	50, // 58: bot.BotService.AssignMcpToBot:output_type -> common.BaseResponse
+	50, // 59: bot.BotService.UnassignMcpFromBot:output_type -> common.BaseResponse
+	28, // 60: bot.BotService.ListBotMcpServers:output_type -> bot.ListBotMcpServersResp
+	50, // 61: bot.BotService.UpdateBotMcpServer:output_type -> common.BaseResponse
+	32, // 62: bot.BotService.DiscoverMcpTools:output_type -> bot.DiscoverMcpToolsResp
+	34, // 63: bot.BotService.ListMcpTools:output_type -> bot.ListMcpToolsResp
+	36, // 64: bot.BotService.BatchGetBots:output_type -> bot.BatchGetBotsResp
+	38, // 65: bot.BotService.GetBotWebhookConfig:output_type -> bot.GetBotWebhookConfigResp
+	38, // [38:66] is the sub-list for method output_type
+	10, // [10:38] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
 	10, // [10:10] is the sub-list for extension extendee
 	0,  // [0:10] is the sub-list for field type_name
@@ -4140,7 +4285,7 @@ func file_bot_bot_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bot_bot_proto_rawDesc), len(file_bot_bot_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   43,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

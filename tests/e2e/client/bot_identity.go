@@ -419,9 +419,17 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 			}
 		}
 		for i, conv := range convs {
+			fileGrant, err := d.resourceGrant(inviter, bot.ID, conv, "file", file.info.FileID, "conversation", true)
+			if err != nil {
+				return err
+			}
 			for _, kind := range []int32{1, 3, 10} {
 				if mode != "ws" || i != 0 || kind != 1 {
-					accepted, err := d.startRun(requester, bot.ID, conv, "typed-result-"+mode+suffix, uuid.NewString(), nil)
+					extra := map[string]any{}
+					if kind == 3 {
+						extra["resource_grant_ids"] = []entityID{fileGrant.ID}
+					}
+					accepted, err := d.interactionStart(requester, bot.ID, conv, "typed-result-"+mode+suffix, extra)
 					if err != nil {
 						return err
 					}

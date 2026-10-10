@@ -15,9 +15,15 @@ type RetrievePipeline struct {
 	VectorStore domain.VectorStore
 	Reranker    domain.Reranker
 	Logger      logx.Logger
+	Authorize   func(context.Context) error
 }
 
 func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []string, query string, retrievalCfg domain.RetrievalConfig, embeddingModelID string, ownerID *string) ([]domain.RetrieveItem, error) {
+	if p.Authorize != nil {
+		if err := p.Authorize(ctx); err != nil {
+			return nil, err
+		}
+	}
 	logger := p.Logger.WithContext(ctx)
 	if len(kbIDs) == 0 {
 		return nil, nil
@@ -69,6 +75,11 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []string, query s
 	if err != nil {
 		return nil, err
 	}
+	if p.Authorize != nil {
+		if err := p.Authorize(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if retrievalCfg.Rerank.Enabled && p.Reranker != nil && len(results) > retrievalCfg.TopK {
 		if retrievalCfg.Rerank.ModelID == nil {
 			return nil, errors.New(errors.CodeInvalidParam, "rerank model is not configured")
@@ -102,6 +113,11 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []string, query s
 	items, err := p.expandParentChunks(ctx, results, chunks)
 	if err != nil {
 		return nil, err
+	}
+	if p.Authorize != nil {
+		if err := p.Authorize(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if len(items) > retrievalCfg.TopK {
 		items = items[:retrievalCfg.TopK]

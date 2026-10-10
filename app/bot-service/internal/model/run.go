@@ -11,10 +11,14 @@ type Run struct {
 	InteractionID               string  `gorm:"type:uuid"`
 	ParentRunID                 *string `gorm:"type:uuid"`
 	InteractionStatus           string
-	BotID                       string            `gorm:"type:uuid"`
-	ConvID                      string            `gorm:"type:uuid"`
-	BindingID                   string            `gorm:"type:uuid"`
-	RequesterID                 string            `gorm:"type:uuid"`
+	BotID                       string `gorm:"type:uuid"`
+	ConvID                      string `gorm:"type:uuid"`
+	BindingID                   string `gorm:"type:uuid"`
+	RequesterID                 string `gorm:"type:uuid"`
+	Visibility                  string
+	PersonalUserID              *string           `gorm:"type:uuid"`
+	ResourceGrantIDs            []string          `gorm:"type:jsonb;serializer:json"`
+	Actions                     []PublicAction    `gorm:"-"`
 	RequesterMemberID           *string           `gorm:"type:uuid"`
 	ControllerID                string            `gorm:"type:uuid"`
 	ControllerMemberID          *string           `gorm:"type:uuid"`
@@ -104,6 +108,9 @@ type PublicRun struct {
 	InteractionID        string               `json:"interaction_id"`
 	ParentRunID          *string              `json:"parent_run_id,omitempty"`
 	InteractionStatus    string               `json:"interaction_status"`
+	Visibility           string               `json:"visibility"`
+	PersonalUserID       *string              `json:"personal_user_id,omitempty"`
+	Actions              []PublicAction       `json:"actions"`
 	BotID                string               `json:"bot_id"`
 	ConvID               string               `json:"conv_id"`
 	BindingID            string               `json:"binding_id"`
@@ -164,6 +171,7 @@ func (r *Run) Public() PublicRun {
 		controllers = []string{}
 	}
 	return PublicRun{ID: r.ID, InteractionID: r.InteractionID, BotID: r.BotID, ConvID: r.ConvID,
+		Visibility: r.Visibility, PersonalUserID: r.PersonalUserID, Actions: r.Actions,
 		ParentRunID: r.ParentRunID, InteractionStatus: r.InteractionStatus, WaitingReason: r.WaitingReason,
 		BindingID: r.BindingID, RequesterID: r.RequesterID, InputKey: r.InputKey, SourceMessageID: r.SourceMessageID,
 		ControllerID: r.ControllerID, ControlUserIDs: controllers, StopStatus: r.StopStatus, StreamStatus: r.StreamStatus, StopReason: r.StopReason,
@@ -192,14 +200,16 @@ type RunInput struct {
 func (RunInput) TableName() string { return "bot.run_inputs" }
 
 type Interaction struct {
-	ID          string `gorm:"type:uuid;primaryKey"`
-	BotID       string `gorm:"type:uuid"`
-	ConvID      string `gorm:"type:uuid"`
-	BindingID   string `gorm:"type:uuid"`
-	RequesterID string `gorm:"type:uuid"`
-	Status      string
-	ClosedAt    *time.Time
-	CreatedAt   time.Time
+	ID             string `gorm:"type:uuid;primaryKey"`
+	BotID          string `gorm:"type:uuid"`
+	ConvID         string `gorm:"type:uuid"`
+	BindingID      string `gorm:"type:uuid"`
+	RequesterID    string `gorm:"type:uuid"`
+	Visibility     string
+	PersonalUserID *string `gorm:"type:uuid"`
+	Status         string
+	ClosedAt       *time.Time
+	CreatedAt      time.Time
 }
 
 func (Interaction) TableName() string { return "bot.interactions" }

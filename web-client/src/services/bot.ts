@@ -39,7 +39,7 @@ export const botApi = {
     client.get<APIResponse<unknown>>(`/conversations/${convId}/runs`, { params: { limit: 100 }, signal }).then((r) => {
       const data = unwrap(r);
       if (!Array.isArray(data)) throw new Error('执行列表必须是数组');
-      return data.map(normalizeRun);
+      return data.map(normalizeRun).filter((run) => run.visibility === 'conversation');
     }),
 
 
@@ -117,7 +117,8 @@ export function normalizeRun(value: unknown): BotRun {
   if (!Array.isArray(run.steps)) throw new Error('执行阶段必须是数组');
   if (!Array.isArray(run.sources)) throw new Error('执行来源必须是数组');
   if (!Array.isArray(run.input_sources)) throw new Error('输入来源必须是数组');
-  if ((output === 'committed' && !run.message_id) || (status === 'succeeded' && output !== 'committed')) throw new Error('执行提交结果缺少最终消息确认');
+  if (run.visibility !== 'personal' && run.visibility !== 'conversation') throw new Error('执行可见性无效');
+  if (run.visibility === 'conversation' && ((output === 'committed' && !run.message_id) || (status === 'succeeded' && output !== 'committed'))) throw new Error('执行提交结果缺少最终消息确认');
   if (run.executor_type !== 'builtin' && run.executor_type !== 'third_party') throw new Error('执行器类型无效');
   if (!['pending', 'delivered', 'acknowledged'].includes(String(run.delivery_status))) throw new Error('投递状态无效');
   if (!['pending', 'accepted', 'completed', 'stopped', 'stop_rejected'].includes(String(run.executor_status))) throw new Error('执行器接受状态无效');
@@ -130,6 +131,9 @@ export function normalizeRun(value: unknown): BotRun {
   if (run.result_content != null && (typeof run.result_content !== 'object' || Array.isArray(run.result_content))) throw new Error('结果内容无效');
   if (run.can_control !== undefined && typeof run.can_control !== 'boolean') throw new Error('当前查看者控制资格无效');
   return {
+    visibility: run.visibility as BotRun['visibility'],
+    personal_user_id: optionalEntityId(run.personal_user_id, 'run.personal_user_id'),
+    actions: Array.isArray(run.actions) ? run.actions.map(normalizeAction) : [],
     id: entityId(run.id, 'run.id'), interaction_id: entityId(run.interaction_id, 'run.interaction_id'),
     parent_run_id: optionalEntityId(run.parent_run_id, 'run.parent_run_id'), interaction_status: run.interaction_status,
     bot_id: entityId(run.bot_id, 'run.bot_id'), conv_id: entityId(run.conv_id, 'run.conv_id'),
@@ -206,6 +210,7 @@ export function mergeRuns(previous: BotRun[] | undefined, updates: BotRun[]): Bo
       const sameVersion = update.version === current.version;
       if (update.can_control !== current.can_control || sameVersion && (
         update.interaction_status !== current.interaction_status || update.stop_reason !== current.stop_reason
+        || JSON.stringify(update.actions) !== JSON.stringify(current.actions)
         || update.stream_status !== current.stream_status || update.control_user_ids.length !== current.control_user_ids.length
         || update.control_user_ids.some((userId, index) => userId !== current.control_user_ids[index]))) {
         runs.set(update.id, sameVersion ? update : { ...current, can_control: update.can_control });
@@ -213,6 +218,27 @@ export function mergeRuns(previous: BotRun[] | undefined, updates: BotRun[]): Bo
       }
     }
   }
+
   if (previous && !changed) return previous;
   return [...runs.values()].sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id));
+}
+export function normalizeAction(value: unknown): BotRun['actions'][number] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('行动格式无效');
+  const action = value as Record<string, unknown>;
+  const text = (field: string): string => {
+    if (typeof action[field] !== 'string') throw new Error(`行动 ${field} 无效`);
+    return action[field] as string;
+  };
+  if (!action.parameters || typeof action.parameters !== 'object' || Array.isArray(action.parameters) || typeof action.can_approve !== 'boolean') throw new Error('行动参数或批准资格无效');
+  return {
+    id: entityId(action.id, 'action.id'), run_id: entityId(action.run_id, 'action.run_id'),
+    server_id: text('server_id'), tool_name: text('tool_name'), risk: text('risk'), target: text('target'),
+    parameters: action.parameters as Record<string, unknown>, status: text('status'), can_approve: action.can_approve,
+    parameters_json: text('parameters_json'),
+    confirmation_shared: action.confirmation_shared === true, can_share_confirmation: action.can_share_confirmation === true,
+    expires_at: sequence(action.expires_at, 'action.expires_at'), generation: sequence(action.generation, 'action.generation'),
+    input_version: sequence(action.input_version, 'action.input_version', true),
+    ...(typeof action.result === 'string' ? { result: action.result } : {}),
+    ...(typeof action.error === 'string' ? { error: action.error } : {}),
+  };
 }

@@ -40,6 +40,13 @@ func main() {
 	c.Middlewares.StatConf.IgnoreContentMethods = append(c.Middlewares.StatConf.IgnoreContentMethods,
 		botpb.BotService_ExecutorUpdate_FullMethodName,
 		botpb.BotService_HandleIncomingWebhook_FullMethodName,
+		botpb.BotService_Authorization_FullMethodName,
+		botpb.BotService_StartRun_FullMethodName,
+		botpb.BotService_ControlRun_FullMethodName,
+		botpb.BotService_CreateBot_FullMethodName,
+		botpb.BotService_UpdateBot_FullMethodName,
+		botpb.BotService_CreateMcpServer_FullMethodName,
+		botpb.BotService_UpdateMcpServer_FullMethodName,
 	)
 	if *role != "all" && *role != "control" && *role != "runtime" {
 		panic("invalid -role: " + *role)

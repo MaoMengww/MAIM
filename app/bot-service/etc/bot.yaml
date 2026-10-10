@@ -1,5 +1,6 @@
 Name: bot-service
 ListenOn: 0.0.0.0:50058
+Timeout: 10000
 
 JWT:
   Secret: ${JWT_SECRET}

@@ -88,6 +88,7 @@ export function McpServersPage() {
       timeout: adv?.timeout ?? 30,
       retry_count: adv?.retry_count ?? 3,
       retry_delay: adv?.retry_delay ?? 1,
+      tool_policies: JSON.stringify(adv?.tool_policies ?? {}, null, 2),
     });
     setModalOpen(true);
   };
@@ -95,7 +96,7 @@ export function McpServersPage() {
   const openCreate = () => {
     setEditingServer(null);
     form.resetFields();
-    form.setFieldsValue({ transport: 'sse', enabled: true, timeout: 30, retry_count: 3, retry_delay: 1 });
+    form.setFieldsValue({ transport: 'sse', enabled: true, timeout: 30, retry_count: 3, retry_delay: 1, tool_policies: '{}' });
     setModalOpen(true);
   };
 
@@ -202,6 +203,16 @@ export function McpServersPage() {
               <Input type="number" min={0} step={0.5} />
             </Form.Item>
           </div>
+          <Form.Item name="tool_policies" label="可信工具风险与分享政策（仅服务器所有者配置）" extra={'按工具名称配置 JSON：{"send_mail":{"risk":"send","target_parameter":"recipient","can_share":false,"conversation_ids":[]}}。risk 可选 read/draft/send/modify/delete/pay；未知工具不暴露或执行。仅 can_share=true 且 conversation_ids 包含当前会话时可进入共享工作。'} rules={[{ validator: async (_, value: string) => {
+            const policies: unknown = JSON.parse(value || '{}');
+            if (!policies || typeof policies !== 'object' || Array.isArray(policies)) throw new Error('政策必须是 JSON 对象');
+            for (const policy of Object.values(policies)) {
+              if (!policy || typeof policy !== 'object' || Array.isArray(policy)) throw new Error('每个工具政策必须是对象');
+              const item = policy as Record<string, unknown>;
+              if (!['read', 'draft', 'send', 'modify', 'delete', 'pay'].includes(String(item.risk)) || typeof item.target_parameter !== 'string') throw new Error('政策需可信风险类别及目标参数名');
+              if (item.can_share !== undefined && typeof item.can_share !== 'boolean' || item.conversation_ids !== undefined && (!Array.isArray(item.conversation_ids) || !item.conversation_ids.every((id) => typeof id === 'string'))) throw new Error('分享标志或会话范围格式无效');
+            }
+          } }]}><Input.TextArea rows={6} /></Form.Item>
         </Form>
       </Modal>
 
@@ -252,10 +263,11 @@ function buildServerPayload(vals: any) {
   const authConfig: Record<string, string> = {};
   if (vals.api_key) authConfig.api_key = vals.api_key;
   if (vals.token) authConfig.token = vals.token;
-  const advancedConfig: Record<string, number> = {
+  const advancedConfig: Record<string, unknown> = {
     timeout: Number(vals.timeout) || 30,
     retry_count: Number(vals.retry_count) || 3,
     retry_delay: Number(vals.retry_delay) || 1,
+    tool_policies: JSON.parse(vals.tool_policies || '{}'),
   };
   return {
     name: vals.name,

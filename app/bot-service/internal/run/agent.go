@@ -226,7 +226,10 @@ func (c *runAgentCheckpoint) Set(ctx context.Context, id string, data []byte) er
 	if len(data) > 16*1024*1024 {
 		return status.Error(codes.ResourceExhausted, "agent checkpoint exceeds work budget")
 	}
-	_, err := c.bridge.service.repo.Change(ctx, id, c.bridge.generation, func(tx *gorm.DB, _ *model.Run) error {
+	_, err := c.bridge.service.repo.ChangeLifecycle(ctx, id, c.bridge.generation, func(tx *gorm.DB, current *model.Run) error {
+		if current.Status == "stopping" || current.AccessRevoked || (current.Status == "waiting_authorization" && current.Stage != "pending_action") {
+			return status.Error(codes.FailedPrecondition, "agent checkpoint authority superseded")
+		}
 		return tx.Exec(`INSERT INTO bot.run_agent_checkpoints (run_id, checkpoint, updated_at)
 			VALUES (?, ?, NOW())
 			ON CONFLICT (run_id) DO UPDATE SET checkpoint = EXCLUDED.checkpoint, updated_at = NOW()`, id, data).Error

@@ -183,20 +183,23 @@ func (x *ToolDef) GetParameters() []byte {
 }
 
 type ChatReq struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ModelId        string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
-	Messages       []*Message             `protobuf:"bytes,3,rep,name=messages,proto3" json:"messages,omitempty"`
-	Temperature    float64                `protobuf:"fixed64,4,opt,name=temperature,proto3" json:"temperature,omitempty"`
-	MaxTokens      int32                  `protobuf:"varint,5,opt,name=max_tokens,json=maxTokens,proto3" json:"max_tokens,omitempty"`
-	TopP           float64                `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3" json:"top_p,omitempty"`
-	Stop           []string               `protobuf:"bytes,7,rep,name=stop,proto3" json:"stop,omitempty"`
-	BotId          *string                `protobuf:"bytes,8,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
-	OwnerId        *string                `protobuf:"bytes,9,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
-	Tools          []*ToolDef             `protobuf:"bytes,10,rep,name=tools,proto3" json:"tools,omitempty"`                             // tool definitions for function calling
-	CacheScope     string                 `protobuf:"bytes,11,opt,name=cache_scope,json=cacheScope,proto3" json:"cache_scope,omitempty"` // Stable, non-secret authorization/interaction scope.
-	ExecutionModel *ModelExecutionConfig  `protobuf:"bytes,12,opt,name=execution_model,json=executionModel,proto3" json:"execution_model,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	ModelId             string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"` // model registry ID
+	Messages            []*Message             `protobuf:"bytes,3,rep,name=messages,proto3" json:"messages,omitempty"`
+	Temperature         float64                `protobuf:"fixed64,4,opt,name=temperature,proto3" json:"temperature,omitempty"`
+	MaxTokens           int32                  `protobuf:"varint,5,opt,name=max_tokens,json=maxTokens,proto3" json:"max_tokens,omitempty"`
+	TopP                float64                `protobuf:"fixed64,6,opt,name=top_p,json=topP,proto3" json:"top_p,omitempty"`
+	Stop                []string               `protobuf:"bytes,7,rep,name=stop,proto3" json:"stop,omitempty"`
+	BotId               *string                `protobuf:"bytes,8,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	OwnerId             *string                `protobuf:"bytes,9,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
+	Tools               []*ToolDef             `protobuf:"bytes,10,rep,name=tools,proto3" json:"tools,omitempty"`                             // tool definitions for function calling
+	CacheScope          string                 `protobuf:"bytes,11,opt,name=cache_scope,json=cacheScope,proto3" json:"cache_scope,omitempty"` // Stable, non-secret authorization/interaction scope.
+	ExecutionModel      *ModelExecutionConfig  `protobuf:"bytes,12,opt,name=execution_model,json=executionModel,proto3" json:"execution_model,omitempty"`
+	RunId               *string                `protobuf:"bytes,13,opt,name=run_id,json=runId,proto3,oneof" json:"run_id,omitempty"` // Current AIM work authority; not a framework checkpoint.
+	ExecutionGeneration int64                  `protobuf:"varint,14,opt,name=execution_generation,json=executionGeneration,proto3" json:"execution_generation,omitempty"`
+	InputVersion        int64                  `protobuf:"varint,15,opt,name=input_version,json=inputVersion,proto3" json:"input_version,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ChatReq) Reset() {
@@ -304,6 +307,27 @@ func (x *ChatReq) GetExecutionModel() *ModelExecutionConfig {
 		return x.ExecutionModel
 	}
 	return nil
+}
+
+func (x *ChatReq) GetRunId() string {
+	if x != nil && x.RunId != nil {
+		return *x.RunId
+	}
+	return ""
+}
+
+func (x *ChatReq) GetExecutionGeneration() int64 {
+	if x != nil {
+		return x.ExecutionGeneration
+	}
+	return 0
+}
+
+func (x *ChatReq) GetInputVersion() int64 {
+	if x != nil {
+		return x.InputVersion
+	}
+	return 0
 }
 
 type Message struct {
@@ -2392,7 +2416,7 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x1e\n" +
 	"\n" +
 	"parameters\x18\x03 \x01(\fR\n" +
-	"parameters\"\xc2\x03\n" +
+	"parameters\"\xc9\x04\n" +
 	"\aChatReq\x12!\n" +
 	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12/\n" +
 	"\bmessages\x18\x03 \x03(\v2\x13.llmgateway.MessageR\bmessages\x12 \n" +
@@ -2407,9 +2431,13 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	" \x03(\v2\x13.llmgateway.ToolDefR\x05tools\x12\x1f\n" +
 	"\vcache_scope\x18\v \x01(\tR\n" +
 	"cacheScope\x12I\n" +
-	"\x0fexecution_model\x18\f \x01(\v2 .llmgateway.ModelExecutionConfigR\x0eexecutionModelB\t\n" +
+	"\x0fexecution_model\x18\f \x01(\v2 .llmgateway.ModelExecutionConfigR\x0eexecutionModel\x12\"\n" +
+	"\x06run_id\x18\r \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x02R\x05runId\x88\x01\x01\x121\n" +
+	"\x14execution_generation\x18\x0e \x01(\x03R\x13executionGeneration\x12#\n" +
+	"\rinput_version\x18\x0f \x01(\x03R\finputVersionB\t\n" +
 	"\a_bot_idB\v\n" +
-	"\t_owner_id\"\xcf\x01\n" +
+	"\t_owner_idB\t\n" +
+	"\a_run_id\"\xcf\x01\n" +
 	"\aMessage\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x12\n" +

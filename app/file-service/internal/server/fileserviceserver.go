@@ -8,6 +8,7 @@ import (
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/pb/common"
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -39,7 +40,11 @@ func (s *FileServiceServer) ConfirmUpload(ctx context.Context, in *filepb.Confir
 }
 
 func (s *FileServiceServer) GetDownloadURL(ctx context.Context, in *filepb.GetDownloadURLReq) (*filepb.GetDownloadURLResp, error) {
-	if err := requireCaller(ctx, in.GetUserId()); err != nil {
+	if a, bot := resourcegrant.Incoming(ctx); bot {
+		if _, err := resourcegrant.Check(s.svcCtx.DB.WithContext(ctx), a, "file", in.FileId, a.Visibility != "personal", false); err != nil {
+			return nil, err
+		}
+	} else if err := requireCaller(ctx, in.GetUserId()); err != nil {
 		return nil, err
 	}
 	l := logic.NewGetDownloadURLLogic(ctx, s.svcCtx)
@@ -47,7 +52,11 @@ func (s *FileServiceServer) GetDownloadURL(ctx context.Context, in *filepb.GetDo
 }
 
 func (s *FileServiceServer) GetFileInfo(ctx context.Context, in *filepb.GetFileInfoReq) (*filepb.GetFileInfoResp, error) {
-	if err := requireCaller(ctx, in.GetUserId()); err != nil {
+	if a, bot := resourcegrant.Incoming(ctx); bot {
+		if _, err := resourcegrant.Check(s.svcCtx.DB.WithContext(ctx), a, "file", in.FileId, a.Visibility != "personal", false); err != nil {
+			return nil, err
+		}
+	} else if err := requireCaller(ctx, in.GetUserId()); err != nil {
 		return nil, err
 	}
 	l := logic.NewGetFileInfoLogic(ctx, s.svcCtx)
@@ -99,4 +108,17 @@ func requireCaller(ctx context.Context, requested string) error {
 		return status.Error(codes.PermissionDenied, "cannot act as another user")
 	}
 	return nil
+}
+
+func (s *FileServiceServer) ResourceAuthorization(ctx context.Context, in *filepb.ResourceAuthorizationReq) (*filepb.ResourceAuthorizationResp, error) {
+	md, _ := metadata.FromIncomingContext(ctx)
+	users := md.Get("user-id")
+	if len(users) != 1 {
+		return nil, status.Error(codes.Unauthenticated, "resource owner required")
+	}
+	body, err := resourcegrant.Manage(ctx, s.svcCtx.DB.DB, users[0], "file", in.Body)
+	if err != nil {
+		return nil, err
+	}
+	return &filepb.ResourceAuthorizationResp{Body: body}, nil
 }

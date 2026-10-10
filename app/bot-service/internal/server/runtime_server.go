@@ -33,7 +33,7 @@ func (s *RuntimeServer) StartRun(ctx context.Context, req *pb.StartRunReq) (*pb.
 	if values := md.Get("x-user-language"); len(values) > 0 {
 		language = values[0]
 	}
-	accepted, err := s.runs.Accept(ctx, run.Input{BotID: req.BotId, ConvID: req.ConvId, RequesterID: runtimeUserID(ctx), SubmissionKey: req.SubmissionKey, Message: req.Message, ReplyToMsgID: req.ReplyToMsgId, HistoryGrantID: req.HistoryGrantId, ParentRunID: req.ParentRunId, MessageIDs: req.MessageIds, FileIDs: req.FileIds, Language: language})
+	accepted, err := s.runs.Accept(ctx, run.Input{BotID: req.BotId, ConvID: req.ConvId, RequesterID: runtimeUserID(ctx), SubmissionKey: req.SubmissionKey, Message: req.Message, ReplyToMsgID: req.ReplyToMsgId, HistoryGrantID: req.HistoryGrantId, ParentRunID: req.ParentRunId, MessageIDs: req.MessageIds, FileIDs: req.FileIds, Language: language, Visibility: req.Visibility, ResourceGrantIDs: req.ResourceGrantIds})
 	if err != nil {
 		return nil, err
 	}
@@ -124,4 +124,40 @@ func (s *RuntimeServer) ControlRun(ctx context.Context, req *pb.ControlRunReq) (
 		return nil, err
 	}
 	return &pb.RunResponse{RunJson: string(raw)}, nil
+}
+
+func (s *RuntimeServer) Authorization(ctx context.Context, req *pb.AuthorizationReq) (*pb.AuthorizationResponse, error) {
+	if s.svcCtx.RuntimeClient != nil {
+		return s.svcCtx.RuntimeClient.Authorization(forwardRuntimeContext(ctx), req)
+	}
+	if req == nil || len(req.Body) == 0 || len(req.Body) > 1<<20 {
+		return nil, status.Error(codes.InvalidArgument, "authorization request required")
+	}
+	user, executor := runtimeUserID(ctx), ""
+	if req.ExecutorBotId != "" || req.Token != "" {
+		authenticated, err := bot.NewValidateBotTokenLogic(ctx, s.svcCtx).ValidateBotToken(&pb.ValidateBotTokenReq{Token: req.Token})
+		if err != nil {
+			return nil, err
+		}
+		if !authenticated.GetValid() || authenticated.GetBotId() != req.ExecutorBotId || authenticated.Type != "third_party" {
+			return nil, status.Error(codes.Unauthenticated, "invalid executor credential")
+		}
+		user, executor = "", authenticated.GetBotId()
+	} else if user == "" {
+		return nil, status.Error(codes.Unauthenticated, "authenticated requester required")
+	}
+	var body []byte
+	var err error
+	switch req.Kind {
+	case "resource":
+		body, err = s.runs.ResourceAuthorization(ctx, user, executor, req.Body)
+	case "action":
+		body, err = s.runs.ActionAuthorization(ctx, user, executor, req.Body)
+	default:
+		return nil, status.Error(codes.InvalidArgument, "unknown authorization kind")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &pb.AuthorizationResponse{Body: body}, nil
 }

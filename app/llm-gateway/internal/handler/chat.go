@@ -14,8 +14,12 @@ import (
 	"github.com/maomeng/aim/app/llm-gateway/internal/metrics"
 	pb "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/interceptor"
+	"github.com/maomeng/aim/pkg/resourcegrant"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 )
 
 // ResolveExecutionModel freezes routing, not permission or credentials.
@@ -111,6 +115,9 @@ func (h *LLMGatewayHandler) Chat(ctx context.Context, req *pb.ChatReq) (resp *pb
 		return nil, err
 	}
 	defer h.svcCtx.RateLimiter.DecrConcurrency(context.WithoutCancel(ctx), modelName)
+	if err := h.authorizeRunRequest(ctx, req); err != nil {
+		return nil, err
+	}
 	resp, err = llm.CompleteChat(ctx, req, cfg, info.ModelEntry.APIKey)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -165,6 +172,9 @@ func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_Cha
 		return err
 	}
 	defer h.svcCtx.RateLimiter.DecrConcurrency(context.WithoutCancel(ctx), modelName)
+	if err := h.authorizeRunRequest(ctx, req); err != nil {
+		return err
+	}
 	err = llm.StreamChat(ctx, req, cfg, info.ModelEntry.APIKey, func(chunk *pb.ChatStreamChunk) error {
 		if chunk.Usage != nil {
 			usage = chunk.Usage
@@ -183,4 +193,48 @@ func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_Cha
 	}
 	h.svcCtx.Logger.WithContext(ctx).Infof("method=ChatStream model=%s adapter=%s usage_reported=%t", modelName, llm.AdapterVersion, usage != nil)
 	return nil
+}
+
+// Resource permission is current platform state, independent of the frozen
+// model route and provider cache. Non-Run model consumers retain their contract.
+func (h *LLMGatewayHandler) authorizeRunRequest(ctx context.Context, req *pb.ChatReq) error {
+	if req.RunId == nil {
+		return nil
+	}
+	if identity.Validate(*req.RunId) != nil || req.BotId == nil || req.ExecutionGeneration < 1 || req.InputVersion < 1 {
+		return status.Error(codes.InvalidArgument, "invalid Run inference authority")
+	}
+	return h.svcCtx.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var run struct {
+			BotID, ConvID, BindingID, RequesterID, ControllerID, Visibility, Status                 string
+			ControllerMemberID                                                                      *string
+			ResourceGrantIDs                                                                        []string `gorm:"serializer:json"`
+			AccessRevoked                                                                           bool
+			ExecutionGeneration, InputVersion, BotAuthorizationVersion, BindingAuthorizationVersion int64
+		}
+		if err := tx.Table("bot.runs").Where("id = ? AND bot_id = ?", *req.RunId, *req.BotId).Take(&run).Error; err != nil {
+			return status.Error(codes.PermissionDenied, "Run inference authorization unavailable")
+		}
+		if run.AccessRevoked || run.Status != "running" || run.ExecutionGeneration != req.ExecutionGeneration || req.InputVersion > run.InputVersion {
+			return status.Error(codes.PermissionDenied, "Run inference authority changed")
+		}
+		var count int64
+		if err := tx.Table("messaging.conv_bots AS c").Joins("JOIN bot.bots b ON b.id = c.bot_id").Where("c.id = ? AND c.bot_id = ? AND c.conv_id = ? AND c.revoked_at IS NULL AND c.authorization_version = ? AND b.status = 'active' AND b.authorization_version = ? AND COALESCE(NULLIF(c.bot_settings, '')::jsonb->>'enabled', 'true') = 'true'", run.BindingID, run.BotID, run.ConvID, run.BindingAuthorizationVersion, run.BotAuthorizationVersion).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 1 || run.ControllerMemberID == nil {
+			return status.Error(codes.PermissionDenied, "Run participation revoked")
+		}
+		if err := tx.Table("messaging.conv_members").Where("id = ? AND conv_id = ? AND user_id = ? AND member_type = 'user'", *run.ControllerMemberID, run.ConvID, run.ControllerID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 1 {
+			return status.Error(codes.PermissionDenied, "Run controller membership revoked")
+		}
+		access := resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}
+		if err := resourcegrant.CheckIDs(tx, access, run.Visibility != "personal", false); err != nil {
+			return err
+		}
+		return resourcegrant.CheckRunToolPermissions(tx, access, *req.RunId, false)
+	})
 }

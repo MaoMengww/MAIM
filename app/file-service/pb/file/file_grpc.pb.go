@@ -20,14 +20,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	FileService_GetUploadURL_FullMethodName     = "/file.FileService/GetUploadURL"
-	FileService_ConfirmUpload_FullMethodName    = "/file.FileService/ConfirmUpload"
-	FileService_GetDownloadURL_FullMethodName   = "/file.FileService/GetDownloadURL"
-	FileService_GetFileInfo_FullMethodName      = "/file.FileService/GetFileInfo"
-	FileService_BatchGetFileInfo_FullMethodName = "/file.FileService/BatchGetFileInfo"
-	FileService_DeleteFile_FullMethodName       = "/file.FileService/DeleteFile"
-	FileService_BatchDeleteFiles_FullMethodName = "/file.FileService/BatchDeleteFiles"
-	FileService_UploadAvatar_FullMethodName     = "/file.FileService/UploadAvatar"
+	FileService_GetUploadURL_FullMethodName          = "/file.FileService/GetUploadURL"
+	FileService_ConfirmUpload_FullMethodName         = "/file.FileService/ConfirmUpload"
+	FileService_GetDownloadURL_FullMethodName        = "/file.FileService/GetDownloadURL"
+	FileService_GetFileInfo_FullMethodName           = "/file.FileService/GetFileInfo"
+	FileService_BatchGetFileInfo_FullMethodName      = "/file.FileService/BatchGetFileInfo"
+	FileService_DeleteFile_FullMethodName            = "/file.FileService/DeleteFile"
+	FileService_BatchDeleteFiles_FullMethodName      = "/file.FileService/BatchDeleteFiles"
+	FileService_UploadAvatar_FullMethodName          = "/file.FileService/UploadAvatar"
+	FileService_ResourceAuthorization_FullMethodName = "/file.FileService/ResourceAuthorization"
 )
 
 // FileServiceClient is the client API for FileService service.
@@ -50,6 +51,7 @@ type FileServiceClient interface {
 	BatchDeleteFiles(ctx context.Context, in *BatchDeleteFilesReq, opts ...grpc.CallOption) (*common.BaseResponse, error)
 	// upload avatar (server-side processing: resize/crop)
 	UploadAvatar(ctx context.Context, in *UploadAvatarReq, opts ...grpc.CallOption) (*UploadAvatarResp, error)
+	ResourceAuthorization(ctx context.Context, in *ResourceAuthorizationReq, opts ...grpc.CallOption) (*ResourceAuthorizationResp, error)
 }
 
 type fileServiceClient struct {
@@ -140,6 +142,16 @@ func (c *fileServiceClient) UploadAvatar(ctx context.Context, in *UploadAvatarRe
 	return out, nil
 }
 
+func (c *fileServiceClient) ResourceAuthorization(ctx context.Context, in *ResourceAuthorizationReq, opts ...grpc.CallOption) (*ResourceAuthorizationResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResourceAuthorizationResp)
+	err := c.cc.Invoke(ctx, FileService_ResourceAuthorization_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FileServiceServer is the server API for FileService service.
 // All implementations must embed UnimplementedFileServiceServer
 // for forward compatibility.
@@ -160,6 +172,7 @@ type FileServiceServer interface {
 	BatchDeleteFiles(context.Context, *BatchDeleteFilesReq) (*common.BaseResponse, error)
 	// upload avatar (server-side processing: resize/crop)
 	UploadAvatar(context.Context, *UploadAvatarReq) (*UploadAvatarResp, error)
+	ResourceAuthorization(context.Context, *ResourceAuthorizationReq) (*ResourceAuthorizationResp, error)
 	mustEmbedUnimplementedFileServiceServer()
 }
 
@@ -193,6 +206,9 @@ func (UnimplementedFileServiceServer) BatchDeleteFiles(context.Context, *BatchDe
 }
 func (UnimplementedFileServiceServer) UploadAvatar(context.Context, *UploadAvatarReq) (*UploadAvatarResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method UploadAvatar not implemented")
+}
+func (UnimplementedFileServiceServer) ResourceAuthorization(context.Context, *ResourceAuthorizationReq) (*ResourceAuthorizationResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResourceAuthorization not implemented")
 }
 func (UnimplementedFileServiceServer) mustEmbedUnimplementedFileServiceServer() {}
 func (UnimplementedFileServiceServer) testEmbeddedByValue()                     {}
@@ -359,6 +375,24 @@ func _FileService_UploadAvatar_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FileService_ResourceAuthorization_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResourceAuthorizationReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FileServiceServer).ResourceAuthorization(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FileService_ResourceAuthorization_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FileServiceServer).ResourceAuthorization(ctx, req.(*ResourceAuthorizationReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FileService_ServiceDesc is the grpc.ServiceDesc for FileService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -397,6 +431,10 @@ var FileService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UploadAvatar",
 			Handler:    _FileService_UploadAvatar_Handler,
+		},
+		{
+			MethodName: "ResourceAuthorization",
+			Handler:    _FileService_ResourceAuthorization_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

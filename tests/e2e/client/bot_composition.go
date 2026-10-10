@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"net/http"
 	"slices"
 	"time"
@@ -123,6 +122,9 @@ func (d *driver) runtimeKnowledgeComposition(owner, outsider account, address st
 			return err
 		}
 	}
+	if err := d.fixtureEchoPolicy(owner, mcpID, convs...); err != nil {
+		return err
+	}
 	var kb struct {
 		ID      entityID  `json:"id"`
 		OwnerID *entityID `json:"owner_id"`
@@ -185,6 +187,9 @@ func (d *driver) runtimeKnowledgeComposition(owner, outsider account, address st
 		if len(bindings.Items) != 1 || bindings.Items[0].KBID != kb.ID || bindings.Items[0].TargetID != target.id || bindings.Items[0].Kind != target.kind {
 			return errors.New("p7.binding: 高层绑定没有返回同一 KB/Bot/会话 UUID")
 		}
+		if _, err := d.resourceGrant(owner, bots[0], convs[0], "knowledge", kb.ID, "conversation", true); err != nil {
+			return err
+		}
 		query := "P7_KNOWLEDGE_QUERY P5_KNOWN_ANCHOR " + suffix
 		actual, err := d.runtimeCompositionExchange(owner, address, bots[0], convs[0], query, sources)
 		if err != nil {
@@ -238,6 +243,11 @@ func (d *driver) runtimeKnowledgeComposition(owner, outsider account, address st
 		if err := d.request(http.MethodDelete, path+"/"+kb.ID.String(), owner.token, nil, nil); err != nil {
 			return err
 		}
+		if i == 0 {
+			if _, err := d.resourceGrant(owner, bots[0], convs[0], "knowledge", kb.ID, "conversation", true); err != nil {
+				return err
+			}
+		}
 		expectedSources, value := sources, "cobalt-47"
 		if i == 1 {
 			expectedSources, value = nil, "none"
@@ -274,7 +284,18 @@ func (d *driver) runtimeKnowledgeComposition(owner, outsider account, address st
 
 // An explicit operation uses the same durable Run contract as a mention.
 func (d *driver) runtimeCompositionStream(caller account, botID, convID entityID, text string, expected []runtimeKnowledgeSource) error {
-	run, err := d.startRun(caller, botID, convID, text, uuid.NewString(), nil)
+	var grants []resourceAuthorization
+	if err := d.request(http.MethodPost, "/bot-authorizations/resources", caller.token, map[string]any{"op": "list", "bot_id": botID, "conv_id": convID}, &grants); err != nil {
+		return err
+	}
+	ids := make([]entityID, 0, len(grants))
+	for _, grant := range grants {
+		if grant.CanShare && grant.ResourceType == "knowledge" {
+			ids = append(ids, grant.ID)
+		}
+	}
+	accepted, err := d.interactionStart(caller, botID, convID, text, map[string]any{"resource_grant_ids": ids})
+	run := accepted.publicRun
 	if err != nil {
 		return err
 	}

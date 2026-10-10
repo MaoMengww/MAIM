@@ -50,6 +50,9 @@ message ChatReq {
   repeated ToolDef tools = 10;     // tool definitions for function calling
   string cache_scope = 11; // Stable, non-secret authorization/interaction scope.
   ModelExecutionConfig execution_model = 12;
+  optional string run_id = 13 [(common.entity_id) = true]; // Current AIM work authority; not a framework checkpoint.
+  int64 execution_generation = 14;
+  int64 input_version = 15;
 }
 
 message Message {

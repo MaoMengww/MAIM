@@ -12,6 +12,7 @@ service BotService {
   rpc ListRuns(ListRunsReq) returns (ListRunsResponse);
   rpc ExecutorUpdate(ExecutorUpdateReq) returns (RunResponse);
   rpc ControlRun(ControlRunReq) returns (RunResponse);
+  rpc Authorization(AuthorizationReq) returns (AuthorizationResponse);
 
   // Bot CRUD
   rpc CreateBot(CreateBotReq) returns (Bot);
@@ -463,6 +464,8 @@ message StartRunReq {
   optional string parent_run_id = 7 [(common.entity_id) = true];
   repeated string message_ids = 8 [(common.entity_id) = true];
   repeated string file_ids = 9 [(common.entity_id) = true];
+  string visibility = 10;
+  repeated string resource_grant_ids = 11 [(common.entity_id) = true];
 }
 
 message GetRunReq { string run_id = 1 [(common.entity_id) = true]; }
@@ -489,4 +492,12 @@ message ControlRunReq {
   optional string history_grant_id = 8 [(common.entity_id) = true];
   optional string target_user_id = 9 [(common.entity_id) = true];
 }
+
+message AuthorizationReq {
+  string kind = 1;
+  bytes body = 2;
+  string executor_bot_id = 3 [(common.entity_id) = true];
+  string token = 4;
+}
+message AuthorizationResponse { bytes body = 1; }
 

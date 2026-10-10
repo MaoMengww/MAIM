@@ -1,6 +1,7 @@
 package component
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/maomeng/aim/app/bot-service/internal/component/builtin"
 	"github.com/maomeng/aim/app/bot-service/internal/model"
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -20,13 +22,17 @@ import (
 // RunTool is a credential-free, immutable definition. Authorization and secrets
 // are resolved again at invocation; a snapshot is never a permanent permit.
 type RunTool struct {
-	ServerID       string          `json:"server_id"`
-	Transport      string          `json:"transport"`
-	URL            string          `json:"url"`
-	Name           string          `json:"name"`
-	Description    string          `json:"description"`
-	Parameters     json.RawMessage `json:"parameters"`
-	DefinitionHash string          `json:"definition_hash"`
+	ServerID        string          `json:"server_id"`
+	Transport       string          `json:"transport"`
+	URL             string          `json:"url"`
+	Name            string          `json:"name"`
+	Description     string          `json:"description"`
+	Parameters      json.RawMessage `json:"parameters"`
+	DefinitionHash  string          `json:"definition_hash"`
+	Risk            string          `json:"risk"`
+	TargetParameter string          `json:"target_parameter,omitempty"`
+	CanShare        bool            `json:"can_share"`
+	ConversationIDs []string        `json:"conversation_ids,omitempty"`
 }
 
 func openRunMCP(ctx context.Context, srv model.McpServer) (*client.Client, error) {
@@ -54,16 +60,12 @@ func openRunMCP(ctx context.Context, srv model.McpServer) (*client.Client, error
 	}
 	return cli, nil
 }
-func safeRunTool(t mcp.Tool) bool {
-	if t.Annotations.DestructiveHint != nil && *t.Annotations.DestructiveHint {
-		return false
+func TrustedRunToolPolicy(server model.McpServer, name string) (resourcegrant.ToolPolicy, bool) {
+	var policies map[string]resourcegrant.ToolPolicy
+	if server.AdvancedConfig != nil {
+		policies = server.AdvancedConfig.ToolPolicies
 	}
-	if t.Annotations.ReadOnlyHint != nil {
-		return *t.Annotations.ReadOnlyHint
-	}
-	// Known read/network operations only. Names that merely sound benign do not
-	// authorize unknown operations, sends, modifications, purchases or deletes.
-	return slices.Contains([]string{"fetch", "fetch_url", "read_url", "web_search", "search", "wikipedia_search"}, t.Name)
+	return resourcegrant.TrustedToolPolicy(server.OwnerType, policies, name)
 }
 
 func BuiltinRunTools(names []string) ([]RunTool, error) {
@@ -99,7 +101,7 @@ func builtinRunToolDefinition(ctx context.Context, base tool.BaseTool) (RunTool,
 		return RunTool{}, err
 	}
 	digest := sha256.Sum256(append([]byte(info.Name+"\x00"+info.Desc+"\x00"), parameters...))
-	return RunTool{ServerID: "builtin", Name: info.Name, Description: info.Desc, Parameters: parameters, DefinitionHash: hex.EncodeToString(digest[:])}, nil
+	return RunTool{ServerID: "builtin", Name: info.Name, Description: info.Desc, Parameters: parameters, DefinitionHash: hex.EncodeToString(digest[:]), Risk: "read", CanShare: true}, nil
 }
 func CallBuiltinRunTool(ctx context.Context, frozen RunTool, arguments string) (string, error) {
 	if frozen.ServerID != "builtin" || frozen.Name != "web_search" {
@@ -132,10 +134,20 @@ func runToolDefinition(server model.McpServer, t mcp.Tool) (RunTool, error) {
 		return RunTool{}, err
 	}
 	if server.AuthConfig != nil {
-		for _, secret := range []string{server.AuthConfig.APIKey, server.AuthConfig.Token} {
-			if secret != "" && strings.Contains(string(raw), secret) {
-				return RunTool{}, fmt.Errorf("MCP tool definition contains credentials")
-			}
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return RunTool{}, err
+		}
+		canonical, err := json.Marshal(value)
+		if err != nil {
+			return RunTool{}, err
+		}
+		redacted, err := json.Marshal(redactToolCredentials(value, server.AuthConfig))
+		if err != nil {
+			return RunTool{}, err
+		}
+		if string(canonical) != string(redacted) {
+			return RunTool{}, fmt.Errorf("MCP tool definition contains credentials")
 		}
 	}
 	var definition struct {
@@ -152,8 +164,16 @@ func runToolDefinition(server model.McpServer, t mcp.Tool) (RunTool, error) {
 	if err != nil {
 		return RunTool{}, err
 	}
-	hash := sha256.Sum256(append([]byte(t.Name+"\x00"+t.Description+"\x00"), parameters...))
-	return RunTool{ServerID: server.ID, Transport: server.Transport, URL: server.URL, Name: t.Name, Description: t.Description, Parameters: parameters, DefinitionHash: hex.EncodeToString(hash[:])}, nil
+	policy, ok := TrustedRunToolPolicy(server, t.Name)
+	if !ok {
+		return RunTool{}, fmt.Errorf("tool has no trusted risk policy")
+	}
+	policyJSON, err := json.Marshal(policy)
+	if err != nil {
+		return RunTool{}, err
+	}
+	hash := sha256.Sum256(append(append([]byte(t.Name+"\x00"+t.Description+"\x00"), policyJSON...), parameters...))
+	return RunTool{ServerID: server.ID, Transport: server.Transport, URL: server.URL, Name: t.Name, Description: t.Description, Parameters: parameters, DefinitionHash: hex.EncodeToString(hash[:]), Risk: policy.Risk, TargetParameter: policy.TargetParameter, CanShare: policy.CanShare, ConversationIDs: policy.ConversationIDs}, nil
 }
 func DiscoverRunTools(ctx context.Context, servers []model.McpServer) ([]RunTool, error) {
 	tools := make([]RunTool, 0)
@@ -169,7 +189,7 @@ func DiscoverRunTools(ctx context.Context, servers []model.McpServer) ([]RunTool
 			return nil, err
 		}
 		for _, t := range result.Tools {
-			if !safeRunTool(t) {
+			if _, known := TrustedRunToolPolicy(srv, t.Name); !known {
 				continue
 			}
 			if seen[t.Name] {
@@ -194,12 +214,14 @@ func DiscoverRunTools(ctx context.Context, servers []model.McpServer) ([]RunTool
 	})
 	return tools, nil
 }
-func CallRunTool(ctx context.Context, srv model.McpServer, frozen RunTool, arguments string) (string, error) {
+func CallRunTool(ctx context.Context, srv model.McpServer, frozen RunTool, arguments string, beforeCall func(context.Context) error) (string, error) {
 	if !srv.Enabled || srv.ID != frozen.ServerID || srv.Transport != frozen.Transport || srv.URL != frozen.URL {
 		return "", fmt.Errorf("MCP access or routing changed")
 	}
 	var args map[string]any
-	if err := json.Unmarshal([]byte(arguments), &args); err != nil || args == nil {
+	decoder := json.NewDecoder(strings.NewReader(arguments))
+	decoder.UseNumber()
+	if err := decoder.Decode(&args); err != nil || args == nil {
 		return "", fmt.Errorf("tool arguments must be a JSON object")
 	}
 	cli, err := openRunMCP(ctx, srv)
@@ -216,8 +238,9 @@ func CallRunTool(ctx context.Context, srv model.McpServer, frozen RunTool, argum
 		if current.Name != frozen.Name {
 			continue
 		}
-		if !safeRunTool(current) {
-			return "", fmt.Errorf("external write or unknown-risk tool requires explicit authorization")
+		policy, known := TrustedRunToolPolicy(srv, current.Name)
+		if !known || policy.Risk != frozen.Risk || policy.TargetParameter != frozen.TargetParameter {
+			return "", fmt.Errorf("trusted tool policy changed")
 		}
 		definition, err := runToolDefinition(srv, current)
 		if err != nil {
@@ -235,6 +258,9 @@ func CallRunTool(ctx context.Context, srv model.McpServer, frozen RunTool, argum
 	request := mcp.CallToolRequest{}
 	request.Params.Name = frozen.Name
 	request.Params.Arguments = args
+	if err := beforeCall(ctx); err != nil {
+		return "", err
+	}
 	result, err := cli.CallTool(ctx, request)
 	if err != nil {
 		return "", err
@@ -243,16 +269,64 @@ func CallRunTool(ctx context.Context, srv model.McpServer, frozen RunTool, argum
 	if err != nil {
 		return "", err
 	}
-	text := string(raw)
 	if srv.AuthConfig != nil {
-		for _, secret := range []string{srv.AuthConfig.APIKey, srv.AuthConfig.Token} {
-			if secret != "" {
-				text = strings.ReplaceAll(text, secret, "[redacted]")
-			}
+		var value any
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		if err := dec.Decode(&value); err != nil {
+			return "", err
+		}
+		raw, err = json.Marshal(redactToolCredentials(value, srv.AuthConfig))
+		if err != nil {
+			return "", err
 		}
 	}
+	text := string(raw)
 	if result.IsError {
 		return text, fmt.Errorf("MCP tool reported an error")
 	}
 	return text, nil
+}
+
+func redactToolCredentials(value any, auth *model.MCPAuthConfig) any {
+	switch current := value.(type) {
+	case map[string]any:
+		for key, item := range current {
+			redactedKey := key
+			for _, secret := range []string{auth.APIKey, auth.Token} {
+				if secret != "" {
+					redactedKey = strings.ReplaceAll(redactedKey, secret, "[redacted]")
+				}
+			}
+			if redactedKey != key {
+				delete(current, key)
+				// Drop secret-bearing properties without colliding with safe names.
+				continue
+			}
+			current[key] = redactToolCredentials(item, auth)
+		}
+	case []any:
+		for i, item := range current {
+			current[i] = redactToolCredentials(item, auth)
+		}
+	case string:
+		for _, secret := range []string{auth.APIKey, auth.Token} {
+			if secret != "" {
+				current = strings.ReplaceAll(current, secret, "[redacted]")
+			}
+		}
+		var nested any
+		dec := json.NewDecoder(strings.NewReader(current))
+		dec.UseNumber()
+		if dec.Decode(&nested) == nil {
+			before, err := json.Marshal(nested)
+			if err == nil {
+				if raw, err := json.Marshal(redactToolCredentials(nested, auth)); err == nil && !bytes.Equal(before, raw) {
+					return string(raw)
+				}
+			}
+		}
+		return current
+	}
+	return value
 }

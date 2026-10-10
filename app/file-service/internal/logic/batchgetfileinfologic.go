@@ -6,6 +6,7 @@ import (
 	"github.com/maomeng/aim/app/file-service/internal/svc"
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -41,9 +42,10 @@ func (l *BatchGetFileInfoLogic) BatchGetFileInfo(in *filepb.BatchGetFileInfoReq)
 
 	items := make([]*filepb.FileInfo, 0, len(files))
 	for _, f := range files {
-		// Skip private files not owned by requester
 		if f.Access != int32(filepb.FileAccess_FILE_ACCESS_PUBLIC) && f.UploaderID != in.GetUserId() {
-			continue
+			if err := resourcegrant.ForViewer(l.svcCtx.DB.WithContext(l.ctx), in.GetUserId(), "file", f.ID); err != nil {
+				continue
+			}
 		}
 		items = append(items, toProtoFileInfo(&f))
 	}

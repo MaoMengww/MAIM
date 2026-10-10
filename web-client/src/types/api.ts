@@ -180,6 +180,8 @@ export interface StartRunReq extends RunMaterialsReq {
   message: string;
   reply_to_msg_id?: string;
   parent_run_id?: string;
+  visibility?: 'conversation' | 'personal';
+  resource_grant_ids?: string[];
 }
 
 export type ControlRunReq = RunMaterialsReq & {

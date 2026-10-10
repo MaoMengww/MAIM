@@ -33,7 +33,7 @@ export function useRuns(convId: string) {
   });
 
   const applyRun = useCallback((run: BotRun) => {
-    if (removed.current || run.conv_id !== convId || revision !== useAuthStore.getState().revision || account !== useAuthStore.getState().user?.id) return;
+    if (run.visibility !== 'conversation' || removed.current || run.conv_id !== convId || revision !== useAuthStore.getState().revision || account !== useAuthStore.getState().user?.id) return;
     queryClient.setQueryData<BotRun[]>(['bot-runs', account, revision, convId], (previous) => mergeRuns(previous, [run]));
   }, [queryClient, account, revision, convId]);
 

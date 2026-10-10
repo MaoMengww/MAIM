@@ -14,28 +14,31 @@ import (
 
 // Run observations come only from authenticated REST/WS and the external provider.
 type publicRun struct {
-	ID              entityID        `json:"id"`
-	InteractionID   entityID        `json:"interaction_id"`
-	BotID           entityID        `json:"bot_id"`
-	ConvID          entityID        `json:"conv_id"`
-	BindingID       entityID        `json:"binding_id"`
-	RequesterID     entityID        `json:"requester_id"`
-	ControllerID    entityID        `json:"controller_id"`
-	ControlUserIDs  []entityID      `json:"control_user_ids"`
-	StopStatus      string          `json:"stop_status"`
-	StreamStatus    string          `json:"stream_status"`
-	StopReason      string          `json:"stop_reason"`
-	SourceMessageID *entityID       `json:"source_message_id"`
-	Version         int64           `json:"version"`
-	Status          string          `json:"status"`
-	Stage           string          `json:"stage"`
-	ResultText      string          `json:"result_text"`
-	ResultContent   json.RawMessage `json:"result_content"`
-	OutputStatus    string          `json:"output_status"`
-	MessageID       *entityID       `json:"message_id"`
-	Error           string          `json:"error"`
-	Generation      int64           `json:"generation"`
-	InputVersion    int64           `json:"input_version"`
+	ID              entityID              `json:"id"`
+	InteractionID   entityID              `json:"interaction_id"`
+	BotID           entityID              `json:"bot_id"`
+	ConvID          entityID              `json:"conv_id"`
+	BindingID       entityID              `json:"binding_id"`
+	RequesterID     entityID              `json:"requester_id"`
+	Visibility      string                `json:"visibility"`
+	PersonalUserID  *entityID             `json:"personal_user_id"`
+	Actions         []authorizationAction `json:"actions"`
+	ControllerID    entityID              `json:"controller_id"`
+	ControlUserIDs  []entityID            `json:"control_user_ids"`
+	StopStatus      string                `json:"stop_status"`
+	StreamStatus    string                `json:"stream_status"`
+	StopReason      string                `json:"stop_reason"`
+	SourceMessageID *entityID             `json:"source_message_id"`
+	Version         int64                 `json:"version"`
+	Status          string                `json:"status"`
+	Stage           string                `json:"stage"`
+	ResultText      string                `json:"result_text"`
+	ResultContent   json.RawMessage       `json:"result_content"`
+	OutputStatus    string                `json:"output_status"`
+	MessageID       *entityID             `json:"message_id"`
+	Error           string                `json:"error"`
+	Generation      int64                 `json:"generation"`
+	InputVersion    int64                 `json:"input_version"`
 	InputSources    []struct {
 		Version         int64     `json:"version"`
 		RequesterID     entityID  `json:"requester_id"`
@@ -127,6 +130,9 @@ func (d *driver) botRuns(address, secondAddress string) error {
 		ID entityID `json:"conversation_id"`
 	}
 	if err = d.request(http.MethodPost, "/convs", owner.token, map[string]any{"type": "group", "group_name": "runs-" + suffix, "member_ids": []entityID{member.id}}, &conv); err != nil {
+		return err
+	}
+	if err = d.fixtureEchoPolicy(owner, mcp.ID, conv.ID); err != nil {
 		return err
 	}
 	for i := range bots {

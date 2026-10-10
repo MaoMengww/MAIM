@@ -25,6 +25,7 @@ const (
 	BotService_ListRuns_FullMethodName              = "/bot.BotService/ListRuns"
 	BotService_ExecutorUpdate_FullMethodName        = "/bot.BotService/ExecutorUpdate"
 	BotService_ControlRun_FullMethodName            = "/bot.BotService/ControlRun"
+	BotService_Authorization_FullMethodName         = "/bot.BotService/Authorization"
 	BotService_CreateBot_FullMethodName             = "/bot.BotService/CreateBot"
 	BotService_UpdateBot_FullMethodName             = "/bot.BotService/UpdateBot"
 	BotService_DeleteBot_FullMethodName             = "/bot.BotService/DeleteBot"
@@ -58,6 +59,7 @@ type BotServiceClient interface {
 	ListRuns(ctx context.Context, in *ListRunsReq, opts ...grpc.CallOption) (*ListRunsResponse, error)
 	ExecutorUpdate(ctx context.Context, in *ExecutorUpdateReq, opts ...grpc.CallOption) (*RunResponse, error)
 	ControlRun(ctx context.Context, in *ControlRunReq, opts ...grpc.CallOption) (*RunResponse, error)
+	Authorization(ctx context.Context, in *AuthorizationReq, opts ...grpc.CallOption) (*AuthorizationResponse, error)
 	// Bot CRUD
 	CreateBot(ctx context.Context, in *CreateBotReq, opts ...grpc.CallOption) (*Bot, error)
 	UpdateBot(ctx context.Context, in *UpdateBotReq, opts ...grpc.CallOption) (*Bot, error)
@@ -142,6 +144,16 @@ func (c *botServiceClient) ControlRun(ctx context.Context, in *ControlRunReq, op
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RunResponse)
 	err := c.cc.Invoke(ctx, BotService_ControlRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *botServiceClient) Authorization(ctx context.Context, in *AuthorizationReq, opts ...grpc.CallOption) (*AuthorizationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuthorizationResponse)
+	err := c.cc.Invoke(ctx, BotService_Authorization_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -377,6 +389,7 @@ type BotServiceServer interface {
 	ListRuns(context.Context, *ListRunsReq) (*ListRunsResponse, error)
 	ExecutorUpdate(context.Context, *ExecutorUpdateReq) (*RunResponse, error)
 	ControlRun(context.Context, *ControlRunReq) (*RunResponse, error)
+	Authorization(context.Context, *AuthorizationReq) (*AuthorizationResponse, error)
 	// Bot CRUD
 	CreateBot(context.Context, *CreateBotReq) (*Bot, error)
 	UpdateBot(context.Context, *UpdateBotReq) (*Bot, error)
@@ -431,6 +444,9 @@ func (UnimplementedBotServiceServer) ExecutorUpdate(context.Context, *ExecutorUp
 }
 func (UnimplementedBotServiceServer) ControlRun(context.Context, *ControlRunReq) (*RunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ControlRun not implemented")
+}
+func (UnimplementedBotServiceServer) Authorization(context.Context, *AuthorizationReq) (*AuthorizationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Authorization not implemented")
 }
 func (UnimplementedBotServiceServer) CreateBot(context.Context, *CreateBotReq) (*Bot, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateBot not implemented")
@@ -605,6 +621,24 @@ func _BotService_ControlRun_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(BotServiceServer).ControlRun(ctx, req.(*ControlRunReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BotService_Authorization_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthorizationReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BotServiceServer).Authorization(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BotService_Authorization_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BotServiceServer).Authorization(ctx, req.(*AuthorizationReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1031,6 +1065,10 @@ var BotService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ControlRun",
 			Handler:    _BotService_ControlRun_Handler,
+		},
+		{
+			MethodName: "Authorization",
+			Handler:    _BotService_Authorization_Handler,
 		},
 		{
 			MethodName: "CreateBot",

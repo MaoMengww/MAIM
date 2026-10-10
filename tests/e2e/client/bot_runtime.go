@@ -325,6 +325,9 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	if err := d.request(http.MethodPost, "/convs/"+conv.ID.String()+"/bots", owner.token, map[string]any{"bot_id": bot.ID.String()}, nil); err != nil {
 		return err
 	}
+	if err := d.fixtureEchoPolicy(owner, mcp.ID, conv.ID); err != nil {
+		return err
+	}
 	conn, err := d.connect(address, owner)
 	if err != nil {
 		return err
@@ -951,6 +954,19 @@ func (d *driver) runtimePrivateBotConversation(owner, outsider account, address 
 	}
 	if err := d.conversationForbidden("bot-owner-private-no-read", http.MethodGet, "/convs/"+conv.ID.String()+"/messages?cursor=0&limit=30", owner, nil); err != nil {
 		return err
+	}
+	var assigned struct {
+		Servers []struct {
+			ID entityID `json:"mcp_server_id"`
+		} `json:"servers"`
+	}
+	if err := d.request(http.MethodGet, "/bots/"+botID.String()+"/mcp-servers", owner.token, nil, &assigned); err != nil {
+		return err
+	}
+	for _, server := range assigned.Servers {
+		if err := d.fixtureEchoPolicy(owner, server.ID, conv.ID); err != nil {
+			return err
+		}
 	}
 	user, err := d.inboxLoginDevice(outsider, "bot_single")
 	if err != nil {

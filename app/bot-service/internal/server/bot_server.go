@@ -244,3 +244,7 @@ func (s *BotServer) ExecutorUpdate(ctx context.Context, req *pb.ExecutorUpdateRe
 func (s *BotServer) ControlRun(ctx context.Context, req *pb.ControlRunReq) (*pb.RunResponse, error) {
 	return s.runtime.ControlRun(ctx, req)
 }
+
+func (s *BotServer) Authorization(ctx context.Context, req *pb.AuthorizationReq) (*pb.AuthorizationResponse, error) {
+	return s.runtime.Authorization(ctx, req)
+}

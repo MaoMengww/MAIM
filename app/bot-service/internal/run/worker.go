@@ -18,6 +18,7 @@ import (
 	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/protocol"
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -286,7 +287,7 @@ func (s *Service) waitForInput(ctx context.Context, r *model.Run, generation int
 }
 
 func (s *Service) queueOutput(ctx context.Context, r *model.Run, generation int64) error {
-	if err := s.authorize(ctx, r, true); err != nil {
+	if err := s.authorize(ctx, r, r.Visibility != "personal"); err != nil {
 		return err
 	}
 	_, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
@@ -330,6 +331,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		if call.InputUpperBound != r.AppliedInputVersion || call.TrajectoryVersion != r.TrajectoryVersion {
 			return status.Error(codes.FailedPrecondition, "pending request snapshot does not match the trajectory")
 		}
+		request.RunId, request.ExecutionGeneration, request.InputVersion = &r.ID, generation, call.InputUpperBound
 	} else {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -341,7 +343,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		if calls >= int64(config.MaxSteps) {
 			return status.Error(codes.ResourceExhausted, "model round limit exceeded")
 		}
-		request = &llm.ChatReq{ModelId: config.Model.ModelId, ExecutionModel: config.Model, OwnerId: config.OwnerID, BotId: &r.BotID, Messages: messages, Temperature: config.Temperature, MaxTokens: config.MaxOutputTokens, CacheScope: config.CacheScope}
+		request = &llm.ChatReq{ModelId: config.Model.ModelId, ExecutionModel: config.Model, OwnerId: config.OwnerID, BotId: &r.BotID, RunId: &r.ID, ExecutionGeneration: generation, InputVersion: r.AppliedInputVersion, Messages: messages, Temperature: config.Temperature, MaxTokens: config.MaxOutputTokens, CacheScope: config.CacheScope}
 		for _, tool := range config.Tools {
 			request.Tools = append(request.Tools, &llm.ToolDef{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 		}
@@ -403,6 +405,20 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 			return status.Error(codes.FailedPrecondition, "invalid tool-call pairing")
 		}
 		ids[tool.Id] = true
+		var server model.McpServer
+		index := slices.IndexFunc(config.Tools, func(t component.RunTool) bool { return t.Name == tool.Function.Name })
+		if index < 0 {
+			return status.Error(codes.PermissionDenied, "unknown-risk tool cannot enter the work trajectory")
+		}
+		frozen := config.Tools[index]
+		if frozen.ServerID != "builtin" && frozen.ServerID != "runtime" {
+			if err := s.svc.DB.WithContext(ctx).Where("id = ?", frozen.ServerID).First(&server).Error; err != nil {
+				return err
+			}
+		}
+		if _, _, err := canonicalActionArguments([]byte(tool.Function.Arguments), server); err != nil {
+			return err
+		}
 	}
 	responseRaw, err := requestJSON.Marshal(response)
 	if err != nil {
@@ -559,33 +575,11 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 	if frozen.ServerID == "runtime" && frozen.Name == "ask_for_input" {
 		return s.waitForInput(ctx, r, generation, call)
 	}
-	var server model.McpServer
-	if frozen.ServerID != "builtin" {
-		servers, err := s.svc.BotRepo.ListEnabledMcpServers(ctx, r.BotID)
-		if err != nil {
-			return err
-		}
-		serverIndex := slices.IndexFunc(servers, func(server model.McpServer) bool { return server.ID == frozen.ServerID })
-		if serverIndex < 0 {
-			return status.Error(codes.PermissionDenied, "tool access revoked")
-		}
-		server = servers[serverIndex]
-	}
-	if _, err := s.repo.Change(ctx, r.ID, generation, func(_ *gorm.DB, current *model.Run) error { current.Stage = "tool"; return nil }); err != nil {
+	action, err := s.actionInterrupt(ctx, r, frozen, call.Function.Arguments, call.Id)
+	if err != nil {
 		return err
 	}
-	if _, err := s.executionBoundary(ctx, r, generation); err != nil {
-		return err
-	}
-	toolCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	var result string
-	var toolErr error
-	if frozen.ServerID == "builtin" {
-		result, toolErr = component.CallBuiltinRunTool(toolCtx, frozen, call.Function.Arguments)
-	} else {
-		result, toolErr = component.CallRunTool(toolCtx, server, frozen, call.Function.Arguments)
-	}
+	result, toolErr := s.invokeAction(ctx, r, action, frozen)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -606,7 +600,7 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 		if err := repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "tool", Name: call.Function.Name, ToolCallId: call.Id, Content: result}); err != nil {
 			return err
 		}
-		if toolErr == nil {
+		if toolErr == nil && action.Status == "succeeded" {
 			var sources []map[string]any
 			if err := json.Unmarshal(current.Sources, &sources); err != nil {
 				return err
@@ -618,7 +612,7 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 			}
 			current.Sources = raw
 		}
-		return repo.AppendRunBlock(tx, current, "tool_roundtrip", map[string]any{"tool_call": call, "result": result, "failed": toolErr != nil})
+		return repo.AppendRunBlock(tx, current, "tool_roundtrip", map[string]any{"tool_call": call, "result": result, "failed": toolErr != nil, "executed": action.Status == "succeeded"})
 	})
 	if err != nil {
 		return err
@@ -643,13 +637,26 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	if r.OutputStatus != "pending" {
 		return status.Error(codes.FailedPrecondition, "output is not pending")
 	}
-	if err := s.authorize(ctx, r, true); err != nil {
+	if err := s.authorize(ctx, r, r.Visibility != "personal"); err != nil {
 		switch status.Code(err) {
 		case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.FailedPrecondition:
 			return s.fail(ctx, r, 0, "output authorization revoked", true)
 		default:
 			return err
 		}
+	}
+	if r.Visibility == "personal" {
+		_, err = s.repo.ChangeLifecycle(ctx, r.ID, 0, func(tx *gorm.DB, current *model.Run) error {
+			if err := s.actionFence(tx, current, current.ExecutionGeneration, current.InputVersion); err != nil {
+				return err
+			}
+			if err := resourcegrant.CheckIDs(tx, resourceAccess(current), false, true); err != nil {
+				return err
+			}
+			current.Status, current.Stage, current.OutputStatus = "succeeded", "committed", "committed"
+			return nil
+		})
+		return err
 	}
 	var sources []map[string]any
 	if err := json.Unmarshal(r.Sources, &sources); err != nil {
@@ -673,11 +680,12 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 		var roundtrip struct {
 			ToolCall *llm.ToolCall `json:"tool_call"`
 			Failed   bool          `json:"failed"`
+			Executed bool          `json:"executed"`
 		}
 		if err := json.Unmarshal(block.Block, &roundtrip); err != nil {
 			return err
 		}
-		if !roundtrip.Failed && roundtrip.ToolCall != nil && roundtrip.ToolCall.Function != nil {
+		if roundtrip.Executed && !roundtrip.Failed && roundtrip.ToolCall != nil && roundtrip.ToolCall.Function != nil {
 			toolNames = append(toolNames, roundtrip.ToolCall.Function.Name)
 		}
 	}
@@ -736,6 +744,9 @@ func (s *Service) publishUpdate(ctx context.Context, item *model.RunOutbox) erro
 	r, err := s.repo.Get(ctx, item.RunID)
 	if err != nil {
 		return err
+	}
+	if r.Visibility == "personal" {
+		return nil
 	}
 	var members []string
 	if err := s.svc.DB.WithContext(ctx).Table("messaging.conv_members").Where("conv_id = ? AND member_type = 'user'", r.ConvID).Pluck("user_id", &members).Error; err != nil {

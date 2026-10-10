@@ -23,6 +23,94 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type ResourceAuthorizationReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Body          []byte                 `protobuf:"bytes,1,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResourceAuthorizationReq) Reset() {
+	*x = ResourceAuthorizationReq{}
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceAuthorizationReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceAuthorizationReq) ProtoMessage() {}
+
+func (x *ResourceAuthorizationReq) ProtoReflect() protoreflect.Message {
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResourceAuthorizationReq.ProtoReflect.Descriptor instead.
+func (*ResourceAuthorizationReq) Descriptor() ([]byte, []int) {
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ResourceAuthorizationReq) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+type ResourceAuthorizationResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Body          []byte                 `protobuf:"bytes,1,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResourceAuthorizationResp) Reset() {
+	*x = ResourceAuthorizationResp{}
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceAuthorizationResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceAuthorizationResp) ProtoMessage() {}
+
+func (x *ResourceAuthorizationResp) ProtoReflect() protoreflect.Message {
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResourceAuthorizationResp.ProtoReflect.Descriptor instead.
+func (*ResourceAuthorizationResp) Descriptor() ([]byte, []int) {
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ResourceAuthorizationResp) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
 type CreateKBReq struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -39,7 +127,7 @@ type CreateKBReq struct {
 
 func (x *CreateKBReq) Reset() {
 	*x = CreateKBReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[0]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -51,7 +139,7 @@ func (x *CreateKBReq) String() string {
 func (*CreateKBReq) ProtoMessage() {}
 
 func (x *CreateKBReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[0]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64,7 +152,7 @@ func (x *CreateKBReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateKBReq.ProtoReflect.Descriptor instead.
 func (*CreateKBReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{0}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CreateKBReq) GetName() string {
@@ -141,7 +229,7 @@ type UpdateKBReq struct {
 
 func (x *UpdateKBReq) Reset() {
 	*x = UpdateKBReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[1]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -153,7 +241,7 @@ func (x *UpdateKBReq) String() string {
 func (*UpdateKBReq) ProtoMessage() {}
 
 func (x *UpdateKBReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[1]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -166,7 +254,7 @@ func (x *UpdateKBReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateKBReq.ProtoReflect.Descriptor instead.
 func (*UpdateKBReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{1}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *UpdateKBReq) GetKbId() string {
@@ -234,7 +322,7 @@ type DeleteKBReq struct {
 
 func (x *DeleteKBReq) Reset() {
 	*x = DeleteKBReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[2]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -246,7 +334,7 @@ func (x *DeleteKBReq) String() string {
 func (*DeleteKBReq) ProtoMessage() {}
 
 func (x *DeleteKBReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[2]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -259,7 +347,7 @@ func (x *DeleteKBReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteKBReq.ProtoReflect.Descriptor instead.
 func (*DeleteKBReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{2}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *DeleteKBReq) GetKbId() string {
@@ -278,7 +366,7 @@ type GetKBReq struct {
 
 func (x *GetKBReq) Reset() {
 	*x = GetKBReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[3]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -290,7 +378,7 @@ func (x *GetKBReq) String() string {
 func (*GetKBReq) ProtoMessage() {}
 
 func (x *GetKBReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[3]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -303,7 +391,7 @@ func (x *GetKBReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetKBReq.ProtoReflect.Descriptor instead.
 func (*GetKBReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{3}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetKBReq) GetKbId() string {
@@ -323,7 +411,7 @@ type ListKBsReq struct {
 
 func (x *ListKBsReq) Reset() {
 	*x = ListKBsReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[4]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -335,7 +423,7 @@ func (x *ListKBsReq) String() string {
 func (*ListKBsReq) ProtoMessage() {}
 
 func (x *ListKBsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[4]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -348,7 +436,7 @@ func (x *ListKBsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListKBsReq.ProtoReflect.Descriptor instead.
 func (*ListKBsReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{4}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListKBsReq) GetOffset() int32 {
@@ -387,7 +475,7 @@ type KBRsp struct {
 
 func (x *KBRsp) Reset() {
 	*x = KBRsp{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[5]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -399,7 +487,7 @@ func (x *KBRsp) String() string {
 func (*KBRsp) ProtoMessage() {}
 
 func (x *KBRsp) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[5]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -412,7 +500,7 @@ func (x *KBRsp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KBRsp.ProtoReflect.Descriptor instead.
 func (*KBRsp) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{5}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *KBRsp) GetId() string {
@@ -523,7 +611,7 @@ type ListKBsRsp struct {
 
 func (x *ListKBsRsp) Reset() {
 	*x = ListKBsRsp{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[6]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -535,7 +623,7 @@ func (x *ListKBsRsp) String() string {
 func (*ListKBsRsp) ProtoMessage() {}
 
 func (x *ListKBsRsp) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[6]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -548,7 +636,7 @@ func (x *ListKBsRsp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListKBsRsp.ProtoReflect.Descriptor instead.
 func (*ListKBsRsp) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{6}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListKBsRsp) GetItems() []*KBRsp {
@@ -576,7 +664,7 @@ type PipelineConfig struct {
 
 func (x *PipelineConfig) Reset() {
 	*x = PipelineConfig{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[7]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -588,7 +676,7 @@ func (x *PipelineConfig) String() string {
 func (*PipelineConfig) ProtoMessage() {}
 
 func (x *PipelineConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[7]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -601,7 +689,7 @@ func (x *PipelineConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PipelineConfig.ProtoReflect.Descriptor instead.
 func (*PipelineConfig) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{7}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PipelineConfig) GetParsing() *ParsingConfig {
@@ -645,7 +733,7 @@ type ParsingConfig struct {
 
 func (x *ParsingConfig) Reset() {
 	*x = ParsingConfig{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[8]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -657,7 +745,7 @@ func (x *ParsingConfig) String() string {
 func (*ParsingConfig) ProtoMessage() {}
 
 func (x *ParsingConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[8]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -670,7 +758,7 @@ func (x *ParsingConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ParsingConfig.ProtoReflect.Descriptor instead.
 func (*ParsingConfig) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{8}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ParsingConfig) GetEngines() []string {
@@ -712,7 +800,7 @@ type MinerUConfig struct {
 
 func (x *MinerUConfig) Reset() {
 	*x = MinerUConfig{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[9]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -724,7 +812,7 @@ func (x *MinerUConfig) String() string {
 func (*MinerUConfig) ProtoMessage() {}
 
 func (x *MinerUConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[9]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -737,7 +825,7 @@ func (x *MinerUConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MinerUConfig.ProtoReflect.Descriptor instead.
 func (*MinerUConfig) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{9}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *MinerUConfig) GetApiUrl() string {
@@ -778,7 +866,7 @@ type VLMConfig struct {
 
 func (x *VLMConfig) Reset() {
 	*x = VLMConfig{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[10]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -790,7 +878,7 @@ func (x *VLMConfig) String() string {
 func (*VLMConfig) ProtoMessage() {}
 
 func (x *VLMConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[10]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -803,7 +891,7 @@ func (x *VLMConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VLMConfig.ProtoReflect.Descriptor instead.
 func (*VLMConfig) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{10}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *VLMConfig) GetEnabled() bool {
@@ -867,7 +955,7 @@ type ChunkingConfig struct {
 
 func (x *ChunkingConfig) Reset() {
 	*x = ChunkingConfig{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[11]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -879,7 +967,7 @@ func (x *ChunkingConfig) String() string {
 func (*ChunkingConfig) ProtoMessage() {}
 
 func (x *ChunkingConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[11]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -892,7 +980,7 @@ func (x *ChunkingConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChunkingConfig.ProtoReflect.Descriptor instead.
 func (*ChunkingConfig) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{11}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ChunkingConfig) GetChunkSize() int32 {
@@ -934,7 +1022,7 @@ type ParentChildConfig struct {
 
 func (x *ParentChildConfig) Reset() {
 	*x = ParentChildConfig{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[12]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -946,7 +1034,7 @@ func (x *ParentChildConfig) String() string {
 func (*ParentChildConfig) ProtoMessage() {}
 
 func (x *ParentChildConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[12]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -959,7 +1047,7 @@ func (x *ParentChildConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ParentChildConfig.ProtoReflect.Descriptor instead.
 func (*ParentChildConfig) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{12}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ParentChildConfig) GetEnabled() bool {
@@ -998,7 +1086,7 @@ type RetrievalConfig struct {
 
 func (x *RetrievalConfig) Reset() {
 	*x = RetrievalConfig{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[13]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1010,7 +1098,7 @@ func (x *RetrievalConfig) String() string {
 func (*RetrievalConfig) ProtoMessage() {}
 
 func (x *RetrievalConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[13]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1023,7 +1111,7 @@ func (x *RetrievalConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetrievalConfig.ProtoReflect.Descriptor instead.
 func (*RetrievalConfig) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{13}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RetrievalConfig) GetMode() string {
@@ -1089,7 +1177,7 @@ type RerankConfig struct {
 
 func (x *RerankConfig) Reset() {
 	*x = RerankConfig{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[14]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1101,7 +1189,7 @@ func (x *RerankConfig) String() string {
 func (*RerankConfig) ProtoMessage() {}
 
 func (x *RerankConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[14]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1114,7 +1202,7 @@ func (x *RerankConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerankConfig.ProtoReflect.Descriptor instead.
 func (*RerankConfig) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{14}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RerankConfig) GetEnabled() bool {
@@ -1158,7 +1246,7 @@ type UploadDocumentReq struct {
 
 func (x *UploadDocumentReq) Reset() {
 	*x = UploadDocumentReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[15]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1170,7 +1258,7 @@ func (x *UploadDocumentReq) String() string {
 func (*UploadDocumentReq) ProtoMessage() {}
 
 func (x *UploadDocumentReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[15]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1183,7 +1271,7 @@ func (x *UploadDocumentReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadDocumentReq.ProtoReflect.Descriptor instead.
 func (*UploadDocumentReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{15}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *UploadDocumentReq) GetData() isUploadDocumentReq_Data {
@@ -1236,7 +1324,7 @@ type GetDocumentReq struct {
 
 func (x *GetDocumentReq) Reset() {
 	*x = GetDocumentReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[16]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1248,7 +1336,7 @@ func (x *GetDocumentReq) String() string {
 func (*GetDocumentReq) ProtoMessage() {}
 
 func (x *GetDocumentReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[16]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1261,7 +1349,7 @@ func (x *GetDocumentReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDocumentReq.ProtoReflect.Descriptor instead.
 func (*GetDocumentReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{16}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *GetDocumentReq) GetDocId() string {
@@ -1283,7 +1371,7 @@ type ListDocumentsReq struct {
 
 func (x *ListDocumentsReq) Reset() {
 	*x = ListDocumentsReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[17]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1295,7 +1383,7 @@ func (x *ListDocumentsReq) String() string {
 func (*ListDocumentsReq) ProtoMessage() {}
 
 func (x *ListDocumentsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[17]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1308,7 +1396,7 @@ func (x *ListDocumentsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDocumentsReq.ProtoReflect.Descriptor instead.
 func (*ListDocumentsReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{17}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListDocumentsReq) GetKbId() string {
@@ -1348,7 +1436,7 @@ type DeleteDocumentReq struct {
 
 func (x *DeleteDocumentReq) Reset() {
 	*x = DeleteDocumentReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[18]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1360,7 +1448,7 @@ func (x *DeleteDocumentReq) String() string {
 func (*DeleteDocumentReq) ProtoMessage() {}
 
 func (x *DeleteDocumentReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[18]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1373,7 +1461,7 @@ func (x *DeleteDocumentReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteDocumentReq.ProtoReflect.Descriptor instead.
 func (*DeleteDocumentReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{18}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DeleteDocumentReq) GetDocId() string {
@@ -1392,7 +1480,7 @@ type RetryDocumentReq struct {
 
 func (x *RetryDocumentReq) Reset() {
 	*x = RetryDocumentReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[19]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1404,7 +1492,7 @@ func (x *RetryDocumentReq) String() string {
 func (*RetryDocumentReq) ProtoMessage() {}
 
 func (x *RetryDocumentReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[19]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1417,7 +1505,7 @@ func (x *RetryDocumentReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetryDocumentReq.ProtoReflect.Descriptor instead.
 func (*RetryDocumentReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{19}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *RetryDocumentReq) GetDocId() string {
@@ -1448,7 +1536,7 @@ type DocumentRsp struct {
 
 func (x *DocumentRsp) Reset() {
 	*x = DocumentRsp{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[20]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1460,7 +1548,7 @@ func (x *DocumentRsp) String() string {
 func (*DocumentRsp) ProtoMessage() {}
 
 func (x *DocumentRsp) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[20]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1473,7 +1561,7 @@ func (x *DocumentRsp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DocumentRsp.ProtoReflect.Descriptor instead.
 func (*DocumentRsp) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{20}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *DocumentRsp) GetId() string {
@@ -1581,7 +1669,7 @@ type StageInfo struct {
 
 func (x *StageInfo) Reset() {
 	*x = StageInfo{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[21]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1593,7 +1681,7 @@ func (x *StageInfo) String() string {
 func (*StageInfo) ProtoMessage() {}
 
 func (x *StageInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[21]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1606,7 +1694,7 @@ func (x *StageInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageInfo.ProtoReflect.Descriptor instead.
 func (*StageInfo) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{21}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *StageInfo) GetName() string {
@@ -1661,7 +1749,7 @@ type ListDocumentsRsp struct {
 
 func (x *ListDocumentsRsp) Reset() {
 	*x = ListDocumentsRsp{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[22]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1673,7 +1761,7 @@ func (x *ListDocumentsRsp) String() string {
 func (*ListDocumentsRsp) ProtoMessage() {}
 
 func (x *ListDocumentsRsp) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[22]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1686,7 +1774,7 @@ func (x *ListDocumentsRsp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDocumentsRsp.ProtoReflect.Descriptor instead.
 func (*ListDocumentsRsp) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{22}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ListDocumentsRsp) GetItems() []*DocumentRsp {
@@ -1715,7 +1803,7 @@ type RetrieveReq struct {
 
 func (x *RetrieveReq) Reset() {
 	*x = RetrieveReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[23]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1727,7 +1815,7 @@ func (x *RetrieveReq) String() string {
 func (*RetrieveReq) ProtoMessage() {}
 
 func (x *RetrieveReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[23]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1740,7 +1828,7 @@ func (x *RetrieveReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetrieveReq.ProtoReflect.Descriptor instead.
 func (*RetrieveReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{23}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *RetrieveReq) GetQuery() string {
@@ -1780,7 +1868,7 @@ type RetrieveRsp struct {
 
 func (x *RetrieveRsp) Reset() {
 	*x = RetrieveRsp{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[24]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1792,7 +1880,7 @@ func (x *RetrieveRsp) String() string {
 func (*RetrieveRsp) ProtoMessage() {}
 
 func (x *RetrieveRsp) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[24]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1805,7 +1893,7 @@ func (x *RetrieveRsp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetrieveRsp.ProtoReflect.Descriptor instead.
 func (*RetrieveRsp) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{24}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RetrieveRsp) GetItems() []*RetrieveItem {
@@ -1832,7 +1920,7 @@ type RetrieveItem struct {
 
 func (x *RetrieveItem) Reset() {
 	*x = RetrieveItem{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[25]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1844,7 +1932,7 @@ func (x *RetrieveItem) String() string {
 func (*RetrieveItem) ProtoMessage() {}
 
 func (x *RetrieveItem) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[25]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1857,7 +1945,7 @@ func (x *RetrieveItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetrieveItem.ProtoReflect.Descriptor instead.
 func (*RetrieveItem) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{25}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *RetrieveItem) GetChunkId() string {
@@ -1937,7 +2025,7 @@ type ChunkMeta struct {
 
 func (x *ChunkMeta) Reset() {
 	*x = ChunkMeta{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[26]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1949,7 +2037,7 @@ func (x *ChunkMeta) String() string {
 func (*ChunkMeta) ProtoMessage() {}
 
 func (x *ChunkMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[26]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1962,7 +2050,7 @@ func (x *ChunkMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChunkMeta.ProtoReflect.Descriptor instead.
 func (*ChunkMeta) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{26}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ChunkMeta) GetPageNum() int32 {
@@ -2018,7 +2106,7 @@ type BindReq struct {
 
 func (x *BindReq) Reset() {
 	*x = BindReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[27]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2030,7 +2118,7 @@ func (x *BindReq) String() string {
 func (*BindReq) ProtoMessage() {}
 
 func (x *BindReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[27]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2043,7 +2131,7 @@ func (x *BindReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BindReq.ProtoReflect.Descriptor instead.
 func (*BindReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{27}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *BindReq) GetKbId() string {
@@ -2078,7 +2166,7 @@ type UnbindReq struct {
 
 func (x *UnbindReq) Reset() {
 	*x = UnbindReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[28]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2090,7 +2178,7 @@ func (x *UnbindReq) String() string {
 func (*UnbindReq) ProtoMessage() {}
 
 func (x *UnbindReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[28]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2103,7 +2191,7 @@ func (x *UnbindReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnbindReq.ProtoReflect.Descriptor instead.
 func (*UnbindReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{28}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *UnbindReq) GetKbId() string {
@@ -2137,7 +2225,7 @@ type ListBindingsReq struct {
 
 func (x *ListBindingsReq) Reset() {
 	*x = ListBindingsReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[29]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2149,7 +2237,7 @@ func (x *ListBindingsReq) String() string {
 func (*ListBindingsReq) ProtoMessage() {}
 
 func (x *ListBindingsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[29]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2162,7 +2250,7 @@ func (x *ListBindingsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBindingsReq.ProtoReflect.Descriptor instead.
 func (*ListBindingsReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{29}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ListBindingsReq) GetTargetType() string {
@@ -2188,7 +2276,7 @@ type ListBindingsRsp struct {
 
 func (x *ListBindingsRsp) Reset() {
 	*x = ListBindingsRsp{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[30]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2200,7 +2288,7 @@ func (x *ListBindingsRsp) String() string {
 func (*ListBindingsRsp) ProtoMessage() {}
 
 func (x *ListBindingsRsp) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[30]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2213,7 +2301,7 @@ func (x *ListBindingsRsp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBindingsRsp.ProtoReflect.Descriptor instead.
 func (*ListBindingsRsp) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{30}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ListBindingsRsp) GetItems() []*BindingItem {
@@ -2238,7 +2326,7 @@ type BindingItem struct {
 
 func (x *BindingItem) Reset() {
 	*x = BindingItem{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[31]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2250,7 +2338,7 @@ func (x *BindingItem) String() string {
 func (*BindingItem) ProtoMessage() {}
 
 func (x *BindingItem) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[31]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2263,7 +2351,7 @@ func (x *BindingItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BindingItem.ProtoReflect.Descriptor instead.
 func (*BindingItem) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{31}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *BindingItem) GetId() string {
@@ -2324,7 +2412,7 @@ type ListBoundTargetsReq struct {
 
 func (x *ListBoundTargetsReq) Reset() {
 	*x = ListBoundTargetsReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[32]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2336,7 +2424,7 @@ func (x *ListBoundTargetsReq) String() string {
 func (*ListBoundTargetsReq) ProtoMessage() {}
 
 func (x *ListBoundTargetsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[32]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2349,7 +2437,7 @@ func (x *ListBoundTargetsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBoundTargetsReq.ProtoReflect.Descriptor instead.
 func (*ListBoundTargetsReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{32}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ListBoundTargetsReq) GetKbId() string {
@@ -2368,7 +2456,7 @@ type ListBoundTargetsRsp struct {
 
 func (x *ListBoundTargetsRsp) Reset() {
 	*x = ListBoundTargetsRsp{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[33]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2380,7 +2468,7 @@ func (x *ListBoundTargetsRsp) String() string {
 func (*ListBoundTargetsRsp) ProtoMessage() {}
 
 func (x *ListBoundTargetsRsp) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[33]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2393,7 +2481,7 @@ func (x *ListBoundTargetsRsp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBoundTargetsRsp.ProtoReflect.Descriptor instead.
 func (*ListBoundTargetsRsp) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{33}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ListBoundTargetsRsp) GetItems() []*BoundTargetItem {
@@ -2414,7 +2502,7 @@ type BoundTargetItem struct {
 
 func (x *BoundTargetItem) Reset() {
 	*x = BoundTargetItem{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[34]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2426,7 +2514,7 @@ func (x *BoundTargetItem) String() string {
 func (*BoundTargetItem) ProtoMessage() {}
 
 func (x *BoundTargetItem) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[34]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2439,7 +2527,7 @@ func (x *BoundTargetItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoundTargetItem.ProtoReflect.Descriptor instead.
 func (*BoundTargetItem) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{34}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *BoundTargetItem) GetTargetType() string {
@@ -2472,7 +2560,7 @@ type GetDocumentContentReq struct {
 
 func (x *GetDocumentContentReq) Reset() {
 	*x = GetDocumentContentReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[35]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2484,7 +2572,7 @@ func (x *GetDocumentContentReq) String() string {
 func (*GetDocumentContentReq) ProtoMessage() {}
 
 func (x *GetDocumentContentReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[35]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2497,7 +2585,7 @@ func (x *GetDocumentContentReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDocumentContentReq.ProtoReflect.Descriptor instead.
 func (*GetDocumentContentReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{35}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *GetDocumentContentReq) GetDocId() string {
@@ -2519,7 +2607,7 @@ type GetDocumentContentResp struct {
 
 func (x *GetDocumentContentResp) Reset() {
 	*x = GetDocumentContentResp{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[36]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2531,7 +2619,7 @@ func (x *GetDocumentContentResp) String() string {
 func (*GetDocumentContentResp) ProtoMessage() {}
 
 func (x *GetDocumentContentResp) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[36]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2544,7 +2632,7 @@ func (x *GetDocumentContentResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDocumentContentResp.ProtoReflect.Descriptor instead.
 func (*GetDocumentContentResp) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{36}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *GetDocumentContentResp) GetContent() string {
@@ -2586,7 +2674,7 @@ type ListChunksReq struct {
 
 func (x *ListChunksReq) Reset() {
 	*x = ListChunksReq{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[37]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2598,7 +2686,7 @@ func (x *ListChunksReq) String() string {
 func (*ListChunksReq) ProtoMessage() {}
 
 func (x *ListChunksReq) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[37]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2611,7 +2699,7 @@ func (x *ListChunksReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListChunksReq.ProtoReflect.Descriptor instead.
 func (*ListChunksReq) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{37}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ListChunksReq) GetDocId() string {
@@ -2650,7 +2738,7 @@ type ChunkInfo struct {
 
 func (x *ChunkInfo) Reset() {
 	*x = ChunkInfo{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[38]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2662,7 +2750,7 @@ func (x *ChunkInfo) String() string {
 func (*ChunkInfo) ProtoMessage() {}
 
 func (x *ChunkInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[38]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2675,7 +2763,7 @@ func (x *ChunkInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChunkInfo.ProtoReflect.Descriptor instead.
 func (*ChunkInfo) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{38}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ChunkInfo) GetId() string {
@@ -2737,7 +2825,7 @@ type ListChunksResp struct {
 
 func (x *ListChunksResp) Reset() {
 	*x = ListChunksResp{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[39]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2749,7 +2837,7 @@ func (x *ListChunksResp) String() string {
 func (*ListChunksResp) ProtoMessage() {}
 
 func (x *ListChunksResp) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[39]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2762,7 +2850,7 @@ func (x *ListChunksResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListChunksResp.ProtoReflect.Descriptor instead.
 func (*ListChunksResp) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{39}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ListChunksResp) GetChunks() []*ChunkInfo {
@@ -2794,7 +2882,7 @@ type UploadDocumentReq_MetaChunk struct {
 
 func (x *UploadDocumentReq_MetaChunk) Reset() {
 	*x = UploadDocumentReq_MetaChunk{}
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[40]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2806,7 +2894,7 @@ func (x *UploadDocumentReq_MetaChunk) String() string {
 func (*UploadDocumentReq_MetaChunk) ProtoMessage() {}
 
 func (x *UploadDocumentReq_MetaChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[40]
+	mi := &file_knowledge_base_knowledge_base_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2819,7 +2907,7 @@ func (x *UploadDocumentReq_MetaChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadDocumentReq_MetaChunk.ProtoReflect.Descriptor instead.
 func (*UploadDocumentReq_MetaChunk) Descriptor() ([]byte, []int) {
-	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{15, 0}
+	return file_knowledge_base_knowledge_base_proto_rawDescGZIP(), []int{17, 0}
 }
 
 func (x *UploadDocumentReq_MetaChunk) GetTitle() string {
@@ -2875,7 +2963,11 @@ var File_knowledge_base_knowledge_base_proto protoreflect.FileDescriptor
 
 const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\n" +
-	"#knowledge-base/knowledge_base.proto\x12\rknowledgebase\x1a\x13common/common.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xee\x02\n" +
+	"#knowledge-base/knowledge_base.proto\x12\rknowledgebase\x1a\x13common/common.proto\x1a\x1bgoogle/protobuf/empty.proto\".\n" +
+	"\x18ResourceAuthorizationReq\x12\x12\n" +
+	"\x04body\x18\x01 \x01(\fR\x04body\"/\n" +
+	"\x19ResourceAuthorizationResp\x12\x12\n" +
+	"\x04body\x18\x01 \x01(\fR\x04body\"\xee\x02\n" +
 	"\vCreateKBReq\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12'\n" +
@@ -3121,7 +3213,8 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"created_at\x18\a \x01(\x03R\tcreatedAt\"X\n" +
 	"\x0eListChunksResp\x120\n" +
 	"\x06chunks\x18\x01 \x03(\v2\x18.knowledgebase.ChunkInfoR\x06chunks\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total2\xdf\t\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total2\xcb\n" +
+	"\n" +
 	"\rKnowledgeBase\x12<\n" +
 	"\bCreateKB\x12\x1a.knowledgebase.CreateKBReq\x1a\x14.knowledgebase.KBRsp\x12<\n" +
 	"\bUpdateKB\x12\x1a.knowledgebase.UpdateKBReq\x1a\x14.knowledgebase.KBRsp\x12>\n" +
@@ -3140,7 +3233,8 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\x10ListBoundTargets\x12\".knowledgebase.ListBoundTargetsReq\x1a\".knowledgebase.ListBoundTargetsRsp\x12a\n" +
 	"\x12GetDocumentContent\x12$.knowledgebase.GetDocumentContentReq\x1a%.knowledgebase.GetDocumentContentResp\x12I\n" +
 	"\n" +
-	"ListChunks\x12\x1c.knowledgebase.ListChunksReq\x1a\x1d.knowledgebase.ListChunksRespB<Z:github.com/maomeng/aim/app/knowledge-base/pb/knowledgebaseb\x06proto3"
+	"ListChunks\x12\x1c.knowledgebase.ListChunksReq\x1a\x1d.knowledgebase.ListChunksResp\x12j\n" +
+	"\x15ResourceAuthorization\x12'.knowledgebase.ResourceAuthorizationReq\x1a(.knowledgebase.ResourceAuthorizationRespB<Z:github.com/maomeng/aim/app/knowledge-base/pb/knowledgebaseb\x06proto3"
 
 var (
 	file_knowledge_base_knowledge_base_proto_rawDescOnce sync.Once
@@ -3154,109 +3248,113 @@ func file_knowledge_base_knowledge_base_proto_rawDescGZIP() []byte {
 	return file_knowledge_base_knowledge_base_proto_rawDescData
 }
 
-var file_knowledge_base_knowledge_base_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_knowledge_base_knowledge_base_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_knowledge_base_knowledge_base_proto_goTypes = []any{
-	(*CreateKBReq)(nil),                 // 0: knowledgebase.CreateKBReq
-	(*UpdateKBReq)(nil),                 // 1: knowledgebase.UpdateKBReq
-	(*DeleteKBReq)(nil),                 // 2: knowledgebase.DeleteKBReq
-	(*GetKBReq)(nil),                    // 3: knowledgebase.GetKBReq
-	(*ListKBsReq)(nil),                  // 4: knowledgebase.ListKBsReq
-	(*KBRsp)(nil),                       // 5: knowledgebase.KBRsp
-	(*ListKBsRsp)(nil),                  // 6: knowledgebase.ListKBsRsp
-	(*PipelineConfig)(nil),              // 7: knowledgebase.PipelineConfig
-	(*ParsingConfig)(nil),               // 8: knowledgebase.ParsingConfig
-	(*MinerUConfig)(nil),                // 9: knowledgebase.MinerUConfig
-	(*VLMConfig)(nil),                   // 10: knowledgebase.VLMConfig
-	(*ChunkingConfig)(nil),              // 11: knowledgebase.ChunkingConfig
-	(*ParentChildConfig)(nil),           // 12: knowledgebase.ParentChildConfig
-	(*RetrievalConfig)(nil),             // 13: knowledgebase.RetrievalConfig
-	(*RerankConfig)(nil),                // 14: knowledgebase.RerankConfig
-	(*UploadDocumentReq)(nil),           // 15: knowledgebase.UploadDocumentReq
-	(*GetDocumentReq)(nil),              // 16: knowledgebase.GetDocumentReq
-	(*ListDocumentsReq)(nil),            // 17: knowledgebase.ListDocumentsReq
-	(*DeleteDocumentReq)(nil),           // 18: knowledgebase.DeleteDocumentReq
-	(*RetryDocumentReq)(nil),            // 19: knowledgebase.RetryDocumentReq
-	(*DocumentRsp)(nil),                 // 20: knowledgebase.DocumentRsp
-	(*StageInfo)(nil),                   // 21: knowledgebase.StageInfo
-	(*ListDocumentsRsp)(nil),            // 22: knowledgebase.ListDocumentsRsp
-	(*RetrieveReq)(nil),                 // 23: knowledgebase.RetrieveReq
-	(*RetrieveRsp)(nil),                 // 24: knowledgebase.RetrieveRsp
-	(*RetrieveItem)(nil),                // 25: knowledgebase.RetrieveItem
-	(*ChunkMeta)(nil),                   // 26: knowledgebase.ChunkMeta
-	(*BindReq)(nil),                     // 27: knowledgebase.BindReq
-	(*UnbindReq)(nil),                   // 28: knowledgebase.UnbindReq
-	(*ListBindingsReq)(nil),             // 29: knowledgebase.ListBindingsReq
-	(*ListBindingsRsp)(nil),             // 30: knowledgebase.ListBindingsRsp
-	(*BindingItem)(nil),                 // 31: knowledgebase.BindingItem
-	(*ListBoundTargetsReq)(nil),         // 32: knowledgebase.ListBoundTargetsReq
-	(*ListBoundTargetsRsp)(nil),         // 33: knowledgebase.ListBoundTargetsRsp
-	(*BoundTargetItem)(nil),             // 34: knowledgebase.BoundTargetItem
-	(*GetDocumentContentReq)(nil),       // 35: knowledgebase.GetDocumentContentReq
-	(*GetDocumentContentResp)(nil),      // 36: knowledgebase.GetDocumentContentResp
-	(*ListChunksReq)(nil),               // 37: knowledgebase.ListChunksReq
-	(*ChunkInfo)(nil),                   // 38: knowledgebase.ChunkInfo
-	(*ListChunksResp)(nil),              // 39: knowledgebase.ListChunksResp
-	(*UploadDocumentReq_MetaChunk)(nil), // 40: knowledgebase.UploadDocumentReq.MetaChunk
-	(*emptypb.Empty)(nil),               // 41: google.protobuf.Empty
+	(*ResourceAuthorizationReq)(nil),    // 0: knowledgebase.ResourceAuthorizationReq
+	(*ResourceAuthorizationResp)(nil),   // 1: knowledgebase.ResourceAuthorizationResp
+	(*CreateKBReq)(nil),                 // 2: knowledgebase.CreateKBReq
+	(*UpdateKBReq)(nil),                 // 3: knowledgebase.UpdateKBReq
+	(*DeleteKBReq)(nil),                 // 4: knowledgebase.DeleteKBReq
+	(*GetKBReq)(nil),                    // 5: knowledgebase.GetKBReq
+	(*ListKBsReq)(nil),                  // 6: knowledgebase.ListKBsReq
+	(*KBRsp)(nil),                       // 7: knowledgebase.KBRsp
+	(*ListKBsRsp)(nil),                  // 8: knowledgebase.ListKBsRsp
+	(*PipelineConfig)(nil),              // 9: knowledgebase.PipelineConfig
+	(*ParsingConfig)(nil),               // 10: knowledgebase.ParsingConfig
+	(*MinerUConfig)(nil),                // 11: knowledgebase.MinerUConfig
+	(*VLMConfig)(nil),                   // 12: knowledgebase.VLMConfig
+	(*ChunkingConfig)(nil),              // 13: knowledgebase.ChunkingConfig
+	(*ParentChildConfig)(nil),           // 14: knowledgebase.ParentChildConfig
+	(*RetrievalConfig)(nil),             // 15: knowledgebase.RetrievalConfig
+	(*RerankConfig)(nil),                // 16: knowledgebase.RerankConfig
+	(*UploadDocumentReq)(nil),           // 17: knowledgebase.UploadDocumentReq
+	(*GetDocumentReq)(nil),              // 18: knowledgebase.GetDocumentReq
+	(*ListDocumentsReq)(nil),            // 19: knowledgebase.ListDocumentsReq
+	(*DeleteDocumentReq)(nil),           // 20: knowledgebase.DeleteDocumentReq
+	(*RetryDocumentReq)(nil),            // 21: knowledgebase.RetryDocumentReq
+	(*DocumentRsp)(nil),                 // 22: knowledgebase.DocumentRsp
+	(*StageInfo)(nil),                   // 23: knowledgebase.StageInfo
+	(*ListDocumentsRsp)(nil),            // 24: knowledgebase.ListDocumentsRsp
+	(*RetrieveReq)(nil),                 // 25: knowledgebase.RetrieveReq
+	(*RetrieveRsp)(nil),                 // 26: knowledgebase.RetrieveRsp
+	(*RetrieveItem)(nil),                // 27: knowledgebase.RetrieveItem
+	(*ChunkMeta)(nil),                   // 28: knowledgebase.ChunkMeta
+	(*BindReq)(nil),                     // 29: knowledgebase.BindReq
+	(*UnbindReq)(nil),                   // 30: knowledgebase.UnbindReq
+	(*ListBindingsReq)(nil),             // 31: knowledgebase.ListBindingsReq
+	(*ListBindingsRsp)(nil),             // 32: knowledgebase.ListBindingsRsp
+	(*BindingItem)(nil),                 // 33: knowledgebase.BindingItem
+	(*ListBoundTargetsReq)(nil),         // 34: knowledgebase.ListBoundTargetsReq
+	(*ListBoundTargetsRsp)(nil),         // 35: knowledgebase.ListBoundTargetsRsp
+	(*BoundTargetItem)(nil),             // 36: knowledgebase.BoundTargetItem
+	(*GetDocumentContentReq)(nil),       // 37: knowledgebase.GetDocumentContentReq
+	(*GetDocumentContentResp)(nil),      // 38: knowledgebase.GetDocumentContentResp
+	(*ListChunksReq)(nil),               // 39: knowledgebase.ListChunksReq
+	(*ChunkInfo)(nil),                   // 40: knowledgebase.ChunkInfo
+	(*ListChunksResp)(nil),              // 41: knowledgebase.ListChunksResp
+	(*UploadDocumentReq_MetaChunk)(nil), // 42: knowledgebase.UploadDocumentReq.MetaChunk
+	(*emptypb.Empty)(nil),               // 43: google.protobuf.Empty
 }
 var file_knowledge_base_knowledge_base_proto_depIdxs = []int32{
-	7,  // 0: knowledgebase.CreateKBReq.pipeline_config:type_name -> knowledgebase.PipelineConfig
-	7,  // 1: knowledgebase.UpdateKBReq.pipeline_config:type_name -> knowledgebase.PipelineConfig
-	7,  // 2: knowledgebase.KBRsp.pipeline_config:type_name -> knowledgebase.PipelineConfig
-	5,  // 3: knowledgebase.ListKBsRsp.items:type_name -> knowledgebase.KBRsp
-	8,  // 4: knowledgebase.PipelineConfig.parsing:type_name -> knowledgebase.ParsingConfig
-	11, // 5: knowledgebase.PipelineConfig.chunking:type_name -> knowledgebase.ChunkingConfig
-	13, // 6: knowledgebase.PipelineConfig.retrieval:type_name -> knowledgebase.RetrievalConfig
-	9,  // 7: knowledgebase.ParsingConfig.mineru_precision:type_name -> knowledgebase.MinerUConfig
-	9,  // 8: knowledgebase.ParsingConfig.mineru_agent:type_name -> knowledgebase.MinerUConfig
-	10, // 9: knowledgebase.ParsingConfig.vlm:type_name -> knowledgebase.VLMConfig
-	12, // 10: knowledgebase.ChunkingConfig.parent_child:type_name -> knowledgebase.ParentChildConfig
-	14, // 11: knowledgebase.RetrievalConfig.rerank:type_name -> knowledgebase.RerankConfig
-	40, // 12: knowledgebase.UploadDocumentReq.meta:type_name -> knowledgebase.UploadDocumentReq.MetaChunk
-	21, // 13: knowledgebase.DocumentRsp.stages:type_name -> knowledgebase.StageInfo
-	20, // 14: knowledgebase.ListDocumentsRsp.items:type_name -> knowledgebase.DocumentRsp
-	25, // 15: knowledgebase.RetrieveRsp.items:type_name -> knowledgebase.RetrieveItem
-	26, // 16: knowledgebase.RetrieveItem.metadata:type_name -> knowledgebase.ChunkMeta
-	31, // 17: knowledgebase.ListBindingsRsp.items:type_name -> knowledgebase.BindingItem
-	34, // 18: knowledgebase.ListBoundTargetsRsp.items:type_name -> knowledgebase.BoundTargetItem
-	38, // 19: knowledgebase.ListChunksResp.chunks:type_name -> knowledgebase.ChunkInfo
-	7,  // 20: knowledgebase.UploadDocumentReq.MetaChunk.pipeline_override:type_name -> knowledgebase.PipelineConfig
-	0,  // 21: knowledgebase.KnowledgeBase.CreateKB:input_type -> knowledgebase.CreateKBReq
-	1,  // 22: knowledgebase.KnowledgeBase.UpdateKB:input_type -> knowledgebase.UpdateKBReq
-	2,  // 23: knowledgebase.KnowledgeBase.DeleteKB:input_type -> knowledgebase.DeleteKBReq
-	3,  // 24: knowledgebase.KnowledgeBase.GetKB:input_type -> knowledgebase.GetKBReq
-	4,  // 25: knowledgebase.KnowledgeBase.ListKBs:input_type -> knowledgebase.ListKBsReq
-	15, // 26: knowledgebase.KnowledgeBase.UploadDocument:input_type -> knowledgebase.UploadDocumentReq
-	16, // 27: knowledgebase.KnowledgeBase.GetDocument:input_type -> knowledgebase.GetDocumentReq
-	17, // 28: knowledgebase.KnowledgeBase.ListDocuments:input_type -> knowledgebase.ListDocumentsReq
-	18, // 29: knowledgebase.KnowledgeBase.DeleteDocument:input_type -> knowledgebase.DeleteDocumentReq
-	19, // 30: knowledgebase.KnowledgeBase.RetryDocument:input_type -> knowledgebase.RetryDocumentReq
-	23, // 31: knowledgebase.KnowledgeBase.Retrieve:input_type -> knowledgebase.RetrieveReq
-	27, // 32: knowledgebase.KnowledgeBase.Bind:input_type -> knowledgebase.BindReq
-	28, // 33: knowledgebase.KnowledgeBase.Unbind:input_type -> knowledgebase.UnbindReq
-	29, // 34: knowledgebase.KnowledgeBase.ListBindings:input_type -> knowledgebase.ListBindingsReq
-	32, // 35: knowledgebase.KnowledgeBase.ListBoundTargets:input_type -> knowledgebase.ListBoundTargetsReq
-	35, // 36: knowledgebase.KnowledgeBase.GetDocumentContent:input_type -> knowledgebase.GetDocumentContentReq
-	37, // 37: knowledgebase.KnowledgeBase.ListChunks:input_type -> knowledgebase.ListChunksReq
-	5,  // 38: knowledgebase.KnowledgeBase.CreateKB:output_type -> knowledgebase.KBRsp
-	5,  // 39: knowledgebase.KnowledgeBase.UpdateKB:output_type -> knowledgebase.KBRsp
-	41, // 40: knowledgebase.KnowledgeBase.DeleteKB:output_type -> google.protobuf.Empty
-	5,  // 41: knowledgebase.KnowledgeBase.GetKB:output_type -> knowledgebase.KBRsp
-	6,  // 42: knowledgebase.KnowledgeBase.ListKBs:output_type -> knowledgebase.ListKBsRsp
-	20, // 43: knowledgebase.KnowledgeBase.UploadDocument:output_type -> knowledgebase.DocumentRsp
-	20, // 44: knowledgebase.KnowledgeBase.GetDocument:output_type -> knowledgebase.DocumentRsp
-	22, // 45: knowledgebase.KnowledgeBase.ListDocuments:output_type -> knowledgebase.ListDocumentsRsp
-	41, // 46: knowledgebase.KnowledgeBase.DeleteDocument:output_type -> google.protobuf.Empty
-	20, // 47: knowledgebase.KnowledgeBase.RetryDocument:output_type -> knowledgebase.DocumentRsp
-	24, // 48: knowledgebase.KnowledgeBase.Retrieve:output_type -> knowledgebase.RetrieveRsp
-	41, // 49: knowledgebase.KnowledgeBase.Bind:output_type -> google.protobuf.Empty
-	41, // 50: knowledgebase.KnowledgeBase.Unbind:output_type -> google.protobuf.Empty
-	30, // 51: knowledgebase.KnowledgeBase.ListBindings:output_type -> knowledgebase.ListBindingsRsp
-	33, // 52: knowledgebase.KnowledgeBase.ListBoundTargets:output_type -> knowledgebase.ListBoundTargetsRsp
-	36, // 53: knowledgebase.KnowledgeBase.GetDocumentContent:output_type -> knowledgebase.GetDocumentContentResp
-	39, // 54: knowledgebase.KnowledgeBase.ListChunks:output_type -> knowledgebase.ListChunksResp
-	38, // [38:55] is the sub-list for method output_type
-	21, // [21:38] is the sub-list for method input_type
+	9,  // 0: knowledgebase.CreateKBReq.pipeline_config:type_name -> knowledgebase.PipelineConfig
+	9,  // 1: knowledgebase.UpdateKBReq.pipeline_config:type_name -> knowledgebase.PipelineConfig
+	9,  // 2: knowledgebase.KBRsp.pipeline_config:type_name -> knowledgebase.PipelineConfig
+	7,  // 3: knowledgebase.ListKBsRsp.items:type_name -> knowledgebase.KBRsp
+	10, // 4: knowledgebase.PipelineConfig.parsing:type_name -> knowledgebase.ParsingConfig
+	13, // 5: knowledgebase.PipelineConfig.chunking:type_name -> knowledgebase.ChunkingConfig
+	15, // 6: knowledgebase.PipelineConfig.retrieval:type_name -> knowledgebase.RetrievalConfig
+	11, // 7: knowledgebase.ParsingConfig.mineru_precision:type_name -> knowledgebase.MinerUConfig
+	11, // 8: knowledgebase.ParsingConfig.mineru_agent:type_name -> knowledgebase.MinerUConfig
+	12, // 9: knowledgebase.ParsingConfig.vlm:type_name -> knowledgebase.VLMConfig
+	14, // 10: knowledgebase.ChunkingConfig.parent_child:type_name -> knowledgebase.ParentChildConfig
+	16, // 11: knowledgebase.RetrievalConfig.rerank:type_name -> knowledgebase.RerankConfig
+	42, // 12: knowledgebase.UploadDocumentReq.meta:type_name -> knowledgebase.UploadDocumentReq.MetaChunk
+	23, // 13: knowledgebase.DocumentRsp.stages:type_name -> knowledgebase.StageInfo
+	22, // 14: knowledgebase.ListDocumentsRsp.items:type_name -> knowledgebase.DocumentRsp
+	27, // 15: knowledgebase.RetrieveRsp.items:type_name -> knowledgebase.RetrieveItem
+	28, // 16: knowledgebase.RetrieveItem.metadata:type_name -> knowledgebase.ChunkMeta
+	33, // 17: knowledgebase.ListBindingsRsp.items:type_name -> knowledgebase.BindingItem
+	36, // 18: knowledgebase.ListBoundTargetsRsp.items:type_name -> knowledgebase.BoundTargetItem
+	40, // 19: knowledgebase.ListChunksResp.chunks:type_name -> knowledgebase.ChunkInfo
+	9,  // 20: knowledgebase.UploadDocumentReq.MetaChunk.pipeline_override:type_name -> knowledgebase.PipelineConfig
+	2,  // 21: knowledgebase.KnowledgeBase.CreateKB:input_type -> knowledgebase.CreateKBReq
+	3,  // 22: knowledgebase.KnowledgeBase.UpdateKB:input_type -> knowledgebase.UpdateKBReq
+	4,  // 23: knowledgebase.KnowledgeBase.DeleteKB:input_type -> knowledgebase.DeleteKBReq
+	5,  // 24: knowledgebase.KnowledgeBase.GetKB:input_type -> knowledgebase.GetKBReq
+	6,  // 25: knowledgebase.KnowledgeBase.ListKBs:input_type -> knowledgebase.ListKBsReq
+	17, // 26: knowledgebase.KnowledgeBase.UploadDocument:input_type -> knowledgebase.UploadDocumentReq
+	18, // 27: knowledgebase.KnowledgeBase.GetDocument:input_type -> knowledgebase.GetDocumentReq
+	19, // 28: knowledgebase.KnowledgeBase.ListDocuments:input_type -> knowledgebase.ListDocumentsReq
+	20, // 29: knowledgebase.KnowledgeBase.DeleteDocument:input_type -> knowledgebase.DeleteDocumentReq
+	21, // 30: knowledgebase.KnowledgeBase.RetryDocument:input_type -> knowledgebase.RetryDocumentReq
+	25, // 31: knowledgebase.KnowledgeBase.Retrieve:input_type -> knowledgebase.RetrieveReq
+	29, // 32: knowledgebase.KnowledgeBase.Bind:input_type -> knowledgebase.BindReq
+	30, // 33: knowledgebase.KnowledgeBase.Unbind:input_type -> knowledgebase.UnbindReq
+	31, // 34: knowledgebase.KnowledgeBase.ListBindings:input_type -> knowledgebase.ListBindingsReq
+	34, // 35: knowledgebase.KnowledgeBase.ListBoundTargets:input_type -> knowledgebase.ListBoundTargetsReq
+	37, // 36: knowledgebase.KnowledgeBase.GetDocumentContent:input_type -> knowledgebase.GetDocumentContentReq
+	39, // 37: knowledgebase.KnowledgeBase.ListChunks:input_type -> knowledgebase.ListChunksReq
+	0,  // 38: knowledgebase.KnowledgeBase.ResourceAuthorization:input_type -> knowledgebase.ResourceAuthorizationReq
+	7,  // 39: knowledgebase.KnowledgeBase.CreateKB:output_type -> knowledgebase.KBRsp
+	7,  // 40: knowledgebase.KnowledgeBase.UpdateKB:output_type -> knowledgebase.KBRsp
+	43, // 41: knowledgebase.KnowledgeBase.DeleteKB:output_type -> google.protobuf.Empty
+	7,  // 42: knowledgebase.KnowledgeBase.GetKB:output_type -> knowledgebase.KBRsp
+	8,  // 43: knowledgebase.KnowledgeBase.ListKBs:output_type -> knowledgebase.ListKBsRsp
+	22, // 44: knowledgebase.KnowledgeBase.UploadDocument:output_type -> knowledgebase.DocumentRsp
+	22, // 45: knowledgebase.KnowledgeBase.GetDocument:output_type -> knowledgebase.DocumentRsp
+	24, // 46: knowledgebase.KnowledgeBase.ListDocuments:output_type -> knowledgebase.ListDocumentsRsp
+	43, // 47: knowledgebase.KnowledgeBase.DeleteDocument:output_type -> google.protobuf.Empty
+	22, // 48: knowledgebase.KnowledgeBase.RetryDocument:output_type -> knowledgebase.DocumentRsp
+	26, // 49: knowledgebase.KnowledgeBase.Retrieve:output_type -> knowledgebase.RetrieveRsp
+	43, // 50: knowledgebase.KnowledgeBase.Bind:output_type -> google.protobuf.Empty
+	43, // 51: knowledgebase.KnowledgeBase.Unbind:output_type -> google.protobuf.Empty
+	32, // 52: knowledgebase.KnowledgeBase.ListBindings:output_type -> knowledgebase.ListBindingsRsp
+	35, // 53: knowledgebase.KnowledgeBase.ListBoundTargets:output_type -> knowledgebase.ListBoundTargetsRsp
+	38, // 54: knowledgebase.KnowledgeBase.GetDocumentContent:output_type -> knowledgebase.GetDocumentContentResp
+	41, // 55: knowledgebase.KnowledgeBase.ListChunks:output_type -> knowledgebase.ListChunksResp
+	1,  // 56: knowledgebase.KnowledgeBase.ResourceAuthorization:output_type -> knowledgebase.ResourceAuthorizationResp
+	39, // [39:57] is the sub-list for method output_type
+	21, // [21:39] is the sub-list for method input_type
 	21, // [21:21] is the sub-list for extension type_name
 	21, // [21:21] is the sub-list for extension extendee
 	0,  // [0:21] is the sub-list for field type_name
@@ -3267,23 +3365,23 @@ func file_knowledge_base_knowledge_base_proto_init() {
 	if File_knowledge_base_knowledge_base_proto != nil {
 		return
 	}
-	file_knowledge_base_knowledge_base_proto_msgTypes[0].OneofWrappers = []any{}
-	file_knowledge_base_knowledge_base_proto_msgTypes[1].OneofWrappers = []any{}
-	file_knowledge_base_knowledge_base_proto_msgTypes[5].OneofWrappers = []any{}
-	file_knowledge_base_knowledge_base_proto_msgTypes[10].OneofWrappers = []any{}
-	file_knowledge_base_knowledge_base_proto_msgTypes[14].OneofWrappers = []any{}
-	file_knowledge_base_knowledge_base_proto_msgTypes[15].OneofWrappers = []any{
+	file_knowledge_base_knowledge_base_proto_msgTypes[2].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[3].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[7].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[12].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[16].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[17].OneofWrappers = []any{
 		(*UploadDocumentReq_Meta)(nil),
 		(*UploadDocumentReq_Content)(nil),
 	}
-	file_knowledge_base_knowledge_base_proto_msgTypes[23].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[25].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_knowledge_base_knowledge_base_proto_rawDesc), len(file_knowledge_base_knowledge_base_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   41,
+			NumMessages:   43,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -24,6 +24,15 @@ func main() {
 
 	var c config.Config
 	conf.MustLoad(*configFile, &c, conf.UseEnv())
+	c.Middlewares.StatConf.IgnoreContentMethods = append(c.Middlewares.StatConf.IgnoreContentMethods,
+		pb.LLMGateway_Chat_FullMethodName,
+		pb.LLMGateway_ChatStream_FullMethodName,
+		pb.LLMGateway_Embed_FullMethodName,
+		pb.LLMGateway_Rerank_FullMethodName,
+		pb.LLMGateway_VlmChat_FullMethodName,
+		pb.LLMGateway_CreateModel_FullMethodName,
+		pb.LLMGateway_UpdateModel_FullMethodName,
+	)
 	ctx := svc.NewServiceContext(c)
 	defer ctx.Close()
 

@@ -13,6 +13,7 @@ import (
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/metrics"
 	"github.com/redis/go-redis/v9"
+	"strings"
 )
 
 func New(
@@ -59,6 +60,13 @@ func New(
 	r.GET("/metrics", gin.WrapH(metrics.Handler()))
 
 	api := r.Group("/api/v1")
+	api.Use(func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if strings.Contains(path, "/bot-authorizations/") || strings.Contains(path, "/runs") || strings.Contains(path, "/executor/") {
+			c.Header("Cache-Control", "no-store")
+		}
+		c.Next()
+	})
 
 	// Public routes
 	api.POST("/auth/register", authH.Register)
@@ -192,6 +200,8 @@ func New(
 	protected.GET("/runs/:id", botH.GetRun)
 	protected.POST("/runs/:id/control", botH.ControlRun)
 	protected.GET("/conversations/:id/runs", botH.ListRuns)
+	protected.POST("/bot-authorizations/resources", botH.ResourceAuthorization)
+	protected.POST("/bot-authorizations/actions", botH.ActionAuthorization)
 
 	// Global MCP Server Management
 	mcp := protected.Group("/mcp-servers")
@@ -254,6 +264,8 @@ func New(
 	botApp := api.Group("/bot-app")
 	botApp.GET("/convs/:id/messages", botHistoryH.Read)
 	botApp.POST("/runs/update", botHistoryH.ExecutorUpdate)
+	api.POST("/bots/:id/executor/resources", botH.ExecutorResourceAuthorization)
+	api.POST("/bots/:id/executor/actions", botH.ExecutorActionAuthorization)
 
 	return r
 }

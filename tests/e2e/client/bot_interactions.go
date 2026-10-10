@@ -529,6 +529,10 @@ func (d *driver) interactionMaterials(owner, member account, bot botView, conv e
 	if err != nil {
 		return err
 	}
+	fileGrant, err := d.resourceGrant(owner, bot.ID, conv, "file", file.info.FileID, "conversation", true)
+	if err != nil {
+		return err
+	}
 	private, err := d.attachmentUpload(owner, "interaction-private-"+suffix+".txt", "text/plain", []byte("PRIVATE_FILE_NEVER_MODEL VALUE=999"), 1)
 	if err != nil {
 		return err
@@ -563,7 +567,7 @@ func (d *driver) interactionMaterials(owner, member account, bot botView, conv e
 		return err
 	}
 	materialToken := "INTERACTION_MATERIALS_" + suffix
-	materialRun, err := d.interactionStart(member, bot.ID, conv, materialToken+" VALUE=43", map[string]any{"message_ids": []entityID{selected.MessageID, *otherRun.MessageID}, "history_grant_id": grant, "file_ids": []entityID{file.info.FileID}})
+	materialRun, err := d.interactionStart(member, bot.ID, conv, materialToken+" VALUE=43", map[string]any{"message_ids": []entityID{selected.MessageID, *otherRun.MessageID}, "history_grant_id": grant, "file_ids": []entityID{file.info.FileID}, "resource_grant_ids": []entityID{fileGrant.ID}})
 	if err != nil {
 		return err
 	}
@@ -650,7 +654,7 @@ func (d *driver) interactionMaterials(owner, member account, bot botView, conv e
 		return err
 	}
 	// Accepted supplement references must undergo the same authorization checks.
-	waiting, err := d.interactionStart(member, bot.ID, conv, "INTERACTION_WAIT_MATERIAL_"+suffix+" VALUE=1", nil)
+	waiting, err := d.interactionStart(member, bot.ID, conv, "INTERACTION_WAIT_MATERIAL_"+suffix+" VALUE=1", map[string]any{"resource_grant_ids": []entityID{fileGrant.ID}})
 	if err != nil {
 		return err
 	}

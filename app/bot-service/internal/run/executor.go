@@ -15,6 +15,7 @@ import (
 	msg "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/protocol"
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -196,12 +197,8 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 			if err := protocol.Unmarshal(update.Content, &submitted); err != nil {
 				return err
 			}
-			var count int64
-			if err := s.svc.DB.WithContext(ctx).Table("file.files").Where("id = ? AND access = 3", submitted.FileId).Count(&count).Error; err != nil {
+			if _, err := s.filePermission(ctx, Input{BotID: r.BotID, ConvID: r.ConvID, BindingID: r.BindingID, RequesterID: r.RequesterID, Visibility: r.Visibility, ResourceGrantIDs: r.ResourceGrantIDs}, submitted.FileId); err != nil {
 				return err
-			}
-			if count != 1 {
-				return status.Error(codes.PermissionDenied, "file is not publicly shareable")
 			}
 		}
 		return nil
@@ -272,6 +269,9 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 					if err := protocol.Unmarshal(update.Content, submitted); err != nil {
 						return err
 					}
+					if _, err := resourcegrant.Check(tx, resourceAccess(r), "file", submitted.FileId, r.Visibility != "personal", true); err != nil {
+						return err
+					}
 					var file struct {
 						ID       string
 						Name     string
@@ -279,7 +279,7 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 						Ext      string
 						MimeType string
 					}
-					if err := tx.Table("file.files").Select("id, name, size, ext, mime_type").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND access = 3", submitted.FileId).Take(&file).Error; err != nil {
+					if err := tx.Table("file.files").Select("id, name, size, ext, mime_type").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", submitted.FileId).Take(&file).Error; err != nil {
 						if errors.Is(err, gorm.ErrRecordNotFound) {
 							return status.Error(codes.PermissionDenied, "file is not publicly shareable")
 						}
@@ -386,6 +386,14 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 	var sources []map[string]any
 	var sourceMismatch bool
 	authorize := func(r *model.Run) error {
+		if r.Visibility == "personal" {
+			if r.PersonalUserID == nil || *r.PersonalUserID != user {
+				return status.Error(codes.PermissionDenied, "personal Run belongs to another principal")
+			}
+			if operation == "grant_control" || operation == "takeover" {
+				return status.Error(codes.PermissionDenied, "personal Run authority cannot transfer")
+			}
+		}
 		if err := s.RequireMember(ctx, user, r.ConvID); err != nil {
 			return err
 		}
@@ -427,7 +435,7 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 			}
 		}
 		if operation == "input" {
-			input := Input{BotID: r.BotID, ConvID: r.ConvID, BindingID: r.BindingID, RequesterID: user, Message: command.Message, SourceMessageID: command.SourceMessageID, MessageIDs: command.MessageIDs, FileIDs: command.FileIDs, HistoryGrantID: command.HistoryGrantID, ReplyInput: true}
+			input := Input{BotID: r.BotID, ConvID: r.ConvID, BindingID: r.BindingID, RequesterID: user, Message: command.Message, SourceMessageID: command.SourceMessageID, MessageIDs: command.MessageIDs, FileIDs: command.FileIDs, HistoryGrantID: command.HistoryGrantID, ReplyInput: true, Visibility: r.Visibility, ResourceGrantIDs: r.ResourceGrantIDs}
 			if command.SourceMessageID != nil {
 				m, err := s.source(ctx, input, *command.SourceMessageID, true)
 				if err != nil {

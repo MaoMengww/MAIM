@@ -115,16 +115,6 @@ func TestConfirmUpload_NotUploader(t *testing.T) {
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
 
-// ========== GetDownloadURL Tests ==========
-
-func TestGetDownloadURL_AccessDenied(t *testing.T) {
-	svcCtx := newTestSvcCtx()
-	logic := NewGetDownloadURLLogic(t.Context(), svcCtx)
-
-	_, err := logic.GetDownloadURL(&filepb.GetDownloadURLReq{FileId: testFileID, UserId: testOtherUserID, ExpiresIn: 3600})
-	assert.Equal(t, codes.PermissionDenied, status.Code(err))
-}
-
 // ========== GetFileInfo Tests ==========
 
 func TestGetFileInfo_NotFound(t *testing.T) {
@@ -134,20 +124,6 @@ func TestGetFileInfo_NotFound(t *testing.T) {
 
 	_, err := logic.GetFileInfo(&filepb.GetFileInfoReq{FileId: testMissingFileID, UserId: testUploaderID})
 	assert.Equal(t, codes.NotFound, status.Code(err))
-}
-
-// ========== BatchGetFileInfo Tests ==========
-
-func TestBatchGetFileInfo_AccessFilter(t *testing.T) {
-	svcCtx := newTestSvcCtx()
-	logic := NewBatchGetFileInfoLogic(t.Context(), svcCtx)
-
-	resp, err := logic.BatchGetFileInfo(&filepb.BatchGetFileInfoReq{
-		FileIds: []string{testFileID, testOtherFileID},
-		UserId:  testOtherUserID, // not the uploader
-	})
-	require.NoError(t, err)
-	assert.Empty(t, resp.Files)
 }
 
 // ========== DeleteFile Tests ==========

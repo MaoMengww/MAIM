@@ -14,6 +14,7 @@ from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import run_control
+import authorization
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8099"))
@@ -550,6 +551,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path.startswith("/authorization/") and path != "/authorization/mcp":
+            self._json(200, authorization.command(path, body))
+            return
         if path == "/llm-components/observe":
             with LOCK:
                 snapshot = json.loads(json.dumps([row for row in COMPONENT_OBSERVATIONS if row["model"] == body.get("model")]))
@@ -624,6 +628,8 @@ class Handler(BaseHTTPRequestHandler):
                 OBSERVATIONS["chat_models"].append(model)
                 OBSERVATIONS["chat_requests"].append(body)
             if run_control.model(body, self, text):
+                return
+            if authorization.model(body, self, accepted_input, user_text):
                 return
             if "RUN_FAIL_PROVIDER" in text:
                 self._json(503, {"error": {"message": "fixture unavailable"}})
@@ -741,6 +747,12 @@ class Handler(BaseHTTPRequestHandler):
                 if bulk:
                     with LOCK:
                         OBSERVATIONS["active_ingest"] -= 1
+        elif path == "/authorization/mcp":
+            result = authorization.rpc(body) if body.get("method") in ("tools/list", "tools/call") else rpc_result(body, self)
+            if result is None:
+                self._json(202, {})
+            else:
+                self._sse(result)
         elif path == "/mcp/sse":
             result = rpc_result(body, self)
             if result is None:

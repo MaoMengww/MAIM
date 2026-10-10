@@ -20,23 +20,24 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	KnowledgeBase_CreateKB_FullMethodName           = "/knowledgebase.KnowledgeBase/CreateKB"
-	KnowledgeBase_UpdateKB_FullMethodName           = "/knowledgebase.KnowledgeBase/UpdateKB"
-	KnowledgeBase_DeleteKB_FullMethodName           = "/knowledgebase.KnowledgeBase/DeleteKB"
-	KnowledgeBase_GetKB_FullMethodName              = "/knowledgebase.KnowledgeBase/GetKB"
-	KnowledgeBase_ListKBs_FullMethodName            = "/knowledgebase.KnowledgeBase/ListKBs"
-	KnowledgeBase_UploadDocument_FullMethodName     = "/knowledgebase.KnowledgeBase/UploadDocument"
-	KnowledgeBase_GetDocument_FullMethodName        = "/knowledgebase.KnowledgeBase/GetDocument"
-	KnowledgeBase_ListDocuments_FullMethodName      = "/knowledgebase.KnowledgeBase/ListDocuments"
-	KnowledgeBase_DeleteDocument_FullMethodName     = "/knowledgebase.KnowledgeBase/DeleteDocument"
-	KnowledgeBase_RetryDocument_FullMethodName      = "/knowledgebase.KnowledgeBase/RetryDocument"
-	KnowledgeBase_Retrieve_FullMethodName           = "/knowledgebase.KnowledgeBase/Retrieve"
-	KnowledgeBase_Bind_FullMethodName               = "/knowledgebase.KnowledgeBase/Bind"
-	KnowledgeBase_Unbind_FullMethodName             = "/knowledgebase.KnowledgeBase/Unbind"
-	KnowledgeBase_ListBindings_FullMethodName       = "/knowledgebase.KnowledgeBase/ListBindings"
-	KnowledgeBase_ListBoundTargets_FullMethodName   = "/knowledgebase.KnowledgeBase/ListBoundTargets"
-	KnowledgeBase_GetDocumentContent_FullMethodName = "/knowledgebase.KnowledgeBase/GetDocumentContent"
-	KnowledgeBase_ListChunks_FullMethodName         = "/knowledgebase.KnowledgeBase/ListChunks"
+	KnowledgeBase_CreateKB_FullMethodName              = "/knowledgebase.KnowledgeBase/CreateKB"
+	KnowledgeBase_UpdateKB_FullMethodName              = "/knowledgebase.KnowledgeBase/UpdateKB"
+	KnowledgeBase_DeleteKB_FullMethodName              = "/knowledgebase.KnowledgeBase/DeleteKB"
+	KnowledgeBase_GetKB_FullMethodName                 = "/knowledgebase.KnowledgeBase/GetKB"
+	KnowledgeBase_ListKBs_FullMethodName               = "/knowledgebase.KnowledgeBase/ListKBs"
+	KnowledgeBase_UploadDocument_FullMethodName        = "/knowledgebase.KnowledgeBase/UploadDocument"
+	KnowledgeBase_GetDocument_FullMethodName           = "/knowledgebase.KnowledgeBase/GetDocument"
+	KnowledgeBase_ListDocuments_FullMethodName         = "/knowledgebase.KnowledgeBase/ListDocuments"
+	KnowledgeBase_DeleteDocument_FullMethodName        = "/knowledgebase.KnowledgeBase/DeleteDocument"
+	KnowledgeBase_RetryDocument_FullMethodName         = "/knowledgebase.KnowledgeBase/RetryDocument"
+	KnowledgeBase_Retrieve_FullMethodName              = "/knowledgebase.KnowledgeBase/Retrieve"
+	KnowledgeBase_Bind_FullMethodName                  = "/knowledgebase.KnowledgeBase/Bind"
+	KnowledgeBase_Unbind_FullMethodName                = "/knowledgebase.KnowledgeBase/Unbind"
+	KnowledgeBase_ListBindings_FullMethodName          = "/knowledgebase.KnowledgeBase/ListBindings"
+	KnowledgeBase_ListBoundTargets_FullMethodName      = "/knowledgebase.KnowledgeBase/ListBoundTargets"
+	KnowledgeBase_GetDocumentContent_FullMethodName    = "/knowledgebase.KnowledgeBase/GetDocumentContent"
+	KnowledgeBase_ListChunks_FullMethodName            = "/knowledgebase.KnowledgeBase/ListChunks"
+	KnowledgeBase_ResourceAuthorization_FullMethodName = "/knowledgebase.KnowledgeBase/ResourceAuthorization"
 )
 
 // KnowledgeBaseClient is the client API for KnowledgeBase service.
@@ -65,6 +66,7 @@ type KnowledgeBaseClient interface {
 	// ========== Document Content & Chunks ==========
 	GetDocumentContent(ctx context.Context, in *GetDocumentContentReq, opts ...grpc.CallOption) (*GetDocumentContentResp, error)
 	ListChunks(ctx context.Context, in *ListChunksReq, opts ...grpc.CallOption) (*ListChunksResp, error)
+	ResourceAuthorization(ctx context.Context, in *ResourceAuthorizationReq, opts ...grpc.CallOption) (*ResourceAuthorizationResp, error)
 }
 
 type knowledgeBaseClient struct {
@@ -248,6 +250,16 @@ func (c *knowledgeBaseClient) ListChunks(ctx context.Context, in *ListChunksReq,
 	return out, nil
 }
 
+func (c *knowledgeBaseClient) ResourceAuthorization(ctx context.Context, in *ResourceAuthorizationReq, opts ...grpc.CallOption) (*ResourceAuthorizationResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResourceAuthorizationResp)
+	err := c.cc.Invoke(ctx, KnowledgeBase_ResourceAuthorization_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KnowledgeBaseServer is the server API for KnowledgeBase service.
 // All implementations must embed UnimplementedKnowledgeBaseServer
 // for forward compatibility.
@@ -274,6 +286,7 @@ type KnowledgeBaseServer interface {
 	// ========== Document Content & Chunks ==========
 	GetDocumentContent(context.Context, *GetDocumentContentReq) (*GetDocumentContentResp, error)
 	ListChunks(context.Context, *ListChunksReq) (*ListChunksResp, error)
+	ResourceAuthorization(context.Context, *ResourceAuthorizationReq) (*ResourceAuthorizationResp, error)
 	mustEmbedUnimplementedKnowledgeBaseServer()
 }
 
@@ -334,6 +347,9 @@ func (UnimplementedKnowledgeBaseServer) GetDocumentContent(context.Context, *Get
 }
 func (UnimplementedKnowledgeBaseServer) ListChunks(context.Context, *ListChunksReq) (*ListChunksResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListChunks not implemented")
+}
+func (UnimplementedKnowledgeBaseServer) ResourceAuthorization(context.Context, *ResourceAuthorizationReq) (*ResourceAuthorizationResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResourceAuthorization not implemented")
 }
 func (UnimplementedKnowledgeBaseServer) mustEmbedUnimplementedKnowledgeBaseServer() {}
 func (UnimplementedKnowledgeBaseServer) testEmbeddedByValue()                       {}
@@ -651,6 +667,24 @@ func _KnowledgeBase_ListChunks_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KnowledgeBase_ResourceAuthorization_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResourceAuthorizationReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KnowledgeBaseServer).ResourceAuthorization(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KnowledgeBase_ResourceAuthorization_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KnowledgeBaseServer).ResourceAuthorization(ctx, req.(*ResourceAuthorizationReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KnowledgeBase_ServiceDesc is the grpc.ServiceDesc for KnowledgeBase service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -721,6 +755,10 @@ var KnowledgeBase_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListChunks",
 			Handler:    _KnowledgeBase_ListChunks_Handler,
+		},
+		{
+			MethodName: "ResourceAuthorization",
+			Handler:    _KnowledgeBase_ResourceAuthorization_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -8,6 +8,7 @@ import (
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -44,6 +45,18 @@ func (s *Service) authorityState(ctx context.Context, r *model.Run) (string, err
 	}
 	if bot.Status != "active" || bot.AuthorizationVersion != r.BotAuthorizationVersion {
 		return "bot_disabled", nil
+	}
+	if err := resourcegrant.CheckIDs(s.svc.DB.WithContext(ctx), resourceAccess(r), r.Visibility != "personal", false); err != nil {
+		if status.Code(err) == codes.PermissionDenied {
+			return "resource_authorization_revoked", nil
+		}
+		return "", err
+	}
+	if err := s.currentRunTools(ctx, r); err != nil {
+		if status.Code(err) == codes.PermissionDenied {
+			return "tool_authorization_revoked", nil
+		}
+		return "", err
 	}
 	member, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, r.ControllerID)
 	if status.Code(err) == codes.PermissionDenied || (err == nil && (r.ControllerMemberID == nil || *r.ControllerMemberID != member)) {
@@ -233,7 +246,7 @@ func (s *Service) guardExecution(parent context.Context, r *model.Run, generatio
 				return
 			}
 			current, err = s.reconcile(ctx, current)
-			if err != nil || current.ExecutionGeneration != generation || repo.TerminalRun(current) || current.Status == "stopping" || current.Status == "waiting_authorization" {
+			if err != nil || current.ExecutionGeneration != generation || repo.TerminalRun(current) || current.Status == "stopping" || (current.Status == "waiting_authorization" && current.Stage != "pending_action") {
 				cancel()
 				return
 			}
@@ -292,6 +305,9 @@ func stopReceipt(r *model.PublicRun) *model.PublicRun {
 }
 
 func sharedMaterials(r *model.Run) bool {
+	if r.Visibility == "personal" {
+		return false
+	}
 	var materials []Material
 	if json.Unmarshal(r.Materials, &materials) != nil {
 		return false
@@ -329,4 +345,5 @@ func (s *Service) decorateControl(ctx context.Context, public *model.PublicRun, 
 		allowed = err == nil && (reason == "" || reason == "controller_membership_lost") && r.InteractionStatus == "active"
 	}
 	public.CanControl = &allowed
+	s.decorateActions(ctx, public, user)
 }

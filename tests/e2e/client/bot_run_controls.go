@@ -200,6 +200,9 @@ func (d *driver) botRunControls(address, secondAddress string) error {
 	if err = d.request(http.MethodPost, "/mcp-servers", f.owner.token, map[string]any{"name": "control-tools-" + suffix, "transport": "http-streamable", "url": d.provider + "/mcp/sse", "enabled": true, "advanced_config": `{"timeout":90,"retry_count":0}`}, &mcp); err != nil {
 		return err
 	}
+	if err = d.fixtureEchoPolicy(f.owner, mcp.ID, f.conv); err != nil {
+		return err
+	}
 	if err = d.request(http.MethodPost, "/bots", f.owner.token, map[string]any{"name": "control-builtin-" + suffix, "type": "self_deployed", "model_id": f.model, "system_prompt": "Use fixture_echo exactly once.", "response_triggers": []string{"mention"}, "streaming_enabled": true, "enable_knowledge": false}, &f.builtin); err != nil {
 		return err
 	}

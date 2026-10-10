@@ -275,6 +275,7 @@ func (h *BotHandler) ValidateToken(c *gin.Context) {
 
 // Run acceptance is independent of the lifetime of this HTTP request.
 func (h *BotHandler) StartRun(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if !requirePathIdentities(c, "id") {
 		return
 	}
@@ -288,10 +289,14 @@ func (h *BotHandler) StartRun(c *gin.Context) {
 		return
 	}
 	req.BotId = c.Param("id")
+	if req.Visibility != "" && req.Visibility != "conversation" && req.Visibility != "personal" {
+		response.BadRequest(c, "invalid run visibility")
+		return
+	}
 	if !requireRequestIdentities(c, &req) {
 		return
 	}
-	if len(req.MessageIds) > 100 || len(req.FileIds) > 100 {
+	if len(req.MessageIds) > 100 || len(req.FileIds) > 100 || len(req.ResourceGrantIds) > 100 {
 		response.BadRequest(c, "too many material references")
 		return
 	}
@@ -308,6 +313,7 @@ func (h *BotHandler) StartRun(c *gin.Context) {
 }
 
 func (h *BotHandler) GetRun(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if !requirePathIdentities(c, "id") {
 		return
 	}
@@ -320,6 +326,7 @@ func (h *BotHandler) GetRun(c *gin.Context) {
 }
 
 func (h *BotHandler) ControlRun(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if !requirePathIdentities(c, "id") {
 		return
 	}
@@ -353,6 +360,7 @@ func (h *BotHandler) ControlRun(c *gin.Context) {
 }
 
 func (h *BotHandler) ListRuns(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if !requirePathIdentities(c, "id") {
 		return
 	}
