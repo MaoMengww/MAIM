@@ -36,7 +36,7 @@ USER_IDENTITY_APPLICATIONS = {"user-service", "realtime-service", "gateway"}
 MESSAGING_APPLICATIONS = USER_IDENTITY_APPLICATIONS | {"message-service"}
 ATTACHMENT_APPLICATIONS = MESSAGING_APPLICATIONS | {"file-service"}
 BOT_RUNTIME_APPLICATIONS = MESSAGING_APPLICATIONS | {"llm-gateway", "bot-service", "bot-runtime", "knowledge-base", "knowledge-ingest", "file-service"}
-BOT_RUNTIME_SCENARIOS = {"bot-runtime", "bot-runtime-cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations"}
+BOT_RUNTIME_SCENARIOS = {"bot-runtime", "bot-runtime-cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction"}
 LLM_CHAT_SCENARIOS = {"llm-chat", "llm-components"}
 MESSAGING_SCENARIOS = {"messaging", "conversations", "conversation-unread", "broadcasts",
                        "user-sync", "same-instance-a", "same-instance-b", "cross-instance"}
@@ -288,7 +288,7 @@ class Runner:
             for name, port in (("gateway", 8080), ("realtime-service", 8081), ("realtime-b", 8081)):
                 services[name]["ports"] = [{"target": port, "published": "0",
                                             "host_ip": "127.0.0.1", "protocol": "tcp"}]
-            if self.args.scenario in {"bot-run-controls", "bot-authorizations"}:
+            if self.args.scenario in {"bot-run-controls", "bot-authorizations", "bot-compaction"}:
                 services["e2e-provider"]["ports"] = [{"target": 8099, "published": "0",
                                                      "host_ip": "127.0.0.1", "protocol": "tcp"}]
             if "minio" in services:
@@ -376,7 +376,7 @@ class Runner:
                     "-timeout", f"{self.args.timeout:g}s",
                     "-provider", "http://e2e-provider:8099",
                     "-ingest-timeout", "10m", "-query-deadline", "5s"]
-        if self.args.scenario in ("all", "bot-run-controls", "bot-authorizations"):
+        if self.args.scenario in ("all", "bot-run-controls", "bot-authorizations", "bot-compaction"):
             scenario.extend(["-control-dir", "/control"])
         scenario.extend(["-scenario", self.args.scenario])
         if self.args.cross_instance:
@@ -384,6 +384,8 @@ class Runner:
         # The client's timeout is per interaction, not an overall scene budget.
         if self.args.scenario == "stage-p6":
             self.lifecycle_acceptance(scenario)
+        elif self.args.scenario in {"bot-compaction", "all"}:
+            self.compaction_acceptance(scenario)
         else:
             self.compose("acceptance", "run", "--rm", "--no-deps", "e2e-client", *scenario,
                          timeout=max(180, self.args.timeout * 100))
@@ -423,7 +425,7 @@ class Runner:
                 if not address.startswith("127.0.0.1:") or "\n" in address:
                     raise LayerFailure("browser-access: minio did not publish a single loopback address")
                 access["minio"] = "http://" + address
-            if self.args.scenario in {"bot-run-controls", "bot-authorizations"}:
+            if self.args.scenario in {"bot-run-controls", "bot-authorizations", "bot-compaction"}:
                 address = self.compose("browser-port-provider", "port", "e2e-provider", "8099", capture=True).strip()
                 if not address.startswith("127.0.0.1:") or "\n" in address:
                     raise LayerFailure("browser-access: provider did not publish a single loopback address")
@@ -448,6 +450,20 @@ class Runner:
                 raise LayerFailure(f"{layer}: {service}: state={state.get('State', 'missing')} "
                                    f"health={state.get('Health', 'missing')}")
         self.emit(f"[{layer}] all {len(services)} services healthy")
+
+    def compaction_acceptance(self, scenario):
+        self.model["services"]["e2e-client"]["command"] = scenario
+        self.composefile.write_text(json.dumps(self.model, indent=2) + "\n")
+        if self.artifacts:
+            shutil.copyfile(self.composefile, self.artifacts / "compose.json")
+        self.compose("compaction-client-start", "up", "--detach", "--no-build", "--no-deps", "e2e-client")
+        self.await_checkpoint("compaction-restart")
+        self.compose("compaction-runtime-restart", "restart", "--no-deps", "bot-runtime",
+                     timeout=self.args.readiness_timeout + 30)
+        self.wait_for("compaction-restored-readiness", ["bot-runtime"])
+        (self.control / "compaction-restart.done").write_text("done\n")
+        self.await_exit("e2e-client", max(180, self.args.timeout * 100), require_success=True)
+        self.compose("compaction-client-evidence", "logs", "--no-color", "--timestamps", "e2e-client")
 
     def lifecycle_acceptance(self, scenario):
         self.model["services"]["e2e-client"]["command"] = scenario + ["-control-dir", "/control"]
@@ -563,7 +579,7 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery")
-    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-runtime", "bot-runtime-cross-instance", "llm-chat", "llm-components", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
+    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-runtime", "bot-runtime-cross-instance", "llm-chat", "llm-components", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")

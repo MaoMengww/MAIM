@@ -85,6 +85,9 @@ func lockRunAuthority(tx *gorm.DB, run *model.Run, controller bool) error {
 	if err := resourcegrant.CheckIDs(tx, resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}, run.Visibility != "personal", true); err != nil {
 		return err
 	}
+	if err := CheckRunSources(tx, run); err != nil {
+		return err
+	}
 	if controller {
 		member, _, err := RunMember(tx, run.ConvID, run.ControllerID)
 		if err != nil || run.ControllerMemberID == nil || *run.ControllerMemberID != member {
@@ -125,7 +128,10 @@ func queueRun(tx *gorm.DB, run *model.Run, kind string) error {
 	}
 	raw := json.RawMessage(`{}`)
 	if kind == "updated" {
-		raw, err = json.Marshal(map[string]any{"type": "bot.run.updated", "conv_id": run.ConvID, "bot_id": run.BotID, "run": run.Public()})
+		public := run.Public()
+		public.ResultText, public.ResultType, public.ResultContent, public.WaitingReason, public.Error = "", "", nil, "", ""
+		public.Sources, public.Actions = []map[string]string{}, []model.PublicAction{}
+		raw, err = json.Marshal(map[string]any{"type": "bot.run.updated", "conv_id": run.ConvID, "bot_id": run.BotID, "run": public})
 		if err != nil {
 			return err
 		}
@@ -231,7 +237,20 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*mo
 		if err != nil {
 			return err
 		}
-		if err := tx.Create(&model.RunInput{ID: id, RunID: run.ID, Version: 1, RequesterID: run.RequesterID, SourceMessageID: run.SourceMessageID, InputKey: run.InputKey, Content: input, ContentHash: run.InputHash, Materials: run.Materials, Sources: run.Sources}).Error; err != nil {
+		acceptedEditCount := int32(0)
+		var captured []struct {
+			MessageID string `json:"message_id"`
+			EditCount int32  `json:"edit_count"`
+		}
+		if err := json.Unmarshal(run.Materials, &captured); err != nil {
+			return err
+		}
+		for _, source := range captured {
+			if run.SourceMessageID != nil && source.MessageID == *run.SourceMessageID {
+				acceptedEditCount = source.EditCount
+			}
+		}
+		if err := tx.Create(&model.RunInput{ID: id, RunID: run.ID, Version: 1, RequesterID: run.RequesterID, SourceMessageID: run.SourceMessageID, AcceptedEditCount: acceptedEditCount, Provenance: run.Provenance, InputKey: run.InputKey, Content: input, ContentHash: run.InputHash, Materials: run.Materials, Sources: run.Sources}).Error; err != nil {
 			return err
 		}
 		kind := "execute"
@@ -315,8 +334,141 @@ func AppendRunBlock(tx *gorm.DB, run *model.Run, kind string, value any) error {
 	if err != nil {
 		return err
 	}
+	provenance := run.Provenance
+	var message struct {
+		Role string `json:"role"`
+	}
+	if kind == "message" && json.Unmarshal(raw, &message) == nil && message.Role == "system" {
+		provenance = json.RawMessage(`[]`)
+	}
 	run.TrajectoryVersion++
-	return tx.Create(&model.RunTrajectory{ID: id, RunID: run.ID, Version: run.TrajectoryVersion, Kind: kind, Block: raw}).Error
+	return tx.Create(&model.RunTrajectory{ID: id, RunID: run.ID, Version: run.TrajectoryVersion, Kind: kind, Block: raw, Provenance: provenance}).Error
+}
+
+// ReconcileSources applies privacy scrubbing even to terminal work. Authorized
+// durable facts remain; only dependent copies are removed by the callback.
+func (r *RunRepo) ReconcileSources(ctx context.Context, id string, version int64, apply func(*gorm.DB, *model.Run) error) (*model.Run, error) {
+	prior, err := r.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var run model.Run
+	err = r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockRunConversation(tx, prior.ConvID); err != nil {
+			return err
+		}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&run).Error; err != nil {
+			return err
+		}
+		if run.Version != version {
+			return status.Error(codes.Aborted, "Run changed during source reconciliation")
+		}
+		if err := apply(tx, &run); err != nil {
+			return err
+		}
+		run.Version++
+		run.UpdatedAt = time.Now()
+		if err := tx.Save(&run).Error; err != nil {
+			return err
+		}
+		return queueRun(tx, &run, "updated")
+	})
+	return &run, err
+}
+
+func CheckMaterialHistory(tx *gorm.DB, run *model.Run, grant, message string) error {
+	var count int64
+	if err := tx.Table("messaging.bot_history_grants g").Joins("JOIN messaging.messages m ON m.id = ? AND m.seq BETWEEN g.start_seq AND g.end_seq", message).Where("g.id = ? AND g.binding_id = ? AND m.conv_id = ?", grant, run.BindingID, run.ConvID).Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 1 {
+		return status.Error(codes.PermissionDenied, "history source authorization revoked")
+	}
+	return nil
+}
+
+// Conversation-first writers hold this barrier through snapshot/publication.
+// Modified sources retain their accepted body; a new observed edit invalidates
+// pending snapshots without substituting the current message's contents.
+func CheckRunSources(tx *gorm.DB, run *model.Run) error {
+	var versions []model.SourceVersion
+	if len(run.Provenance) > 0 {
+		if err := json.Unmarshal(run.Provenance, &versions); err != nil {
+			return err
+		}
+	}
+	for _, version := range versions {
+		if version.ParentRunID != "" {
+			var parent model.Run
+			if err := tx.Where("id = ?", version.ParentRunID).Take(&parent).Error; err != nil {
+				return status.Error(codes.PermissionDenied, "parent source unavailable")
+			}
+			if parent.BranchVersion != version.SourceRevision || parent.AccessRevoked {
+				return status.Error(codes.Aborted, "parent source validity changed")
+			}
+			continue
+		}
+		if version.MessageID == "" {
+			continue
+		}
+		observed := version.AcceptedEditCount
+		removed := false
+		for _, change := range run.SourceChanges {
+			if change.MessageID == version.MessageID && change.AcceptedEditCount == version.AcceptedEditCount {
+				observed = change.CurrentEditCount
+				removed = change.Status != "modified"
+			}
+		}
+		if removed {
+			continue
+		}
+		var message struct {
+			EditCount int32
+			Status    int32
+		}
+		if err := tx.Table("messaging.messages").Select("edit_count,status").Where("id = ? AND conv_id = ?", version.MessageID, run.ConvID).Take(&message).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.PermissionDenied, "source withdrawn")
+			}
+			return err
+		}
+		if message.Status == 2 {
+			return status.Error(codes.PermissionDenied, "source withdrawn")
+		}
+		if message.EditCount != observed {
+			return status.Error(codes.Aborted, "source version changed during publication")
+		}
+	}
+	var materials []struct {
+		MessageID      string `json:"message_id"`
+		HistoryGrantID string `json:"history_grant_id"`
+		RequesterID    string `json:"requester_id"`
+		Shared         bool   `json:"shared"`
+	}
+	if err := json.Unmarshal(run.Materials, &materials); err != nil {
+		return err
+	}
+	for _, material := range materials {
+		if material.HistoryGrantID != "" {
+			if err := CheckMaterialHistory(tx, run, material.HistoryGrantID, material.MessageID); err != nil {
+				return err
+			}
+		}
+		if material.MessageID != "" && !material.Shared {
+			requester := material.RequesterID
+			if requester == "" {
+				requester = run.RequesterID
+			}
+			var hidden int64
+			if err := tx.Table("messaging.personal_message_deletions").Where("message_id = ? AND conv_id = ? AND user_id = ?", material.MessageID, run.ConvID, requester).Count(&hidden).Error; err != nil {
+				return err
+			}
+			if hidden != 0 {
+				return status.Error(codes.PermissionDenied, "private source is no longer visible")
+			}
+		}
+	}
+	return nil
 }
 func QueueRunOutput(tx *gorm.DB, run *model.Run) error    { return queueRun(tx, run, "output") }
 func QueueRunDelivery(tx *gorm.DB, run *model.Run) error  { return queueRun(tx, run, "deliver") }
@@ -475,7 +627,8 @@ func (r *RunRepo) reportOnce(ctx context.Context, id, key, digest string, author
 			if prior.ContentHash != digest {
 				return status.Error(codes.AlreadyExists, "update key has different content")
 			}
-			return json.Unmarshal(prior.Receipt, &receipt)
+			receipt = run.Public()
+			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -571,7 +724,8 @@ func (r *RunRepo) CloseInteraction(ctx context.Context, id, key, digest, user st
 			if prior.ContentHash != digest {
 				return status.Error(codes.AlreadyExists, "update key has different content")
 			}
-			return json.Unmarshal(prior.Receipt, &receipt)
+			receipt = target.Public()
+			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err

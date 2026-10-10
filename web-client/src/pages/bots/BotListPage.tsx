@@ -307,10 +307,10 @@ export function BotListPage() {
 
                   />
                 </Form.Item>
-                <Form.Item name="max_context_messages" label="最大上下文消息数" initialValue={15}>
+                <Form.Item name="max_context_messages" label="显式历史材料条数上限" initialValue={15}>
                   <InputNumber min={1} max={100} style={{ width: '100%' }} />
                 </Form.Item>
-                <Form.Item name="max_context_tokens" label="最大上下文 Token" initialValue={0} extra="0 表示不限制；会在获取消息后按 token 累算，超出的旧消息丢弃">
+                <Form.Item name="max_context_tokens" label="模型上下文预算" initialValue={0} extra="0 使用默认 32768；预算包含指令、工具、工作材料与输出空间。必要时在完整工作边界压缩，不丢弃旧消息冒充已分析。">
                   <InputNumber min={0} max={200000} step={1000} style={{ width: '100%' }} />
                 </Form.Item>
                 <Form.Item name="streaming_enabled" label="启用流式" valuePropName="checked" initialValue={true}>
@@ -352,10 +352,10 @@ export function BotListPage() {
                 <Form.Item name="temperature" label="温度" initialValue={0.7}>
                   <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
-                <Form.Item name="max_context_messages" label="最大上下文消息数" initialValue={15}>
+                <Form.Item name="max_context_messages" label="显式历史材料条数上限" initialValue={15}>
                   <InputNumber min={1} max={100} style={{ width: '100%' }} />
                 </Form.Item>
-                <Form.Item name="max_context_tokens" label="最大上下文 Token" initialValue={0} extra="0 表示不限制；会在获取消息后按 token 累算，超出的旧消息丢弃">
+                <Form.Item name="max_context_tokens" label="模型上下文预算" initialValue={0} extra="0 使用默认 32768；预算包含指令、工具、工作材料与输出空间。必要时在完整工作边界压缩，不丢弃旧消息冒充已分析。">
                   <InputNumber min={0} max={200000} step={1000} style={{ width: '100%' }} />
                 </Form.Item>
                 <Form.Item name="streaming_enabled" label="启用流式" valuePropName="checked" initialValue={true}>

@@ -183,6 +183,13 @@ export interface BotRun {
   status: 'accepted' | 'running' | 'waiting_input' | 'waiting_authorization' | 'stopping' | 'stopped' | 'succeeded' | 'failed';
   stage: string;
   waiting_reason: string;
+  source_changes: {
+    message_id: string;
+    accepted_edit_count: number;
+    current_edit_count: number;
+    status: 'modified' | 'withdrawn' | 'unavailable';
+  }[];
+  context_notice: string;
   result_text: string;
   result_type?: 'text' | 'file' | 'result';
   result_content?: Record<string, unknown>;

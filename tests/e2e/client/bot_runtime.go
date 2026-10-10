@@ -47,7 +47,7 @@ func (d *driver) observeProvider() (providerObservations, error) {
 	if resp.StatusCode != http.StatusOK {
 		return observed, errors.New("provider observations HTTP 非200")
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&observed); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&observed); err != nil {
 		return observed, errors.New("provider observations JSON 无效")
 	}
 	return observed, nil
@@ -376,7 +376,7 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 			if _, err := d.p6Message(target, reply); err != nil {
 				return err
 			}
-			if err := d.p6BotStream(target, bot.ID, conv.ID, sent.MessageID, reply); err != nil {
+			if err := d.p6BotStream(target, owner, bot.ID, conv.ID, sent.MessageID, reply); err != nil {
 				return err
 			}
 		}

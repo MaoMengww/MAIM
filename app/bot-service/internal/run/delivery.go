@@ -43,7 +43,7 @@ func (s *Service) deliverRun(ctx context.Context, item *model.RunOutbox) error {
 			return err
 		}
 		r = current
-		if r.Status == "stopping" || r.Status == "waiting_authorization" || r.StreamStatus == "closed" {
+		if r.Status == "stopping" || r.Status == "waiting_input" || r.Status == "waiting_authorization" || r.StreamStatus == "closed" || r.ExecutionGeneration != payload.Generation || r.InputVersion != payload.InputVersion || r.ControlOperation != payload.Operation {
 			return nil
 		}
 		if err := s.authorize(ctx, r, false); err != nil {

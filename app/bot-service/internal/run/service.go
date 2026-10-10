@@ -62,6 +62,7 @@ type Material struct {
 	MessageType    string          `json:"message_type,omitempty"`
 	FileID         string          `json:"file_id,omitempty"`
 	FileName       string          `json:"file_name,omitempty"`
+	KnowledgeID    string          `json:"knowledge_id,omitempty"`
 	MimeType       string          `json:"mime_type,omitempty"`
 	ParentRunID    string          `json:"parent_run_id,omitempty"`
 	ResultType     string          `json:"result_type,omitempty"`
@@ -77,6 +78,7 @@ type Material struct {
 	Seq            int64           `json:"seq"`
 	EditedAt       int64           `json:"edited_at"`
 	EditCount      int32           `json:"edit_count"`
+	Provenance     json.RawMessage `json:"provenance,omitempty"`
 }
 type Input struct {
 	BotID            string
@@ -312,10 +314,21 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 			return nil, err
 		}
 		for _, accepted := range inputs {
-			materials = append(materials, Material{Kind: "parent_input", ParentRunID: parent.ID, RequesterID: accepted.RequesterID, SenderID: &accepted.RequesterID, SenderType: "user", Content: accepted.Content, CreatedAt: accepted.CreatedAt.Unix()})
+			if accepted.Invalidated {
+				continue
+			}
+			materials = append(materials, Material{Kind: "parent_input", RequesterID: accepted.RequesterID, SenderID: &accepted.RequesterID, SenderType: "user", Content: accepted.Content, CreatedAt: accepted.CreatedAt.Unix()})
+			versions := []model.SourceVersion{}
+			if accepted.SourceMessageID != nil {
+				versions = append(versions, model.SourceVersion{MessageID: *accepted.SourceMessageID, AcceptedEditCount: accepted.AcceptedEditCount})
+			}
+			materials[len(materials)-1].Provenance, err = json.Marshal(versions)
+			if err != nil {
+				return nil, err
+			}
 		}
 		result := Material{Kind: "parent_run", ParentRunID: parent.ID, RequesterID: input.RequesterID, SenderID: &parent.BotID, SenderType: "bot", Content: parent.ResultText, ResultType: parent.ResultType, ResultContent: parent.ResultContent, CreatedAt: parent.UpdatedAt.Unix()}
-		if parent.ResultType == "file" {
+		if !parent.ResultInvalidated && parent.ResultType == "file" {
 			var file msg.FileContent
 			if err := protocol.Unmarshal(parent.ResultContent, &file); err != nil {
 				return nil, err
@@ -326,7 +339,13 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 			}
 			result.FileID, result.FileName, result.MimeType, result.Content = material.FileID, material.FileName, material.MimeType, material.Content
 		}
-		materials = append(materials, result)
+		result.Provenance, err = inheritedProvenance(parent)
+		if err != nil {
+			return nil, err
+		}
+		if !parent.ResultInvalidated {
+			materials = append(materials, result)
+		}
 		sources = append(sources, inheritedSources...)
 		sources = append(sources, map[string]any{"type": "parent_run", "kind": "parent_run", "parent_run_id": parent.ID, "sender_type": "bot", "sender_id": parent.BotID, "requester_id": input.RequesterID})
 	}
@@ -422,10 +441,12 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 		}
 		config.KnowledgeIDs = ids
 		for _, d := range docs {
-			materials = append(materials, Material{Kind: "knowledge", RequesterID: input.RequesterID, Content: graph.FormatKnowledge([]graph.KbDocument{d}), Shared: input.Visibility == "conversation"})
- content:=d.MatchedContent
- if content=="" {content=d.Content}
- sources = append(sources, map[string]any{"type": "rag", "kb_id": d.KbID, "kb_name": d.KbName, "doc_id": d.DocID, "chunk_id": d.ChunkID, "title": d.Title,"content":content})
+			materials = append(materials, Material{Kind: "knowledge", KnowledgeID: d.KbID, RequesterID: input.RequesterID, Content: graph.FormatKnowledge([]graph.KbDocument{d}), Shared: input.Visibility == "conversation"})
+			content := d.MatchedContent
+			if content == "" {
+				content = d.Content
+			}
+			sources = append(sources, map[string]any{"type": "rag", "kb_id": d.KbID, "kb_name": d.KbName, "doc_id": d.DocID, "chunk_id": d.ChunkID, "title": d.Title, "content": content})
 		}
 	}
 	id, err := identity.New()
@@ -464,6 +485,12 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	}
 	now := time.Now()
 	accepted := &model.Run{ID: id, InteractionID: interaction, BotID: bot.ID, ConvID: binding.ConvID, BindingID: binding.ID, RequesterID: input.RequesterID, InputKey: input.SubmissionKey, InputHash: fingerprint, SourceMessageID: input.SourceMessageID, ReplyToMsgID: input.ReplyToMsgID, HistoryGrantID: input.HistoryGrantID, InputVersion: 1, Version: 1, Status: "accepted", Stage: "accepted", OutputStatus: "none", Config: configRaw, Sources: sourcesRaw, Materials: materialRaw, Steps: []model.RunStep{{Version: 1, Stage: "accepted", CreatedAt: now.Unix()}}, CreatedAt: now, UpdatedAt: now}
+	accepted.SourceRevision, accepted.BranchVersion = 1, 1
+	accepted.SourceChanges = []model.SourceChange{}
+	accepted.Provenance, err = materialProvenance(materials)
+	if err != nil {
+		return nil, err
+	}
 	accepted.Visibility, accepted.ResourceGrantIDs = input.Visibility, input.ResourceGrantIDs
 	if input.Visibility == "personal" {
 		accepted.PersonalUserID = &input.RequesterID
@@ -622,19 +649,31 @@ func (s *Service) visible(ctx context.Context, user string, r *model.Run) error 
 	if err := s.RequireMember(ctx, user, r.ConvID); err != nil {
 		return err
 	}
-	var materials []Material
-	if err := json.Unmarshal(r.Materials, &materials); err != nil {
-		return err
+	var versions []model.SourceVersion
+	if len(r.Provenance) > 0 {
+		if err := json.Unmarshal(r.Provenance, &versions); err != nil {
+			return err
+		}
 	}
-	for _, m := range materials {
-		if m.MessageID != "" {
-			resp, err := s.messages.GetMessageByID(userContext(ctx, user), &msg.GetMessageByIDReq{MessageId: m.MessageID})
-			if err != nil {
-				return err
-			}
-			if resp.Message == nil || resp.Message.Status == msg.MessageStatus_MESSAGE_STATUS_RECALLED {
-				return status.Error(codes.PermissionDenied, "Run source is no longer visible")
-			}
+	if r.MessageID != nil {
+		versions = append(versions, model.SourceVersion{MessageID: *r.MessageID})
+	}
+	for _, version := range versions {
+		if version.MessageID == "" && version.ParentRunID == "" {
+			continue
+		}
+		var hidden int64
+		query := s.svc.DB.WithContext(ctx).Table("messaging.personal_message_deletions").Where("user_id = ? AND conv_id = ?", user, r.ConvID)
+		if version.MessageID != "" {
+			query = query.Where("message_id = ?", version.MessageID)
+		} else {
+			query = query.Where("message_id IN (SELECT message_id FROM bot.runs WHERE id = ?)", version.ParentRunID)
+		}
+		if err := query.Count(&hidden).Error; err != nil {
+			return err
+		}
+		if hidden != 0 {
+			return status.Error(codes.NotFound, "Run source is hidden for this viewer")
 		}
 	}
 	return nil
@@ -728,6 +767,9 @@ func validateMaterialIDs(groups ...[]string) error {
 
 func materialSource(m Material) map[string]any {
 	source := map[string]any{"type": m.Kind, "kind": m.Kind, "requester_id": m.RequesterID}
+	if m.MessageID != "" {
+		source["accepted_edit_count"] = m.EditCount
+	}
 	for key, value := range map[string]string{"message_id": m.MessageID, "file_id": m.FileID, "parent_run_id": m.ParentRunID, "history_grant_id": m.HistoryGrantID, "sender_type": m.SenderType} {
 		if value != "" {
 			source[key] = value
@@ -947,8 +989,11 @@ func (s *Service) authorizeMaterials(ctx context.Context, r *model.Run, visited 
 			}
 		}
 		if material.ParentRunID != "" && !parents[material.ParentRunID] {
-			parent, err := s.Get(ctx, material.ParentRunID, r.ControllerID)
+			parent, err := s.repo.Get(ctx, material.ParentRunID)
 			if err != nil {
+				return err
+			}
+			if err := s.refreshSources(ctx, parent); err != nil {
 				return err
 			}
 			if parent.BotID != r.BotID || parent.ConvID != r.ConvID || parent.BindingID != r.BindingID || parent.InteractionID != r.InteractionID {

@@ -80,7 +80,7 @@ realtime-service ◀── Kafka delivery.requested ◀── message / bot / kn
 | `messaging` | message-service：会话与群组、消息、收件箱、seq、outbox |
 | `realtime` | realtime-service：通知与设备令牌 |
 | `user` | user-service：账号、资料、好友关系与黑名单 |
-| `bot` | bot-service：Bot 配置、MCP、记忆与摘要 |
+| `bot` | bot-service：Bot 配置、MCP、交互、Run 与有来源的工作摘要 |
 | `file` | file-service：文件元数据 |
 | `knowledge` | knowledge-base：知识库、文档与分块 |
 | `llm` | llm-gateway：模型注册与计费 |
@@ -98,7 +98,7 @@ AIM/
 │   ├── file-service/                 # 文件管理 (MinIO Presigned URL)
 │   ├── llm-gateway/                  # LLM 模型网关 (多厂商路由 + 计费 + 限流)
 │   ├── knowledge-base/               # RAG 在线检索与入库，online/ingest 独立工作负载
-│   ├── bot-service/                  # Bot 控制面 + Eino Agent/MCP/记忆，control/runtime 独立工作负载
+│   ├── bot-service/                  # Bot 控制面 + Eino Agent/MCP/交互工作，control/runtime 独立工作负载
 │   └── realtime-service/             # 长连接、连接登记、定向投递、在线状态与离线推送
 │
 ├── deploy/
@@ -605,7 +605,7 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 
 - `POST /api/v1/bots/:id/runs`：提交 `{conv_id,submission_key,message,visibility?,resource_grant_ids?,reply_to_msg_id?,history_grant_id?,message_ids?,file_ids?,parent_run_id?}`。`visibility` 默认 `conversation`，个人工作显式为 `personal`。默认独立交互；`parent_run_id` 仅承接相同绑定和可见范围的终态工作，不转移个人许可。
 - `GET /api/v1/runs/:id` 按当前身份、来源与许可查询；`GET /api/v1/conversations/:id/runs?limit=50` 只列共享 Run。个人工作仅请求者可通过 ID 查询，不进入群消息、共享 WS、共享列表或浏览器持久重试缓存。
-- `bot.run.updated` WS 事件携带 `{type,conv_id,bot_id,run}`；按 `run.version` 合并，断线后重新查询。卡片区分 `accepted/running/waiting_input/waiting_authorization/stopping/stopped/succeeded/failed` 与输出状态。缺信息通过 `ask_for_input` 等待补充；具体行动等待授权与负责人离群等待接手是不同阶段。
+- `bot.run.updated` WS 事件携带 `{type,conv_id,bot_id,run}` 的生命周期通知，不携带结果正文、工具内容或材料来源正文；客户端通过当前查看者的 REST 读取重建，不从迟到事件恢复个人隐藏内容。卡片区分 `accepted/running/waiting_input/waiting_authorization/stopping/stopped/succeeded/failed` 与输出状态。缺信息通过 `ask_for_input` 等待补充；具体行动等待授权与负责人离群等待接手是不同阶段。
 - `004_single_run.sql` 持有交互、接受输入、追加轨迹、不可变模型调用快照和 Bot outbox；`005_bot_output_submission.sql` 在消息事务内保存最终输出 receipt。重复输入返回同一 Run，重复输出返回同一消息，同键不同内容冲突；重试仍校验当前绑定和权限。
 - 开始时固定模型路由、提示词、工具/schema 和预算；密钥仅在所属 domain 瞬时取得。读取、模型派发、工具与输出检查当前许可；外部写操作要求具体批准或匹配有效受限自动许可。端点变更使旧路由快照失效，不向旧端点发送新密钥。
 - 固定指令、真实 assistant/tool 往返只追加；模型调用保留输入上界、轨迹版本、实际请求/输出和 nullable usage/首 token 延迟。支持的官方 OpenAI 端点使用原生 `prompt_cache_key`；不支持缓存照常执行，缺失缓存字段不推断命中，不自建 KV 状态。
@@ -616,6 +616,19 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 交互验收：`python3 tests/e2e/run.py --scenario bot-interactions`，覆盖多人并发补充、调用中的新增输入、同 Bot 并行隔离、显式来源、承接与清空，以及内置和 WS/Webhook 执行器的共同输入语义。
 
 验收入口：`python3 tests/e2e/run.py --scenario bot-runs`，覆盖明确操作/目标提及、同键并发重试/冲突、真实网络工具、稳定前缀、模型失败、配置冻结/撤权、最终历史与 WS/断线恢复。外部 fixture 证明协议与输入，不代表真实远端 KV 命中。
+
+#### 有来源的工作摘要与上下文失效
+
+- 模型预算包括冻结指令、工具定义、已接受输入、引用资料、工具结果及输出/工具增长空间。`max_context_tokens=0` 使用默认 32768；字节估算用于安全预算，不作为供应商 token 用量或缓存命中的报告。过大引用以明确“未纳入、未分析”材料替代并显示 `context_notice`，当前接受请求不被截断成另一个请求。
+- 仅预算不足时压缩已完成工作段。固定指令后接有效工作摘要与稳定轨迹尾部，当前输入和未完成工具往返保留完整关系；不每轮重写摘要。摘要仅表达原交互的目标、已确认约束、完成和待处理事项，作为不可信 user 材料，不是 system、行动批准、资源许可、画像、跨交互记忆或群摘要产品。
+- `013_working_compaction.sql` 保存压缩检查点及独立摘要调用事实：交互、Run 分支、连续轨迹范围、接受输入上界、来源版本、指令/工具/组装版本和有效性。轨迹位置不等于输入版本、消息 seq 或收件箱位置。摘要调用走既有 Eino 模型输入边界与 llm-gateway，并有耐久累计上限；框架控制流 checkpoint 不冒充压缩检查点。
+- 摘要生成固定水位，发布在会话屏障与 Run 锁下重新校验当前来源、授权、分支及前一检查点。并发输入留在尾部，竞争压缩或来源变更拒绝陈旧结果；完整仍获准工作轨迹保持，重启及冷缓存从有效检查点和尾部恢复同一视图。
+- `014_work_source_validity.sql` 分离接受来源版本与当前消息版本。REST `source_changes` 只提供消息 ID、接受/当前编辑次数及 `modified/withdrawn/unavailable` 状态，不提供正文。编辑不自动替换已接受工作或重复执行；用户通过明确补充提交变更，或发起独立新请求。
+- 原请求撤回或全员删除请求停止进行中的 Run；其他引用或补充失效会移除副本、派生轨迹、旧模型请求/响应、摘要及框架恢复数据，等待用户明确提交输入确认剩余约束。仅点击恢复不能绕过重新确认。当前权限在模型/工具边界和最终消息事务中复核，不以追加禁止指令代替移除失效材料。
+- 个人删除约束该用户的记录、历史及客户端缓存，不停止群共享工作；当前授权失败、消息变更和重连会清除旧 Run 视图再读取。撤回不回滚已发生的外部行动，也不自动删除独立公开结果。清空/结束交互阻断延续，新工作不自动继承旧摘要。
+- `015_derived_message_visibility.sql` 冻结发布结果的消息来源关系（含父结果及递归引用），不信任执行器 `raw_payload`。发布时把已有个人隐藏范围投影到派生结果；之后删除来源会原子生成该账号的派生删除覆盖和无正文同步事件。历史、单条读取、搜索、未读、预览和 WS 沿用同一覆盖，不停止共享 Run，也不替其他成员删除独立结果。已有库升级同时修复可见性与设备缓存；个人删除结果本身不能再经 Run 或继续结果入口读回。
+- `016_action_source_validity.sql` 冻结具体行动的来源版本；来源失效永久脱敏该行动的目标、参数和返回正文，停止旧批准/恢复继续使用，即使后续 Run 已接受新输入也不复活旧内容。实际行动状态与时间保留，已发生的外部动作不回滚；请求者和工具所有者的记录读取都复核当前来源，迟到结果不能重新填回已失效正文。
+- 压缩及消息变更验收：`python3 tests/e2e/run.py --scenario bot-compaction --timeout 60s`，包含在 `all` 中。受控外部端观察实际请求、配对、固定水位、陈旧摘要拒绝和真实 runtime 重启；它不实现 KV 缓存，不代表已验证真实供应商缓存命中。供应商缓存读写与首 token 延迟只保留实际报告，缺失仍为缺失。
 
 #### 资源、分享与具体行动授权
 

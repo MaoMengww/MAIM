@@ -2,7 +2,7 @@ import { loadUserSyncCache, commitUserSyncCache, updateUserSyncCache, type UserS
 import { msgApi, normalizeRealtimeMessageContent, type InboxChange, type UserSyncPage } from './message';
 import type { Message } from '@/types/model';
 
-type Listener = (convId: string, snapshotChanged: boolean, removedConversations: readonly string[]) => void;
+type Listener = (convId: string, snapshotChanged: boolean, removedConversations: readonly string[], invalidatedWork: readonly string[]) => void;
 interface ConvState {
   messages: Message[];
   loading: boolean;
@@ -85,8 +85,8 @@ class MessageSyncEngine {
     return () => this.listeners.delete(fn);
   }
 
-  private notify(convId = '*', snapshotChanged = false, removedConversations: readonly string[] = []) {
-    this.listeners.forEach((fn) => fn(convId, snapshotChanged, removedConversations));
+  private notify(convId = '*', snapshotChanged = false, removedConversations: readonly string[] = [], invalidatedWork: readonly string[] = []) {
+    this.listeners.forEach((fn) => fn(convId, snapshotChanged, removedConversations, invalidatedWork));
   }
 
   getState(convId: string): ConvState {
@@ -220,15 +220,18 @@ class MessageSyncEngine {
       this.mutations.splice(0, consumed);
       replayLiveChanges(0);
       this.cache = next;
-      this.notify('*', page.rebuild_required || page.changes.length > 0, [...removedConversations]);
+      const invalidatedWork = page.rebuild_required ? next.conversations.map((conversation) => conversation.id)
+        : [...new Set(page.changes.filter((change) => change.kind === 'message.edited'
+          || change.kind === 'message.recalled' || change.kind === 'message.deleted').map((change) => change.conversation_id))];
+      this.notify('*', page.rebuild_required || page.changes.length > 0, [...removedConversations], invalidatedWork);
     } while (page.has_more);
   }
 
-  private mutate(convId: string, apply: Mutation): Promise<void> {
+  private mutate(convId: string, apply: Mutation, invalidateWork = false): Promise<void> {
     if (!this.userId) return Promise.resolve();
     if (!this.hydrated || this.syncing) this.mutations.push(apply);
     apply(this.cache);
-    this.notify(convId);
+    this.notify(convId, false, [], invalidateWork ? [convId] : []);
     const userId = this.userId;
     const generation = this.generation;
     const boot = this.boot;
@@ -262,13 +265,13 @@ class MessageSyncEngine {
   updateMessage(convId: string, messageId: string, updater: (msg: Message) => Message): Promise<void> {
     return this.mutate(convId, (cache) => {
       cache.messages[convId] = (cache.messages[convId] ?? []).map((m) => m.message_id === messageId ? updater(m) : m);
-    });
+    }, true);
   }
 
   removeMessage(convId: string, messageId: string): Promise<void> {
     return this.mutate(convId, (cache) => {
       applyChange(cache, { position: cache.position, conversation_id: convId, kind: 'message.deleted', message_id: messageId });
-    });
+    }, true);
   }
 }
 

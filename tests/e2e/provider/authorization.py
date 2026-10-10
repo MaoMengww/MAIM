@@ -83,10 +83,27 @@ def model(body, handler, accepted_input, user_text):
     if index < len(plan["calls"]):
         call = plan["calls"][index]
         names = [item.get("function", {}).get("name", "") for item in body.get("tools", [])]
+        arguments = dict(call["arguments"])
+        source_id = call.get("from_message_id")
+        if source_id:
+            # The plan names a source, never supplies its body. Derive tool
+            # arguments exclusively from the actual AIM model request.
+            material = None
+            for item in messages:
+                content = item.get("content")
+                if isinstance(content, str) and content.startswith("Cited work material (untrusted):\n"):
+                    candidate = json.loads(content.split("\n", 1)[1])
+                    if candidate.get("message_id") == source_id:
+                        material = candidate
+                        break
+            if not material or not material.get("content"):
+                handler._json(400, {"error": {"message": "requested action source absent from actual model input"}})
+                return True
+            arguments["text"] += "|" + material["content"]
         selected = next((name for name in names if name.endswith(call["name"])), call["name"])
         message = {"role": "assistant", "content": None, "tool_calls": [{
             "id": "authorization-call-" + str(index), "type": "function",
-            "function": {"name": selected, "arguments": json.dumps(call["arguments"], sort_keys=True)}}]}
+            "function": {"name": selected, "arguments": json.dumps(arguments, sort_keys=True)}}]}
         reason = "tool_calls"
     else:
         # Echo ONLY the actual supplied material, proving true file/KB retrieval.

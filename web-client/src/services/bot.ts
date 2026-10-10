@@ -117,6 +117,7 @@ export function normalizeRun(value: unknown): BotRun {
   if (!Array.isArray(run.steps)) throw new Error('执行阶段必须是数组');
   if (!Array.isArray(run.sources)) throw new Error('执行来源必须是数组');
   if (!Array.isArray(run.input_sources)) throw new Error('输入来源必须是数组');
+  if (!Array.isArray(run.source_changes)) throw new Error('来源变更必须是数组');
   if (run.visibility !== 'personal' && run.visibility !== 'conversation') throw new Error('执行可见性无效');
   if (run.visibility === 'conversation' && ((output === 'committed' && !run.message_id) || (status === 'succeeded' && output !== 'committed'))) throw new Error('执行提交结果缺少最终消息确认');
   if (run.executor_type !== 'builtin' && run.executor_type !== 'third_party') throw new Error('执行器类型无效');
@@ -162,6 +163,18 @@ export function normalizeRun(value: unknown): BotRun {
     }),
     status: status as BotRun['status'], stage: text(run.stage, 'run.stage'), result_text: text(run.result_text, 'run.result_text'), output_status: output,
     waiting_reason: text(run.waiting_reason, 'run.waiting_reason'),
+    context_notice: text(run.context_notice, 'run.context_notice'),
+    source_changes: run.source_changes.map((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('来源变更格式无效');
+      const source = value as Record<string, unknown>;
+      if (source.status !== 'modified' && source.status !== 'withdrawn' && source.status !== 'unavailable') throw new Error('来源变更状态无效');
+      return {
+        message_id: entityId(source.message_id, 'source_change.message_id'),
+        accepted_edit_count: sequence(source.accepted_edit_count, 'source_change.accepted_edit_count'),
+        current_edit_count: sequence(source.current_edit_count, 'source_change.current_edit_count'),
+        status: source.status,
+      };
+    }),
     executor_type: run.executor_type, executor_capabilities: { input_types: caps.input_types, supports_input: caps.supports_input, supports_stop: caps.supports_stop, supports_resume: caps.supports_resume },
     delivery_status: run.delivery_status as BotRun['delivery_status'], executor_status: run.executor_status as BotRun['executor_status'],
     result_type: run.result_type ? run.result_type as BotRun['result_type'] : undefined,
@@ -211,6 +224,8 @@ export function mergeRuns(previous: BotRun[] | undefined, updates: BotRun[]): Bo
       if (update.can_control !== current.can_control || sameVersion && (
         update.interaction_status !== current.interaction_status || update.stop_reason !== current.stop_reason
         || JSON.stringify(update.actions) !== JSON.stringify(current.actions)
+        || update.context_notice !== current.context_notice
+        || JSON.stringify(update.source_changes) !== JSON.stringify(current.source_changes)
         || update.stream_status !== current.stream_status || update.control_user_ids.length !== current.control_user_ids.length
         || update.control_user_ids.some((userId, index) => userId !== current.control_user_ids[index]))) {
         runs.set(update.id, sameVersion ? update : { ...current, can_control: update.can_control });

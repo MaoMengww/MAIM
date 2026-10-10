@@ -174,6 +174,9 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 		return nil, err
 	}
 	receipt, err := s.repo.Report(ctx, update.RunID, "executor:"+update.UpdateKey, digest, repo.ReportAuthority{StopConfirmation: confirmation}, func(r *model.Run) error {
+		if err := s.refreshSources(ctx, r); err != nil {
+			return err
+		}
 		if r.BotID != botID || r.ExecutorType != "third_party" {
 			return status.Error(codes.PermissionDenied, "executor does not own this Run")
 		}
@@ -292,6 +295,7 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 					update.Content = canonical
 					update.ResultText = file.Name
 				}
+				r.ResultInvalidated = false
 				r.ResultText = update.ResultText
 				r.ResultType = update.MsgType
 				r.ResultContent = update.Content
@@ -386,6 +390,9 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 	var sources []map[string]any
 	var sourceMismatch bool
 	authorize := func(r *model.Run) error {
+		if err := s.refreshSources(ctx, r); err != nil {
+			return err
+		}
 		if r.Visibility == "personal" {
 			if r.PersonalUserID == nil || *r.PersonalUserID != user {
 				return status.Error(codes.PermissionDenied, "personal Run belongs to another principal")
@@ -552,7 +559,20 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 			if err != nil {
 				return err
 			}
-			if err := tx.Create(&model.RunInput{ID: inputID, RunID: r.ID, Version: r.InputVersion, RequesterID: user, SourceMessageID: command.SourceMessageID, InputKey: command.SubmissionKey, Content: command.Message, ContentHash: digest, Materials: materialRaw, Sources: sourcesRaw, CreatedAt: time.Now()}).Error; err != nil {
+			acceptedEditCount := int32(0)
+			for _, material := range materials {
+				if command.SourceMessageID != nil && material.MessageID == *command.SourceMessageID {
+					acceptedEditCount = material.EditCount
+				}
+			}
+			provenance, err := materialProvenance(materials)
+			if err != nil {
+				return err
+			}
+			if err := repo.CheckRunSources(tx, &model.Run{ID: r.ID, ConvID: r.ConvID, BindingID: r.BindingID, Materials: materialRaw, Provenance: provenance}); err != nil {
+				return err
+			}
+			if err := tx.Create(&model.RunInput{ID: inputID, RunID: r.ID, Version: r.InputVersion, RequesterID: user, SourceMessageID: command.SourceMessageID, AcceptedEditCount: acceptedEditCount, Provenance: provenance, InputKey: command.SubmissionKey, Content: command.Message, ContentHash: digest, Materials: materialRaw, Sources: sourcesRaw, CreatedAt: time.Now()}).Error; err != nil {
 				return err
 			}
 			var cumulative []Material
@@ -560,6 +580,10 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 				return err
 			}
 			cumulative = append(cumulative, materials...)
+			r.Provenance, err = mergeProvenance(r.Provenance, provenance)
+			if err != nil {
+				return err
+			}
 			r.Materials, err = json.Marshal(cumulative)
 			if err != nil {
 				return err
@@ -579,6 +603,9 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 		case "stop":
 			return requestRunStop(tx, r, "user_requested")
 		case "resume":
+			if r.Stage == "source_confirmation_required" {
+				return status.Error(codes.FailedPrecondition, "source changes require fresh explicit input")
+			}
 			if !wasWaiting {
 				return status.Error(codes.FailedPrecondition, "only unfinished waiting work may resume")
 			}

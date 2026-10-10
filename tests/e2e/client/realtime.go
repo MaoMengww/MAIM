@@ -37,6 +37,7 @@ type p6Event struct {
 		InstanceID string `json:"instance_id"`
 	} `json:"devices"`
 	Run publicRun `json:"run"`
+	raw json.RawMessage
 }
 
 type p6Socket struct {
@@ -77,6 +78,7 @@ func (d *driver) p6Connect(address string, user account) (*p6Socket, error) {
 				s.mu.Unlock()
 				return
 			}
+			evt.raw = raw
 			s.events = append(s.events, evt)
 			s.mu.Unlock()
 		}
@@ -692,15 +694,22 @@ func (d *driver) p6ReadinessRejected(address string) (time.Time, error) {
 	return time.Time{}, errors.New("p6.drain: 未实际观测到readiness HTTP503（连接失败不是摘流量证据）")
 }
 
-func (d *driver) p6BotStream(s *p6Socket, botID, convID, requestID entityID, reply sentMessage) error {
+func (d *driver) p6BotStream(s *p6Socket, caller account, botID, convID, requestID entityID, reply sentMessage) error {
 	done, err := d.p6Wait(s, 0, "bot.run.updated", func(e p6Event) bool {
 		return e.Type == "bot.run.updated" && e.Run.BotID == botID && e.Run.ConvID == convID && e.Run.Status == "succeeded" && hasEntityID(e.Run.MessageID, reply.MessageID)
 	})
 	if err != nil {
 		return err
 	}
-	if done.Run.ID == "" || done.Run.InteractionID == "" || done.Run.ID == reply.MessageID || !hasEntityID(done.Run.SourceMessageID, requestID) || done.Run.ResultText != reply.Content.Text || done.Run.OutputStatus != "committed" {
+	if done.Run.ID == "" || done.Run.InteractionID == "" || done.Run.ID == reply.MessageID || !hasEntityID(done.Run.SourceMessageID, requestID) || done.Run.OutputStatus != "committed" {
 		return errors.New("p6.bot.run: 执行状态/请求来源/最终消息失配")
+	}
+	var authoritative publicRun
+	if err = d.request(http.MethodGet, "/runs/"+done.Run.ID.String(), caller.token, nil, &authoritative); err != nil {
+		return err
+	}
+	if authoritative.ID != done.Run.ID || authoritative.Status != "succeeded" || authoritative.OutputStatus != "committed" || !hasEntityID(authoritative.MessageID, reply.MessageID) || authoritative.SourceMessageID == nil || *authoritative.SourceMessageID != requestID || authoritative.ResultText != reply.Content.Text {
+		return errors.New("p6.bot.run: REST authoritative final result/source mismatch")
 	}
 	return nil
 }

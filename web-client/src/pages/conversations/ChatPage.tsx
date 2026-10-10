@@ -396,6 +396,8 @@ const RUN_STAGE: Record<string, string> = {
   awaiting_takeover: '负责人失去当前资格 · 暂停等待接手', takeover: '当前有权成员接手',
   control_granted: '授予执行控制权', control_revoked: '撤销执行控制权', stop_rejected: '执行器拒绝停止',
   stop_unknown: '停止结果未知', stream_closed: '会话输出流关闭',
+  source_confirmation_required: '工作来源失效 · 等待明确确认剩余约束',
+  compacting: '压缩已完成工作段',
 };
 const RUN_OUTPUT: Record<BotRun['output_status'], string> = {
   none: '尚无结果', generated: '结果已生成 · 尚未发送', pending: '结果待提交 · 尚未发送',
@@ -412,6 +414,8 @@ const RUN_STOP_REASON: Record<string, string> = {
   user_requested: '有权成员请求停止', binding_revoked: 'Bot 已移出，旧绑定不再获准访问',
   bot_disabled: 'Bot 已停用', participation_revoked: 'Bot 当前绑定参与许可已撤销',
   controller_membership_lost: '负责人已失去当前成员资格',
+  request_source_recalled: '原请求已撤回或全员删除', resource_authorization_revoked: '工作依赖的读取或分享许可已撤销',
+  tool_authorization_revoked: '工作依赖的工具许可已撤销',
 };
 const RUN_SOURCE_LABEL: Record<string, string> = { request_source: '发起请求', reference: '明确引用', history: '获准历史', file: '文件', parent_run: '承接结果' };
 const SOURCE_SENDER_LABEL: Record<string, string> = { user: '用户', bot: 'Bot', system: '系统' };
@@ -631,7 +635,7 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       {bindingActive && <Button disabled={controlling} onClick={() => onNew(run)}>独立新话题</Button>}
       {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_stop && run.stop_status === 'none'
         && <Button danger loading={controlling} onClick={() => void control('stop')}>请求停止</Button>}
-      {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_resume && run.status === 'waiting_input' && run.stop_status === 'none'
+      {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_resume && run.status === 'waiting_input' && run.stage !== 'source_confirmation_required' && run.stop_status === 'none'
         && <Button loading={controlling} onClick={() => void control('resume')}>请求恢复</Button>}
       {canOperate && !terminal && run.status !== 'stopping'
         && (run.status === 'waiting_authorization'

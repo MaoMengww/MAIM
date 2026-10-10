@@ -39,7 +39,13 @@ type Run struct {
 	HistoryGrantID              *string `gorm:"type:uuid"`
 	InputVersion                int64
 	AppliedInputVersion         int64
-	InputSources                []InputSource `gorm:"type:jsonb;serializer:json"`
+	InputSources                []InputSource  `gorm:"type:jsonb;serializer:json"`
+	SourceChanges               []SourceChange `gorm:"type:jsonb;serializer:json"`
+	ContextNotice               string
+	SourceRevision              int64
+	BranchVersion               int64
+	Provenance                  json.RawMessage `gorm:"type:jsonb"`
+	ResultInvalidated           bool
 	Version                     int64
 	TrajectoryVersion           int64
 	ExecutionGeneration         int64
@@ -92,6 +98,24 @@ type InputSource struct {
 	ParentRunID     *string  `json:"parent_run_id,omitempty"`
 }
 
+// SourceVersion is private provenance, not material or authorization.
+type SourceVersion struct {
+	MessageID         string `json:"message_id,omitempty"`
+	AcceptedEditCount int32  `json:"accepted_edit_count"`
+	FileID            string `json:"file_id,omitempty"`
+	KnowledgeID       string `json:"knowledge_id,omitempty"`
+	ParentRunID       string `json:"parent_run_id,omitempty"`
+	SourceRevision    int64  `json:"source_revision,omitzero"`
+}
+
+// SourceChange reports version and availability without retaining message bodies.
+type SourceChange struct {
+	MessageID         string `json:"message_id"`
+	AcceptedEditCount int32  `json:"accepted_edit_count"`
+	CurrentEditCount  int32  `json:"current_edit_count"`
+	Status            string `json:"status"`
+}
+
 type RunReceipt struct {
 	ID          string `gorm:"type:uuid;primaryKey"`
 	RunID       string `gorm:"type:uuid"`
@@ -123,6 +147,8 @@ type PublicRun struct {
 	CanControl           *bool                `json:"can_control,omitempty"`
 	InputKey             string               `json:"input_key"`
 	InputSources         []InputSource        `json:"input_sources"`
+	SourceChanges        []SourceChange       `json:"source_changes"`
+	ContextNotice        string               `json:"context_notice"`
 	SourceMessageID      *string              `json:"source_message_id,omitempty"`
 	InputVersion         int64                `json:"input_version"`
 	Version              int64                `json:"version"`
@@ -170,31 +196,43 @@ func (r *Run) Public() PublicRun {
 	if controllers == nil {
 		controllers = []string{}
 	}
-	return PublicRun{ID: r.ID, InteractionID: r.InteractionID, BotID: r.BotID, ConvID: r.ConvID,
+	changes := r.SourceChanges
+	if changes == nil {
+		changes = []SourceChange{}
+	}
+	public := PublicRun{ID: r.ID, InteractionID: r.InteractionID, BotID: r.BotID, ConvID: r.ConvID,
 		Visibility: r.Visibility, PersonalUserID: r.PersonalUserID, Actions: r.Actions,
 		ParentRunID: r.ParentRunID, InteractionStatus: r.InteractionStatus, WaitingReason: r.WaitingReason,
 		BindingID: r.BindingID, RequesterID: r.RequesterID, InputKey: r.InputKey, SourceMessageID: r.SourceMessageID,
 		ControllerID: r.ControllerID, ControlUserIDs: controllers, StopStatus: r.StopStatus, StreamStatus: r.StreamStatus, StopReason: r.StopReason,
 		CanControl:   r.ViewerCanControl,
 		InputVersion: r.InputVersion, Version: r.Version, Status: r.Status, Stage: r.Stage,
-		InputSources: r.InputSources,
+		InputSources:  r.InputSources,
+		SourceChanges: changes, ContextNotice: r.ContextNotice,
 		ExecutorType: r.ExecutorType, ExecutorCapabilities: r.ExecutorCapabilities, DeliveryStatus: r.DeliveryStatus, ExecutorStatus: r.ExecutorStatus, Generation: r.ExecutionGeneration, TriggerKind: r.TriggerKind, ResultType: r.ResultType, ResultContent: r.ResultContent,
 		ResultText: r.ResultText, OutputStatus: r.OutputStatus, MessageID: r.MessageID, Error: r.Error,
 		Sources: sources, Steps: steps, CreatedAt: r.CreatedAt.Unix(), UpdatedAt: r.UpdatedAt.Unix()}
+	if r.ResultInvalidated {
+		public.ResultText, public.ResultType, public.ResultContent = "", "", nil
+	}
+	return public
 }
 
 type RunInput struct {
-	ID              string `gorm:"type:uuid;primaryKey"`
-	RunID           string `gorm:"type:uuid"`
-	Version         int64
-	RequesterID     string  `gorm:"type:uuid"`
-	SourceMessageID *string `gorm:"type:uuid"`
-	InputKey        string
-	Content         string
-	ContentHash     string
-	Materials       json.RawMessage `gorm:"type:jsonb"`
-	Sources         json.RawMessage `gorm:"type:jsonb"`
-	CreatedAt       time.Time
+	ID                string `gorm:"type:uuid;primaryKey"`
+	RunID             string `gorm:"type:uuid"`
+	Version           int64
+	RequesterID       string  `gorm:"type:uuid"`
+	SourceMessageID   *string `gorm:"type:uuid"`
+	AcceptedEditCount int32
+	Provenance        json.RawMessage `gorm:"type:jsonb"`
+	Invalidated       bool
+	InputKey          string
+	Content           string
+	ContentHash       string
+	Materials         json.RawMessage `gorm:"type:jsonb"`
+	Sources           json.RawMessage `gorm:"type:jsonb"`
+	CreatedAt         time.Time
 }
 
 func (RunInput) TableName() string { return "bot.run_inputs" }
@@ -215,12 +253,14 @@ type Interaction struct {
 func (Interaction) TableName() string { return "bot.interactions" }
 
 type RunTrajectory struct {
-	ID        string `gorm:"type:uuid;primaryKey"`
-	RunID     string `gorm:"type:uuid"`
-	Version   int64
-	Kind      string
-	Block     json.RawMessage `gorm:"type:jsonb"`
-	CreatedAt time.Time
+	ID          string `gorm:"type:uuid;primaryKey"`
+	RunID       string `gorm:"type:uuid"`
+	Version     int64
+	Kind        string
+	Block       json.RawMessage `gorm:"type:jsonb"`
+	Provenance  json.RawMessage `gorm:"type:jsonb"`
+	Invalidated bool
+	CreatedAt   time.Time
 }
 
 func (RunTrajectory) TableName() string { return "bot.run_trajectory" }
@@ -238,6 +278,10 @@ type RunModelCall struct {
 	Response            json.RawMessage `gorm:"type:jsonb"`
 	Usage               json.RawMessage `gorm:"type:jsonb"`
 	FirstTokenLatencyMs *int64
+	Provenance          json.RawMessage `gorm:"type:jsonb"`
+	SourceRevision      int64
+	CheckpointID        *string `gorm:"type:uuid"`
+	Invalidated         bool
 	Status              string
 	CreatedAt           time.Time
 	CompletedAt         *time.Time

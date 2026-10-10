@@ -97,8 +97,15 @@ func (d *driver) executorControls(owner, admin, requester, member account, bot b
 	if err != nil {
 		return err
 	}
-	if replay.Version != supplemented.Version || replay.InputVersion != supplemented.InputVersion {
-		return errors.New("executor controls: duplicate input changed version")
+	if replay.ID != started.ID || replay.RequesterID != requester.id || replay.Generation != supplemented.Generation || replay.InputVersion != supplemented.InputVersion {
+		return errors.New("executor controls: input retry duplicated acceptance or changed work identity")
+	}
+	afterReplay, err := d.readRun(requester, started.ID)
+	if err != nil {
+		return err
+	}
+	if len(afterReplay.InputSources) != 2 || afterReplay.InputSources[0].RequesterID != requester.id || afterReplay.InputSources[1].RequesterID != member.id || afterReplay.InputSources[1].Version != supplemented.InputVersion || afterReplay.Status != "running" {
+		return errors.New("executor controls: input retry lost contributor, repeated input or regressed execution")
 	}
 	if err = d.runtimeReject(http.MethodPost, "/runs/"+started.ID.String()+"/control", member, map[string]any{"operation": "input", "message": "different words", "submission_key": inputKey}, http.StatusConflict); err != nil {
 		return err

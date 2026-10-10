@@ -63,7 +63,7 @@ func (d *driver) runtimeCompositionExchange(caller account, address string, botI
 	}
 	reply := sentMessage{MessageID: msg.MessageID}
 	reply.Content.Text = msg.Text.Text
-	if err := d.p6BotStream(socket, botID, convID, sent.MessageID, reply); err != nil {
+	if err := d.p6BotStream(socket, caller, botID, convID, sent.MessageID, reply); err != nil {
 		return "", err
 	}
 	return msg.Text.Text, runtimeSourcePayload(msg.RawPayload, sources)

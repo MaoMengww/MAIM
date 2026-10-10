@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth';
 import { ActionConfirmations, RunActions } from './RunActions';
 import type { BotInConv, BotRun, PublicAction } from '@/types/model';
 import { entityId } from '@/utils/json';
+import { messageSync } from '@/services/messageSync';
 
 const deadline = (minutes: number) => Math.floor(Date.now() / 1000) + minutes * 60;
 export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string; bots: BotInConv[]; onSelect: (ids: string[]) => void }) {
@@ -37,6 +38,11 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
   resourceForm.resetFields(); actionForm.resetFields(); personalForm.resetFields(); queryForm.resetFields(); inputForm.resetFields(); privateRetry.current = undefined; privateControlKeys.current.clear();
   return () => { epoch.current += 1; };
  }, [convId, revision, resourceForm, actionForm, personalForm, queryForm, inputForm]);
+ useEffect(() => messageSync.subscribe((_id, _snapshotChanged, removedConversations, invalidatedWork) => {
+  if (!removedConversations.includes(convId) && !invalidatedWork.includes(convId)) return;
+  epoch.current += 1;
+  setPersonal(undefined); setActions([]); setBusy(false);
+ }), [convId]);
  const perform = async (work: () => Promise<void>) => {
   if (busy) return;
   const current = epoch.current;
@@ -66,11 +72,33 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
  };
  const refreshPersonal = async (runId: string) => {
   const current = epoch.current;
+  // Do not retain an old private projection when current visibility rejects it.
+  setPersonal(undefined);
   const run = await botApi.getRun(entityId(runId, 'run_id'));
   if (current !== epoch.current || currentScope.current !== scopeKey) return;
   if (run.visibility !== 'personal' || run.conv_id !== convId || run.bot_id !== botId || run.personal_user_id !== useAuthStore.getState().user?.id) throw new Error('不是当前请求者的个人工作');
   setPersonal(run);
  };
+ useEffect(() => {
+  if (!personal || !open) return;
+  const current = epoch.current;
+  const id = personal.id;
+  let active = true;
+  let inFlight = false;
+  const timer = window.setInterval(() => {
+   if (inFlight) return;
+   inFlight = true;
+   void botApi.getRun(id).then((run) => {
+    if (!active || current !== epoch.current || currentScope.current !== scopeKey) return;
+    setPersonal((previous) => previous?.id === id && run.version >= previous.version ? run : previous);
+   }).catch(() => {
+    if (!active || current !== epoch.current || currentScope.current !== scopeKey) return;
+    setPersonal((previous) => previous?.id === id ? undefined : previous);
+    setError('个人工作当前不可读取，旧材料已从此页面移除。');
+   }).finally(() => { inFlight = false; });
+  }, 1000);
+  return () => { active = false; window.clearInterval(timer); };
+ }, [personal?.id, open, scopeKey]);
  const personalOwned = !!personal && personal.visibility === 'personal' && personal.personal_user_id === useAuthStore.getState().user?.id && personal.conv_id === convId && personal.bot_id === botId;
  const personalCanControl = personalOwned && personal.can_control === true && personal.interaction_status === 'active'
   && !['binding_revoked', 'bot_disabled', 'participation_revoked'].includes(personal.stop_reason)
@@ -80,7 +108,7 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
  const personalCanStop = personalCanControl && !['succeeded', 'failed', 'stopped'].includes(personal.status) && personal.output_status === 'none'
   && personal.stop_status === 'none' && personal.executor_capabilities.supports_stop;
  const personalCanResume = personalCanControl && personal.status === 'waiting_input' && personal.output_status === 'none'
-  && personal.stop_status === 'none' && personal.executor_capabilities.supports_resume;
+  && personal.stop_status === 'none' && personal.stage !== 'source_confirmation_required' && personal.executor_capabilities.supports_resume;
  const controlPersonal = async (operation: 'input' | 'stop' | 'resume', message?: string) => {
   if (currentScope.current !== scopeKey || !personal || !(operation === 'input' ? personalCanInput : operation === 'stop' ? personalCanStop : personalCanResume)) throw new Error('当前个人工作不允许此操作，请查询最新状态');
   if (operation === 'input' && !message?.trim()) throw new Error('请输入个人补充内容');

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -44,12 +45,16 @@ type inboxSyncResult struct {
 	RebuildRequired bool            `json:"rebuild_required"`
 	Conversations   []inboxSnapshot `json:"conversations"`
 	RebuildReason   string          `json:"rebuild_reason"`
+	raw             json.RawMessage
 }
 
 func (d *driver) inboxRead(step string, caller account, position sequenceNumber, limit int) (inboxSyncResult, error) {
 	var result inboxSyncResult
 	path := fmt.Sprintf("/messages/sync?position=%s&limit=%d", position, limit)
-	if err := d.request(http.MethodGet, path, caller.token, nil, &result); err != nil {
+	if err := d.request(http.MethodGet, path, caller.token, nil, &result.raw); err != nil {
+		return result, fmt.Errorf("user-sync.%s: %w", step, err)
+	}
+	if err := json.Unmarshal(result.raw, &result); err != nil {
 		return result, fmt.Errorf("user-sync.%s: %w", step, err)
 	}
 	if result.NextPosition <= 0 {

@@ -66,11 +66,11 @@ func (s *Service) authorityState(ctx context.Context, r *model.Run) (string, err
 		return "", err
 	}
 	if r.SourceMessageID != nil {
-		var recalled int64
-		if err := s.svc.DB.WithContext(ctx).Table("messaging.messages").Where("id = ? AND status = 2", *r.SourceMessageID).Count(&recalled).Error; err != nil {
+		var available int64
+		if err := s.svc.DB.WithContext(ctx).Table("messaging.messages").Where("id = ? AND conv_id = ? AND status <> 2", *r.SourceMessageID, r.ConvID).Count(&available).Error; err != nil {
 			return "", err
 		}
-		if recalled != 0 {
+		if available != 1 {
 			return "request_source_recalled", nil
 		}
 	}
@@ -78,6 +78,9 @@ func (s *Service) authorityState(ctx context.Context, r *model.Run) (string, err
 }
 
 func (s *Service) reconcile(ctx context.Context, r *model.Run) (*model.Run, error) {
+	if err := s.refreshSources(ctx, r); err != nil {
+		return r, err
+	}
 	if repo.TerminalRun(r) {
 		return r, nil
 	}
@@ -336,8 +339,11 @@ func (s *Service) decorateControl(ctx context.Context, public *model.PublicRun, 
 		if err == nil && (reason == "binding_revoked" || reason == "bot_disabled" || reason == "participation_revoked") {
 			public.InteractionStatus, public.StopReason = "closed", reason
 		}
-		if s.visible(ctx, user, r) != nil {
+		if s.refreshSources(ctx, r) != nil || s.visible(ctx, user, r) != nil {
 			stopReceipt(public)
+		} else {
+			public.Sources, public.SourceChanges, public.ContextNotice = r.Public().Sources, r.SourceChanges, r.ContextNotice
+			public.ResultText, public.ResultType, public.ResultContent = r.Public().ResultText, r.Public().ResultType, r.Public().ResultContent
 		}
 	}
 	if err == nil && repo.RunController(s.svc.DB.WithContext(ctx), r, user) == nil {

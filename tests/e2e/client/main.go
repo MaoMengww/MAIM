@@ -192,7 +192,7 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://realtime-service:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
-	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-executor-runs|bot-run-controls|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-executor-runs|bot-run-controls|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
@@ -233,6 +233,7 @@ func run(args []string) error {
 			{"bot-executor-runs", *realtimeA, *realtimeB},
 			{"bot-run-controls", *realtimeA, *realtimeB},
 			{"bot-authorizations", *realtimeA, *realtimeB},
+			{"bot-compaction", *realtimeA, *realtimeB},
 			{"knowledge-ingest", "", ""},
 			{"llm-chat", "", ""},
 			{"llm-components", "", ""},
@@ -266,6 +267,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"bot-runs", *realtimeA, *realtimeB}}
 	case "bot-interactions":
 		scenarios = []scenarioSpec{{"bot-interactions", *realtimeA, *realtimeB}}
+	case "bot-compaction":
+		scenarios = []scenarioSpec{{"bot-compaction", *realtimeA, *realtimeB}}
 	case "bot-executor-runs":
 		scenarios = []scenarioSpec{{"bot-executor-runs", *realtimeA, *realtimeB}}
 	case "bot-run-controls":
@@ -299,7 +302,7 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-executor-runs|bot-run-controls|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-executor-runs|bot-run-controls|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	}
 	if *cross && *selected == "bot-runtime" {
 		scenarios = append(scenarios, scenarioSpec{"bot-runtime-cross-instance", *realtimeA, *realtimeB})
@@ -307,7 +310,7 @@ func run(args []string) error {
 		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
 	}
 	for _, scenario := range scenarios {
-		if scenario.name == "bot-authorizations" || scenario.name == "llm-components" || scenario.name == "llm-chat" || scenario.name == "bot-run-controls" || scenario.name == "bot-interactions" || scenario.name == "bot-executor-runs" || scenario.name == "bot-runs" || scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
+		if scenario.name == "bot-compaction" || scenario.name == "bot-authorizations" || scenario.name == "llm-components" || scenario.name == "llm-chat" || scenario.name == "bot-run-controls" || scenario.name == "bot-interactions" || scenario.name == "bot-executor-runs" || scenario.name == "bot-runs" || scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
 			if _, err := endpoint(*provider, "http", "https"); err != nil {
 				return fmt.Errorf("配置外部 provider: %w", err)
 			}
@@ -353,6 +356,8 @@ func run(args []string) error {
 			err = d.botRuns(scenario.a, scenario.b)
 		case "bot-interactions":
 			err = d.botInteractions(scenario.a, scenario.b)
+		case "bot-compaction":
+			err = d.botCompaction(scenario.a, scenario.b)
 		case "bot-executor-runs":
 			err = d.botExecutorRuns(scenario.a, scenario.b)
 		case "bot-run-controls":
@@ -400,6 +405,8 @@ func run(args []string) error {
 			fmt.Println("E2E PASS: bot-run-controls 当前控制权限/重放 → 实际模型及工具取消 → 第三方工作循环确认/未确认/拒绝/完成竞态 → 接手来源与个人许可隔离 → 退群暂停/明确接手/新成员历史 → Bot撤绑停用许可撤销即刻拒读输出/无材料确认/重入不复活")
 		} else if scenario.name == "bot-authorizations" {
 			fmt.Println("E2E PASS: bot-authorizations public REST/WS resource read/share/private/revocation and exact external action authority")
+		} else if scenario.name == "bot-compaction" {
+			fmt.Println("E2E PASS: bot-compaction actual provider prefix/summary/tail/tools -> held watermark/concurrent input -> runtime restart -> edits/withdrawals/personal deletion; no simulated KV-hit claim")
 		} else if scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" {
 			fmt.Printf("E2E PASS: %s UUID模型CRUD/私有选择拒绝/model_id省略保持与clear → Bot配置/token状态 → MCP稳定UUID发现/绑定解绑/真实调用 → Kafka精确回复/WS与REST → model/bot/user计费一致 → 语言与AI模型设置 → 已退役生成/查询/Todo管理HTTP404且provider计数不变 → 知识multipart上传/检索/绑定/WS与SSE/history来源UUID/解绑隔离 → 删除\n", scenario.name)
 		} else if scenario.name == "llm-chat" {

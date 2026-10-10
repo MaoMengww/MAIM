@@ -776,6 +776,9 @@ func (f *authorizationFixture) actions(address string) error {
 	if err = f.privateActionApproval(); err != nil {
 		return err
 	}
+	if err = f.actionSourceInvalidation(); err != nil {
+		return err
+	}
 	if err = f.escapedCredentialAdmission(address); err != nil {
 		return err
 	}
@@ -1360,6 +1363,172 @@ func (f *authorizationFixture) privateActionApproval() error {
 		return err
 	}
 	return f.record("private_action_approved", run, &action, token)
+}
+
+// The external model derives the action's text from a real cited chat source;
+// neither the armed tool plan nor this client injects the canary into arguments.
+func (f *authorizationFixture) actionSourceInvalidation() error {
+	type actionView struct {
+		authorizationAction
+		CanShareConfirmation bool `json:"can_share_confirmation"`
+	}
+	for _, phase := range []string{"pending", "completed"} {
+		token := "AUTH_SOURCE_" + strings.ToUpper(phase) + "_" + f.suffix
+		canary := "CANARY_ACTION_SOURCE_" + strings.ToUpper(phase) + "_" + f.suffix
+		source, err := f.d.sendMessage(f.admin, f.conv, canary, 0)
+		if err != nil {
+			return err
+		}
+		if err = f.arm(token, []map[string]any{{"name": "fixture_auth_send", "from_message_id": source.MessageID,
+			"arguments": map[string]string{"target": "source-invalidation-inbox", "text": token}}}, false); err != nil {
+			return err
+		}
+		run, err := f.start(token, map[string]any{"visibility": "personal", "message_ids": []entityID{source.MessageID}})
+		if err != nil {
+			return err
+		}
+		var action actionView
+		if err = f.d.broadcastPoll("source-derived private action pending", func(bounded *driver) (bool, error) {
+			var actions []actionView
+			err := bounded.request(http.MethodPost, "/bot-authorizations/actions", f.requester.token, map[string]any{"op": "list", "run_id": run.ID}, &actions)
+			if len(actions) == 1 {
+				action = actions[0]
+			}
+			return len(actions) == 1 && action.Status == "pending", err
+		}); err != nil {
+			return err
+		}
+		if !strings.Contains(string(action.Parameters), canary) || action.CanApprove || !action.CanShareConfirmation {
+			return errors.New("source-action: real source body did not reach requester-only pending arguments")
+		}
+		if err = f.modelContains(token, canary, true); err != nil {
+			return err
+		}
+		if err = f.sideEffects(token, 0); err != nil {
+			return err
+		}
+		if err = f.d.request(http.MethodPost, "/bot-authorizations/actions", f.requester.token,
+			actionDecision(action.authorizationAction, "share_confirmation", uuid.NewString()), nil); err != nil {
+			return err
+		}
+		var shared struct {
+			Actions []actionView `json:"actions"`
+		}
+		if err = f.d.request(http.MethodPost, "/bot-authorizations/actions", f.owner.token,
+			map[string]any{"op": "list", "bot_id": f.bot.ID, "conv_id": f.conv}, &shared); err != nil {
+			return err
+		}
+		sharedIndex := slices.IndexFunc(shared.Actions, func(a actionView) bool { return a.ID == action.ID })
+		if sharedIndex < 0 || !shared.Actions[sharedIndex].CanApprove || !strings.Contains(string(shared.Actions[sharedIndex].Parameters), canary) {
+			return errors.New("source-action: positive owner narrow-list disclosure/approval witness missing")
+		}
+		expectedCalls := 0
+		if phase == "completed" {
+			if err = f.d.request(http.MethodPost, "/bot-authorizations/actions", f.owner.token,
+				actionDecision(action.authorizationAction, "approve", uuid.NewString()), nil); err != nil {
+				return err
+			}
+			run, err = f.d.waitRun(f.requester, run.ID)
+			if err != nil {
+				return err
+			}
+			if run.Status != "succeeded" || run.MessageID != nil || !strings.Contains(run.ResultText, canary) {
+				return errors.New("source-action: completed personal Run lost actual source-derived result")
+			}
+			expectedCalls = 1
+			observed, err := f.observe(token)
+			if err != nil {
+				return err
+			}
+			if len(observed.Calls) != 1 || observed.Calls[0].Name != "fixture_auth_send" || observed.Calls[0].Arguments["text"] != token+"|"+source.Content.Text {
+				return errors.New("source-action: external endpoint did not receive actual cited body exactly once")
+			}
+			var completedRaw json.RawMessage
+			if err = f.d.request(http.MethodPost, "/bot-authorizations/actions", f.requester.token,
+				map[string]any{"op": "list", "run_id": run.ID}, &completedRaw); err != nil {
+				return err
+			}
+			var completed []actionView
+			if err = json.Unmarshal(completedRaw, &completed); err != nil {
+				return err
+			}
+			if len(completed) != 1 || completed[0].ID != action.ID || completed[0].Status != "succeeded" || !strings.Contains(string(completedRaw), "external-result:") || !strings.Contains(string(completedRaw), canary) {
+				return errors.New("source-action: completed action's real external result was not publicly present before recall")
+			}
+			action = completed[0]
+		}
+		if err = f.d.request(http.MethodPost, "/messages/"+source.MessageID.String()+"/recall", f.admin.token, map[string]any{}, nil); err != nil {
+			return err
+		}
+		// Read the narrower action-owner surface first: it must reconcile source
+		// invalidation itself, without a preceding requester Run.GET doing it.
+		var ownerRaw json.RawMessage
+		if err = f.d.request(http.MethodPost, "/bot-authorizations/actions", f.owner.token,
+			map[string]any{"op": "list", "bot_id": f.bot.ID, "conv_id": f.conv}, &ownerRaw); err != nil {
+			return err
+		}
+		if strings.Contains(string(ownerRaw), canary) {
+			return errors.New("source-action: recalled body leaked through owner narrow action list")
+		}
+		var ownerView struct {
+			Actions []actionView `json:"actions"`
+		}
+		if err = json.Unmarshal(ownerRaw, &ownerView); err != nil {
+			return err
+		}
+		if slices.ContainsFunc(ownerView.Actions, func(a actionView) bool { return a.ID == action.ID && (a.CanApprove || a.CanShareConfirmation) }) {
+			return errors.New("source-action: owner retained approval/disclosure authority after source recall")
+		}
+		var requesterRaw json.RawMessage
+		if err = f.d.request(http.MethodPost, "/bot-authorizations/actions", f.requester.token,
+			map[string]any{"op": "list", "run_id": run.ID}, &requesterRaw); err != nil {
+			return err
+		}
+		if strings.Contains(string(requesterRaw), canary) || strings.Contains(string(requesterRaw), "external-result:") {
+			return errors.New("source-action: requester action list retained recalled arguments/external result")
+		}
+		var requesterView []actionView
+		if err = json.Unmarshal(requesterRaw, &requesterView); err != nil {
+			return err
+		}
+		if len(requesterView) != 1 || requesterView[0].ID != action.ID || requesterView[0].CanApprove || requesterView[0].CanShareConfirmation {
+			return errors.New("source-action: source recall erased action fact or retained approval/disclosure authority")
+		}
+		if phase == "completed" && requesterView[0].Status != action.Status {
+			return errors.New("source-action: source recall rolled back completed external-action fact")
+		}
+		var runRaw json.RawMessage
+		if err = f.d.request(http.MethodGet, "/runs/"+run.ID.String(), f.requester.token, nil, &runRaw); err != nil {
+			return err
+		}
+		if strings.Contains(string(runRaw), canary) || strings.Contains(string(runRaw), "external-result:") {
+			return errors.New("source-action: requester Run.GET resurrected recalled action parameters/result")
+		}
+		var current publicRun
+		if err = json.Unmarshal(runRaw, &current); err != nil {
+			return err
+		}
+		if current.ID != run.ID || phase == "completed" && current.Status != "succeeded" {
+			return errors.New("source-action: recalled source erased completed Run instead of redacting derived material")
+		}
+		for _, caller := range []account{f.owner, f.requester} {
+			if err = f.d.authorizationReject("/bot-authorizations/actions", caller.token,
+				actionDecision(action.authorizationAction, "approve", uuid.NewString())); err != nil {
+				return err
+			}
+		}
+		if err = f.d.authorizationReject("/bot-authorizations/actions", f.requester.token,
+			actionDecision(action.authorizationAction, "share_confirmation", uuid.NewString())); err != nil {
+			return err
+		}
+		if err = f.sideEffects(token, expectedCalls); err != nil {
+			return err
+		}
+		if err = f.record("source_recalled_action_"+phase, current, &requesterView[0].authorizationAction, token); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (f *authorizationFixture) escapedCredentialAdmission(address string) error {

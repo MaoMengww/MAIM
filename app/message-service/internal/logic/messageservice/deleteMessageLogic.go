@@ -71,14 +71,26 @@ func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*commo
 			return err
 		}
 		inserted, err := msgRepo.InsertPersonalDeletion(l.ctx, tx, in.UserId, current.ConvID, current.ID)
-		if err != nil || !inserted {
+		if err != nil {
 			return err
 		}
-		// A tombstone contains no content and targets only the actor's account.
-		return l.svcCtx.PublishInboxChange(l.ctx, tx, map[string]any{
-			"kind": model.InboxMessageDeleted, "conv_id": current.ConvID, "message_id": current.ID,
-			"user_id": in.UserId, "recipient_ids": []string{in.UserId},
-		})
+		hidden, err := msgRepo.InsertDerivedPersonalDeletions(l.ctx, tx, in.UserId, current.ConvID, current.ID)
+		if err != nil {
+			return err
+		}
+		if inserted {
+			hidden = append([]string{current.ID}, hidden...)
+		}
+		// Each tombstone contains no content and targets only the actor's account.
+		for _, id := range hidden {
+			if err := l.svcCtx.PublishInboxChange(l.ctx, tx, map[string]any{
+				"kind": model.InboxMessageDeleted, "conv_id": current.ConvID, "message_id": id,
+				"user_id": in.UserId, "recipient_ids": []string{in.UserId},
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		if _, ok := errors.IsBizError(err); ok {

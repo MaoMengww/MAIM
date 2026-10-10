@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/pkg/database"
@@ -37,6 +38,53 @@ func (r *MessageRepo) InsertPersonalDeletion(ctx context.Context, tx *gorm.DB, u
 	result := tx.WithContext(ctx).Exec(`INSERT INTO personal_message_deletions (user_id, conv_id, message_id)
   VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, userID, convID, messageID)
 	return result.RowsAffected > 0, result.Error
+}
+
+// FreezeMessageSources stores only identities from canonical Run provenance or
+// validated reply targets. The conversation barrier freezes transitive sources
+// and materializes viewer overlays before this publication can reach fanout.
+func (r *MessageRepo) FreezeMessageSources(ctx context.Context, tx *gorm.DB, convID, messageID string, sourceIDs []string) error {
+	if len(sourceIDs) == 0 {
+		return nil
+	}
+	sources, err := json.Marshal(sourceIDs)
+	if err != nil {
+		return err
+	}
+	if err := tx.WithContext(ctx).Exec(`WITH RECURSIVE sources(source_message_id) AS (
+	  SELECT value::uuid FROM jsonb_array_elements_text(?::jsonb)
+	  UNION
+	  SELECT refs.source_message_id FROM messaging.message_source_refs refs
+	    JOIN sources source ON source.source_message_id = refs.message_id
+	    WHERE refs.conv_id = ?
+	)
+	INSERT INTO messaging.message_source_refs (message_id, source_message_id, conv_id)
+	SELECT ?::uuid, source_message_id, ?::uuid FROM sources WHERE source_message_id <> ?::uuid
+	ON CONFLICT DO NOTHING`, string(sources), convID, messageID, convID, messageID).Error; err != nil {
+		return err
+	}
+	return tx.WithContext(ctx).Exec(`INSERT INTO personal_message_deletions (user_id, conv_id, message_id)
+	  SELECT DISTINCT deleted.user_id, refs.conv_id, refs.message_id
+	  FROM messaging.message_source_refs refs
+	  JOIN personal_message_deletions deleted ON deleted.conv_id = refs.conv_id AND deleted.message_id = refs.source_message_id
+	  WHERE refs.conv_id = ? AND refs.message_id = ?
+	  ON CONFLICT DO NOTHING`, convID, messageID).Error
+}
+
+// InsertDerivedPersonalDeletions returns only newly hidden published messages,
+// ordered for the caller's existing bodyless inbox deletion channel. Sources
+// remain frozen after global source deletion, and shared work is never mutated.
+func (r *MessageRepo) InsertDerivedPersonalDeletions(ctx context.Context, tx *gorm.DB, userID, convID, sourceID string) ([]string, error) {
+	var ids []string
+	err := tx.WithContext(ctx).Raw(`WITH hidden AS (
+	  INSERT INTO personal_message_deletions (user_id, conv_id, message_id)
+	  SELECT ?::uuid, refs.conv_id, refs.message_id FROM messaging.message_source_refs refs
+	    WHERE refs.conv_id = ? AND refs.source_message_id = ?
+	  ON CONFLICT DO NOTHING RETURNING message_id
+	)
+	SELECT hidden.message_id FROM hidden JOIN messages msg ON msg.id = hidden.message_id
+	ORDER BY msg.seq, msg.id`, userID, convID, sourceID).Scan(&ids).Error
+	return ids, err
 }
 
 // PersonalDeletedIDs lets the search index apply account visibility before its

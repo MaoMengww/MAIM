@@ -200,9 +200,12 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 			current.Stage = "preparing"
 			current.DeliveryStatus = "acknowledged"
 			current.ExecutorStatus = "accepted"
+			provenance := current.Provenance
+			current.Provenance = json.RawMessage(`[]`)
 			if err := repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "system", Content: config.SystemPrompt}); err != nil {
 				return err
 			}
+			current.Provenance = provenance
 			return s.appendInputs(tx, current)
 		})
 		if err != nil {
@@ -216,6 +219,8 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 // A pending model request owns its frozen upper bound, even after more input
 // has been accepted or a worker lease has been reclaimed.
 func (s *Service) appendInputs(tx *gorm.DB, current *model.Run) error {
+	aggregate := current.Provenance
+	defer func() { current.Provenance = aggregate }()
 	var pending int64
 	if err := tx.Model(&model.RunModelCall{}).Where("run_id = ? AND status = 'requested'", current.ID).Count(&pending).Error; err != nil {
 		return err
@@ -231,6 +236,11 @@ func (s *Service) appendInputs(tx *gorm.DB, current *model.Run) error {
 		if input.Version != current.AppliedInputVersion+1 {
 			return status.Error(codes.FailedPrecondition, "accepted input log is not continuous")
 		}
+		if input.Invalidated {
+			current.AppliedInputVersion = input.Version
+			continue
+		}
+		current.Provenance = input.Provenance
 		if len(input.Materials) > 0 {
 			var materials []Material
 			if err := json.Unmarshal(input.Materials, &materials); err != nil {
@@ -250,6 +260,14 @@ func (s *Service) appendInputs(tx *gorm.DB, current *model.Run) error {
 		if err != nil {
 			return err
 		}
+		bodySources := []model.SourceVersion{}
+		if input.SourceMessageID != nil {
+			bodySources = append(bodySources, model.SourceVersion{MessageID: *input.SourceMessageID, AcceptedEditCount: input.AcceptedEditCount})
+		}
+		current.Provenance, err = json.Marshal(bodySources)
+		if err != nil {
+			return err
+		}
 		if err := repo.AppendRunBlock(tx, current, "message", &llm.Message{Role: "user", Content: "Accepted work input (not authorization):\n" + string(raw)}); err != nil {
 			return err
 		}
@@ -260,7 +278,14 @@ func (s *Service) appendInputs(tx *gorm.DB, current *model.Run) error {
 }
 
 func (s *Service) appendMaterials(tx *gorm.DB, current *model.Run, materials []Material) error {
+	aggregate := current.Provenance
+	defer func() { current.Provenance = aggregate }()
 	for _, material := range materials {
+		provenance, err := materialProvenance([]Material{material})
+		if err != nil {
+			return err
+		}
+		current.Provenance = provenance
 		raw, err := json.Marshal(material)
 		if err != nil {
 			return err
@@ -287,6 +312,9 @@ func (s *Service) waitForInput(ctx context.Context, r *model.Run, generation int
 }
 
 func (s *Service) queueOutput(ctx context.Context, r *model.Run, generation int64) error {
+	if err := s.refreshSources(ctx, r); err != nil {
+		return err
+	}
 	if err := s.authorize(ctx, r, r.Visibility != "personal"); err != nil {
 		return err
 	}
@@ -308,6 +336,9 @@ func (s *Service) messagesFor(ctx context.Context, id string) ([]*llm.Message, e
 	}
 	messages := make([]*llm.Message, 0, len(blocks))
 	for _, block := range blocks {
+		if block.Invalidated {
+			continue
+		}
 		if block.Kind != "message" {
 			continue
 		}
@@ -320,6 +351,9 @@ func (s *Service) messagesFor(ctx context.Context, id string) ([]*llm.Message, e
 	return messages, nil
 }
 func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64, config ExecutionConfig, messages []*llm.Message) error {
+	if err := s.refreshSources(ctx, r); err != nil {
+		return err
+	}
 	var call model.RunModelCall
 	err := s.svc.DB.WithContext(ctx).Where("run_id = ? AND status = 'requested'", r.ID).Order("created_at DESC").First(&call).Error
 	var request *llm.ChatReq
@@ -328,7 +362,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		if err := protojson.Unmarshal(call.Request, request); err != nil {
 			return err
 		}
-		if call.InputUpperBound != r.AppliedInputVersion || call.TrajectoryVersion != r.TrajectoryVersion {
+		if call.InputUpperBound != r.AppliedInputVersion || call.TrajectoryVersion != r.TrajectoryVersion || call.BranchVersion != r.BranchVersion {
 			return status.Error(codes.FailedPrecondition, "pending request snapshot does not match the trajectory")
 		}
 		request.RunId, request.ExecutionGeneration, request.InputVersion = &r.ID, generation, call.InputUpperBound
@@ -343,6 +377,10 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		if calls >= int64(config.MaxSteps) {
 			return status.Error(codes.ResourceExhausted, "model round limit exceeded")
 		}
+		messages, err = s.workingModelView(ctx, r, generation, config)
+		if err != nil {
+			return err
+		}
 		request = &llm.ChatReq{ModelId: config.Model.ModelId, ExecutionModel: config.Model, OwnerId: config.OwnerID, BotId: &r.BotID, RunId: &r.ID, ExecutionGeneration: generation, InputVersion: r.AppliedInputVersion, Messages: messages, Temperature: config.Temperature, MaxTokens: config.MaxOutputTokens, CacheScope: config.CacheScope}
 		for _, tool := range config.Tools {
 			request.Tools = append(request.Tools, &llm.ToolDef{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
@@ -351,18 +389,39 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		if err != nil {
 			return err
 		}
-		// Conservative bound including tools, materials and output headroom. No
-		// partial history truncation can create unmatched tool/result pairs.
-		if len(raw)/2+int(config.MaxOutputTokens) > config.MaxContextTokens {
-			return status.Error(codes.ResourceExhausted, "context budget exceeded; start a smaller work request")
+		cost, err := modelInputCost(messages, config)
+		if err != nil {
+			return err
+		}
+		if cost+workHeadroom(config) > config.MaxContextTokens {
+			return status.Error(codes.ResourceExhausted, "compacted work view exceeds context budget")
+		}
+		checkpoint, err := s.currentCompaction(ctx, r, config)
+		if err != nil {
+			return err
+		}
+		var checkpointID *string
+		if checkpoint != nil {
+			checkpointID = &checkpoint.ID
 		}
 		id, err := identity.New()
 		if err != nil {
 			return err
 		}
-		call = model.RunModelCall{ID: id, RunID: r.ID, InteractionID: r.InteractionID, InputUpperBound: r.AppliedInputVersion, TrajectoryVersion: r.TrajectoryVersion, ExecutionGeneration: generation, BranchVersion: 1, AssemblyVersion: assemblyVersion, Request: raw, Status: "requested"}
+		call = model.RunModelCall{ID: id, RunID: r.ID, InteractionID: r.InteractionID, InputUpperBound: r.AppliedInputVersion, TrajectoryVersion: r.TrajectoryVersion, ExecutionGeneration: generation, BranchVersion: r.BranchVersion, SourceRevision: r.SourceRevision, CheckpointID: checkpointID, AssemblyVersion: assemblyVersion, Provenance: r.Provenance, Request: raw, Status: "requested"}
 		if _, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-			if current.TrajectoryVersion != call.TrajectoryVersion || current.AppliedInputVersion != call.InputUpperBound {
+			if err := s.recheckSources(ctx, tx, current); err != nil {
+				return err
+			}
+			var active model.RunCompactionCheckpoint
+			checkpointErr := tx.Where("run_id = ? AND status = 'valid' AND branch_version = ? AND source_revision = ?", current.ID, current.BranchVersion, current.SourceRevision).Order("version DESC").First(&active).Error
+			if checkpointErr != nil && !errors.Is(checkpointErr, gorm.ErrRecordNotFound) {
+				return checkpointErr
+			}
+			if (call.CheckpointID == nil && checkpointErr == nil) || (call.CheckpointID != nil && (checkpointErr != nil || active.ID != *call.CheckpointID)) {
+				return status.Error(codes.Aborted, "model compaction view changed before snapshot")
+			}
+			if current.TrajectoryVersion != call.TrajectoryVersion || current.AppliedInputVersion != call.InputUpperBound || current.BranchVersion != call.BranchVersion || current.SourceRevision != call.SourceRevision {
 				return status.Error(codes.Aborted, "model trajectory changed before snapshot")
 			}
 			current.Stage = "model"
@@ -445,8 +504,17 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 			return err
 		}
 	}
+	if err := s.refreshSources(ctx, r); err != nil {
+		return err
+	}
 	now := time.Now()
 	_, err = s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
+		if err := s.recheckSources(ctx, tx, current); err != nil {
+			return err
+		}
+		if current.BranchVersion != call.BranchVersion {
+			return status.Error(codes.Aborted, "model response source view superseded")
+		}
 		result := tx.Model(&model.RunModelCall{}).Where("id = ? AND status = 'requested'", call.ID).Updates(map[string]any{"response": json.RawMessage(responseRaw), "usage": json.RawMessage(usageRaw), "first_token_latency_ms": response.FirstTokenLatencyMs, "completed_at": now, "status": "completed"})
 		if result.Error != nil {
 			return result.Error
@@ -631,6 +699,9 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	if err != nil {
 		return err
 	}
+	if err := s.refreshSources(ctx, r); err != nil {
+		return err
+	}
 	if repo.TerminalRun(r) {
 		return nil
 	}
@@ -647,6 +718,9 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	}
 	if r.Visibility == "personal" {
 		_, err = s.repo.ChangeLifecycle(ctx, r.ID, 0, func(tx *gorm.DB, current *model.Run) error {
+			if err := s.recheckSources(ctx, tx, current); err != nil {
+				return err
+			}
 			if err := s.actionFence(tx, current, current.ExecutionGeneration, current.InputVersion); err != nil {
 				return err
 			}
@@ -761,7 +835,16 @@ func (s *Service) publishUpdate(ctx context.Context, item *model.RunOutbox) erro
 	if len(users) == 0 {
 		return nil
 	}
-	// Old event versions stay immutable; recipients restore missed changes via
-	// authoritative query, never via token streams or inbox sequence positions.
-	return s.svc.DeliveryPublisher.Publish(ctx, r.ConvID, delivery.Intent{UserIDs: users, Payload: item.Payload})
+	// WS is a lifecycle notification, not a viewer-specific material projection.
+	// Rebuild via authenticated REST; delayed outbox bodies must not restore a
+	// withdrawn source or a viewer's personally hidden derived result.
+	public := r.Public()
+	public.ResultText, public.ResultType, public.ResultContent = "", "", nil
+	public.Sources, public.Actions = nil, nil
+	public.WaitingReason, public.Error = "", ""
+	raw, err := json.Marshal(map[string]any{"type": "bot.run.updated", "conv_id": r.ConvID, "bot_id": r.BotID, "run": public})
+	if err != nil {
+		return err
+	}
+	return s.svc.DeliveryPublisher.Publish(ctx, r.ConvID, delivery.Intent{UserIDs: users, Payload: raw})
 }

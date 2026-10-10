@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import run_control
 import authorization
+import compaction
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8099"))
@@ -551,6 +552,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path.startswith("/compaction/"):
+            self._json(200, compaction.command(path, body))
+            return
         if path.startswith("/authorization/") and path != "/authorization/mcp":
             self._json(200, authorization.command(path, body))
             return
@@ -627,6 +631,8 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 OBSERVATIONS["chat_models"].append(model)
                 OBSERVATIONS["chat_requests"].append(body)
+            if compaction.model(body, self, accepted_input):
+                return
             if run_control.model(body, self, text):
                 return
             if authorization.model(body, self, accepted_input, user_text):

@@ -13,10 +13,24 @@ export function RunActions({ run, onUpdated }: { run: BotRun; onUpdated: (run: B
  currentScope.current = scope;
  const mounted = useRef(true);
  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
- return <ActionConfirmations key={scope} actions={run.actions} scopeKey={scope} onDecided={async () => {
-  const updated = await botApi.getRun(run.id);
-  if (mounted.current && currentScope.current === scope && useAuthStore.getState().revision === revision) await onUpdated(updated);
- }} />;
+ return <>
+  {run.context_notice && <Alert type="warning" showIcon message={run.context_notice} role="status" />}
+  {run.source_changes.length > 0 && <section className="chat-run-details" aria-label="工作来源变更" aria-live="polite">
+   <strong>工作来源变更</strong>
+   <ul>{run.source_changes.map((source) => <li key={`${source.message_id}:${source.accepted_edit_count}`}>
+    <span title={source.message_id}>来源消息 {source.message_id}</span>：
+    {source.status === 'modified'
+     ? `已修改。工作接受版本 ${source.accepted_edit_count}，当前消息版本 ${source.current_edit_count}；不会自动改写目标或重复执行，请明确提交变更或发起独立新请求。`
+     : source.status === 'withdrawn'
+       ? '已撤回。旧正文及其派生工作材料不再用于后续推理；已发生的外部行动不会自动回滚。'
+       : '已不可用。工作材料已失效，请核对剩余约束后明确提交补充。'}
+   </li>)}</ul>
+  </section>}
+  <ActionConfirmations key={scope} actions={run.actions} scopeKey={scope} onDecided={async () => {
+   const updated = await botApi.getRun(run.id);
+   if (mounted.current && currentScope.current === scope && useAuthStore.getState().revision === revision) await onUpdated(updated);
+  }} />
+ </>;
 }
 
 export function ActionConfirmations({ actions, scopeKey, onDecided }: { actions: PublicAction[]; scopeKey: string; onDecided: (action: PublicAction) => Promise<void> }) {

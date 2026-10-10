@@ -104,6 +104,8 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 			controller = in.GetRequesterId()
 		}
 		var runAccess *resourcegrant.Access
+		var outputProvenance json.RawMessage
+		var sourceMessageID, parentRunID *string
 		if in.RunId != nil {
 			// Runtime source RPCs finish before taking the conversation barrier.
 			var run struct {
@@ -116,13 +118,23 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 				AccessRevoked               bool
 				BotAuthorizationVersion     int64
 				BindingAuthorizationVersion int64
+				Provenance                  json.RawMessage
+				SourceChanges               json.RawMessage
+				Materials                   json.RawMessage
+				ResultInvalidated           bool
+				SourceMessageID             *string
+				ParentRunID                 *string
 			}
-			if err := tx.Table("bot.runs").Select("controller_id, controller_member_id, requester_id, visibility, resource_grant_ids, status, access_revoked, bot_authorization_version, binding_authorization_version").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *in.RunId, in.BotId, in.ConversationId, in.BindingId).Take(&run).Error; err != nil {
+			if err := tx.Table("bot.runs").Select("controller_id, controller_member_id, requester_id, visibility, resource_grant_ids, status, access_revoked, bot_authorization_version, binding_authorization_version, provenance, source_changes, materials, result_invalidated, source_message_id, parent_run_id").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *in.RunId, in.BotId, in.ConversationId, in.BindingId).Take(&run).Error; err != nil {
 				return errors.New(errors.CodeForbidden, "Run output authorization unavailable")
 			}
-			if run.AccessRevoked || run.Status == "stopping" || run.Status == "waiting_authorization" || run.Status == "stopped" || run.ControllerID != controller {
+			if run.AccessRevoked || run.ResultInvalidated || run.Status == "stopping" || run.Status == "waiting_input" || run.Status == "waiting_authorization" || run.Status == "stopped" || run.ControllerID != controller {
 				return errors.New(errors.CodeForbidden, "Run output permission revoked")
 			}
+			if err := checkOutputSources(tx, in.ConversationId, in.BindingId, run.RequesterID, run.Provenance, run.SourceChanges, run.Materials); err != nil {
+				return err
+			}
+			outputProvenance, sourceMessageID, parentRunID = run.Provenance, run.SourceMessageID, run.ParentRunID
 			if run.Visibility != "conversation" {
 				return errors.New(errors.CodeForbidden, "personal work cannot be published to a conversation")
 			}
@@ -218,6 +230,13 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		if err := persistMessage(l.ctx, l.svcCtx, tx, msg, msg.SenderName); err != nil {
 			return err
 		}
+		sources, err := captureMessageSources(tx, in.ConversationId, outputProvenance, sourceMessageID, parentRunID, in.ReplyToId)
+		if err != nil {
+			return err
+		}
+		if err := l.svcCtx.MessageRepo.FreezeMessageSources(l.ctx, tx, msg.ConvID, msg.ID, sources); err != nil {
+			return err
+		}
 		if receipt != nil {
 			receipt.MessageID, receipt.Seq, receipt.CreatedAt = msg.ID, msg.Seq, msg.CreatedAt
 			if err := tx.Create(receipt).Error; err != nil {
@@ -260,6 +279,97 @@ func botOutputFingerprint(msg *model.Message) (model.JSONContent, error) {
 	fingerprint["requester_id"] = msg.RequesterID
 	fingerprint["metadata"] = metadata
 	return fingerprint, nil
+}
+
+// This check executes inside messaging's conversation barrier, immediately
+// before publication. It cannot race recall, all-delete or source edits.
+func checkOutputSources(tx *gorm.DB, convID, bindingID, requester string, provenance, changes, materials json.RawMessage) error {
+	var versions []struct {
+		MessageID         string `json:"message_id"`
+		AcceptedEditCount int32  `json:"accepted_edit_count"`
+		ParentRunID       string `json:"parent_run_id"`
+		SourceRevision    int64  `json:"source_revision"`
+	}
+	var observed []struct {
+		MessageID         string `json:"message_id"`
+		AcceptedEditCount int32  `json:"accepted_edit_count"`
+		CurrentEditCount  int32  `json:"current_edit_count"`
+		Status            string `json:"status"`
+	}
+	if err := json.Unmarshal(provenance, &versions); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(changes, &observed); err != nil {
+		return err
+	}
+	for _, version := range versions {
+		if version.ParentRunID != "" {
+			var parent struct {
+				BranchVersion int64
+				AccessRevoked bool
+			}
+			if err := tx.Table("bot.runs").Select("branch_version,access_revoked").Where("id = ?", version.ParentRunID).Take(&parent).Error; err != nil || parent.AccessRevoked || parent.BranchVersion != version.SourceRevision {
+				return errors.New(errors.CodeForbidden, "parent source validity changed")
+			}
+			continue
+		}
+		if version.MessageID == "" {
+			continue
+		}
+		expected := version.AcceptedEditCount
+		removed := false
+		for _, change := range observed {
+			if change.MessageID == version.MessageID && change.AcceptedEditCount == version.AcceptedEditCount {
+				expected = change.CurrentEditCount
+				removed = change.Status != "modified"
+			}
+		}
+		if removed {
+			continue
+		}
+		var source struct {
+			EditCount int32
+			Status    int32
+		}
+		if err := tx.Table("messages").Select("edit_count,status").Where("id = ? AND conv_id = ?", version.MessageID, convID).Take(&source).Error; err != nil || source.Status == model.MessageStatusRecalled || source.EditCount != expected {
+			return errors.New(errors.CodeForbidden, "source validity changed before publication")
+		}
+	}
+	var private []struct {
+		MessageID      string `json:"message_id"`
+		RequesterID    string `json:"requester_id"`
+		Shared         bool   `json:"shared"`
+		HistoryGrantID string `json:"history_grant_id"`
+	}
+	if err := json.Unmarshal(materials, &private); err != nil {
+		return err
+	}
+	for _, source := range private {
+		if source.HistoryGrantID != "" {
+			var count int64
+			if err := tx.Table("bot_history_grants g").Joins("JOIN messages m ON m.id=? AND m.seq BETWEEN g.start_seq AND g.end_seq", source.MessageID).Where("g.id=? AND g.binding_id=? AND m.conv_id=?", source.HistoryGrantID, bindingID, convID).Count(&count).Error; err != nil {
+				return err
+			}
+			if count != 1 {
+				return errors.New(errors.CodeForbidden, "history source authorization revoked")
+			}
+		}
+		if source.MessageID == "" || source.Shared {
+			continue
+		}
+		user := source.RequesterID
+		if user == "" {
+			user = requester
+		}
+		var hidden int64
+		if err := tx.Table("personal_message_deletions").Where("user_id=? AND conv_id=? AND message_id=?", user, convID, source.MessageID).Count(&hidden).Error; err != nil {
+			return err
+		}
+		if hidden != 0 {
+			return errors.New(errors.CodeForbidden, "private source is no longer visible")
+		}
+	}
+	return nil
 }
 
 // All membership changes take the same conversation lock. Checking the exact

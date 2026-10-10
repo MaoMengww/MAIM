@@ -184,9 +184,22 @@ func (s *Service) publicAction(ctx context.Context, a *model.RunAction, user str
 	if (state == "pending" || state == "approved") && !a.ExpiresAt.After(time.Now()) {
 		state = "expired"
 	}
+	if a.SourceInvalidated {
+		return model.PublicAction{ID: a.ID, RunID: a.RunID, ToolName: a.ToolName, ServerID: a.ServerID,
+			Risk: a.Risk, Status: state, Target: "[redacted]", Parameters: json.RawMessage(`{"redacted":true}`),
+			ParametersJSON: `{"redacted":true}`, ExpiresAt: a.ExpiresAt.Unix(), Generation: a.Generation,
+			InputVersion: a.InputVersion, ConfirmationShared: a.ConfirmationSharedAt != nil}
+	}
 	r, err := s.repo.Get(ctx, a.RunID)
 	owner := s.actionOwner(ctx, a.ServerID, user)
-	personalRequester := err == nil && r.Visibility == "personal" && r.PersonalUserID != nil && *r.PersonalUserID == user
+	sourceValid := err == nil && s.actionSourcesCurrent(s.svc.DB.WithContext(ctx), r, a) == nil
+	viewerRun := r
+	if err == nil {
+		frozen := *r
+		frozen.Provenance = a.Provenance
+		viewerRun = &frozen
+	}
+	personalRequester := sourceValid && r.Visibility == "personal" && r.PersonalUserID != nil && *r.PersonalUserID == user && s.visible(ctx, user, viewerRun) == nil
 	valid := err == nil && s.actionDisclosure(ctx, r, a, user) == nil
 	can := owner && valid && state == "pending" && !repo.TerminalRun(r) && r.Status != "stopping"
 	parameters := json.RawMessage(`{"redacted":true}`)
@@ -248,6 +261,11 @@ func (s *Service) decorateActions(ctx context.Context, run *model.PublicRun, use
 // A confirmation discloses only this action, never its Run or private results.
 func (s *Service) actionDisclosure(ctx context.Context, r *model.Run, a *model.RunAction, user string) error {
 	tx := s.svc.DB.WithContext(ctx)
+	if err := s.actionSourcesCurrent(tx, r, a); err != nil {
+		return err
+	}
+	frozen := *r
+	frozen.Provenance = a.Provenance
 	if _, _, err := repo.RunMember(tx, r.ConvID, user); err != nil {
 		return err
 	}
@@ -259,7 +277,7 @@ func (s *Service) actionDisclosure(ctx context.Context, r *model.Run, a *model.R
 			return err
 		}
 	} else if r.Visibility != "personal" {
-		if err := s.visible(ctx, user, r); err != nil {
+		if err := s.visible(ctx, user, &frozen); err != nil {
 			return err
 		}
 	}
@@ -270,6 +288,9 @@ func (s *Service) actionDisclosure(ctx context.Context, r *model.Run, a *model.R
 }
 
 func (s *Service) currentActionScope(tx *gorm.DB, r *model.Run, a *model.RunAction) error {
+	if err := s.actionSourcesCurrent(tx, r, a); err != nil {
+		return err
+	}
 	if r.AccessRevoked || r.Status == "stopping" || a.RunID != r.ID || a.BotID != r.BotID || a.BindingID != r.BindingID || a.RequesterID != r.RequesterID || a.Generation != r.ExecutionGeneration || a.InputVersion != r.InputVersion || !actionPrincipalMatches(a, r) || !a.ExpiresAt.After(time.Now()) {
 		return status.Error(codes.PermissionDenied, "action scope is no longer current")
 	}
@@ -286,6 +307,34 @@ func (s *Service) currentActionScope(tx *gorm.DB, r *model.Run, a *model.RunActi
 		return status.Error(codes.PermissionDenied, "action parameters changed")
 	}
 	return nil
+}
+
+// Source validity belongs to the action's frozen inputs, not the Run's current
+// result flag. A resumed Run can accept new work without reviving an old action.
+func (s *Service) actionSourcesCurrent(tx *gorm.DB, r *model.Run, a *model.RunAction) error {
+	if a.SourceInvalidated {
+		return status.Error(codes.PermissionDenied, "action source is no longer available")
+	}
+	frozen := *r
+	invalid := map[string]bool{}
+	for _, change := range r.SourceChanges {
+		if change.Status != "modified" {
+			invalid[change.MessageID] = true
+		}
+	}
+	if dependent(a.Provenance, invalid, nil) {
+		return status.Error(codes.PermissionDenied, "action source is no longer available")
+	}
+	frozen.Provenance = a.Provenance
+	frozen.SourceChanges = nil
+	for _, change := range r.SourceChanges {
+		// Edits preserve the accepted action facts. Withdrawal/unavailability
+		// cannot use the Run's removed-source exemption to authorize an action.
+		if change.Status == "modified" {
+			frozen.SourceChanges = append(frozen.SourceChanges, change)
+		}
+	}
+	return repo.CheckRunSources(tx, &frozen)
 }
 
 // Requesters may disclose their own source-derived parameters, not re-share
@@ -389,7 +438,7 @@ func (s *Service) actionFence(tx *gorm.DB, r *model.Run, generation, input int64
 	if err := resourcegrant.CheckIDs(tx, resourceAccess(r), r.Visibility != "personal", true); err != nil {
 		return err
 	}
-	return nil
+	return repo.CheckRunSources(tx, r)
 }
 
 func actionPrincipalMatches(a *model.RunAction, r *model.Run) bool {
@@ -469,6 +518,9 @@ func (s *Service) prepareAction(ctx context.Context, r *model.Run, frozen compon
 		}
 		priorErr := tx.Where("run_id = ? AND submission_key = ?", r.ID, submission).First(&result).Error
 		if priorErr == nil {
+			if err := s.actionSourcesCurrent(tx, current, &result); err != nil {
+				return err
+			}
 			if !actionPrincipalMatches(&result, current) {
 				return status.Error(codes.PermissionDenied, "action principal changed")
 			}
@@ -499,6 +551,7 @@ func (s *Service) prepareAction(ctx context.Context, r *model.Run, frozen compon
 			return status.Error(codes.InvalidArgument, "write action requires a configured concrete target")
 		}
 		result = model.RunAction{ID: id, RunID: r.ID, BotID: r.BotID, BindingID: r.BindingID, RequesterID: r.RequesterID, ServerID: frozen.ServerID, ToolName: frozen.Name, DefinitionHash: frozen.DefinitionHash, ParametersHash: digest, Arguments: canonical, Target: target, Risk: frozen.Risk, SubmissionKey: submission, Generation: r.ExecutionGeneration, InputVersion: r.InputVersion, Status: "approved", ExpiresAt: time.Now().Add(15 * time.Minute)}
+		result.Provenance = current.Provenance
 		result.ControllerID, result.ControllerMemberID = current.ControllerID, *current.ControllerMemberID
 		result.ToolDefinition, err = json.Marshal(frozen)
 		if err != nil {
@@ -557,6 +610,9 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 			return err
 		}
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", a.ID).First(a).Error; err != nil {
+			return err
+		}
+		if err := s.actionSourcesCurrent(tx, current, a); err != nil {
 			return err
 		}
 		if !actionPrincipalMatches(a, current) || a.Generation != current.ExecutionGeneration || a.InputVersion != current.InputVersion || a.BindingID != current.BindingID || a.RequesterID != current.RequesterID || a.DefinitionHash != frozen.DefinitionHash {
@@ -629,6 +685,9 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND status = 'executing'", a.ID).First(&live).Error; err != nil {
 				return status.Error(codes.PermissionDenied, "action execution claim unavailable")
 			}
+			if err := s.actionSourcesCurrent(tx, current, &live); err != nil {
+				return err
+			}
 			if !actionPrincipalMatches(&live, current) || !live.ExpiresAt.After(time.Now()) || live.ParametersHash != a.ParametersHash || live.Generation != current.ExecutionGeneration || live.InputVersion != current.InputVersion {
 				return status.Error(codes.PermissionDenied, "claimed action scope superseded")
 			}
@@ -676,11 +735,19 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 	receiptCtx, receiptCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer receiptCancel()
 	now := time.Now()
-	updated := s.svc.DB.WithContext(receiptCtx).Model(&model.RunAction{}).Where("id = ? AND status = 'executing'", a.ID).Updates(map[string]any{"status": state, "result": result, "completed_at": now, "updated_at": now})
+	updated := s.svc.DB.WithContext(receiptCtx).Model(&model.RunAction{}).Where("id = ? AND status = 'executing'", a.ID).Updates(map[string]any{"status": state, "result": gorm.Expr("CASE WHEN source_invalidated THEN '' ELSE ? END", result), "completed_at": now, "updated_at": now})
 	if updated.Error != nil {
 		return "", updated.Error
 	}
-	a.Status, a.Result, a.CompletedAt = state, result, &now
+	if err := s.refreshSources(receiptCtx, r); err != nil {
+		return "", err
+	}
+	if err := s.svc.DB.WithContext(receiptCtx).Where("id = ?", a.ID).First(a).Error; err != nil {
+		return "", err
+	}
+	if a.SourceInvalidated {
+		return "", status.Error(codes.PermissionDenied, "action source is no longer available")
+	}
 	if callErr != nil {
 		return result, status.Error(codes.Unavailable, "tool outcome is not confirmed; action will not be replayed")
 	}
@@ -739,6 +806,11 @@ func (s *Service) ActionAuthorization(ctx context.Context, user, executorBot str
 		}
 	} else if !slices.Contains([]string{"list", "approve", "deny", "revoke"}, req.Op) {
 		return nil, status.Error(codes.PermissionDenied, "personal Run is not visible")
+	}
+	// Reconcile outside authority transactions: source checks may call other
+	// domains. The transaction fences below recheck durable source state.
+	if err := s.refreshSources(ctx, r); err != nil {
+		return nil, err
 	}
 	if req.Op == "list" {
 		if !executor && r.Visibility == "personal" && (r.PersonalUserID == nil || *r.PersonalUserID != user) {
@@ -955,6 +1027,12 @@ func (s *Service) ownerActions(ctx context.Context, user, botID, convID, runID s
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					continue
 				}
+				return nil, err
+			}
+			if err := s.refreshSources(ctx, r); err != nil {
+				return nil, err
+			}
+			if err := s.svc.DB.WithContext(ctx).Where("id = ?", actions[i].ID).First(&actions[i]).Error; err != nil {
 				return nil, err
 			}
 			if s.actionDisclosure(ctx, r, &actions[i], user) != nil {

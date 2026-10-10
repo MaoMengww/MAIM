@@ -21,6 +21,8 @@ type RunAction struct {
 	ParametersHash       string
 	Arguments            json.RawMessage `gorm:"type:jsonb"`
 	ToolDefinition       json.RawMessage `gorm:"type:jsonb"`
+	Provenance           json.RawMessage `gorm:"type:jsonb"`
+	SourceInvalidated    bool
 	Target               string
 	Risk                 string
 	SubmissionKey        string

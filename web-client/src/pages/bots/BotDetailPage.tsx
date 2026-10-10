@@ -213,8 +213,8 @@ export function BotDetailPage() {
         <Descriptions.Item label="模型">{bot.model_name || '默认'}</Descriptions.Item>
         <Descriptions.Item label="使用平台模型">{bot.use_platform_model ? '是' : '否'}</Descriptions.Item>
         <Descriptions.Item label="温度">{bot.temperature ?? '-'}</Descriptions.Item>
-        <Descriptions.Item label="最大上下文消息">{bot.max_context_messages ?? '-'} 条</Descriptions.Item>
-        <Descriptions.Item label="最大上下文 Token">{bot.max_context_tokens && bot.max_context_tokens > 0 ? `${bot.max_context_tokens} tokens` : '不限制'}</Descriptions.Item>
+        <Descriptions.Item label="显式历史材料条数上限">{bot.max_context_messages ?? '-'} 条</Descriptions.Item>
+        <Descriptions.Item label="模型上下文预算">{bot.max_context_tokens && bot.max_context_tokens > 0 ? `${bot.max_context_tokens} tokens` : '默认 32768 tokens'}</Descriptions.Item>
         <Descriptions.Item label="启用流式">{bot.streaming_enabled ? '是' : '否'}</Descriptions.Item>
         <Descriptions.Item label="启用知识库">{bot.enable_knowledge ? '是' : '否'}</Descriptions.Item>
         <Descriptions.Item label="启用网络搜索">
@@ -442,10 +442,10 @@ export function BotDetailPage() {
                   <Switch />
                 </Form.Item>
               )}
-              <Form.Item name="max_context_messages" label="最大上下文消息数">
+              <Form.Item name="max_context_messages" label="显式历史材料条数上限">
                 <InputNumber min={1} max={100} style={{ width: '100%' }} />
               </Form.Item>
-              <Form.Item name="max_context_tokens" label="最大上下文 Token" extra="0 表示不限制；会在获取消息后按 token 累算，超出的旧消息丢弃">
+              <Form.Item name="max_context_tokens" label="模型上下文预算" extra="0 使用默认 32768；预算包含指令、工具、工作材料与输出空间。必要时在完整工作边界压缩，不丢弃旧消息冒充已分析。">
                 <InputNumber min={0} max={200000} step={1000} style={{ width: '100%' }} />
               </Form.Item>
               <Form.Item name="streaming_enabled" label="启用流式" valuePropName="checked">
@@ -494,10 +494,10 @@ export function BotDetailPage() {
               <Form.Item name="temperature" label="温度">
                 <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} />
               </Form.Item>
-              <Form.Item name="max_context_messages" label="最大上下文消息数">
+              <Form.Item name="max_context_messages" label="显式历史材料条数上限">
                 <InputNumber min={1} max={100} style={{ width: '100%' }} />
               </Form.Item>
-              <Form.Item name="max_context_tokens" label="最大上下文 Token" extra="0 表示不限制；会在获取消息后按 token 累算，超出的旧消息丢弃">
+              <Form.Item name="max_context_tokens" label="模型上下文预算" extra="0 使用默认 32768；预算包含指令、工具、工作材料与输出空间。必要时在完整工作边界压缩，不丢弃旧消息冒充已分析。">
                 <InputNumber min={0} max={200000} step={1000} style={{ width: '100%' }} />
               </Form.Item>
               <Form.Item name="streaming_enabled" label="启用流式" valuePropName="checked">

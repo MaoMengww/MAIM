@@ -306,8 +306,8 @@ func (d *driver) botInteractions(address, secondAddress string) error {
 		if err != nil {
 			return err
 		}
-		if replay.Version != receipts[i].Version || replay.InputVersion != receipts[i].InputVersion {
-			return errors.New("interaction.receipt: replay replaced original acceptance")
+		if replay.ID != waiting.ID || replay.InteractionID != waiting.InteractionID || replay.RequesterID != owner.id || replay.InputVersion != versions[1] {
+			return errors.New("interaction.receipt: retry duplicated accepted input or changed work identity")
 		}
 		if err = d.runtimeReject(http.MethodPost, "/runs/"+waiting.ID.String()+"/control", callers[i], map[string]any{"operation": "input", "message": texts[i] + " different", "submission_key": keys[i]}, http.StatusConflict); err != nil {
 			return err
