@@ -277,6 +277,33 @@ test('account deletion redacts cached reply summaries atomically and survives re
   assertRedacted();
 });
 
+test('recall removes original body and reply preview without removing independent results or accepting delayed echoes', async () => {
+  const secret = 'RECALLED_PRIVATE_BODY';
+  const original = msg(1001, 101, 1, secret);
+  const reply = { ...msg(1002, 101, 2, 'independent result'), reply_to_id: uuid(1001),
+    reply_to: { message_id: uuid(1001), type: 1, preview: secret, deleted: false } };
+  const account = await start(rebuild(10, [snapshot(101, [original, reply])]));
+  const recalled = { ...original, status: 2, raw_payload: JSON.stringify({ detail: secret }) };
+  pages.push({ next_position: 11, changes: [{ ...change(11, recalled), kind: 'message.recalled' }] });
+  await engine.reSync();
+  const assertRetainedResult = () => {
+    const messages = engine.getState(uuid(101)).messages;
+    assert.equal(messages[0].status, 2);
+    assert.equal(messages[1].content.text.text, 'independent result');
+    assert.equal(messages[1].reply_to.deleted, true);
+    assert.equal(messages[1].reply_to.preview, '');
+    assert.equal(JSON.stringify(messages).includes(secret), false);
+  };
+  assertRetainedResult();
+  engine.onWsMessage(uuid(101), live(original));
+  engine.onWsMessage(uuid(101), live(reply));
+  pages.push({ next_position: 11 });
+  await engine.reSync();
+  assertRetainedResult();
+  engine.reset(); engine.start(account); pages.push({ next_position: 11 }); await engine.reSync();
+  assertRetainedResult();
+});
+
 test('unsafe or legacy textual positions and sequences reject whole pages without advancing', async () => {
   const account = await start(rebuild(10, [snapshot(101)]));
   for (const value of ['11', -1, 1.5, 9007199254740992]) {

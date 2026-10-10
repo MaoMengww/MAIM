@@ -280,6 +280,9 @@ func (l *SearchMessagesLogic) SearchMessages(in *message.SearchMessagesReq) (*me
 		}
 		visibleHighlights := make(map[string]string, len(msgs))
 		for _, msg := range msgs {
+			if msg.Status == model.MessageStatusRecalled {
+				continue
+			}
 			id := msg.ID
 			if highlight, ok := highlights[id]; ok {
 				visibleHighlights[id] = highlight

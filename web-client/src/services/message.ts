@@ -155,13 +155,13 @@ function syncMessage(value: unknown, conversationId: string): Message {
     throw new Error('同步消息正文包含重复的内容类型');
   }
   const rawContent = raw.content === undefined ? raw : syncRecord(raw.content, 'message.content');
-  syncRecord(rawContent[MSG_TYPE_KEY[type]], `message.content.${MSG_TYPE_KEY[type]}`);
-  const content = syncContent(type, { [MSG_TYPE_KEY[type]]: rawContent[MSG_TYPE_KEY[type]] });
+  const content = status === 2 ? { [MSG_TYPE_KEY[type]]: {} }
+    : syncContent(type, { [MSG_TYPE_KEY[type]]: syncRecord(rawContent[MSG_TYPE_KEY[type]], `message.content.${MSG_TYPE_KEY[type]}`) });
   const senderType = syncString(raw.sender_type, 'message.sender_type');
   if (senderType !== 'user' && senderType !== 'bot' && senderType !== 'system') throw new Error('消息发送者类型无效');
   const senderId = senderType === 'system' ? optionalEntityId(raw.sender_id, 'message.sender_id') : entityId(raw.sender_id, 'message.sender_id');
   const bindingId = optionalEntityId(raw.binding_id, 'message.binding_id');
-  const rawPayload = syncString(raw.raw_payload, 'message.raw_payload');
+  const rawPayload = status === 2 ? '' : syncString(raw.raw_payload, 'message.raw_payload');
   if (rawPayload) knowledgeSources(JSON.parse(rawPayload).kb_sources);
   const normalized: Message = {
     message_id: messageId, conversation_id: conversationId,

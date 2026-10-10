@@ -74,7 +74,7 @@ export function useRuns(convId: string) {
     committed.current.clear();
     return () => { queryClient.removeQueries({ queryKey: ['bot-runs', account, revision, convId] }); };
   }, [queryClient, account, revision, convId]);
-  useEffect(() => messageSync.subscribe((_id, snapshotChanged, removedConversations, invalidatedWork) => {
+  useEffect(() => messageSync.subscribe((_id, snapshotChanged, removedConversations, rebuiltConversations) => {
     if (removedConversations.includes(convId)) {
       removed.current = true;
       committed.current.clear();
@@ -82,8 +82,9 @@ export function useRuns(convId: string) {
       queryClient.setQueryData<BotRun[]>(['bot-runs', account, revision, convId], []);
       return;
     }
-    if (invalidatedWork.includes(convId)) {
-      // Remove the stale derived view before an authoritative response arrives.
+    if (rebuiltConversations.includes(convId)) {
+      removed.current = false;
+      // A rebuild may reflect missed authority changes, so recheck the viewer.
       // Cancellation prevents an older in-flight response restoring it.
       void queryClient.cancelQueries({ queryKey: ['bot-runs', account, revision, convId] }).then(() => {
         queryClient.setQueryData<BotRun[]>(['bot-runs', account, revision, convId], []);
@@ -91,7 +92,7 @@ export function useRuns(convId: string) {
       });
       return;
     }
-    if (snapshotChanged && messageSync.getConversations().some((conversation) => conversation.id === convId)) {
+    if (removed.current && snapshotChanged && messageSync.getConversations().some((conversation) => conversation.id === convId)) {
       removed.current = false;
       void queryClient.invalidateQueries({ queryKey: ['bot-runs', account, revision, convId] });
     }

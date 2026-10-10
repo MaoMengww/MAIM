@@ -35,6 +35,11 @@ func modelToPbMessage(msg *model.Message) *message.Message {
 		pbMsg.EditedAt = msg.UpdatedAt.Unix()
 	}
 
+	if msg.Status == model.MessageStatusRecalled {
+		pbMsg.RawPayload = ""
+		return pbMsg
+	}
+
 	content := msg.Content
 	if content == nil {
 		return pbMsg

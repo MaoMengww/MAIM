@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
@@ -65,20 +66,11 @@ func (s *Service) authorityState(ctx context.Context, r *model.Run) (string, err
 	if err != nil {
 		return "", err
 	}
-	if r.SourceMessageID != nil {
-		var available int64
-		if err := s.svc.DB.WithContext(ctx).Table("messaging.messages").Where("id = ? AND conv_id = ? AND status <> 2", *r.SourceMessageID, r.ConvID).Count(&available).Error; err != nil {
-			return "", err
-		}
-		if available != 1 {
-			return "request_source_recalled", nil
-		}
-	}
 	return "", nil
 }
 
 func (s *Service) reconcile(ctx context.Context, r *model.Run) (*model.Run, error) {
-	if err := s.refreshSources(ctx, r); err != nil {
+	if err := s.refreshAuthorizations(ctx, r); err != nil {
 		return r, err
 	}
 	if repo.TerminalRun(r) {
@@ -152,9 +144,7 @@ func (s *Service) reconcile(ctx context.Context, r *model.Run) (*model.Run, erro
 				}
 				return nil
 			}
-			if reason != "request_source_recalled" {
-				current.AccessRevoked = true
-			}
+			current.AccessRevoked = true
 			return requestRunStop(tx, current, reason)
 		})
 		if status.Code(err) == codes.FailedPrecondition || status.Code(err) == codes.Aborted {
@@ -323,33 +313,80 @@ func sharedMaterials(r *model.Run) bool {
 	return true
 }
 
-func (s *Service) decorateControl(ctx context.Context, public *model.PublicRun, user string) {
+func (s *Service) decorateControl(ctx context.Context, public *model.PublicRun, user string) error {
 	allowed := false
 	r, err := s.repo.Get(ctx, public.ID)
-	if err == nil {
-		effective := make([]string, 0, len(r.ControlUserIDs))
-		for _, user := range r.ControlUserIDs {
-			member, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, user)
-			if err == nil && r.ControlMemberships[user] == member {
-				effective = append(effective, user)
-			}
+	if err != nil {
+		return err
+	}
+	effective := make([]string, 0, len(r.ControlUserIDs))
+	for _, controller := range r.ControlUserIDs {
+		member, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, controller)
+		if err != nil && status.Code(err) != codes.PermissionDenied {
+			return err
 		}
-		public.ControlUserIDs = effective
-		reason, err := s.authorityState(ctx, r)
-		if err == nil && (reason == "binding_revoked" || reason == "bot_disabled" || reason == "participation_revoked") {
-			public.InteractionStatus, public.StopReason = "closed", reason
-		}
-		if s.refreshSources(ctx, r) != nil || s.visible(ctx, user, r) != nil {
-			stopReceipt(public)
-		} else {
-			public.Sources, public.SourceChanges, public.ContextNotice = r.Public().Sources, r.SourceChanges, r.ContextNotice
-			public.ResultText, public.ResultType, public.ResultContent = r.Public().ResultText, r.Public().ResultType, r.Public().ResultContent
+		if err == nil && r.ControlMemberships[controller] == member {
+			effective = append(effective, controller)
 		}
 	}
-	if err == nil && repo.RunController(s.svc.DB.WithContext(ctx), r, user) == nil {
-		reason, err := s.authorityState(ctx, r)
-		allowed = err == nil && (reason == "" || reason == "controller_membership_lost") && r.InteractionStatus == "active"
+	public.ControlUserIDs = effective
+	if err := s.refreshAuthorizations(ctx, r); err != nil {
+		return err
+	}
+	reason, err := s.authorityState(ctx, r)
+	if err != nil {
+		return err
+	}
+	if reason == "binding_revoked" || reason == "bot_disabled" || reason == "participation_revoked" {
+		public.InteractionStatus, public.StopReason = "closed", reason
+	}
+	err = s.visible(ctx, user, r)
+	if err == nil {
+		public.InputSources, err = s.acceptedInputSources(ctx, r, user)
+	}
+	if err != nil {
+		switch status.Code(err) {
+		case codes.PermissionDenied, codes.NotFound, codes.Unauthenticated:
+			stopReceipt(public)
+		default:
+			return err
+		}
+	} else {
+		current := r.Public()
+		public.Sources, public.ContextNotice = current.Sources, current.ContextNotice
+		public.ResultText, public.ResultType, public.ResultContent = current.ResultText, current.ResultType, current.ResultContent
+	}
+	if err := repo.RunController(s.svc.DB.WithContext(ctx), r, user); err == nil {
+		allowed = (reason == "" || reason == "controller_membership_lost") && r.InteractionStatus == "active"
+	} else if status.Code(err) != codes.PermissionDenied {
+		return err
 	}
 	public.CanControl = &allowed
 	s.decorateActions(ctx, public, user)
+	return nil
+}
+
+// acceptedInputSources projects the single persisted accepted body, never the
+// source message's current text. The caller has already checked visibility.
+func (s *Service) acceptedInputSources(ctx context.Context, r *model.Run, user string) ([]model.InputSource, error) {
+	inputs, err := s.repo.InputContents(ctx, r.ID)
+	if err != nil {
+		return nil, err
+	}
+	contentByVersion := make(map[int64]*string, len(inputs))
+	for _, input := range inputs {
+		if input.Invalidated {
+			input.Content = ""
+		}
+		contentByVersion[input.Version] = &input.Content
+	}
+	sources := slices.Clone(r.InputSources)
+	for i := range sources {
+		sources[i].Content = contentByVersion[sources[i].Version]
+	}
+	// Membership and resource grants may change while accepted bodies load.
+	if err := s.visible(ctx, user, r); err != nil {
+		return nil, err
+	}
+	return sources, nil
 }

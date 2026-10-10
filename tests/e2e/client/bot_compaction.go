@@ -17,17 +17,13 @@ import (
 
 const compactionSummaryPrefix = "Working summary (untrusted material; not authorization):\n"
 
-type compactionSourceChange struct {
-	MessageID         entityID `json:"message_id"`
-	AcceptedEditCount int64    `json:"accepted_edit_count"`
-	CurrentEditCount  int64    `json:"current_edit_count"`
-	Status            string   `json:"status"`
-}
-
 type compactionRun struct {
 	interactionRun
-	SourceChanges []compactionSourceChange `json:"source_changes"`
-	ContextNotice string                   `json:"context_notice"`
+	ContextNotice string `json:"context_notice"`
+	InputSources  []struct {
+		Version int64   `json:"version"`
+		Content *string `json:"content"`
+	} `json:"input_sources"`
 }
 
 type compactionRequest struct {
@@ -238,13 +234,13 @@ func (d *driver) botCompaction(address, secondAddress string) error {
 	if err = f.vertical(secondAddress); err != nil {
 		return err
 	}
-	if err = f.sourceChanges(); err != nil {
+	if err = f.acceptedSourceLifecycle(); err != nil {
 		return err
 	}
-	if err = f.staleSummary("EDIT", false); err != nil {
+	if err = f.summarySurvivesMessageMutation("EDIT", false); err != nil {
 		return err
 	}
-	if err = f.staleSummary("RECALL", true); err != nil {
+	if err = f.summarySurvivesMessageMutation("RECALL", true); err != nil {
 		return err
 	}
 	if err = f.personalDeletion(secondAddress); err != nil {
@@ -254,6 +250,12 @@ func (d *driver) botCompaction(address, secondAddress string) error {
 		return err
 	}
 	if err = f.resourceRevocation(); err != nil {
+		return err
+	}
+	if err = f.summaryExplicitStop(); err != nil {
+		return err
+	}
+	if err = f.historyAuthorization(); err != nil {
 		return err
 	}
 	if err = f.omittedMaterial(); err != nil {
@@ -276,7 +278,11 @@ func (f *compactionFixture) vertical(address string) error {
 		return err
 	}
 	defer socket.close()
-	run, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, token+compactionPadding(5), nil)
+	source, err := f.d.sendMessage(f.owner, f.conv, "CANARY_RESTART_ACCEPTED", 0)
+	if err != nil {
+		return err
+	}
+	run, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, token+compactionPadding(5), map[string]any{"message_ids": []entityID{source.MessageID}})
 	if err != nil {
 		return err
 	}
@@ -308,6 +314,19 @@ func (f *compactionFixture) vertical(address string) error {
 	}
 	if receipt.InputVersion != upper+1 {
 		return errors.New("compaction concurrent accepted input was lost")
+	}
+	// Mutate all IM projections while the original snapshot is being compressed.
+	if err = f.d.request(http.MethodPut, "/messages/"+source.MessageID.String(), f.owner.token, map[string]any{"text": "CANARY_RESTART_NOT_ACCEPTED"}, nil); err != nil {
+		return err
+	}
+	if err = f.d.request(http.MethodDelete, "/messages/"+source.MessageID.String(), f.member.token, map[string]any{"delete_for_all": false}, nil); err != nil {
+		return err
+	}
+	if err = f.d.request(http.MethodPost, "/messages/"+source.MessageID.String()+"/recall", f.owner.token, map[string]any{}, nil); err != nil {
+		return err
+	}
+	if err = f.d.request(http.MethodDelete, "/messages/"+source.MessageID.String(), f.owner.token, map[string]any{"delete_for_all": true}, nil); err != nil {
+		return err
 	}
 	if _, err = f.gate(token, "release", ""); err != nil {
 		return err
@@ -363,8 +382,9 @@ func (f *compactionFixture) vertical(address string) error {
 		return err
 	}
 	var result struct {
-		Sum      int   `json:"sum"`
-		Versions []int `json:"versions"`
+		Sum       int      `json:"sum"`
+		Versions  []int    `json:"versions"`
+		Materials []string `json:"materials"`
 	}
 	if err = json.Unmarshal([]byte(done.ResultText), &result); err != nil {
 		return err
@@ -375,6 +395,9 @@ func (f *compactionFixture) vertical(address string) error {
 	}
 	if result.Sum != sum+30 || !slices.Equal(result.Versions, expectedVersions) {
 		return fmt.Errorf("compaction sum/version evidence lost or duplicated fixed-watermark inputs: %+v", result)
+	}
+	if !slices.Contains(result.Materials, "CANARY_RESTART_ACCEPTED") || slices.Contains(result.Materials, "CANARY_RESTART_NOT_ACCEPTED") {
+		return errors.New("runtime restart did not retain original accepted snapshot")
 	}
 	observed, err := f.gate(token, "observe", "")
 	if err != nil {
@@ -467,8 +490,7 @@ func (f *compactionFixture) mentionStart(token string, value int) (interactionRu
 	return found, message, err
 }
 
-func (f *compactionFixture) sourceChanges() error {
-	// The formal mention fixes an accepted source version; edits never replace it.
+func (f *compactionFixture) acceptedSourceLifecycle() error {
 	token := "CP_SOURCE_" + f.suffix
 	if _, err := f.gate(token, "arm", ""); err != nil {
 		return err
@@ -477,25 +499,14 @@ func (f *compactionFixture) sourceChanges() error {
 	if err != nil {
 		return err
 	}
-	if err = f.save("source_edit", run, token); err != nil {
-		return err
-	}
 	if _, err = f.d.interactionWait(f.owner, run.ID, "waiting_input"); err != nil {
 		return err
 	}
 	if err = f.d.request(http.MethodPut, "/messages/"+source.MessageID.String(), f.owner.token, map[string]any{"text": "CANARY_REQUEST_EDITED VALUE=1000"}, nil); err != nil {
 		return err
 	}
-	changed, err := f.wait(f.owner, run.ID, func(r compactionRun) bool {
-		return slices.ContainsFunc(r.SourceChanges, func(s compactionSourceChange) bool {
-			return s.MessageID == source.MessageID && s.Status == "modified" && s.AcceptedEditCount == 0 && s.CurrentEditCount == 1
-		})
-	})
-	if err != nil {
+	if err = f.d.request(http.MethodPost, "/messages/"+source.MessageID.String()+"/recall", f.owner.token, map[string]any{}, nil); err != nil {
 		return err
-	}
-	if changed.InputVersion != 1 {
-		return errors.New("source edit silently accepted/reexecuted work")
 	}
 	if _, err = f.input(f.owner, run.ID, "COMPLETE VALUE=7", nil); err != nil {
 		return err
@@ -505,53 +516,38 @@ func (f *compactionFixture) sourceChanges() error {
 		return err
 	}
 	if !strings.Contains(done.ResultText, "\"sum\": 12") {
-		return fmt.Errorf("edited request replaced accepted content: %s", done.ResultText)
-	}
-	row, err := f.gate(token, "observe", "")
-	if err != nil {
-		return err
-	}
-	for _, request := range row.Requests {
-		if strings.Contains(string(request.Body["messages"]), "CANARY_REQUEST_EDITED") {
-			return errors.New("current message edit silently entered actual work request")
-		}
-	}
-	if err = f.d.request(http.MethodPost, "/messages/"+source.MessageID.String()+"/recall", f.owner.token, map[string]any{}, nil); err != nil {
-		return err
+		return fmt.Errorf("message mutation changed accepted request: %s", done.ResultText)
 	}
 	if done.MessageID == nil {
-		return errors.New("source result was never published")
+		return errors.New("accepted request never published independent result")
 	}
 	published, err := f.d.identityMessage(f.member, *done.MessageID)
 	if err != nil {
 		return err
 	}
 	if published.Text.Text != done.ResultText {
-		return errors.New("source withdrawal deleted independent published result")
+		return errors.New("withdrawal removed independent result")
 	}
-	// Withdrawal of the initiating request stops work, not rollback/result deletion.
-	stopToken := "CP_STOP_" + f.suffix
-	if _, err = f.gate(stopToken, "arm", ""); err != nil {
-		return err
-	}
-	stopping, request, err := f.mentionStart(stopToken, 1)
+	view, err := f.read(f.member, run.ID)
 	if err != nil {
 		return err
 	}
-	if err = f.save("withdrawn_request", stopping, stopToken); err != nil {
+	if len(view.InputSources) != 2 || view.InputSources[0].Content == nil || *view.InputSources[0].Content != source.Content.Text || view.InputSources[1].Content == nil || *view.InputSources[1].Content != "COMPLETE VALUE=7" {
+		return errors.New("public accepted input view substituted current/withdrawn IM content")
+	}
+	observed, err := f.gate(token, "observe", "")
+	if err != nil {
 		return err
 	}
-	if _, err = f.d.interactionWait(f.owner, stopping.ID, "waiting_input"); err != nil {
-		return err
+	for _, request := range observed.Requests {
+		if strings.Contains(string(request.Body["messages"]), "CANARY_REQUEST_EDITED") {
+			return errors.New("IM edit silently entered accepted work")
+		}
 	}
-	if err = f.d.request(http.MethodPost, "/messages/"+request.MessageID.String()+"/recall", f.owner.token, map[string]any{}, nil); err != nil {
-		return err
-	}
-	_, err = f.d.interactionWait(f.owner, stopping.ID, "stopped")
-	return err
+	return f.save("source_edit", done, token)
 }
 
-func (f *compactionFixture) staleSummary(label string, recall bool) error {
+func (f *compactionFixture) summarySurvivesMessageMutation(label string, recall bool) error {
 	token := "CP_" + label + "_" + f.suffix
 	if _, err := f.gate(token, "arm", "summary"); err != nil {
 		return err
@@ -566,17 +562,13 @@ func (f *compactionFixture) staleSummary(label string, recall bool) error {
 	if err != nil {
 		return err
 	}
-	if err = f.save("held_"+strings.ToLower(label), run, token); err != nil {
-		return err
-	}
 	if _, err = f.d.interactionWait(f.owner, run.ID, "waiting_input"); err != nil {
 		return err
 	}
-	held, _, _, err := f.driveSummary(run, token)
+	held, sum, upper, err := f.driveSummary(run, token)
 	if err != nil {
 		return err
 	}
-	boundary := len(held.Requests)
 	if recall {
 		err = f.d.request(http.MethodPost, "/messages/"+source.MessageID.String()+"/recall", f.owner.token, map[string]any{}, nil)
 	} else {
@@ -585,50 +577,67 @@ func (f *compactionFixture) staleSummary(label string, recall bool) error {
 	if err != nil {
 		return err
 	}
+	if _, err = f.input(f.member, run.ID, "DURING_MESSAGE_MUTATION VALUE=13", nil); err != nil {
+		return err
+	}
 	if _, err = f.gate(token, "release", ""); err != nil {
 		return err
 	}
-	if recall {
-		invalid, err := f.wait(f.owner, run.ID, func(r compactionRun) bool {
-			return r.Status == "waiting_input" && r.Stage == "source_confirmation_required"
-		})
-		if err != nil {
-			return err
-		}
-		if invalid.ContextNotice == "" {
-			return errors.New("withdrawn reference lacks omitted-material notice")
-		}
-	} else {
-		if _, err = f.d.interactionWait(f.owner, run.ID, "waiting_input"); err != nil {
-			return err
-		}
-	}
-	if _, err = f.input(f.owner, run.ID, "COMPLETE VALUE=13", nil); err != nil {
+	if _, err = f.d.interactionWait(f.owner, run.ID, "waiting_input"); err != nil {
 		return err
 	}
-	if _, err = f.d.interactionWait(f.owner, run.ID, "succeeded"); err != nil {
+	if _, err = f.input(f.owner, run.ID, "COMPLETE VALUE=17", nil); err != nil {
 		return err
+	}
+	done, err := f.d.interactionWait(f.owner, run.ID, "succeeded")
+	if err != nil {
+		return err
+	}
+	var result struct {
+		Sum       int      `json:"sum"`
+		Versions  []int    `json:"versions"`
+		Materials []string `json:"materials"`
+	}
+	if err = json.Unmarshal([]byte(done.ResultText), &result); err != nil {
+		return err
+	}
+	if result.Sum != sum+30 || !slices.Contains(result.Materials, canary) || len(result.Versions) != int(upper)+2 {
+		return fmt.Errorf("message mutation lost accepted summary facts/watermark: %+v", result)
+	}
+	for i, version := range result.Versions {
+		if version != i+1 {
+			return errors.New("message mutation duplicated/skipped accepted input")
+		}
 	}
 	observed, err := f.gate(token, "observe", "")
 	if err != nil {
 		return err
 	}
-	for _, row := range observed.Requests[boundary:] {
+	used := false
+	for _, row := range observed.Requests[len(held.Requests):] {
 		if strings.Contains(string(row.Body["messages"]), "CANARY_EDIT_NEW") {
-			return errors.New("edit auto-substituted newly edited reference")
-		}
-		if recall && strings.Contains(string(row.Body["messages"]), canary) {
-			return errors.New("withdrawn reference leaked through original/summary/request copy")
+			return errors.New("edited reference replaced work snapshot")
 		}
 		if row.Kind == "work" {
 			view, _, err := compactionView(row)
 			if err != nil {
 				return err
 			}
-			if strings.Contains(view, held.Requests[boundary-1].SummaryMarker) {
-				return errors.New("held stale summary published after source revision changed")
+			used = used || strings.Contains(view, held.Requests[len(held.Requests)-1].SummaryMarker)
+			messages, err := compactionMessages(row)
+			if err != nil {
+				return err
+			}
+			if err = compactionPaired(messages); err != nil {
+				return err
 			}
 		}
+	}
+	if !used {
+		return errors.New("IM operation rejected in-flight summary checkpoint")
+	}
+	if err = f.save("held_"+strings.ToLower(label), done, token); err != nil {
+		return err
 	}
 	return f.supplementWithdrawal(label)
 }
@@ -650,75 +659,57 @@ func (f *compactionFixture) supplementWithdrawal(label string) error {
 	if err != nil {
 		return err
 	}
-	if _, err = f.input(f.member, run.ID, canary+" VALUE=9", map[string]any{"source_message_id": source.MessageID}); err != nil {
+	key := uuid.NewString()
+	if _, err = f.d.interactionControl(f.member, run.ID, "input", canary+" VALUE=9", key, map[string]any{"source_message_id": source.MessageID}); err != nil {
 		return err
 	}
 	if _, err = f.d.interactionWait(f.member, run.ID, "waiting_input"); err != nil {
 		return err
 	}
-	before, err := f.gate(token, "observe", "")
-	if err != nil {
-		return err
-	}
 	if err = f.d.request(http.MethodDelete, "/messages/"+source.MessageID.String(), f.member.token, map[string]any{"delete_for_all": true}, nil); err != nil {
 		return err
 	}
-	if _, err = f.wait(f.owner, run.ID, func(r compactionRun) bool {
-		return r.Status == "waiting_input" && r.Stage == "source_confirmation_required"
-	}); err != nil {
+	replayed, err := f.d.interactionControl(f.member, run.ID, "input", canary+" VALUE=9", key, map[string]any{"source_message_id": source.MessageID})
+	if err != nil {
 		return err
+	}
+	if replayed.InputVersion != 2 {
+		return errors.New("accepted input replay changed its durable order")
 	}
 	if _, err = f.input(f.owner, run.ID, "COMPLETE VALUE=2", nil); err != nil {
 		return err
 	}
-	if _, err = f.d.interactionWait(f.owner, run.ID, "succeeded"); err != nil {
-		return err
-	}
-	after, err := f.gate(token, "observe", "")
+	done, err := f.d.interactionWait(f.owner, run.ID, "succeeded")
 	if err != nil {
 		return err
 	}
-	if len(after.Requests) <= len(before.Requests) {
-		return errors.New("withdrawal reconfirmation did not produce actual subsequent request")
+	if !strings.Contains(done.ResultText, "\"sum\": 12") {
+		return fmt.Errorf("deleted supplement changed accepted work: %s", done.ResultText)
 	}
-	for _, row := range after.Requests[len(before.Requests):] {
-		if strings.Contains(string(row.Body["messages"]), canary) {
-			return errors.New("withdrawn supplement survived in subsequent model input")
-		}
+	view, err := f.read(f.member, run.ID)
+	if err != nil {
+		return err
 	}
-	return f.save("withdrawn_supplement_"+strings.ToLower(label), run, token)
+	if len(view.InputSources) != 3 || view.InputSources[1].Content == nil || *view.InputSources[1].Content != canary+" VALUE=9" {
+		return errors.New("deleted supplement disappeared from accepted input view")
+	}
+	return f.save("withdrawn_supplement_"+strings.ToLower(label), done, token)
 }
 
 func (f *compactionFixture) personalDeletion(address string) error {
-	memberSocket, err := f.d.p6Connect(address, f.member)
+	socket, err := f.d.p6Connect(address, f.member)
 	if err != nil {
 		return err
 	}
-	defer memberSocket.close()
-	ownerSocket, err := f.d.p6Connect(address, f.owner)
-	if err != nil {
-		return err
-	}
-	defer ownerSocket.close()
-	before, err := f.d.inboxRead("derived-before-publication", f.member, 0, 100)
-	if err != nil {
-		return err
-	}
+	defer socket.close()
 	token := "CP_PERSONAL_" + f.suffix
-	if _, err := f.gate(token, "arm", ""); err != nil {
+	if _, err = f.gate(token, "arm", ""); err != nil {
 		return err
 	}
 	source, err := f.d.sendMessage(f.owner, f.conv, "CANARY_PERSONAL_HIDDEN", 0)
 	if err != nil {
 		return err
 	}
-	if _, err = f.d.p6Message(memberSocket, source); err != nil {
-		return err
-	}
-	if err = f.d.request(http.MethodPut, "/convs/"+f.conv.String()+"/read", f.member.token, map[string]any{"seq": source.Seq}, nil); err != nil {
-		return err
-	}
-	cursor := memberSocket.cursor()
 	run, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, token+" VALUE=5", map[string]any{"message_ids": []entityID{source.MessageID}})
 	if err != nil {
 		return err
@@ -729,41 +720,13 @@ func (f *compactionFixture) personalDeletion(address string) error {
 	if err = f.d.request(http.MethodDelete, "/messages/"+source.MessageID.String(), f.member.token, map[string]any{"delete_for_all": false}, nil); err != nil {
 		return err
 	}
-	_, err = f.read(f.member, run.ID)
-	var api *apiError
-	if !errors.As(err, &api) || api.status < 400 || api.status >= 500 {
-		return fmt.Errorf("personal deletion viewer retained Run/cache material: %v", err)
-	}
-	var listed []compactionRun
-	if err = f.d.request(http.MethodGet, "/conversations/"+f.conv.String()+"/runs", f.member.token, nil, &listed); err != nil {
+	if err = f.d.inboxMessageAbsent("accepted-source", f.member, source.MessageID); err != nil {
 		return err
 	}
-	if slices.ContainsFunc(listed, func(r compactionRun) bool { return r.ID == run.ID }) {
-		return errors.New("personally hidden source leaked through Run list")
-	}
-	if _, err = f.d.identityMessage(f.member, source.MessageID); err == nil {
-		return errors.New("personally hidden source readable by ID")
-	}
-	var history struct {
-		Messages []storedMessage `json:"messages"`
-	}
-	if err = f.d.request(http.MethodGet, "/convs/"+f.conv.String()+"/messages?cursor=0&limit=100", f.member.token, nil, &history); err != nil {
+	if _, err = f.input(f.member, run.ID, "COMPLETE VALUE=7", nil); err != nil {
 		return err
 	}
-	if slices.ContainsFunc(history.Messages, func(m storedMessage) bool { return m.MessageID == source.MessageID }) {
-		return errors.New("personal deletion history resurrected hidden body")
-	}
-	visible, err := f.read(f.owner, run.ID)
-	if err != nil {
-		return err
-	}
-	if visible.Status != "waiting_input" {
-		return errors.New("personal deletion stopped shared work")
-	}
-	if _, err = f.input(f.owner, run.ID, "COMPLETE VALUE=7", nil); err != nil {
-		return err
-	}
-	done, err := f.d.interactionWait(f.owner, run.ID, "succeeded")
+	done, err := f.d.interactionWait(f.member, run.ID, "succeeded")
 	if err != nil {
 		return err
 	}
@@ -771,18 +734,12 @@ func (f *compactionFixture) personalDeletion(address string) error {
 	if err != nil {
 		return err
 	}
-	hidden := []entityID{source.MessageID, result.MessageID}
-	witness, err := f.personalFence(ownerSocket, memberSocket, cursor, result.MessageID, hidden, "CANARY_PERSONAL_HIDDEN")
-	if err != nil {
+	if _, err = f.d.p6Wait(socket, 0, "independent-result-visible", func(e p6Event) bool {
+		return e.Type == "message.new" && e.Message.MessageID == result.MessageID && strings.Contains(e.Message.Content.Text, "CANARY_PERSONAL_HIDDEN")
+	}); err != nil {
 		return err
 	}
-	if err = f.personalViews(f.member, hidden, "CANARY_PERSONAL_HIDDEN", witness); err != nil {
-		return err
-	}
-	if err = f.personalSync(f.member, before.NextPosition, hidden, []entityID{source.MessageID}, "CANARY_PERSONAL_HIDDEN", witness); err != nil {
-		return err
-	}
-	if err = f.personalRebuild(f.member, hidden, "CANARY_PERSONAL_HIDDEN", witness); err != nil {
+	if err = f.independentViews(f.member, []entityID{source.MessageID}, []storedMessage{result}, "CANARY_PERSONAL_HIDDEN"); err != nil {
 		return err
 	}
 	return f.save("personal_deletion_shared_complete", done, token)
@@ -828,202 +785,59 @@ func (f *compactionFixture) personalResult(run interactionRun, canary string) (s
 	return result, errors.New("personal-derived: published canary result never entered owner's search; absence would be vacuous")
 }
 
-func (f *compactionFixture) personalFence(owner, member *p6Socket, cursor int, resultID entityID, hidden []entityID, canary string) (sentMessage, error) {
-	if _, err := f.d.p6Wait(owner, 0, "derived-owner-publication", func(e p6Event) bool {
-		return e.Type == "message.new" && e.Message.MessageID == resultID
-	}); err != nil {
-		return sentMessage{}, err
-	}
-	witness, err := f.d.sendMessage(f.owner, f.conv, "fence-"+uuid.NewString()[:8], 0)
-	if err != nil {
-		return witness, err
-	}
-	if _, err = f.d.p6Message(member, witness); err != nil {
-		return witness, err
-	}
-	member.mu.Lock()
-	defer member.mu.Unlock()
-	if !member.closedAt.IsZero() {
-		return witness, errors.New("personal-derived: member socket closed before visible publication fence")
-	}
-	for _, evt := range member.events[cursor:] {
-		if strings.Contains(string(evt.raw), canary) || evt.Type != "message.deleted" && slices.Contains(hidden, evt.Message.MessageID) {
-			return witness, fmt.Errorf("personal-derived: hidden result body delivered over member WS (%s)", evt.Type)
-		}
-	}
-	return witness, nil
-}
-
-func (f *compactionFixture) personalViews(caller account, hidden []entityID, canary string, witness sentMessage) error {
+// The original identity must stay hidden, but equal content in independent
+// work remains readable. Content-wide canary bans would assert the old contract.
+func (f *compactionFixture) independentViews(caller account, hidden []entityID, results []storedMessage, canary string) error {
 	var history struct {
 		Messages []storedMessage `json:"messages"`
 	}
 	if err := f.d.request(http.MethodGet, "/convs/"+f.conv.String()+"/messages?cursor=0&limit=100", caller.token, nil, &history); err != nil {
 		return err
 	}
-	raw, err := json.Marshal(history)
-	if err != nil {
-		return err
-	}
-	if strings.Contains(string(raw), canary) || slices.ContainsFunc(history.Messages, func(m storedMessage) bool { return slices.Contains(hidden, m.MessageID) }) {
-		return errors.New("personal-derived: member history resurrected hidden source/result body")
-	}
-	if !slices.ContainsFunc(history.Messages, func(m storedMessage) bool {
-		return m.MessageID == witness.MessageID && m.Text.Text == witness.Content.Text
-	}) {
-		return errors.New("personal-derived: empty/stale history cannot prove hidden-result isolation")
-	}
 	for _, id := range hidden {
-		if err = f.d.inboxMessageAbsent("derived-result", caller, id); err != nil {
+		if err := f.d.inboxMessageAbsent("original-only", caller, id); err != nil {
 			return err
 		}
-	}
-	search, err := f.d.inboxSearch(caller, f.conv, canary)
-	if err != nil {
-		return err
-	}
-	raw, err = json.Marshal(search)
-	if err != nil {
-		return err
-	}
-	if strings.Contains(string(raw), canary) || len(search.Messages) != 0 || search.Pagination.Total != 0 || len(search.Highlights) != 0 || slices.ContainsFunc(search.TypeCounts, func(count struct {
-		Count int64 `json:"count,string"`
-	}) bool {
-		return count.Count != 0
-	}) {
-		return errors.New("personal-derived: member search/highlights/counts leaked hidden result")
-	}
-	row, err := f.d.conversationList("derived-visible-preview", caller, f.conv, true)
-	if err != nil {
-		return err
-	}
-	var detail struct {
-		Conversation conversationView `json:"conversation"`
-	}
-	if err = f.d.request(http.MethodGet, "/convs/"+f.conv.String(), caller.token, nil, &detail); err != nil {
-		return err
-	}
-	for _, view := range []conversationView{row, detail.Conversation} {
-		if !hasEntityID(view.LastMessageID, witness.MessageID) || view.LastMessagePreview != witness.Content.Text || view.MaxSeq != witness.Seq || view.UnreadCount != 1 {
-			return fmt.Errorf("personal-derived: hidden output affected member preview/unread: last=%v unread=%d seq=%s", view.LastMessageID, view.UnreadCount, view.MaxSeq)
+		if slices.ContainsFunc(history.Messages, func(m storedMessage) bool { return m.MessageID == id }) {
+			return errors.New("original hidden message returned in history")
 		}
 	}
-	return nil
-}
-
-func (f *compactionFixture) personalSync(caller account, position sequenceNumber, hidden, deleted []entityID, canary string, witness sentMessage) error {
-	seen := make(map[entityID]bool, len(deleted))
-	witnessed := false
-	deadline := time.Now().Add(f.d.timeout)
-	for time.Now().Before(deadline) {
-		page, err := f.d.inboxRead("derived-reconnect", caller, position, 100)
+	var search inboxSearchResult
+	if err := f.d.request(http.MethodGet, "/messages/search?conversation_id="+f.conv.String()+"&keyword="+canary+"&page=1&page_size=100", caller.token, nil, &search); err != nil {
+		return err
+	}
+	for _, id := range hidden {
+		if slices.ContainsFunc(search.Messages, func(m storedMessage) bool { return m.MessageID == id }) {
+			return errors.New("search restored hidden original identity")
+		}
+	}
+	for _, expected := range results {
+		actual, err := f.d.identityMessage(caller, expected.MessageID)
 		if err != nil {
 			return err
 		}
-		if page.RebuildRequired {
-			return errors.New("personal-derived: valid persisted inbox position unexpectedly rebuilt")
+		if actual.Text.Text != expected.Text.Text || !strings.Contains(actual.Text.Text, canary) {
+			return errors.New("independent result lost accepted content")
 		}
-		if strings.Contains(string(page.raw), canary) {
-			return errors.New("personal-derived: persisted inbox rehydrated personally hidden canary")
+		if !slices.ContainsFunc(history.Messages, func(m storedMessage) bool {
+			return m.MessageID == expected.MessageID && m.Text.Text == expected.Text.Text
+		}) {
+			return errors.New("independent result missing in history")
 		}
-		for _, change := range page.Changes {
-			if slices.Contains(hidden, change.Message.MessageID) {
-				return errors.New("personal-derived: persisted inbox returned hidden message body")
-			}
-			if change.Conversation != nil && change.Conversation.LastMessageID != nil && slices.Contains(hidden, *change.Conversation.LastMessageID) {
-				return errors.New("personal-derived: persisted inbox preview referenced hidden result")
-			}
-			if change.Kind == "message.deleted" && change.MessageID != nil && slices.Contains(deleted, *change.MessageID) {
-				if change.Message.MessageID != "" || change.Message.RawPayload != "" || change.Message.Text.Text != "" || change.Message.Result != nil {
-					return errors.New("personal-derived: deletion replay carried cached result body")
-				}
-				// Old new/edit entries converge to the same body-free tombstone;
-				// distinct increasing positions are already checked by inboxRead.
-				seen[*change.MessageID] = true
-			}
-			witnessed = witnessed || change.Kind == "message.new" && change.Message.MessageID == witness.MessageID && change.Message.Text.Text == witness.Content.Text
+		if !slices.ContainsFunc(search.Messages, func(m storedMessage) bool { return m.MessageID == expected.MessageID }) {
+			return errors.New("independent result missing in search")
 		}
-		position = page.NextPosition
-		if !page.HasMore && witnessed && len(seen) == len(deleted) {
-			return nil
-		}
-		time.Sleep(min(25*time.Millisecond, max(0, time.Until(deadline))))
-	}
-	return errors.New("personal-derived: persisted inbox missed visible witness or derived tombstones")
-}
-
-func (f *compactionFixture) personalRebuild(caller account, hidden []entityID, canary string, witness sentMessage) error {
-	page, err := f.d.inboxRead("derived-cache-rebuild", caller, 0, 100)
-	if err != nil {
-		return err
-	}
-	if err = checkInboxRebuild("derived-cache-rebuild", "new_device", page); err != nil {
-		return err
-	}
-	if strings.Contains(string(page.raw), canary) {
-		return errors.New("personal-derived: cache rebuild resurrected hidden result body")
-	}
-	for _, snapshot := range page.Conversations {
-		if snapshot.Conversation.ID != f.conv {
-			continue
-		}
-		if slices.ContainsFunc(snapshot.Messages, func(m storedMessage) bool { return slices.Contains(hidden, m.MessageID) }) {
-			return errors.New("personal-derived: cache rebuild returned hidden result identity/body")
-		}
-		if slices.ContainsFunc(snapshot.Messages, func(m storedMessage) bool {
-			return m.MessageID == witness.MessageID && m.Text.Text == witness.Content.Text
-		}) && hasEntityID(snapshot.Conversation.LastMessageID, witness.MessageID) && snapshot.Conversation.UnreadCount == 1 {
-			return nil
-		}
-	}
-	return errors.New("personal-derived: rebuild lost unrelated visible message/preview/unread witness")
-}
-
-func (f *compactionFixture) personalRunHidden(run interactionRun) error {
-	_, err := f.read(f.member, run.ID)
-	var api *apiError
-	if !errors.As(err, &api) || api.status < 400 || api.status >= 500 {
-		return fmt.Errorf("personal-derived: hidden output remained readable through Run.GET: %v", err)
-	}
-	_, err = f.d.interactionStart(f.member, f.bot.ID, f.conv, "COMPLETE VALUE=99", map[string]any{"parent_run_id": run.ID})
-	if !errors.As(err, &api) || api.status < 400 || api.status >= 500 {
-		return fmt.Errorf("personal-derived: member could inherit hidden output through continuation: %v", err)
 	}
 	return nil
 }
 
 func (f *compactionFixture) personalDeletionPublished(address string) error {
-	memberSocket, err := f.d.p6Connect(address, f.member)
+	socket, err := f.d.p6Connect(address, f.member)
 	if err != nil {
 		return err
 	}
-	defer memberSocket.close()
-	ownerSocket, err := f.d.p6Connect(address, f.owner)
-	if err != nil {
-		return err
-	}
-	defer ownerSocket.close()
-	independentToken := "CP_INDEPENDENT_" + f.suffix
-	if _, err = f.gate(independentToken, "arm", ""); err != nil {
-		return err
-	}
-	independentRun, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, independentToken+" COMPLETE VALUE=41", nil)
-	if err != nil {
-		return err
-	}
-	independentRun, err = f.d.interactionWait(f.owner, independentRun.ID, "succeeded")
-	if err != nil {
-		return err
-	}
-	if independentRun.MessageID == nil {
-		return errors.New("personal-derived: independent result was not published")
-	}
-	independent, err := f.d.identityMessage(f.member, *independentRun.MessageID)
-	if err != nil {
-		return err
-	}
-	canary := "CANARY_PERSONAL_PUBLISHED"
-	token := "CP_PUBLISHED_" + f.suffix
+	defer socket.close()
+	token, canary := "CP_PUBLISHED_"+f.suffix, "CANARY_PERSONAL_PUBLISHED"
 	if _, err = f.gate(token, "arm", ""); err != nil {
 		return err
 	}
@@ -1043,8 +857,6 @@ func (f *compactionFixture) personalDeletionPublished(address string) error {
 	if err != nil {
 		return err
 	}
-	// Publish a child before deletion: inherited provenance must evict both
-	// already-cached generations, not just the direct result of the source.
 	child, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, token+" COMPLETE VALUE=3", map[string]any{"parent_run_id": run.ID})
 	if err != nil {
 		return err
@@ -1057,80 +869,24 @@ func (f *compactionFixture) personalDeletionPublished(address string) error {
 	if err != nil {
 		return err
 	}
-	cache := map[entityID]storedMessage{independent.MessageID: independent}
-	for _, published := range []storedMessage{result, childResult} {
-		if _, err = f.d.p6Wait(memberSocket, 0, "derived-before-delete-visible", func(e p6Event) bool {
-			return e.Type == "message.new" && e.Message.MessageID == published.MessageID && strings.Contains(e.Message.Content.Text, canary)
-		}); err != nil {
-			return err
-		}
-		visible, err := f.d.identityMessage(f.member, published.MessageID)
-		if err != nil {
-			return err
-		}
-		if !reflect.DeepEqual(visible, published) {
-			return errors.New("personal-derived: result was not actually visible/cached before personal source deletion")
-		}
-		cache[visible.MessageID] = visible
-	}
-	before, err := f.d.inboxRead("derived-published-before-delete", f.member, 0, 100)
+	before, err := f.d.inboxRead("independent-before-delete", f.member, 0, 100)
 	if err != nil {
 		return err
 	}
-	if err = f.d.request(http.MethodPut, "/convs/"+f.conv.String()+"/read", f.member.token, map[string]any{"seq": source.Seq}, nil); err != nil {
-		return err
-	}
-	cursor := memberSocket.cursor()
+	cursor := socket.cursor()
 	if err = f.d.request(http.MethodDelete, "/messages/"+source.MessageID.String(), f.member.token, map[string]any{"delete_for_all": false}, nil); err != nil {
 		return err
 	}
-	deleted := []entityID{source.MessageID, result.MessageID, childResult.MessageID}
-	for _, id := range deleted {
-		evt, err := f.d.p6Wait(memberSocket, cursor, "derived-cache-eviction", func(e p6Event) bool {
-			return e.Type == "message.deleted" && hasEntityID(e.ConvID, f.conv) && hasEntityID(e.MessageID, id)
-		})
-		if err != nil {
-			return err
-		}
-		if evt.Message.Content.Text != "" || evt.Message.Content.Data != "" || evt.Message.RawPayload != "" || evt.Content != "" || evt.Run.ResultText != "" {
-			return errors.New("personal-derived: WS cache eviction included hidden body")
-		}
-		delete(cache, id)
-	}
-	if len(cache) != 1 || !reflect.DeepEqual(cache[independent.MessageID], independent) {
-		return errors.New("personal-derived: public deletion events did not remove derived cache entries selectively")
-	}
-	for _, published := range []storedMessage{result, childResult, independent} {
-		unchanged, err := f.d.identityMessage(f.owner, published.MessageID)
-		if err != nil {
-			return err
-		}
-		if !reflect.DeepEqual(unchanged, published) {
-			return errors.New("personal-derived: member deletion changed owner's independent published result")
-		}
-	}
-	stillVisible, err := f.d.identityMessage(f.member, independent.MessageID)
-	if err != nil || !reflect.DeepEqual(stillVisible, independent) {
-		return fmt.Errorf("personal-derived: unrelated independent result did not survive source deletion: %v", err)
-	}
-	for _, completed := range []interactionRun{run, child} {
-		if _, err = f.personalResult(completed, canary); err != nil {
-			return err
-		}
-	}
-	if err = f.personalRunHidden(run); err != nil {
+	if _, err = f.d.p6Wait(socket, cursor, "original-tombstone", func(e p6Event) bool {
+		return e.Type == "message.deleted" && hasEntityID(e.MessageID, source.MessageID)
+	}); err != nil {
 		return err
 	}
-	if err = f.personalRunHidden(child); err != nil {
-		return err
-	}
-	// The owner can continue shared work after the member's deletion, but the
-	// next result inherits the same viewer scope through the child's ancestry.
-	continued, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, token+" COMPLETE VALUE=7", map[string]any{"parent_run_id": child.ID})
+	continued, err := f.d.interactionStart(f.member, f.bot.ID, f.conv, token+" COMPLETE VALUE=7", map[string]any{"parent_run_id": child.ID})
 	if err != nil {
 		return err
 	}
-	continued, err = f.d.interactionWait(f.owner, continued.ID, "succeeded")
+	continued, err = f.d.interactionWait(f.member, continued.ID, "succeeded")
 	if err != nil {
 		return err
 	}
@@ -1138,70 +894,110 @@ func (f *compactionFixture) personalDeletionPublished(address string) error {
 	if err != nil {
 		return err
 	}
-	hidden := append(slices.Clone(deleted), continuedResult.MessageID)
-	witness, err := f.personalFence(ownerSocket, memberSocket, cursor, continuedResult.MessageID, hidden, canary)
+	if _, err = f.d.p6Wait(socket, cursor, "independent-child-visible", func(e p6Event) bool {
+		return e.Type == "message.new" && e.Message.MessageID == continuedResult.MessageID && strings.Contains(e.Message.Content.Text, canary)
+	}); err != nil {
+		return err
+	}
+	socket.mu.Lock()
+	for _, evt := range socket.events[cursor:] {
+		if evt.Type == "message.deleted" && (hasEntityID(evt.MessageID, result.MessageID) || hasEntityID(evt.MessageID, childResult.MessageID)) {
+			socket.mu.Unlock()
+			return errors.New("source deletion cascaded result cache eviction")
+		}
+	}
+	socket.mu.Unlock()
+	results := []storedMessage{result, childResult, continuedResult}
+	if err = f.independentViews(f.member, []entityID{source.MessageID}, results, canary); err != nil {
+		return err
+	}
+	for _, completed := range []interactionRun{run, child, continued} {
+		view, err := f.read(f.member, completed.ID)
+		if err != nil {
+			return err
+		}
+		if view.ResultText != completed.ResultText || view.Status != "succeeded" {
+			return errors.New("source operation changed independent Run")
+		}
+	}
+	// Current synchronization hydrates tombstones only for the original message.
+	position, seenOriginal, seenResult := before.NextPosition, false, false
+	if err = f.d.broadcastPoll("original tombstone and independent output sync", func(*driver) (bool, error) {
+		page, err := f.d.inboxRead("independent-reconnect", f.member, position, 100)
+		if err != nil {
+			return false, err
+		}
+		for _, change := range page.Changes {
+			if change.Message.MessageID == source.MessageID {
+				return false, errors.New("sync restored original body")
+			}
+			if change.Kind == "message.deleted" && change.MessageID != nil {
+				seenOriginal = seenOriginal || *change.MessageID == source.MessageID
+				if *change.MessageID == result.MessageID || *change.MessageID == childResult.MessageID {
+					return false, errors.New("sync hid independent result")
+				}
+			}
+			seenResult = seenResult || change.Message.MessageID == continuedResult.MessageID && strings.Contains(change.Message.Text.Text, canary)
+		}
+		position = page.NextPosition
+		return seenOriginal && seenResult && !page.HasMore, nil
+	}); err != nil {
+		return err
+	}
+	fresh, err := f.d.inboxLoginDevice(f.member, "independent-rebuild")
 	if err != nil {
 		return err
 	}
-	if err = f.personalViews(f.member, hidden, canary, witness); err != nil {
-		return err
-	}
-	memberSocket.close()
-	reconnected, err := f.d.p6Connect(address, f.member)
+	page, err := f.d.inboxRead("independent-rebuild", fresh, 0, 100)
 	if err != nil {
 		return err
 	}
-	defer reconnected.close()
-	if err = f.personalSync(f.member, before.NextPosition, hidden, deleted, canary, witness); err != nil {
+	if err = checkInboxRebuild("independent-rebuild", "new_device", page); err != nil {
 		return err
 	}
-	fresh, err := f.d.inboxLoginDevice(f.member, "derived-rebuild")
+	found := false
+	for _, snapshot := range page.Conversations {
+		for _, m := range snapshot.Messages {
+			if m.MessageID == source.MessageID {
+				return errors.New("rebuild restored original message")
+			}
+			found = found || m.MessageID == continuedResult.MessageID && strings.Contains(m.Text.Text, canary)
+		}
+	}
+	if !found {
+		return errors.New("new-device rebuild omitted independent latest result")
+	}
+	// Deleting a result message changes that message, never the Run or its child.
+	if err = f.d.request(http.MethodDelete, "/messages/"+result.MessageID.String(), f.member.token, map[string]any{"delete_for_all": false}, nil); err != nil {
+		return err
+	}
+	if err = f.d.inboxMessageAbsent("result-only", f.member, result.MessageID); err != nil {
+		return err
+	}
+	outputChild, err := f.d.interactionStart(f.member, f.bot.ID, f.conv, token+" COMPLETE VALUE=2", map[string]any{"parent_run_id": run.ID})
 	if err != nil {
 		return err
 	}
-	if err = f.personalRebuild(fresh, hidden, canary, witness); err != nil {
-		return err
-	}
-	if err = f.personalViews(fresh, hidden, canary, witness); err != nil {
-		return err
-	}
-	// Deleting a published result itself is also a provenance boundary. It
-	// must hide Run.GET/continuation without removing the owner's publication.
-	if err = f.d.request(http.MethodPut, "/convs/"+f.conv.String()+"/read", f.member.token, map[string]any{"seq": witness.Seq}, nil); err != nil {
-		return err
-	}
-	outputCursor := reconnected.cursor()
-	if err = f.d.request(http.MethodDelete, "/messages/"+independent.MessageID.String(), f.member.token, map[string]any{"delete_for_all": false}, nil); err != nil {
-		return err
-	}
-	if err = f.personalRunHidden(independentRun); err != nil {
-		return err
-	}
-	outputChild, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, independentToken+" COMPLETE VALUE=2", map[string]any{"parent_run_id": independentRun.ID})
+	outputChild, err = f.d.interactionWait(f.member, outputChild.ID, "succeeded")
 	if err != nil {
 		return err
 	}
-	outputChild, err = f.d.interactionWait(f.owner, outputChild.ID, "succeeded")
+	outputResult, err := f.personalResult(outputChild, canary)
 	if err != nil {
 		return err
 	}
-	if outputChild.MessageID == nil {
-		return errors.New("personal-derived: output-derived child did not publish for owner")
-	}
-	hidden = append(hidden, independent.MessageID, *outputChild.MessageID)
-	witness, err = f.personalFence(ownerSocket, reconnected, outputCursor, *outputChild.MessageID, hidden, canary)
-	if err != nil {
+	if err = f.independentViews(f.member, []entityID{source.MessageID, result.MessageID}, []storedMessage{childResult, continuedResult, outputResult}, canary); err != nil {
 		return err
 	}
-	if err = f.personalViews(f.member, hidden, canary, witness); err != nil {
+	// Global source removal still cannot remove work copies or independent results.
+	if err = f.d.request(http.MethodPost, "/messages/"+source.MessageID.String()+"/recall", f.owner.token, map[string]any{}, nil); err != nil {
 		return err
 	}
-	if err = f.personalRunHidden(outputChild); err != nil {
+	if err = f.d.request(http.MethodDelete, "/messages/"+source.MessageID.String(), f.owner.token, map[string]any{"delete_for_all": true}, nil); err != nil {
 		return err
 	}
-	ownerIndependent, err := f.d.identityMessage(f.owner, independent.MessageID)
-	if err != nil || !reflect.DeepEqual(ownerIndependent, independent) {
-		return fmt.Errorf("personal-derived: personal output deletion changed owner's published result: %v", err)
+	if err = f.independentViews(f.member, []entityID{source.MessageID, result.MessageID}, []storedMessage{childResult, continuedResult, outputResult}, canary); err != nil {
+		return err
 	}
 	if err = f.save("personal_deletion_published_child", continued, token); err != nil {
 		return err
@@ -1423,18 +1219,8 @@ func (f *compactionFixture) browserFixtures() error {
 			if err = f.d.request(http.MethodPut, "/messages/"+source.MessageID.String(), f.owner.token, map[string]any{"text": "CANARY_BROWSER_CURRENT_NOT_ACCEPTED"}, nil); err != nil {
 				return err
 			}
-			if _, err = f.wait(f.owner, run.ID, func(r compactionRun) bool {
-				return slices.ContainsFunc(r.SourceChanges, func(s compactionSourceChange) bool { return s.MessageID == source.MessageID && s.Status == "modified" })
-			}); err != nil {
-				return err
-			}
 		} else {
 			if err = f.d.request(http.MethodPost, "/messages/"+source.MessageID.String()+"/recall", f.owner.token, map[string]any{}, nil); err != nil {
-				return err
-			}
-			if _, err = f.wait(f.owner, run.ID, func(r compactionRun) bool {
-				return r.Stage == "source_confirmation_required" && r.Status == "waiting_input"
-			}); err != nil {
 				return err
 			}
 		}
@@ -1443,4 +1229,142 @@ func (f *compactionFixture) browserFixtures() error {
 		}
 	}
 	return nil
+}
+
+func (f *compactionFixture) historyAuthorization() error {
+	var conv struct {
+		ID entityID `json:"conversation_id"`
+	}
+	if err := f.d.request(http.MethodPost, "/convs", f.owner.token, map[string]any{"type": "group", "group_name": "history-authority-" + f.suffix, "member_ids": []entityID{f.member.id}}, &conv); err != nil {
+		return err
+	}
+	prior := f.conv
+	f.conv = conv.ID
+	defer func() { f.conv = prior }()
+	if err := f.d.request(http.MethodPost, "/convs/"+f.conv.String()+"/bots", f.owner.token, map[string]any{"bot_id": f.bot.ID}, nil); err != nil {
+		return err
+	}
+	binding, err := f.d.identityBinding(f.owner, f.conv, f.bot.ID)
+	if err != nil {
+		return err
+	}
+	source, err := f.d.sendMessage(f.owner, f.conv, "CANARY_HISTORY_ACCEPTED", 0)
+	if err != nil {
+		return err
+	}
+	grant, err := f.d.identityGrant(f.member, f.conv, f.bot.ID, binding.BindingID, source.Seq, source.Seq)
+	if err != nil {
+		return err
+	}
+	token := "CP_HISTORY_" + f.suffix
+	if _, err = f.gate(token, "arm", ""); err != nil {
+		return err
+	}
+	run, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, token+" VALUE=5", map[string]any{"history_grant_id": grant})
+	if err != nil {
+		return err
+	}
+	if _, err = f.d.interactionWait(f.owner, run.ID, "waiting_input"); err != nil {
+		return err
+	}
+	if err = f.d.request(http.MethodDelete, "/messages/"+source.MessageID.String(), f.owner.token, map[string]any{"delete_for_all": true}, nil); err != nil {
+		return err
+	}
+	if _, err = f.input(f.owner, run.ID, "COMPLETE VALUE=7", nil); err != nil {
+		return err
+	}
+	done, err := f.d.interactionWait(f.owner, run.ID, "succeeded")
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(done.ResultText, "CANARY_HISTORY_ACCEPTED") || !strings.Contains(done.ResultText, "\"sum\": 12") {
+		return errors.New("deleted original invalidated accepted historical range")
+	}
+	// New history reads cannot recover a globally removed original message.
+	freshToken := "CP_HISTORYFRESH_" + f.suffix
+	if _, err = f.gate(freshToken, "arm", ""); err != nil {
+		return err
+	}
+	fresh, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, freshToken+" COMPLETE VALUE=3", map[string]any{"history_grant_id": grant})
+	if err != nil {
+		return err
+	}
+	fresh, err = f.d.interactionWait(f.owner, fresh.ID, "succeeded")
+	if err != nil {
+		return err
+	}
+	if strings.Contains(fresh.ResultText, "CANARY_HISTORY_ACCEPTED") {
+		return errors.New("new historical read resurrected removed original")
+	}
+	// The author leaving is actual history-grant revocation, unlike IM deletion.
+	if err = f.d.request(http.MethodPost, "/convs/"+f.conv.String()+"/members/kick", f.owner.token, map[string]any{"user_ids": []entityID{f.member.id}}, nil); err != nil {
+		return err
+	}
+	if err = f.d.authorizationReject("/bots/"+f.bot.ID.String()+"/runs", f.owner.token, map[string]any{"conv_id": f.conv, "submission_key": uuid.NewString(), "message": token + " COMPLETE VALUE=2", "parent_run_id": run.ID}); err != nil {
+		return err
+	}
+	revoked, err := f.read(f.owner, run.ID)
+	if err == nil {
+		raw, err := json.Marshal(revoked)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(raw), "CANARY_HISTORY_ACCEPTED") {
+			return errors.New("revoked historical content remained disclosed")
+		}
+	} else {
+		var denied *apiError
+		if !errors.As(err, &denied) || denied.status != http.StatusForbidden {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *compactionFixture) summaryExplicitStop() error {
+	token := "CP_EXPLICITSTOP_" + f.suffix
+	if _, err := f.gate(token, "arm", "summary"); err != nil {
+		return err
+	}
+	defer f.gate(token, "release", "")
+	run, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, token+compactionPadding(5), nil)
+	if err != nil {
+		return err
+	}
+	if _, err = f.d.interactionWait(f.owner, run.ID, "waiting_input"); err != nil {
+		return err
+	}
+	held, _, _, err := f.driveSummary(run, token)
+	if err != nil {
+		return err
+	}
+	if _, err = f.d.interactionControl(f.owner, run.ID, "stop", "", uuid.NewString(), nil); err != nil {
+		return err
+	}
+	if _, err = f.gate(token, "release", ""); err != nil {
+		return err
+	}
+	stopped, err := f.d.interactionWait(f.owner, run.ID, "stopped")
+	if err != nil {
+		return err
+	}
+	if stopped.MessageID != nil || stopped.ResultText != "" {
+		return errors.New("explicit stop during summary published a result")
+	}
+	if err = f.d.broadcastPoll("stopped summary settled at external endpoint", func(*driver) (bool, error) {
+		observed, err := f.gate(token, "observe", "")
+		return len(observed.Requests) >= len(held.Requests) && observed.Requests[len(held.Requests)-1].State == "responded", err
+	}); err != nil {
+		return err
+	}
+	observed, err := f.gate(token, "observe", "")
+	if err != nil {
+		return err
+	}
+	for _, request := range observed.Requests[len(held.Requests):] {
+		if request.Kind == "work" {
+			return errors.New("stale stopped summary advanced work")
+		}
+	}
+	return f.save("summary_explicit_stop", stopped, token)
 }

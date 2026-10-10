@@ -174,7 +174,7 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 		return nil, err
 	}
 	receipt, err := s.repo.Report(ctx, update.RunID, "executor:"+update.UpdateKey, digest, repo.ReportAuthority{StopConfirmation: confirmation}, func(r *model.Run) error {
-		if err := s.refreshSources(ctx, r); err != nil {
+		if err := s.refreshAuthorizations(ctx, r); err != nil {
 			return err
 		}
 		if r.BotID != botID || r.ExecutorType != "third_party" {
@@ -388,9 +388,8 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 	key := "control:" + user + ":" + command.SubmissionKey
 	var materials []Material
 	var sources []map[string]any
-	var sourceMismatch bool
 	authorize := func(r *model.Run) error {
-		if err := s.refreshSources(ctx, r); err != nil {
+		if err := s.refreshAuthorizations(ctx, r); err != nil {
 			return err
 		}
 		if r.Visibility == "personal" {
@@ -442,6 +441,15 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 			}
 		}
 		if operation == "input" {
+			// Replaying accepted input checks work authority, not its old IM row.
+			var prior model.RunReceipt
+			err := s.svc.DB.WithContext(ctx).Where("run_id = ? AND update_key = ?", r.ID, key).Take(&prior).Error
+			if err == nil {
+				return nil
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
 			input := Input{BotID: r.BotID, ConvID: r.ConvID, BindingID: r.BindingID, RequesterID: user, Message: command.Message, SourceMessageID: command.SourceMessageID, MessageIDs: command.MessageIDs, FileIDs: command.FileIDs, HistoryGrantID: command.HistoryGrantID, ReplyInput: true, Visibility: r.Visibility, ResourceGrantIDs: r.ResourceGrantIDs}
 			if command.SourceMessageID != nil {
 				m, err := s.source(ctx, input, *command.SourceMessageID, true)
@@ -458,12 +466,7 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 				if command.ReplyToMsgID != nil && (r.MessageID == nil || *r.MessageID != *command.ReplyToMsgID || m.GetReplyToId() != *command.ReplyToMsgID) {
 					return status.Error(codes.PermissionDenied, "source does not reply to this Run card")
 				}
-				sourceMismatch = m.GetText().Text != command.Message
-				// Receipt replay checks visibility, not a later edit's replacement
-				// body. Only a new accepted input must match its current source.
-				input.Message = m.GetText().Text
 			}
-			var err error
 			materials, sources, err = s.collectMaterials(ctx, input, 100)
 			if err != nil {
 				return err
@@ -474,7 +477,7 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 	if operation == "close_interaction" || operation == "clear_context" {
 		receipt, err := s.repo.CloseInteraction(ctx, id, key, digest, user, authorize)
 		if err == nil {
-			s.decorateControl(ctx, receipt, user)
+			err = s.decorateControl(ctx, receipt, user)
 		}
 		return receipt, err
 	}
@@ -539,9 +542,6 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 			next.Version++
 			return repo.QueueRunDelivery(tx, &next)
 		case "input":
-			if sourceMismatch {
-				return status.Error(codes.InvalidArgument, "input differs from its source message")
-			}
 			if (r.Status != "accepted" && r.Status != "running" && !wasWaiting) || r.OutputStatus != "none" {
 				return status.Error(codes.FailedPrecondition, "Run no longer accepts work input")
 			}
@@ -569,7 +569,7 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 			if err != nil {
 				return err
 			}
-			if err := repo.CheckRunSources(tx, &model.Run{ID: r.ID, ConvID: r.ConvID, BindingID: r.BindingID, Materials: materialRaw, Provenance: provenance}); err != nil {
+			if err := repo.CheckAcceptedMessages(tx, r, materialRaw); err != nil {
 				return err
 			}
 			if err := tx.Create(&model.RunInput{ID: inputID, RunID: r.ID, Version: r.InputVersion, RequesterID: user, SourceMessageID: command.SourceMessageID, AcceptedEditCount: acceptedEditCount, Provenance: provenance, InputKey: command.SubmissionKey, Content: command.Message, ContentHash: digest, Materials: materialRaw, Sources: sourcesRaw, CreatedAt: time.Now()}).Error; err != nil {
@@ -603,9 +603,6 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 		case "stop":
 			return requestRunStop(tx, r, "user_requested")
 		case "resume":
-			if r.Stage == "source_confirmation_required" {
-				return status.Error(codes.FailedPrecondition, "source changes require fresh explicit input")
-			}
 			if !wasWaiting {
 				return status.Error(codes.FailedPrecondition, "only unfinished waiting work may resume")
 			}
@@ -628,7 +625,7 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 		return repo.QueueRunDelivery(tx, &next)
 	})
 	if err == nil {
-		s.decorateControl(ctx, receipt, user)
+		err = s.decorateControl(ctx, receipt, user)
 	}
 	return receipt, err
 }

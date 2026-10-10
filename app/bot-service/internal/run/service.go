@@ -273,6 +273,10 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	if err != nil {
 		return nil, err
 	}
+	freshMaterials, err := json.Marshal(materials)
+	if err != nil {
+		return nil, err
+	}
 	var parent *model.Run
 	if input.ParentRunID != nil {
 		parent, err = s.Get(ctx, *input.ParentRunID, input.RequesterID)
@@ -486,7 +490,6 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	now := time.Now()
 	accepted := &model.Run{ID: id, InteractionID: interaction, BotID: bot.ID, ConvID: binding.ConvID, BindingID: binding.ID, RequesterID: input.RequesterID, InputKey: input.SubmissionKey, InputHash: fingerprint, SourceMessageID: input.SourceMessageID, ReplyToMsgID: input.ReplyToMsgID, HistoryGrantID: input.HistoryGrantID, InputVersion: 1, Version: 1, Status: "accepted", Stage: "accepted", OutputStatus: "none", Config: configRaw, Sources: sourcesRaw, Materials: materialRaw, Steps: []model.RunStep{{Version: 1, Stage: "accepted", CreatedAt: now.Unix()}}, CreatedAt: now, UpdatedAt: now}
 	accepted.SourceRevision, accepted.BranchVersion = 1, 1
-	accepted.SourceChanges = []model.SourceChange{}
 	accepted.Provenance, err = materialProvenance(materials)
 	if err != nil {
 		return nil, err
@@ -520,7 +523,7 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	if err := s.authorize(ctx, accepted, false); err != nil {
 		return nil, err
 	}
-	return s.repo.Accept(ctx, accepted, input.Message)
+	return s.repo.Accept(ctx, accepted, input.Message, freshMaterials)
 }
 
 func (s *Service) authorize(ctx context.Context, r *model.Run, sharing bool) error {
@@ -649,33 +652,6 @@ func (s *Service) visible(ctx context.Context, user string, r *model.Run) error 
 	if err := s.RequireMember(ctx, user, r.ConvID); err != nil {
 		return err
 	}
-	var versions []model.SourceVersion
-	if len(r.Provenance) > 0 {
-		if err := json.Unmarshal(r.Provenance, &versions); err != nil {
-			return err
-		}
-	}
-	if r.MessageID != nil {
-		versions = append(versions, model.SourceVersion{MessageID: *r.MessageID})
-	}
-	for _, version := range versions {
-		if version.MessageID == "" && version.ParentRunID == "" {
-			continue
-		}
-		var hidden int64
-		query := s.svc.DB.WithContext(ctx).Table("messaging.personal_message_deletions").Where("user_id = ? AND conv_id = ?", user, r.ConvID)
-		if version.MessageID != "" {
-			query = query.Where("message_id = ?", version.MessageID)
-		} else {
-			query = query.Where("message_id IN (SELECT message_id FROM bot.runs WHERE id = ?)", version.ParentRunID)
-		}
-		if err := query.Count(&hidden).Error; err != nil {
-			return err
-		}
-		if hidden != 0 {
-			return status.Error(codes.NotFound, "Run source is hidden for this viewer")
-		}
-	}
 	return nil
 }
 func (s *Service) Get(ctx context.Context, id, user string) (*model.Run, error) {
@@ -706,8 +682,15 @@ func (s *Service) Get(ctx context.Context, id, user string) (*model.Run, error) 
 		}
 	}
 	public := r.Public()
-	s.decorateControl(ctx, &public, user)
+	if err := s.decorateControl(ctx, &public, user); err != nil {
+		return nil, err
+	}
+	// Decoration may have observed newer authorization than the initial read.
+	if err := s.visible(ctx, user, r); err != nil {
+		return nil, err
+	}
 	r.ViewerCanControl = public.CanControl
+	r.ViewerPublicRun = &public
 	r.ControlUserIDs = public.ControlUserIDs
 	r.Actions = public.Actions
 	return r, nil
@@ -743,7 +726,9 @@ func (s *Service) List(ctx context.Context, convID, user string, limit int) ([]m
 			}
 		}
 		public := r.Public()
-		s.decorateControl(ctx, &public, user)
+		if err := s.decorateControl(ctx, &public, user); err != nil {
+			return nil, err
+		}
 		result = append(result, public)
 	}
 	return result, nil
@@ -938,7 +923,6 @@ func (s *Service) authorizeMaterials(ctx context.Context, r *model.Run, visited 
 	if err := json.Unmarshal(r.Materials, &materials); err != nil {
 		return err
 	}
-	grants := make(map[string]map[string]bool)
 	parents := make(map[string]bool)
 	for _, material := range materials {
 		requester := material.RequesterID
@@ -950,37 +934,9 @@ func (s *Service) authorizeMaterials(ctx context.Context, r *model.Run, visited 
 		if material.Shared {
 			input.RequesterID = r.ControllerID
 		}
-		if material.MessageID != "" {
-			if material.Shared {
-				// A member's deletion overlay hides their view, not an already
-				// accepted group work snapshot. Only shared-source revocation stops it.
-				var available int64
-				if err := s.svc.DB.WithContext(ctx).Table("messaging.messages").Where("id = ? AND conv_id = ? AND status <> 2", material.MessageID, r.ConvID).Count(&available).Error; err != nil {
-					return err
-				}
-				if available != 1 {
-					return status.Error(codes.PermissionDenied, "shared source is no longer available")
-				}
-			} else if _, err := s.source(ctx, input, material.MessageID, material.Kind != "request_source" || material.SourceExplicit); err != nil {
-				return err
-			}
-		}
 		if material.HistoryGrantID != "" {
-			allowed, ok := grants[material.HistoryGrantID]
-			if !ok {
-				grant := material.HistoryGrantID
-				resp, err := s.messages.GetMessages(serviceContext(ctx), &msg.GetMessagesReq{ConversationId: r.ConvID, BotId: &r.BotID, BindingId: &r.BindingID, HistoryGrantId: &grant, Pagination: &msg.MessagePagination{Limit: 100}})
-				if err != nil {
-					return err
-				}
-				allowed = make(map[string]bool, len(resp.Messages))
-				for _, m := range resp.Messages {
-					allowed[m.MessageId] = true
-				}
-				grants[grant] = allowed
-			}
-			if !allowed[material.MessageID] {
-				return status.Error(codes.PermissionDenied, "history material is no longer authorized")
+			if err := repo.CheckMaterialHistory(s.svc.DB.WithContext(ctx), r, material.HistoryGrantID, material.Seq); err != nil {
+				return err
 			}
 		}
 		if material.FileID != "" {
@@ -993,7 +949,7 @@ func (s *Service) authorizeMaterials(ctx context.Context, r *model.Run, visited 
 			if err != nil {
 				return err
 			}
-			if err := s.refreshSources(ctx, parent); err != nil {
+			if err := s.refreshAuthorizations(ctx, parent); err != nil {
 				return err
 			}
 			if parent.BotID != r.BotID || parent.ConvID != r.ConvID || parent.BindingID != r.BindingID || parent.InteractionID != r.InteractionID {

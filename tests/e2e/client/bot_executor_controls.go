@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -210,6 +211,215 @@ func (d *driver) executorControls(owner, admin, requester, member account, bot b
 	}
 	if _, err = x.update(executorPayload(raceRequest, "run.update", "running", 2), true, false); err != nil {
 		return err
+	}
+	return d.executorAcceptedSources(admin, requester, bot, conv, x, suffix)
+}
+
+func (d *driver) executorAcceptedSources(sender, requester account, bot botView, conv entityID, x *controlledExecutor, suffix string) error {
+	for _, phase := range []string{"queued", "waiting_input", "completed"} {
+		for _, operation := range []string{"edit", "personal_delete", "recall", "delete_all"} {
+			label := phase + "_" + operation + "_" + suffix
+			source, err := d.sendMessage(sender, conv, "EXECUTOR_ACCEPTED_BODY_"+label, 0)
+			if err != nil {
+				return err
+			}
+			var original sentMessage
+			if err = d.request(http.MethodPost, "/messages/send", requester.token, map[string]any{
+				"conversation_id": conv, "client_msg_id": uuid.NewString(), "reply_to_msg_id": source.MessageID,
+				"content": map[string]any{"text": "compute accepted material " + label, "mentions": []entityID{bot.ID}}}, &original); err != nil {
+				return err
+			}
+			var started publicRun
+			err = d.broadcastPoll("message-backed executor request accepted", func(bounded *driver) (bool, error) {
+				runs, err := bounded.conversationRuns(requester, conv)
+				if err != nil {
+					return false, err
+				}
+				for _, run := range runs {
+					if hasEntityID(run.SourceMessageID, original.MessageID) {
+						started = run
+						return true, nil
+					}
+				}
+				return false, nil
+			})
+			if err != nil {
+				return err
+			}
+			request, err := x.request(started.ID)
+			if err != nil {
+				return err
+			}
+			sequence := int64(1)
+			if phase != "queued" {
+				if _, err = x.update(executorPayload(request, "run.claim", "accepted", 0), false, false); err != nil {
+					return err
+				}
+			}
+			if phase == "waiting_input" {
+				if _, err = x.update(executorPayload(request, "run.update", "waiting_input", sequence), false, false); err != nil {
+					return err
+				}
+				sequence++
+			}
+			material, err := executorAcceptedMaterial(request, source.MessageID)
+			if err != nil {
+				return err
+			}
+			if material != source.Content.Text {
+				return errors.New("executor-source: delivery lost actual accepted source body")
+			}
+			result := request.Text() + "\n" + material + "\n" + executorText(request.Text()+"\n"+material)
+			var finished publicRun
+			if phase == "completed" {
+				payload := executorPayload(request, "run.update", "completed", sequence)
+				payload["result_text"] = result
+				if _, err = x.update(payload, false, false); err != nil {
+					return err
+				}
+				finished, err = d.publishedRun(requester, started.ID)
+				if err != nil {
+					return err
+				}
+			}
+			if err = d.mutateWorkSource(sender, requester, source, operation); err != nil {
+				return err
+			}
+			if err = d.mutateWorkSource(requester, requester, original, operation); err != nil {
+				return err
+			}
+			current, err := d.readRun(requester, started.ID)
+			if err != nil {
+				return err
+			}
+			expectedStatus := "accepted"
+			if phase == "waiting_input" {
+				expectedStatus = "waiting_input"
+			} else if phase == "completed" {
+				expectedStatus = "succeeded"
+			}
+			if current.Status != expectedStatus || current.Generation != request.Generation || current.InputVersion != request.InputVersion {
+				return errors.New("executor-source: ordinary IM operation stopped, reran or changed accepted work")
+			}
+			if operation != "edit" {
+				if err = d.authorizationReject("/bots/"+bot.ID.String()+"/runs", requester.token, map[string]any{
+					"conv_id": conv, "submission_key": uuid.NewString(), "message": "new hidden source", "message_ids": []entityID{source.MessageID}}); err != nil {
+					return err
+				}
+				if phase == "waiting_input" {
+					if err = d.authorizationReject("/runs/"+started.ID.String()+"/control", requester.token, map[string]any{
+						"operation": "input", "submission_key": uuid.NewString(), "message": "hidden supplement", "message_ids": []entityID{source.MessageID}}); err != nil {
+						return err
+					}
+				}
+			}
+			if phase == "queued" {
+				if _, err = x.update(executorPayload(request, "run.claim", "accepted", 0), false, false); err != nil {
+					return err
+				}
+			}
+			if phase == "waiting_input" {
+				supplement, err := d.sendMessage(requester, conv, "explicit new input "+label, 0)
+				if err != nil {
+					return err
+				}
+				supplemented, err := d.interactionControl(requester, started.ID, "input", supplement.Content.Text, uuid.NewString(), map[string]any{"message_ids": []entityID{supplement.MessageID}})
+				if err != nil {
+					return err
+				}
+				request, err = x.requestVersion(started.ID, supplemented.Generation, supplemented.InputVersion, "")
+				if err != nil {
+					return err
+				}
+				if err = d.mutateWorkSource(requester, requester, supplement, operation); err != nil {
+					return err
+				}
+				retained, err := executorAcceptedMaterial(request, source.MessageID)
+				if err != nil {
+					return err
+				}
+				supplementMaterial, err := executorAcceptedMaterial(request, supplement.MessageID)
+				if err != nil {
+					return err
+				}
+				if retained != material || supplementMaterial != supplement.Content.Text || len(request.Inputs) != 2 || request.Inputs[0].Content != original.Content.Text || request.Inputs[1].Content != supplement.Content.Text {
+					return errors.New("executor-source: supplemental boundary lost original material or explicit new input")
+				}
+				result = request.Text() + "\n" + retained + "\n" + executorText(request.Text()+"\n"+retained)
+			}
+			if phase != "completed" {
+				payload := executorPayload(request, "run.update", "completed", sequence)
+				payload["result_text"] = result
+				if _, err = x.update(payload, false, false); err != nil {
+					return err
+				}
+				finished, err = d.publishedRun(requester, started.ID)
+				if err != nil {
+					return err
+				}
+			}
+			message, err := d.identityMessage(requester, *finished.MessageID)
+			if err != nil {
+				return err
+			}
+			if message.Text.Text != result || finished.ResultText != result {
+				return errors.New("executor-source: independent result missing accepted computation after IM operation")
+			}
+			// Hiding the Bot result itself must not hide its Run or prevent an
+			// explicitly authorized continuation from the independent work copy.
+			if err = d.request(http.MethodDelete, "/messages/"+finished.MessageID.String(), requester.token, map[string]bool{"delete_for_all": false}, nil); err != nil {
+				return err
+			}
+			retained, err := d.readRun(requester, started.ID)
+			if err != nil {
+				return err
+			}
+			if retained.Status != "succeeded" || retained.ResultText != result {
+				return errors.New("executor-source: hiding Bot result hid independent execution record")
+			}
+			child, err := d.interactionStart(requester, bot.ID, conv, "explicit continuation "+label, map[string]any{"parent_run_id": finished.ID})
+			if err != nil {
+				return err
+			}
+			childRequest, err := x.request(child.ID)
+			if err != nil {
+				return err
+			}
+			var parentResult string
+			for _, input := range childRequest.Inputs {
+				for _, raw := range input.Materials {
+					var parent struct {
+						ParentRunID entityID `json:"parent_run_id"`
+						Content     string   `json:"content"`
+					}
+					if err = json.Unmarshal(raw, &parent); err != nil {
+						return err
+					}
+					if parent.ParentRunID == finished.ID {
+						parentResult = parent.Content
+					}
+				}
+			}
+			if parentResult != result {
+				return errors.New("executor-source: explicit continuation could not read independent parent result")
+			}
+			childResult := parentResult + "\n" + executorText(childRequest.Text()+"\n"+parentResult)
+			if _, err = x.complete(childRequest, "text", map[string]any{"text": childResult}, childResult); err != nil {
+				return err
+			}
+			childFinished, err := d.publishedRun(requester, child.ID)
+			if err != nil {
+				return err
+			}
+			childMessage, err := d.identityMessage(requester, *childFinished.MessageID)
+			if err != nil {
+				return err
+			}
+			if childMessage.Text.Text != childResult {
+				return errors.New("executor-source: independent child output missing after source/result deletion")
+			}
+			fmt.Printf("Accepted executor source: phase=%s operation=%s transport_ws=%t run=%s result=%q child=%s\n", phase, operation, x.conn != nil, started.ID, result, child.ID)
+		}
 	}
 	return nil
 }

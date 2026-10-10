@@ -54,6 +54,24 @@ func (r executorRequest) Text() string {
 	return strings.Join(parts, "\n\n")
 }
 
+func executorAcceptedMaterial(request executorRequest, messageID entityID) (string, error) {
+	for _, input := range request.Inputs {
+		for _, raw := range input.Materials {
+			var material struct {
+				MessageID entityID `json:"message_id"`
+				Content   string   `json:"content"`
+			}
+			if err := json.Unmarshal(raw, &material); err != nil {
+				return "", err
+			}
+			if material.MessageID == messageID && material.Content != "" {
+				return material.Content, nil
+			}
+		}
+	}
+	return "", errors.New("executor: cited source absent from actual accepted delivery")
+}
+
 type controlledExecutor struct {
 	d       *driver
 	bot     entityID
@@ -501,8 +519,8 @@ func (d *driver) executorMatrix(x, wrong *controlledExecutor, caller, admin acco
 	if err != nil {
 		return err
 	}
-	if replay.Version != terminal.Version {
-		return errors.New("executor: duplicate completion mutated run")
+	if replay.ID != terminal.ID || replay.Generation != terminal.Generation || replay.InputVersion != terminal.InputVersion || replay.ExecutorStatus != "completed" || replay.ResultText != result {
+		return errors.New("executor: duplicate completion changed accepted work or actual result")
 	}
 	invalid = maps.Clone(completed)
 	invalid["result_text"] = "contradiction"

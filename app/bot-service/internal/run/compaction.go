@@ -210,21 +210,8 @@ func (s *Service) workingModelView(ctx context.Context, r *model.Run, generation
 	checkpoint, err = s.compactWork(ctx, r, generation, config, blocks, checkpoint)
 	if err != nil {
 		if status.Code(err) == codes.Aborted {
-			before := r.SourceRevision
-			refreshErr := s.refreshSources(ctx, r)
-			if refreshErr != nil {
+			if refreshErr := s.refreshAuthorizations(ctx, r); refreshErr != nil {
 				return nil, refreshErr
-			}
-			if r.SourceRevision != before {
-				updated, pauseErr := s.repo.ChangeLifecycle(ctx, r.ID, generation, func(_ *gorm.DB, current *model.Run) error {
-					current.Status, current.Stage = "waiting_input", "waiting_input"
-					current.WaitingReason = "Sources changed while preparing the working summary; explicitly confirm the accepted constraints or submit a new work input."
-					return nil
-				})
-				if pauseErr != nil {
-					return nil, pauseErr
-				}
-				*r = *updated
 			}
 		}
 		return nil, err
@@ -445,7 +432,7 @@ func (s *Service) compactWork(ctx context.Context, r *model.Run, generation int6
 		}
 		call := model.RunCompactionCall{ID: id, RunID: r.ID, InteractionID: r.InteractionID, ExecutionGeneration: generation, BranchVersion: branch, SourceRevision: revision, CoveredFrom: cursor, CoveredThrough: end, InputUpperBound: upper, PriorCheckpointID: priorID, Request: raw, Status: "requested"}
 		if _, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-			if err := s.recheckSources(ctx, tx, current); err != nil {
+			if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
 				return err
 			}
 			if current.BranchVersion != branch || current.SourceRevision != revision {
@@ -486,7 +473,7 @@ func (s *Service) compactWork(ctx context.Context, r *model.Run, generation int6
 			}
 		}
 		if _, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-			if err := s.recheckSources(ctx, tx, current); err != nil {
+			if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
 				return err
 			}
 			if current.BranchVersion != branch || current.SourceRevision != revision {
@@ -556,7 +543,7 @@ func (s *Service) compactWork(ctx context.Context, r *model.Run, generation int6
 	}
 	checkpoint := &model.RunCompactionCheckpoint{ID: id, RunID: r.ID, InteractionID: r.InteractionID, Version: version + 1, BranchVersion: branch, SourceRevision: revision, CoveredFrom: 2, CoveredThrough: cut, InputUpperBound: upper, PriorCheckpointID: priorID, SourceVersions: sourceVersions, InstructionVersion: instructionVersion, ToolsVersion: toolsVersion, AssemblyVersion: config.AssemblyVersion, Summary: summary, PinnedMessages: pinnedRaw, Omissions: omissionRaw, Status: "valid"}
 	_, err = s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-		if err := s.recheckSources(ctx, tx, current); err != nil {
+		if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
 			return err
 		}
 		if current.InteractionID != r.InteractionID || current.BranchVersion != branch || current.SourceRevision != revision || current.AppliedInputVersion < upper || current.TrajectoryVersion < cut {

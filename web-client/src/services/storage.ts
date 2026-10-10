@@ -41,6 +41,8 @@ function restoreUserSyncCache(value: unknown): UserSyncCache | null {
         optionalEntityId(message.requester_id, 'cache.message.requester_id');
         if (![1, 2, 3, 4, 5, 6, 7, 8, 10].includes(message.type) || typeof message.sender_name !== 'string' || typeof message.sender_avatar !== 'string'
           || typeof message.raw_payload !== 'string') return null;
+        if (message.status === 2 && (message.raw_payload !== ''
+          || Object.values(message.content).some((body) => Object.keys(body).length > 0))) return null;
         if (message.raw_payload) knowledgeSources(JSON.parse(message.raw_payload).kb_sources);
         optionalEntityId(message.reply_to_id, 'cache.message.reply_to_id');
         optionalEntityId(message.client_msg_id, 'cache.message.client_msg_id');
@@ -58,6 +60,9 @@ function restoreUserSyncCache(value: unknown): UserSyncCache | null {
           }
         }
       }
+      const recalledIds = new Set(messages.filter((message) => message.status === 2).map((message) => message.message_id));
+      if (messages.some((message) => message.reply_to && recalledIds.has(message.reply_to.message_id)
+        && (!message.reply_to.deleted || message.reply_to.preview !== ''))) return null;
     }
     for (const [conversationId, messageIds] of Object.entries(cache.deletedMessages)) {
       entityId(conversationId, 'cache.deletedMessages.conversation_id');

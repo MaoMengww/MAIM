@@ -2,7 +2,7 @@ import { loadUserSyncCache, commitUserSyncCache, updateUserSyncCache, type UserS
 import { msgApi, normalizeRealtimeMessageContent, type InboxChange, type UserSyncPage } from './message';
 import type { Message } from '@/types/model';
 
-type Listener = (convId: string, snapshotChanged: boolean, removedConversations: readonly string[], invalidatedWork: readonly string[]) => void;
+type Listener = (convId: string, snapshotChanged: boolean, removedConversations: readonly string[], rebuiltConversations: readonly string[]) => void;
 interface ConvState {
   messages: Message[];
   loading: boolean;
@@ -13,14 +13,36 @@ type Mutation = (cache: UserSyncCache) => void;
 function mergeMessage(messages: Record<string, Message[]>, convId: string, msg: Message) {
   const list = messages[convId] ?? [];
   const index = list.findIndex((m) => m.message_id === msg.message_id);
+  if (index >= 0 && list[index].status === 2 && msg.status !== 2) return;
   messages[convId] = index < 0 ? [...list, msg] : list.map((m, i) => i === index ? msg : m);
   messages[convId].sort((a, b) => a.seq - b.seq);
+  redactRecalledReplies(messages, convId);
 }
 
 function removeMessageAndRedactReplies(messages: Record<string, Message[]>, convId: string, messageId: string) {
-  messages[convId] = (messages[convId] ?? []).filter((msg) => msg.message_id !== messageId).map((msg) => {
+  messages[convId] = (messages[convId] ?? []).filter((msg) => msg.message_id !== messageId);
+  redactReplies(messages, convId, messageId);
+}
+
+function redactReplies(messages: Record<string, Message[]>, convId: string, messageId: string) {
+  messages[convId] = (messages[convId] ?? []).map((msg) => {
     if (msg.reply_to_id !== messageId && msg.reply_to?.message_id !== messageId) return msg;
     return { ...msg, reply_to: { message_id: messageId, deleted: true, sender_id: undefined,
+      sender_type: '', sender_name: '', type: 0, preview: '' } };
+  });
+}
+
+function redactRecalledReplies(messages: Record<string, Message[]>, convId: string) {
+  const list = messages[convId] ?? [];
+  let recalledIds: Set<string> | undefined;
+  for (const msg of list) {
+    if (msg.status === 2) (recalledIds ??= new Set<string>()).add(msg.message_id);
+  }
+  if (!recalledIds) return;
+  messages[convId] = list.map((msg) => {
+    const replyId = msg.reply_to_id ?? msg.reply_to?.message_id;
+    if (!replyId || !recalledIds.has(replyId)) return msg;
+    return { ...msg, reply_to: { message_id: replyId, deleted: true, sender_id: undefined,
       sender_type: '', sender_name: '', type: 0, preview: '' } };
   });
 }
@@ -85,8 +107,8 @@ class MessageSyncEngine {
     return () => this.listeners.delete(fn);
   }
 
-  private notify(convId = '*', snapshotChanged = false, removedConversations: readonly string[] = [], invalidatedWork: readonly string[] = []) {
-    this.listeners.forEach((fn) => fn(convId, snapshotChanged, removedConversations, invalidatedWork));
+  private notify(convId = '*', snapshotChanged = false, removedConversations: readonly string[] = [], rebuiltConversations: readonly string[] = []) {
+    this.listeners.forEach((fn) => fn(convId, snapshotChanged, removedConversations, rebuiltConversations));
   }
 
   getState(convId: string): ConvState {
@@ -180,6 +202,7 @@ class MessageSyncEngine {
         conversations = page.conversations.map((snapshot) => snapshot.conversation);
         page.conversations.forEach((snapshot) => {
           messages[snapshot.conversation.id] = snapshot.messages;
+          redactRecalledReplies(messages, snapshot.conversation.id);
         });
       }
       const next: UserSyncCache = { position: page.next_position, messages, conversations,
@@ -207,7 +230,7 @@ class MessageSyncEngine {
         this.mutations.slice(start).forEach((apply) => apply(next));
         // Live echoes cannot revive messages or conversations removed by this page.
         page.changes.forEach((change) => {
-          if (change.kind === 'message.deleted'
+          if (change.kind === 'message.deleted' || change.kind === 'message.recalled'
             || (change.kind === 'conversation.removed' && removedConversations.has(change.conversation_id))) applyChange(next, change);
         });
       };
@@ -220,18 +243,16 @@ class MessageSyncEngine {
       this.mutations.splice(0, consumed);
       replayLiveChanges(0);
       this.cache = next;
-      const invalidatedWork = page.rebuild_required ? next.conversations.map((conversation) => conversation.id)
-        : [...new Set(page.changes.filter((change) => change.kind === 'message.edited'
-          || change.kind === 'message.recalled' || change.kind === 'message.deleted').map((change) => change.conversation_id))];
-      this.notify('*', page.rebuild_required || page.changes.length > 0, [...removedConversations], invalidatedWork);
+      const rebuiltConversations = page.rebuild_required ? next.conversations.map((conversation) => conversation.id) : [];
+      this.notify('*', page.rebuild_required || page.changes.length > 0, [...removedConversations], rebuiltConversations);
     } while (page.has_more);
   }
 
-  private mutate(convId: string, apply: Mutation, invalidateWork = false): Promise<void> {
+  private mutate(convId: string, apply: Mutation): Promise<void> {
     if (!this.userId) return Promise.resolve();
     if (!this.hydrated || this.syncing) this.mutations.push(apply);
     apply(this.cache);
-    this.notify(convId, false, [], invalidateWork ? [convId] : []);
+    this.notify(convId);
     const userId = this.userId;
     const generation = this.generation;
     const boot = this.boot;
@@ -265,13 +286,13 @@ class MessageSyncEngine {
   updateMessage(convId: string, messageId: string, updater: (msg: Message) => Message): Promise<void> {
     return this.mutate(convId, (cache) => {
       cache.messages[convId] = (cache.messages[convId] ?? []).map((m) => m.message_id === messageId ? updater(m) : m);
-    }, true);
+    });
   }
 
   removeMessage(convId: string, messageId: string): Promise<void> {
     return this.mutate(convId, (cache) => {
       applyChange(cache, { position: cache.position, conversation_id: convId, kind: 'message.deleted', message_id: messageId });
-    }, true);
+    });
   }
 }
 

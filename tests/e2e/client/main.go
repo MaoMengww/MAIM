@@ -406,7 +406,7 @@ func run(args []string) error {
 		} else if scenario.name == "bot-authorizations" {
 			fmt.Println("E2E PASS: bot-authorizations public REST/WS resource read/share/private/revocation and exact external action authority")
 		} else if scenario.name == "bot-compaction" {
-			fmt.Println("E2E PASS: bot-compaction actual provider prefix/summary/tail/tools -> held watermark/concurrent input -> runtime restart -> edits/withdrawals/personal deletion; no simulated KV-hit claim")
+			fmt.Println("E2E PASS: bot-compaction actual provider prefix/summary/tail/tools -> IM mutations preserve accepted work + watermark/concurrent input -> runtime restart -> independent parent/child results + original-only sync -> live resource/history revocation; no simulated KV-hit claim")
 		} else if scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" {
 			fmt.Printf("E2E PASS: %s UUID模型CRUD/私有选择拒绝/model_id省略保持与clear → Bot配置/token状态 → MCP稳定UUID发现/绑定解绑/真实调用 → Kafka精确回复/WS与REST → model/bot/user计费一致 → 语言与AI模型设置 → 已退役生成/查询/Todo管理HTTP404且provider计数不变 → 知识multipart上传/检索/绑定/WS与SSE/history来源UUID/解绑隔离 → 删除\n", scenario.name)
 		} else if scenario.name == "llm-chat" {

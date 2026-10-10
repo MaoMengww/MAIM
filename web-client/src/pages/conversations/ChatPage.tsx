@@ -396,7 +396,6 @@ const RUN_STAGE: Record<string, string> = {
   awaiting_takeover: '负责人失去当前资格 · 暂停等待接手', takeover: '当前有权成员接手',
   control_granted: '授予执行控制权', control_revoked: '撤销执行控制权', stop_rejected: '执行器拒绝停止',
   stop_unknown: '停止结果未知', stream_closed: '会话输出流关闭',
-  source_confirmation_required: '工作来源失效 · 等待明确确认剩余约束',
   compacting: '压缩已完成工作段',
 };
 const RUN_OUTPUT: Record<BotRun['output_status'], string> = {
@@ -414,7 +413,7 @@ const RUN_STOP_REASON: Record<string, string> = {
   user_requested: '有权成员请求停止', binding_revoked: 'Bot 已移出，旧绑定不再获准访问',
   bot_disabled: 'Bot 已停用', participation_revoked: 'Bot 当前绑定参与许可已撤销',
   controller_membership_lost: '负责人已失去当前成员资格',
-  request_source_recalled: '原请求已撤回或全员删除', resource_authorization_revoked: '工作依赖的读取或分享许可已撤销',
+  source_authorization_revoked: '工作依赖的来源授权已撤销', resource_authorization_revoked: '工作依赖的读取或分享许可已撤销',
   tool_authorization_revoked: '工作依赖的工具许可已撤销',
 };
 const RUN_SOURCE_LABEL: Record<string, string> = { request_source: '发起请求', reference: '明确引用', history: '获准历史', file: '文件', parent_run: '承接结果' };
@@ -610,6 +609,11 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       <ol className="chat-run-steps">{run.input_sources.map((source) => <li key={source.version}>
         输入 v{source.version} · <span title={source.requester_id}>{SOURCE_SENDER_LABEL[source.sender_type]} {nameForUser(source.requester_id)}</span>
         {source.source_message_id && <Button type="link" size="small" onClick={() => void onLocate(source.source_message_id!).catch(() => message.error('补充来源消息无法读取'))}>查看来源消息</Button>}
+        {source.content !== undefined
+          ? source.content === ''
+            ? <p className="chat-run-notice">此接受记录的正文已清除，不能从原消息恢复。</p>
+            : <div className="chat-run-result"><pre>{source.content}</pre></div>
+          : <p className="chat-run-notice">当前投影未提供已接受正文；来源消息仅用于定位。</p>}
         {(source.message_ids.length > 0 || source.file_ids.length > 0 || source.history_grant_id || source.parent_run_id) && <div className="chat-run-notice">
           {source.message_ids.length > 0 && `消息引用 ${source.message_ids.length} 条 · `}
           {source.file_ids.length > 0 && `文件引用 ${source.file_ids.length} 个 · `}
@@ -635,7 +639,7 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       {bindingActive && <Button disabled={controlling} onClick={() => onNew(run)}>独立新话题</Button>}
       {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_stop && run.stop_status === 'none'
         && <Button danger loading={controlling} onClick={() => void control('stop')}>请求停止</Button>}
-      {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_resume && run.status === 'waiting_input' && run.stage !== 'source_confirmation_required' && run.stop_status === 'none'
+      {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_resume && run.status === 'waiting_input' && run.stop_status === 'none'
         && <Button loading={controlling} onClick={() => void control('resume')}>请求恢复</Button>}
       {canOperate && !terminal && run.status !== 'stopping'
         && (run.status === 'waiting_authorization'

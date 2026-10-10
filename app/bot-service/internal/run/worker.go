@@ -312,7 +312,7 @@ func (s *Service) waitForInput(ctx context.Context, r *model.Run, generation int
 }
 
 func (s *Service) queueOutput(ctx context.Context, r *model.Run, generation int64) error {
-	if err := s.refreshSources(ctx, r); err != nil {
+	if err := s.refreshAuthorizations(ctx, r); err != nil {
 		return err
 	}
 	if err := s.authorize(ctx, r, r.Visibility != "personal"); err != nil {
@@ -351,7 +351,7 @@ func (s *Service) messagesFor(ctx context.Context, id string) ([]*llm.Message, e
 	return messages, nil
 }
 func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64, config ExecutionConfig, messages []*llm.Message) error {
-	if err := s.refreshSources(ctx, r); err != nil {
+	if err := s.refreshAuthorizations(ctx, r); err != nil {
 		return err
 	}
 	var call model.RunModelCall
@@ -410,7 +410,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		}
 		call = model.RunModelCall{ID: id, RunID: r.ID, InteractionID: r.InteractionID, InputUpperBound: r.AppliedInputVersion, TrajectoryVersion: r.TrajectoryVersion, ExecutionGeneration: generation, BranchVersion: r.BranchVersion, SourceRevision: r.SourceRevision, CheckpointID: checkpointID, AssemblyVersion: assemblyVersion, Provenance: r.Provenance, Request: raw, Status: "requested"}
 		if _, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-			if err := s.recheckSources(ctx, tx, current); err != nil {
+			if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
 				return err
 			}
 			var active model.RunCompactionCheckpoint
@@ -504,12 +504,12 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 			return err
 		}
 	}
-	if err := s.refreshSources(ctx, r); err != nil {
+	if err := s.refreshAuthorizations(ctx, r); err != nil {
 		return err
 	}
 	now := time.Now()
 	_, err = s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-		if err := s.recheckSources(ctx, tx, current); err != nil {
+		if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
 			return err
 		}
 		if current.BranchVersion != call.BranchVersion {
@@ -699,7 +699,7 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	if err != nil {
 		return err
 	}
-	if err := s.refreshSources(ctx, r); err != nil {
+	if err := s.refreshAuthorizations(ctx, r); err != nil {
 		return err
 	}
 	if repo.TerminalRun(r) {
@@ -718,7 +718,7 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	}
 	if r.Visibility == "personal" {
 		_, err = s.repo.ChangeLifecycle(ctx, r.ID, 0, func(tx *gorm.DB, current *model.Run) error {
-			if err := s.recheckSources(ctx, tx, current); err != nil {
+			if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
 				return err
 			}
 			if err := s.actionFence(tx, current, current.ExecutionGeneration, current.InputVersion); err != nil {

@@ -65,6 +65,11 @@ func publishMessageChange(ctx context.Context, s *svc.ServiceContext, tx *gorm.D
 	}
 	payload := buildMessageCreatedPayload(msg, "")
 	payload["kind"] = kind
+	if msg.Status == model.MessageStatusRecalled {
+		payload["content"] = model.JSONContent{}
+		payload["raw_payload"] = ""
+		payload["preview_text"] = "[消息已撤回]"
+	}
 	if kind == model.InboxMessageDeleted {
 		payload["delete_for_all"] = true
 	}

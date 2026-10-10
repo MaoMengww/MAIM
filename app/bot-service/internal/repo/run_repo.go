@@ -160,7 +160,7 @@ func queueRun(tx *gorm.DB, run *model.Run, kind string) error {
 
 // Accept serializes retry identity and writes the accepted input, work and all
 // publication intents in one Bot-domain transaction.
-func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*model.Run, error) {
+func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string, freshMaterials json.RawMessage) (*model.Run, error) {
 	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockRunConversation(tx, run.ConvID); err != nil {
 			return err
@@ -192,6 +192,9 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string) (*mo
 			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err := CheckAcceptedMessages(tx, run, freshMaterials); err != nil {
 			return err
 		}
 		if run.ParentRunID != nil {
@@ -345,9 +348,9 @@ func AppendRunBlock(tx *gorm.DB, run *model.Run, kind string, value any) error {
 	return tx.Create(&model.RunTrajectory{ID: id, RunID: run.ID, Version: run.TrajectoryVersion, Kind: kind, Block: raw, Provenance: provenance}).Error
 }
 
-// ReconcileSources applies privacy scrubbing even to terminal work. Authorized
+// ReconcileAuthorizations scrubs revoked resource copies even in terminal work.
 // durable facts remain; only dependent copies are removed by the callback.
-func (r *RunRepo) ReconcileSources(ctx context.Context, id string, version int64, apply func(*gorm.DB, *model.Run) error) (*model.Run, error) {
+func (r *RunRepo) ReconcileAuthorizations(ctx context.Context, id string, version int64, apply func(*gorm.DB, *model.Run) error) (*model.Run, error) {
 	prior, err := r.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -376,9 +379,17 @@ func (r *RunRepo) ReconcileSources(ctx context.Context, id string, version int64
 	return &run, err
 }
 
-func CheckMaterialHistory(tx *gorm.DB, run *model.Run, grant, message string) error {
+// CheckMaterialHistory checks the live grant against the frozen accepted seq,
+// without requiring the original message to remain present or visible.
+func CheckMaterialHistory(tx *gorm.DB, run *model.Run, grant string, seq int64) error {
+	if seq <= 0 {
+		return status.Error(codes.PermissionDenied, "history source has no accepted sequence")
+	}
 	var count int64
-	if err := tx.Table("messaging.bot_history_grants g").Joins("JOIN messaging.messages m ON m.id = ? AND m.seq BETWEEN g.start_seq AND g.end_seq", message).Where("g.id = ? AND g.binding_id = ? AND m.conv_id = ?", grant, run.BindingID, run.ConvID).Count(&count).Error; err != nil {
+	if err := tx.Table("messaging.bot_history_grants g").
+		Joins("JOIN messaging.conv_bots b ON b.id = g.binding_id").
+		Joins("JOIN messaging.conv_members member ON member.conv_id = b.conv_id AND member.user_id = g.granted_by AND member.member_type = 'user'").
+		Where("g.id = ? AND g.binding_id = ? AND b.conv_id = ? AND ? BETWEEN g.start_seq AND g.end_seq", grant, run.BindingID, run.ConvID, seq).Count(&count).Error; err != nil {
 		return err
 	}
 	if count != 1 {
@@ -387,9 +398,71 @@ func CheckMaterialHistory(tx *gorm.DB, run *model.Run, grant, message string) er
 	return nil
 }
 
-// Conversation-first writers hold this barrier through snapshot/publication.
-// Modified sources retain their accepted body; a new observed edit invalidates
-// pending snapshots without substituting the current message's contents.
+type acceptedMessage struct {
+	MessageID      string `json:"message_id"`
+	Seq            int64  `json:"seq"`
+	EditCount      int32  `json:"edit_count"`
+	HistoryGrantID string `json:"history_grant_id"`
+	RequesterID    string `json:"requester_id"`
+}
+
+// CheckAcceptedMessages is used only when persisting newly observed messages.
+// The conversation barrier prevents edit/hide/recall from racing acceptance;
+// inherited work copies must never be supplied here.
+func CheckAcceptedMessages(tx *gorm.DB, run *model.Run, raw json.RawMessage) error {
+	var materials []acceptedMessage
+	if err := json.Unmarshal(raw, &materials); err != nil {
+		return err
+	}
+	for _, material := range materials {
+		if material.MessageID == "" {
+			continue
+		}
+		var message struct {
+			Seq       int64
+			EditCount int32
+			Status    int32
+		}
+		if err := tx.Table("messaging.messages").Select("seq,edit_count,status").Where("id = ? AND conv_id = ?", material.MessageID, run.ConvID).Take(&message).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.PermissionDenied, "source is no longer visible")
+			}
+			return err
+		}
+		if message.Status == 2 {
+			return status.Error(codes.PermissionDenied, "source is no longer visible")
+		}
+		if message.EditCount != material.EditCount || message.Seq != material.Seq {
+			return status.Error(codes.Aborted, "source version changed during acceptance")
+		}
+		requester := material.RequesterID
+		if requester == "" {
+			requester = run.RequesterID
+		}
+		var hidden int64
+		if err := tx.Table("messaging.personal_message_deletions").Where("message_id = ? AND conv_id = ? AND user_id = ?", material.MessageID, run.ConvID, requester).Count(&hidden).Error; err != nil {
+			return err
+		}
+		if hidden != 0 {
+			return status.Error(codes.PermissionDenied, "source is no longer visible")
+		}
+		if material.HistoryGrantID != "" {
+			if err := CheckMaterialHistory(tx, run, material.HistoryGrantID, material.Seq); err != nil {
+				return err
+			}
+			if err := tx.Table("messaging.personal_message_deletions d").Joins("JOIN messaging.bot_history_grants g ON g.granted_by = d.user_id").Where("g.id = ? AND d.conv_id = ? AND d.message_id = ?", material.HistoryGrantID, run.ConvID, material.MessageID).Count(&hidden).Error; err != nil {
+				return err
+			}
+			if hidden != 0 {
+				return status.Error(codes.PermissionDenied, "history source is no longer visible")
+			}
+		}
+	}
+	return nil
+}
+
+// CheckRunSources fences live authorization of accepted work. Message identity
+// and accepted versions are provenance only, never ongoing IM visibility checks.
 func CheckRunSources(tx *gorm.DB, run *model.Run) error {
 	var versions []model.SourceVersion
 	if len(run.Provenance) > 0 {
@@ -398,73 +471,25 @@ func CheckRunSources(tx *gorm.DB, run *model.Run) error {
 		}
 	}
 	for _, version := range versions {
-		if version.ParentRunID != "" {
-			var parent model.Run
-			if err := tx.Where("id = ?", version.ParentRunID).Take(&parent).Error; err != nil {
-				return status.Error(codes.PermissionDenied, "parent source unavailable")
-			}
-			if parent.BranchVersion != version.SourceRevision || parent.AccessRevoked {
-				return status.Error(codes.Aborted, "parent source validity changed")
-			}
+		if version.ParentRunID == "" {
 			continue
 		}
-		if version.MessageID == "" {
-			continue
+		var parent model.Run
+		if err := tx.Where("id = ?", version.ParentRunID).Take(&parent).Error; err != nil {
+			return status.Error(codes.PermissionDenied, "parent source unavailable")
 		}
-		observed := version.AcceptedEditCount
-		removed := false
-		for _, change := range run.SourceChanges {
-			if change.MessageID == version.MessageID && change.AcceptedEditCount == version.AcceptedEditCount {
-				observed = change.CurrentEditCount
-				removed = change.Status != "modified"
-			}
-		}
-		if removed {
-			continue
-		}
-		var message struct {
-			EditCount int32
-			Status    int32
-		}
-		if err := tx.Table("messaging.messages").Select("edit_count,status").Where("id = ? AND conv_id = ?", version.MessageID, run.ConvID).Take(&message).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return status.Error(codes.PermissionDenied, "source withdrawn")
-			}
-			return err
-		}
-		if message.Status == 2 {
-			return status.Error(codes.PermissionDenied, "source withdrawn")
-		}
-		if message.EditCount != observed {
-			return status.Error(codes.Aborted, "source version changed during publication")
+		if parent.BranchVersion != version.SourceRevision || parent.AccessRevoked {
+			return status.Error(codes.Aborted, "parent source validity changed")
 		}
 	}
-	var materials []struct {
-		MessageID      string `json:"message_id"`
-		HistoryGrantID string `json:"history_grant_id"`
-		RequesterID    string `json:"requester_id"`
-		Shared         bool   `json:"shared"`
-	}
+	var materials []acceptedMessage
 	if err := json.Unmarshal(run.Materials, &materials); err != nil {
 		return err
 	}
 	for _, material := range materials {
 		if material.HistoryGrantID != "" {
-			if err := CheckMaterialHistory(tx, run, material.HistoryGrantID, material.MessageID); err != nil {
+			if err := CheckMaterialHistory(tx, run, material.HistoryGrantID, material.Seq); err != nil {
 				return err
-			}
-		}
-		if material.MessageID != "" && !material.Shared {
-			requester := material.RequesterID
-			if requester == "" {
-				requester = run.RequesterID
-			}
-			var hidden int64
-			if err := tx.Table("messaging.personal_message_deletions").Where("message_id = ? AND conv_id = ? AND user_id = ?", material.MessageID, run.ConvID, requester).Count(&hidden).Error; err != nil {
-				return err
-			}
-			if hidden != 0 {
-				return status.Error(codes.PermissionDenied, "private source is no longer visible")
 			}
 		}
 	}
@@ -481,6 +506,13 @@ func TerminalRun(run *model.Run) bool {
 func (r *RunRepo) Inputs(ctx context.Context, id string) ([]model.RunInput, error) {
 	var inputs []model.RunInput
 	err := r.DB.WithContext(ctx).Where("run_id = ?", id).Order("version ASC").Find(&inputs).Error
+	return inputs, err
+}
+
+// InputContents loads only the accepted body facts needed by a viewer projection.
+func (r *RunRepo) InputContents(ctx context.Context, id string) ([]model.RunInput, error) {
+	var inputs []model.RunInput
+	err := r.DB.WithContext(ctx).Select("version", "content", "invalidated").Where("run_id = ?", id).Find(&inputs).Error
 	return inputs, err
 }
 

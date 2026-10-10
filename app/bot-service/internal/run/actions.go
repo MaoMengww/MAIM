@@ -193,13 +193,7 @@ func (s *Service) publicAction(ctx context.Context, a *model.RunAction, user str
 	r, err := s.repo.Get(ctx, a.RunID)
 	owner := s.actionOwner(ctx, a.ServerID, user)
 	sourceValid := err == nil && s.actionSourcesCurrent(s.svc.DB.WithContext(ctx), r, a) == nil
-	viewerRun := r
-	if err == nil {
-		frozen := *r
-		frozen.Provenance = a.Provenance
-		viewerRun = &frozen
-	}
-	personalRequester := sourceValid && r.Visibility == "personal" && r.PersonalUserID != nil && *r.PersonalUserID == user && s.visible(ctx, user, viewerRun) == nil
+	personalRequester := sourceValid && r.Visibility == "personal" && r.PersonalUserID != nil && *r.PersonalUserID == user && s.visible(ctx, user, r) == nil
 	valid := err == nil && s.actionDisclosure(ctx, r, a, user) == nil
 	can := owner && valid && state == "pending" && !repo.TerminalRun(r) && r.Status != "stopping"
 	parameters := json.RawMessage(`{"redacted":true}`)
@@ -264,8 +258,6 @@ func (s *Service) actionDisclosure(ctx context.Context, r *model.Run, a *model.R
 	if err := s.actionSourcesCurrent(tx, r, a); err != nil {
 		return err
 	}
-	frozen := *r
-	frozen.Provenance = a.Provenance
 	if _, _, err := repo.RunMember(tx, r.ConvID, user); err != nil {
 		return err
 	}
@@ -277,7 +269,7 @@ func (s *Service) actionDisclosure(ctx context.Context, r *model.Run, a *model.R
 			return err
 		}
 	} else if r.Visibility != "personal" {
-		if err := s.visible(ctx, user, &frozen); err != nil {
+		if err := s.visible(ctx, user, r); err != nil {
 			return err
 		}
 	}
@@ -316,24 +308,7 @@ func (s *Service) actionSourcesCurrent(tx *gorm.DB, r *model.Run, a *model.RunAc
 		return status.Error(codes.PermissionDenied, "action source is no longer available")
 	}
 	frozen := *r
-	invalid := map[string]bool{}
-	for _, change := range r.SourceChanges {
-		if change.Status != "modified" {
-			invalid[change.MessageID] = true
-		}
-	}
-	if dependent(a.Provenance, invalid, nil) {
-		return status.Error(codes.PermissionDenied, "action source is no longer available")
-	}
 	frozen.Provenance = a.Provenance
-	frozen.SourceChanges = nil
-	for _, change := range r.SourceChanges {
-		// Edits preserve the accepted action facts. Withdrawal/unavailability
-		// cannot use the Run's removed-source exemption to authorize an action.
-		if change.Status == "modified" {
-			frozen.SourceChanges = append(frozen.SourceChanges, change)
-		}
-	}
 	return repo.CheckRunSources(tx, &frozen)
 }
 
@@ -739,7 +714,7 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 	if updated.Error != nil {
 		return "", updated.Error
 	}
-	if err := s.refreshSources(receiptCtx, r); err != nil {
+	if err := s.refreshAuthorizations(receiptCtx, r); err != nil {
 		return "", err
 	}
 	if err := s.svc.DB.WithContext(receiptCtx).Where("id = ?", a.ID).First(a).Error; err != nil {
@@ -809,7 +784,7 @@ func (s *Service) ActionAuthorization(ctx context.Context, user, executorBot str
 	}
 	// Reconcile outside authority transactions: source checks may call other
 	// domains. The transaction fences below recheck durable source state.
-	if err := s.refreshSources(ctx, r); err != nil {
+	if err := s.refreshAuthorizations(ctx, r); err != nil {
 		return nil, err
 	}
 	if req.Op == "list" {
@@ -1029,7 +1004,7 @@ func (s *Service) ownerActions(ctx context.Context, user, botID, convID, runID s
 				}
 				return nil, err
 			}
-			if err := s.refreshSources(ctx, r); err != nil {
+			if err := s.refreshAuthorizations(ctx, r); err != nil {
 				return nil, err
 			}
 			if err := s.svc.DB.WithContext(ctx).Where("id = ?", actions[i].ID).First(&actions[i]).Error; err != nil {

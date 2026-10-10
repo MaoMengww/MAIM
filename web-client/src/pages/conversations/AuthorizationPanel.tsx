@@ -3,6 +3,7 @@ import { Alert, Button, Checkbox, Drawer, Empty, Form, Input, InputNumber, Selec
 import { authorizationApi, type ResourceGrant, type ActionGrant } from '@/services/authorization';
 import { botApi, isBotBindingActive } from '@/services/bot';
 import { useAuthStore } from '@/stores/auth';
+import { useWSStore } from '@/stores/ws';
 import { ActionConfirmations, RunActions } from './RunActions';
 import type { BotInConv, BotRun, PublicAction } from '@/types/model';
 import { entityId } from '@/utils/json';
@@ -25,6 +26,7 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
  const [queryForm] = Form.useForm();
  const [inputForm] = Form.useForm();
  const revision = useAuthStore((s) => s.revision);
+ const reconnectVersion = useWSStore((s) => s.reconnectVersion);
  const [context, setContext] = useState({ convId, revision });
  const epoch = useRef(0);
  const privateRetry = useRef<{ signature: string; key: string }>();
@@ -38,8 +40,12 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
   resourceForm.resetFields(); actionForm.resetFields(); personalForm.resetFields(); queryForm.resetFields(); inputForm.resetFields(); privateRetry.current = undefined; privateControlKeys.current.clear();
   return () => { epoch.current += 1; };
  }, [convId, revision, resourceForm, actionForm, personalForm, queryForm, inputForm]);
- useEffect(() => messageSync.subscribe((_id, _snapshotChanged, removedConversations, invalidatedWork) => {
-  if (!removedConversations.includes(convId) && !invalidatedWork.includes(convId)) return;
+ useEffect(() => {
+  epoch.current += 1;
+  setPersonal(undefined); setActions([]); setBusy(false);
+ }, [reconnectVersion]);
+ useEffect(() => messageSync.subscribe((_id, _snapshotChanged, removedConversations, rebuiltConversations) => {
+  if (!removedConversations.includes(convId) && !rebuiltConversations.includes(convId)) return;
   epoch.current += 1;
   setPersonal(undefined); setActions([]); setBusy(false);
  }), [convId]);
@@ -108,7 +114,7 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
  const personalCanStop = personalCanControl && !['succeeded', 'failed', 'stopped'].includes(personal.status) && personal.output_status === 'none'
   && personal.stop_status === 'none' && personal.executor_capabilities.supports_stop;
  const personalCanResume = personalCanControl && personal.status === 'waiting_input' && personal.output_status === 'none'
-  && personal.stop_status === 'none' && personal.stage !== 'source_confirmation_required' && personal.executor_capabilities.supports_resume;
+  && personal.stop_status === 'none' && personal.executor_capabilities.supports_resume;
  const controlPersonal = async (operation: 'input' | 'stop' | 'resume', message?: string) => {
   if (currentScope.current !== scopeKey || !personal || !(operation === 'input' ? personalCanInput : operation === 'stop' ? personalCanStop : personalCanResume)) throw new Error('当前个人工作不允许此操作，请查询最新状态');
   if (operation === 'input' && !message?.trim()) throw new Error('请输入个人补充内容');
@@ -124,7 +130,7 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
  const expiryField = <Form.Item name="minutes" label="有效时长（分钟）" initialValue={60} rules={[{ required: true }]}><InputNumber min={1} max={10080} /></Form.Item>;
  return <>
   <Button onClick={() => setOpen(true)}>资源与行动授权 / 个人工作</Button>
-  {context.convId === convId && context.revision === revision && <Drawer title="读取、分享与行动分别授权" open={open} onClose={() => setOpen(false)} width="min(640px, 100vw)">
+  {context.convId === convId && context.revision === revision && <Drawer title="读取、分享与行动分别授权" open={open} onClose={() => { epoch.current += 1; setOpen(false); setPersonal(undefined); setBusy(false); }} width="min(640px, 100vw)">
    <Alert type="info" showIcon message="仅实际资源所有者可授予许可。会话管理权不授予私人资源读取或行动批准权。第三方自行持有的外部凭据不在 AIM 全面控制范围内。" />
    <Form layout="vertical"><Form.Item label="当前会话 Bot"><Select value={botId} placeholder="选择 Bot" options={bots.map((bot) => ({ value: bot.bot_id, label: bot.name }))} onChange={(value) => { epoch.current += 1; setBusy(false); setBotId(value); setResources([]); setGrants([]); setActions([]); setPersonal(undefined); setSelected([]); setError(''); resourceForm.resetFields(); actionForm.resetFields(); personalForm.resetFields(); queryForm.resetFields(); inputForm.resetFields(); privateRetry.current = undefined; privateControlKeys.current.clear(); onSelect([]); }} /></Form.Item></Form>
    <Button loading={busy} disabled={!botId} onClick={() => void perform(load)}>查询我的授权</Button>
@@ -176,7 +182,7 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
      {grants.map((grant) => <div key={grant.id} className="chat-run-details"><strong>{grant.tool_name}</strong><p>服务器 {grant.server_id} · 有效期 {typeof grant.expires_at === 'number' ? new Date(grant.expires_at * 1000).toLocaleString() : new Date(grant.expires_at).toLocaleString()}</p><Tag>{grant.revoked ? '已撤销' : '已授权'}</Tag>{!grant.revoked && <Button danger loading={busy} onClick={() => void perform(async () => { await authorizationApi.actions({ op: 'revoke', grant_id: grant.id }); await load(); })}>撤销自动许可</Button>}</div>)}
     </> },
     { key: 'personal', label: '个人工作', children: <>
-     <Alert type="info" message="个人输入和结果仅在此页内存中保存，不进入会话列表、消息历史或浏览器持久缓存。保留 Run ID 可在重新打开后查询。" />
+     <Alert type="info" message="浏览器中的个人输入和结果仅在此页内存中保存，不进入会话列表、消息历史或浏览器持久缓存。关闭面板或重连后清除旧工作投影；保留 Run ID 可重新授权查询。" />
      <Form form={personalForm} layout="vertical" onFinish={(values) => void perform(async () => {
       if (!botId) throw new Error('请选择 Bot');
       const resource_grant_ids = (values.grants || '').split(/[\s,]+/).filter(Boolean).map((id: string) => entityId(id, 'grant_id'));
@@ -198,6 +204,16 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
       <strong>个人 Run：{personal.id}</strong><p>真实状态：{personal.status} · 结果状态：{personal.output_status}</p>
       {personal.waiting_reason && <p>{personal.waiting_reason}</p>}{personal.error && <Alert type="error" message={personal.error} />}
       <p>停止状态：{personal.stop_status} · 执行器状态：{personal.executor_status}。停止请求不等于实际停工，已发生的行动不会自动回滚。</p>
+      {personal.input_sources.length > 0 && <details className="chat-run-details"><summary>已接受输入与补充者 · {personal.input_sources.length} 条</summary>
+       <ol className="chat-run-steps">{personal.input_sources.map((source) => <li key={source.version}>
+        输入 v{source.version} · <span title={source.requester_id}>{source.sender_type === 'user' ? '用户' : source.sender_type === 'bot' ? 'Bot' : '系统'} {source.requester_id}</span>
+        {source.content !== undefined
+         ? source.content === ''
+          ? <p className="chat-run-notice">此接受记录的正文已清除，不能从原消息恢复。</p>
+          : <div className="chat-run-result"><pre>{source.content}</pre></div>
+         : <p className="chat-run-notice">当前投影未提供已接受正文；来源消息仅用于定位。</p>}
+       </li>)}</ol>
+      </details>}
       <pre>{personal.result_text}</pre>{personal.result_content && <pre>{JSON.stringify(personal.result_content, null, 2)}</pre>}
       <RunActions key={`${scopeKey}:${personal.id}`} run={personal} onUpdated={async (run) => { if (currentScope.current === scopeKey && run.personal_user_id === useAuthStore.getState().user?.id && run.conv_id === convId && run.bot_id === botId) setPersonal(run); }} />
       {personalCanInput && <Form form={inputForm} layout="vertical" onFinish={(values) => void perform(() => controlPersonal('input', values.message))}>

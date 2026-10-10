@@ -85,6 +85,68 @@ func (d *driver) waitRun(caller account, id entityID) (publicRun, error) {
 	return publicRun{}, errors.New("bot-runs: Run未在截止前结束")
 }
 
+// Exercise ordinary IM mutations without treating them as work controls.
+func (d *driver) mutateWorkSource(sender, viewer account, source sentMessage, operation string) error {
+	path := "/messages/" + source.MessageID.String()
+	switch operation {
+	case "edit":
+		edited := "EDITED_NOT_ACCEPTED_" + source.MessageID.String()
+		if err := d.request(http.MethodPut, path, sender.token, map[string]string{"text": edited}, nil); err != nil {
+			return err
+		}
+		current, err := d.identityMessage(viewer, source.MessageID)
+		if err != nil {
+			return err
+		}
+		if current.Text.Text != edited || current.EditCount != 1 {
+			return errors.New("work-source: ordinary IM did not expose the edit")
+		}
+	case "personal_delete":
+		if err := d.request(http.MethodDelete, path, viewer.token, map[string]bool{"delete_for_all": false}, nil); err != nil {
+			return err
+		}
+		if err := d.inboxMessageAbsent("accepted-work-personal-source", viewer, source.MessageID); err != nil {
+			return err
+		}
+		if sender.id != viewer.id {
+			current, err := d.identityMessage(sender, source.MessageID)
+			if err != nil {
+				return err
+			}
+			if current.Text.Text != source.Content.Text {
+				return errors.New("work-source: personal deletion changed another account's message")
+			}
+		}
+	case "recall":
+		if err := d.request(http.MethodPost, path+"/recall", sender.token, map[string]any{}, nil); err != nil {
+			return err
+		}
+		current, err := d.identityMessage(viewer, source.MessageID)
+		if err != nil {
+			return err
+		}
+		raw, err := json.Marshal(current)
+		if err != nil {
+			return err
+		}
+		if current.Status != 2 || strings.Contains(string(raw), source.Content.Text) {
+			return errors.New("work-source: recalled message exposed original body")
+		}
+	case "delete_all":
+		if err := d.request(http.MethodDelete, path, sender.token, map[string]bool{"delete_for_all": true}, nil); err != nil {
+			return err
+		}
+		for _, caller := range []account{sender, viewer} {
+			if err := d.inboxMessageAbsent("accepted-work-global-source", caller, source.MessageID); err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("work-source: unknown operation %s", operation)
+	}
+	return nil
+}
+
 func (d *driver) sendBotMention(caller account, bot, conv entityID, text string) (sentMessage, error) {
 	var sent sentMessage
 	key := uuid.NewString()

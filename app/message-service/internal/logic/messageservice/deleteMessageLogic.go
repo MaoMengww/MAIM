@@ -74,21 +74,12 @@ func (l *DeleteMessageLogic) DeleteMessage(in *message.DeleteMessageReq) (*commo
 		if err != nil {
 			return err
 		}
-		hidden, err := msgRepo.InsertDerivedPersonalDeletions(l.ctx, tx, in.UserId, current.ConvID, current.ID)
-		if err != nil {
-			return err
-		}
+		// The bodyless tombstone changes only this message on the actor's devices.
 		if inserted {
-			hidden = append([]string{current.ID}, hidden...)
-		}
-		// Each tombstone contains no content and targets only the actor's account.
-		for _, id := range hidden {
-			if err := l.svcCtx.PublishInboxChange(l.ctx, tx, map[string]any{
-				"kind": model.InboxMessageDeleted, "conv_id": current.ConvID, "message_id": id,
+			return l.svcCtx.PublishInboxChange(l.ctx, tx, map[string]any{
+				"kind": model.InboxMessageDeleted, "conv_id": current.ConvID, "message_id": current.ID,
 				"user_id": in.UserId, "recipient_ids": []string{in.UserId},
-			}); err != nil {
-				return err
-			}
+			})
 		}
 		return nil
 	})

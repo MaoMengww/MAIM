@@ -32,45 +32,46 @@ type Run struct {
 	BotAuthorizationVersion     int64
 	BindingAuthorizationVersion int64
 	ViewerCanControl            *bool `gorm:"-"`
-	InputKey                    string
-	InputHash                   string
-	SourceMessageID             *string `gorm:"type:uuid"`
-	ReplyToMsgID                *string `gorm:"type:uuid"`
-	HistoryGrantID              *string `gorm:"type:uuid"`
-	InputVersion                int64
-	AppliedInputVersion         int64
-	InputSources                []InputSource  `gorm:"type:jsonb;serializer:json"`
-	SourceChanges               []SourceChange `gorm:"type:jsonb;serializer:json"`
-	ContextNotice               string
-	SourceRevision              int64
-	BranchVersion               int64
-	Provenance                  json.RawMessage `gorm:"type:jsonb"`
-	ResultInvalidated           bool
-	Version                     int64
-	TrajectoryVersion           int64
-	ExecutionGeneration         int64
-	ExecutorType                string
-	ExecutorCapabilities        ExecutorCapabilities `gorm:"type:jsonb;serializer:json"`
-	DeliveryStatus              string
-	ExecutorStatus              string
-	ExecutorSequence            int64
-	ControlOperation            string
-	TriggerKind                 string
-	Status                      string
-	Stage                       string
-	WaitingReason               string
-	ResultText                  string
-	ResultType                  string
-	ResultContent               json.RawMessage `gorm:"type:jsonb"`
-	OutputStatus                string
-	MessageID                   *string `gorm:"type:uuid"`
-	Error                       string
-	Config                      json.RawMessage `gorm:"type:jsonb"`
-	Sources                     json.RawMessage `gorm:"type:jsonb"`
-	Materials                   json.RawMessage `gorm:"type:jsonb"`
-	Steps                       []RunStep       `gorm:"type:jsonb;serializer:json"`
-	CreatedAt                   time.Time
-	UpdatedAt                   time.Time
+	// ViewerPublicRun is the complete authorized response, never persisted.
+	ViewerPublicRun      *PublicRun `gorm:"-"`
+	InputKey             string
+	InputHash            string
+	SourceMessageID      *string `gorm:"type:uuid"`
+	ReplyToMsgID         *string `gorm:"type:uuid"`
+	HistoryGrantID       *string `gorm:"type:uuid"`
+	InputVersion         int64
+	AppliedInputVersion  int64
+	InputSources         []InputSource `gorm:"type:jsonb;serializer:json"`
+	ContextNotice        string
+	SourceRevision       int64
+	BranchVersion        int64
+	Provenance           json.RawMessage `gorm:"type:jsonb"`
+	ResultInvalidated    bool
+	Version              int64
+	TrajectoryVersion    int64
+	ExecutionGeneration  int64
+	ExecutorType         string
+	ExecutorCapabilities ExecutorCapabilities `gorm:"type:jsonb;serializer:json"`
+	DeliveryStatus       string
+	ExecutorStatus       string
+	ExecutorSequence     int64
+	ControlOperation     string
+	TriggerKind          string
+	Status               string
+	Stage                string
+	WaitingReason        string
+	ResultText           string
+	ResultType           string
+	ResultContent        json.RawMessage `gorm:"type:jsonb"`
+	OutputStatus         string
+	MessageID            *string `gorm:"type:uuid"`
+	Error                string
+	Config               json.RawMessage `gorm:"type:jsonb"`
+	Sources              json.RawMessage `gorm:"type:jsonb"`
+	Materials            json.RawMessage `gorm:"type:jsonb"`
+	Steps                []RunStep       `gorm:"type:jsonb;serializer:json"`
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 func (Run) TableName() string { return "bot.runs" }
@@ -89,6 +90,7 @@ type ExecutorCapabilities struct {
 }
 type InputSource struct {
 	Version         int64    `json:"version"`
+	Content         *string  `json:"content,omitempty"`
 	RequesterID     string   `json:"requester_id"`
 	SourceMessageID *string  `json:"source_message_id,omitempty"`
 	SenderType      string   `json:"sender_type"`
@@ -106,14 +108,6 @@ type SourceVersion struct {
 	KnowledgeID       string `json:"knowledge_id,omitempty"`
 	ParentRunID       string `json:"parent_run_id,omitempty"`
 	SourceRevision    int64  `json:"source_revision,omitzero"`
-}
-
-// SourceChange reports version and availability without retaining message bodies.
-type SourceChange struct {
-	MessageID         string `json:"message_id"`
-	AcceptedEditCount int32  `json:"accepted_edit_count"`
-	CurrentEditCount  int32  `json:"current_edit_count"`
-	Status            string `json:"status"`
 }
 
 type RunReceipt struct {
@@ -147,7 +141,6 @@ type PublicRun struct {
 	CanControl           *bool                `json:"can_control,omitempty"`
 	InputKey             string               `json:"input_key"`
 	InputSources         []InputSource        `json:"input_sources"`
-	SourceChanges        []SourceChange       `json:"source_changes"`
 	ContextNotice        string               `json:"context_notice"`
 	SourceMessageID      *string              `json:"source_message_id,omitempty"`
 	InputVersion         int64                `json:"input_version"`
@@ -174,6 +167,9 @@ type PublicRun struct {
 }
 
 func (r *Run) Public() PublicRun {
+	if r.ViewerPublicRun != nil {
+		return *r.ViewerPublicRun
+	}
 	// Explicit field allowlisting prevents private tool contents and credentials
 	// from leaking as the stored execution schema grows.
 	sources := make([]map[string]string, 0)
@@ -196,10 +192,6 @@ func (r *Run) Public() PublicRun {
 	if controllers == nil {
 		controllers = []string{}
 	}
-	changes := r.SourceChanges
-	if changes == nil {
-		changes = []SourceChange{}
-	}
 	public := PublicRun{ID: r.ID, InteractionID: r.InteractionID, BotID: r.BotID, ConvID: r.ConvID,
 		Visibility: r.Visibility, PersonalUserID: r.PersonalUserID, Actions: r.Actions,
 		ParentRunID: r.ParentRunID, InteractionStatus: r.InteractionStatus, WaitingReason: r.WaitingReason,
@@ -208,8 +200,8 @@ func (r *Run) Public() PublicRun {
 		CanControl:   r.ViewerCanControl,
 		InputVersion: r.InputVersion, Version: r.Version, Status: r.Status, Stage: r.Stage,
 		InputSources:  r.InputSources,
-		SourceChanges: changes, ContextNotice: r.ContextNotice,
-		ExecutorType: r.ExecutorType, ExecutorCapabilities: r.ExecutorCapabilities, DeliveryStatus: r.DeliveryStatus, ExecutorStatus: r.ExecutorStatus, Generation: r.ExecutionGeneration, TriggerKind: r.TriggerKind, ResultType: r.ResultType, ResultContent: r.ResultContent,
+		ContextNotice: r.ContextNotice,
+		ExecutorType:  r.ExecutorType, ExecutorCapabilities: r.ExecutorCapabilities, DeliveryStatus: r.DeliveryStatus, ExecutorStatus: r.ExecutorStatus, Generation: r.ExecutionGeneration, TriggerKind: r.TriggerKind, ResultType: r.ResultType, ResultContent: r.ResultContent,
 		ResultText: r.ResultText, OutputStatus: r.OutputStatus, MessageID: r.MessageID, Error: r.Error,
 		Sources: sources, Steps: steps, CreatedAt: r.CreatedAt.Unix(), UpdatedAt: r.UpdatedAt.Unix()}
 	if r.ResultInvalidated {
