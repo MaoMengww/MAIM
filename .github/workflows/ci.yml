@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: go1.26.8
+
+jobs:
+  checks:
+    name: Go checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        with:
+          go-version: '1.26.8'
+      - name: Check formatting
+        run: make ci-format
+      - name: Check module consistency
+        run: make ci-tidy
+      - name: Build and vet all packages
+        run: make ci-build
+      - uses: golangci/golangci-lint-action@db9de0fc1a667e1a49d2291a1a042dff081d78f6 # v9
+        with:
+          version: v2.13.2
+          args: --timeout=10m ./...
+
+  unit:
+    name: Unit tests and race detector
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        with:
+          go-version: '1.26.8'
+      - name: Run all unit tests with coverage
+        run: make ci-test
+      - name: Preserve coverage report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unit-coverage
+          path: .scratch/ci-artifacts/unit.coverage.out
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload unit coverage
+        id: codecov
+        continue-on-error: true
+        uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45 # v5
+        with:
+          use_oidc: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          files: .scratch/ci-artifacts/unit.coverage.out
+          disable_search: true
+          flags: unit
+          fail_ci_if_error: true
+      - name: Report coverage upload failure
+        if: steps.codecov.outcome == 'failure'
+        run: echo '::warning::Codecov upload failed; download the unit-coverage artifact.'
+
+  integration:
+    name: PostgreSQL integration regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aim
+          POSTGRES_PASSWORD: ci-isolated-password
+          POSTGRES_DB: aim_integration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aim -d aim_integration"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      INBOX_TEST_DSN: postgres://aim:ci-isolated-password@localhost:5432/aim_integration?sslmode=disable&search_path=messaging
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        with:
+          go-version: '1.26.8'
+      - name: Run isolated database regressions
+        run: make ci-integration
+      - name: Preserve coverage report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: integration-coverage
+          path: .scratch/ci-artifacts/integration.coverage.out
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload integration coverage
+        id: codecov
+        continue-on-error: true
+        uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45 # v5
+        with:
+          use_oidc: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          files: .scratch/ci-artifacts/integration.coverage.out
+          disable_search: true
+          flags: integration
+          fail_ci_if_error: true
+      - name: Report coverage upload failure
+        if: steps.codecov.outcome == 'failure'
+        run: echo '::warning::Codecov upload failed; download the integration-coverage artifact.'
+
+  e2e:
+    name: Full backend E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Verify container runtime
+        run: |
+          docker compose version
+          docker buildx version
+          python3 --version
+      - name: Run every backend acceptance scenario
+        run: timeout --signal=TERM --kill-after=180s 75m make ci-e2e
+      - name: Preserve E2E diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-diagnostics
+          path: .scratch/ci-artifacts/e2e
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  required:
+    name: CI required
+    if: always()
+    needs: [checks, unit, integration, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require all checks to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          results = json.loads(os.environ['RESULTS'])
+          failed = {name: job['result'] for name, job in results.items() if job['result'] != 'success'}
+          if failed:
+              print(f'Required checks did not pass: {failed}', file=sys.stderr)
+              sys.exit(1)
+          print('All required checks passed.')
+          PY

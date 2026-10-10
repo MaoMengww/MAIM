@@ -1,0 +1,25 @@
+version: "2"
+
+run:
+  timeout: 10m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - errcheck
+  settings:
+    staticcheck:
+      checks:
+        - "SA*"
+  exclusions:
+    generated: strict
+    presets: []
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

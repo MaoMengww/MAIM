@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"go.opentelemetry.io/otel/trace"
 	"github.com/zeromicro/go-zero/core/logx"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var setupOnce sync.Once

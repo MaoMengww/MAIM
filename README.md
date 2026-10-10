@@ -225,6 +225,34 @@ docker compose up -d --build
 
 ---
 
+## CI
+
+`.github/workflows/ci.yml` 仅由 PR 创建、更新、重新打开或标记 ready 触发；普通 push、合并后和定时任务不运行。包括草稿 PR，每次有效运行都执行后端全量 `--scenario all`，不按改动路径缩小验收范围。同一 PR 的新提交取消旧运行。
+
+四个独立 job：
+
+- **Go checks**：`gofmt`、`go mod tidy -diff`、全仓编译/`go vet`、静态 lint。lint 使用固定版本 golangci-lint，启用 `govet`、Staticcheck 的 `SA*`、`ineffassign`、`unused`、`errcheck`；仅排除标准标记的生成代码，不自动忽略历史问题。
+- **Unit tests and race detector**：全仓无 `integration` 标签的测试，开启 race detector，覆盖率分母包含 `app/`、`pkg/`、`migrations/`，包括没有测试的业务包。
+- **PostgreSQL integration regression**：独立 PostgreSQL 16，运行 message-service repo 和消息同步 logic 的带标签回归，开启 race detector；不与 E2E 的 Outbox 消费者共库。不是全仓所有带标签集成测试。
+- **Full backend E2E**：复用现有隔离 Compose harness、真实内部 service/中间件与受控外部 provider，执行 `all`。构建镜像仅用于验收，不发布，不部署，不包含浏览器前端测试。执行预算 75 分钟，job 总超时 90 分钟；不足时应调整 runner/预算，不删场景或自动重试掩盖失败。
+
+`CI required` 汇总这四个 job：失败、取消或跳过均不通过。管理员需在 GitHub **Settings → Rules → Rulesets** 为 `main` 设置 PR 合并要求与 required status check **`CI required`**，并要求合并前与目标分支保持最新；不允许普通 push 绕过验收。仅提交工作流不会自动启用这些远端规则。公开 fork 首次贡献可能需要维护者批准工作流执行，不能将其改为带写权限的 `pull_request_target` 来执行 PR 代码。
+
+Go 工具链与容器统一为 `go1.26.8`。本地复用同一命令：
+
+```bash
+make ci-format ci-tidy ci-build ci-lint
+make ci-test
+INBOX_TEST_DSN='postgres://.../<isolated_database>?sslmode=disable&search_path=messaging' make ci-integration
+make ci-e2e
+```
+
+本地 lint 安装：`GOTOOLCHAIN=go1.26.8 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2`。格式与模块检查不修改文件；失败后在本地修正并提交。不要在同一资源受限机器上同时运行全仓编译/race 测试和重负载 E2E。
+
+Codecov 仅展示覆盖率，不设 project/patch 门禁；忽略 `*.pb.go` 与验收工具，不忽略业务逻辑。单元测试和数据库回归分别上传报告，当前 E2E 不提供 Go 覆盖率。测试/报告生成失败阻断；外部上传失败仅告警，报告仍可从 Actions artifacts 下载，保留 14 天。E2E 的有界诊断日志也保留 14 天。
+
+仓库管理员需在 Codecov 连接 `MaoMengww/MAIM` 并授权 GitHub 集成。仓库内 PR 使用 OIDC，不需要长期 `CODECOV_TOKEN`；公开 fork PR 使用 Codecov 的 tokenless 支持。只跑 PR 意味着默认分支没有自动更新的覆盖率基线，不能保证准确的主分支覆盖率增减比较。
+
 ## 端到端验收
 
 前置条件：Python 3、Docker Engine、支持 `--wait` 的 Docker Compose 插件及 Buildx。验收通过 gateway REST 与 WebSocket 驱动真实服务；没有公开通知创建入口时直接调用现有 domain gRPC，不新增测试 API。不替换内部 RPC、Kafka 或数据库。

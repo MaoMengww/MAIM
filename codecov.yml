@@ -1,0 +1,12 @@
+coverage:
+  status:
+    project: false
+    patch: false
+
+comment:
+  layout: "files"
+  require_changes: false
+
+ignore:
+  - "**/*.pb.go"
+  - "tests/**"

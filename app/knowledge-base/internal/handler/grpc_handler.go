@@ -540,7 +540,7 @@ func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq
 		}
 	}
 	var firstKB *domain.KnowledgeBase
- names:=make(map[string]string,len(kbIDs))
+	names := make(map[string]string, len(kbIDs))
 	for _, kbID := range kbIDs {
 		kb, err := h.loadKnowledgeBase(ctx, kbID, false)
 		if err != nil {
@@ -549,7 +549,7 @@ func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq
 		if kb.Status != "active" {
 			return nil, domain.ErrKBNotFound
 		}
- names[kb.ID]=kb.Name
+		names[kb.ID] = kb.Name
 		if firstKB == nil {
 			firstKB = kb
 		}
@@ -580,7 +580,7 @@ func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq
 		pbItems[i] = &pb.RetrieveItem{
 			ChunkId: item.ChunkID, Content: item.Content, Score: item.Score,
 			DocId: item.DocID, DocTitle: item.DocTitle, KbId: item.KBID,
- KbName: names[item.KBID], MatchedContent: item.MatchedContent,
+			KbName: names[item.KBID], MatchedContent: item.MatchedContent,
 		}
 	}
 	h.Logger.WithContext(ctx).Infof("retrieve: kb_id=%s query_len=%d doc_count=%d", firstKB.ID, len(req.Query), len(pbItems))
