@@ -542,8 +542,10 @@ func (s *Service) prepareAction(ctx context.Context, r *model.Run, frozen compon
 		if actionWrite(frozen.Risk) {
 			result.Status = "pending"
 			var grants []model.ActionGrant
-			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("bot_id = ? AND binding_id = ? AND requester_id = ? AND server_id = ? AND tool_name = ? AND definition_hash = ? AND parameters_hash = ? AND revoked_at IS NULL AND expires_at > NOW() AND bot_authorization_version = ? AND binding_authorization_version = ?", r.BotID, r.BindingID, r.RequesterID, frozen.ServerID, frozen.Name, frozen.DefinitionHash, digest, r.BotAuthorizationVersion, r.BindingAuthorizationVersion).Find(&grants).Error; err != nil {
-				return err
+			if r.RequesterID != "" {
+				if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("bot_id = ? AND binding_id = ? AND requester_id = ? AND server_id = ? AND tool_name = ? AND definition_hash = ? AND parameters_hash = ? AND revoked_at IS NULL AND expires_at > NOW() AND bot_authorization_version = ? AND binding_authorization_version = ?", r.BotID, r.BindingID, r.RequesterID, frozen.ServerID, frozen.Name, frozen.DefinitionHash, digest, r.BotAuthorizationVersion, r.BindingAuthorizationVersion).Find(&grants).Error; err != nil {
+					return err
+				}
 			}
 			for _, grant := range grants {
 				if server.OwnerType == "user" && server.OwnerID != nil && *server.OwnerID == grant.OwnerID && actionGrantPrincipal(tx, &grant, current) {

@@ -9,119 +9,65 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"slices"
 	"strconv"
 	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
+	"github.com/maomeng/aim/pkg/botpolicy"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/identity"
-	"github.com/maomeng/aim/pkg/sequence"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 )
 
-type activityMessage struct {
-	MessageID  string `json:"message_id"`
-	SenderID   string `json:"sender_id"`
-	SenderType string `json:"sender_type"`
-	Text       string `json:"text"`
-	Seq        int64  `json:"seq"`
-}
-
-// Observe delivers only the current human source selected by the platform
-// consumer. It accepts no work, creates no Run and grants no result publication.
-func (s *Service) Observe(ctx context.Context, input Input) error {
-	if identity.Validate(input.BotID) != nil || identity.Validate(input.ConvID) != nil || identity.Validate(input.BindingID) != nil || identity.Validate(input.RequesterID) != nil || input.SourceMessageID == nil || identity.Validate(*input.SourceMessageID) != nil {
-		return status.Error(codes.InvalidArgument, "invalid activity source")
+// ObserveActivity applies the same subscription and provenance boundary as
+// response rules. Transport success never grants execution or publication.
+func (s *Service) ObserveActivity(ctx context.Context, botID, bindingID string, activity *model.ActivityEnvelope) error {
+	if activity == nil || identity.Validate(botID) != nil || identity.Validate(bindingID) != nil || identity.Validate(activity.ConvID) != nil {
+		return status.Error(codes.InvalidArgument, "invalid activity identity")
 	}
-	bot, binding, err := s.svc.BotRepo.FindByIDWithConvBot(ctx, input.BotID, input.ConvID)
+	bot, binding, err := s.svc.BotRepo.FindByIDWithConvBot(ctx, botID, activity.ConvID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return status.Error(codes.PermissionDenied, "activity binding is unavailable")
 	}
 	if err != nil {
 		return err
 	}
-	if enabled, exists := binding.BotSettings["enabled"]; exists && enabled != true {
-		return nil
-	}
-	if binding.ID != input.BindingID {
+	if binding.ID != bindingID {
 		return status.Error(codes.PermissionDenied, "activity binding is stale")
 	}
-	if bot.Status != "active" || bot.Type != "third_party" || !allowsMessageActivity(binding) {
+	if bot.Status != "active" || !botpolicy.Subscribed(binding.BotSettings, activity.Type, activity.Seq) {
 		return nil
 	}
-	startSeq, subscribed := messageActivityStart(binding)
-	if !subscribed {
+	if err := s.validateActivity(ctx, botID, binding, activity); err != nil {
+		return err
+	}
+	// Builtin activity uses this same seam; only explicit rules persist it as
+	// executor input. Unmatched observation is not conversation memory.
+	if bot.Type != "third_party" {
 		return nil
 	}
-	// The administrator's current binding subscription is the platform's
-	// authority to select this one source, not a claim that a user cited it.
-	// source clears human RPC metadata; RequesterID is only the recorded message
-	// author's membership/visibility fact. No reply or history grant is read.
-	source, err := s.source(ctx, input, *input.SourceMessageID, true)
+	bot, current, err := s.svc.BotRepo.FindByIDWithConvBot(ctx, botID, activity.ConvID)
 	if err != nil {
 		return err
 	}
-	if source.MessageId != *input.SourceMessageID || source.SenderType != "user" || source.GetSenderId() != input.RequesterID || source.GetText() == nil || source.Seq <= max(binding.StartSeq, startSeq) {
-		return status.Error(codes.PermissionDenied, "activity source is not a current human message")
-	}
-	// Re-read the binding settings at each transport attempt. A removed or
-	// replaced binding must never inherit observation from a former lifecycle.
-	bot, binding, err = s.svc.BotRepo.FindByIDWithConvBot(ctx, input.BotID, input.ConvID)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return status.Error(codes.PermissionDenied, "activity binding is unavailable")
-	}
-	if err != nil {
-		return err
-	}
-	if enabled, exists := binding.BotSettings["enabled"]; exists && enabled != true {
-		return nil
-	}
-	if binding.ID != input.BindingID || source.Seq <= binding.StartSeq {
-		return status.Error(codes.PermissionDenied, "activity binding is stale")
-	}
-	if bot.Status != "active" || bot.Type != "third_party" || !allowsMessageActivity(binding) {
-		return nil
-	}
-	startSeq, subscribed = messageActivityStart(binding)
-	if !subscribed || source.Seq <= startSeq {
-		return nil
+	if current.ID != binding.ID || bot.Status != "active" || !botpolicy.Subscribed(current.BotSettings, activity.Type, activity.Seq) {
+		return status.Error(codes.PermissionDenied, "activity subscription changed")
 	}
 	payload, err := json.Marshal(struct {
-		Type         string          `json:"type"`
-		ActivityType string          `json:"activity_type"`
-		BotID        string          `json:"bot_id"`
-		ConvID       string          `json:"conv_id"`
-		BindingID    string          `json:"binding_id"`
-		Message      activityMessage `json:"message"`
-	}{
-		Type: "bot.activity", ActivityType: "message.created", BotID: bot.ID, ConvID: binding.ConvID, BindingID: binding.ID,
-		Message: activityMessage{MessageID: source.MessageId, SenderID: source.GetSenderId(), SenderType: source.SenderType, Text: source.GetText().Text, Seq: source.Seq},
-	})
+		Type         string                  `json:"type"`
+		ActivityType string                  `json:"activity_type"`
+		BotID        string                  `json:"bot_id"`
+		ConvID       string                  `json:"conv_id"`
+		BindingID    string                  `json:"binding_id"`
+		Activity     *model.ActivityEnvelope `json:"activity"`
+	}{"bot.activity", activity.Type, bot.ID, binding.ConvID, binding.ID, activity})
 	if err != nil {
 		return err
 	}
 	return s.deliverPayload(ctx, bot, binding.ConvID, payload)
-}
-
-func allowsMessageActivity(binding *model.ConvBot) bool {
-	// A missing, malformed or unknown declaration never widens access.
-	types, ok := binding.BotSettings["activity_types"].([]any)
-	return ok && slices.ContainsFunc(types, func(value any) bool { return value == "message.created" })
-}
-
-func messageActivityStart(binding *model.ConvBot) (int64, bool) {
-	// The message domain stamps this safe-integer watermark when the
-	// administrator changes settings. Missing legacy values fail closed.
-	value, ok := binding.BotSettings["activity_start_seq"].(float64)
-	if !ok || value < 0 || value > float64(sequence.Max) {
-		return 0, false
-	}
-	start := int64(value)
-	return start, value == float64(start)
 }
 
 // deliverPayload authenticates transport only. In particular, webhook success
@@ -145,7 +91,8 @@ func (s *Service) deliverPayload(ctx context.Context, bot *model.Bot, convID str
 		if err != nil {
 			return err
 		}
-		response.Body.Close()
+		// The HTTP status acknowledges delivery; body cleanup cannot undo it.
+		_ = response.Body.Close()
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
 			return status.Error(codes.Unavailable, "executor webhook did not acknowledge transport")
 		}

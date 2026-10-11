@@ -206,7 +206,7 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
       <p>停止状态：{personal.stop_status} · 执行器状态：{personal.executor_status}。停止请求不等于实际停工，已发生的行动不会自动回滚。</p>
       {personal.input_sources.length > 0 && <details className="chat-run-details"><summary>已接受输入与补充者 · {personal.input_sources.length} 条</summary>
        <ol className="chat-run-steps">{personal.input_sources.map((source) => <li key={source.version}>
-        输入 v{source.version} · <span title={source.requester_id}>{source.sender_type === 'user' ? '用户' : source.sender_type === 'bot' ? 'Bot' : '系统'} {source.requester_id}</span>
+        输入 v{source.version} · <span title={source.requester_id}>{source.sender_type === 'user' ? '用户' : source.sender_type === 'bot' ? 'Bot' : source.sender_type === 'rule' ? '显式规则' : '系统'} {source.requester_id || '非人类发起，无人类请求者'}</span>
         {source.content !== undefined
          ? source.content === ''
           ? <p className="chat-run-notice">此接受记录的正文已清除，不能从原消息恢复。</p>

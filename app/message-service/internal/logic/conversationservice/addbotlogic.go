@@ -12,6 +12,7 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/botpolicy"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -52,14 +53,9 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 		AddedBy: in.OperatorId,
 	}
 	if in.BotSettings != "" {
-		var settings map[string]any
-		if err := json.Unmarshal([]byte(in.BotSettings), &settings); err != nil {
-			return nil, ErrConvUpdateFailed
-		}
-		if enabled, exists := settings["enabled"]; exists {
-			if _, ok := enabled.(bool); !ok {
-				return nil, ErrInvalidParam
-			}
+		settings, err := botpolicy.PrepareSettings(in.BotSettings)
+		if err != nil {
+			return nil, ErrInvalidParam
 		}
 		cb.BotSettings = settings
 	}
@@ -75,7 +71,13 @@ func (l *AddBotLogic) AddBot(in *conversation.AddBotReq) (*common.BaseResponse, 
 		}
 		cb.StartSeq = conv.MaxSeq
 		if cb.BotSettings != nil {
-			cb.BotSettings["activity_start_seq"] = conv.MaxSeq
+			member, err := r.GetMember(l.ctx, conv.ID, in.OperatorId)
+			if err != nil {
+				return err
+			}
+			if err := botpolicy.StampSettings(cb.BotSettings, nil, in.OperatorId, member.ID, conv.MaxSeq); err != nil {
+				return ErrInvalidParam
+			}
 		}
 		if err := r.AddBot(l.ctx, cb); err != nil {
 			return err

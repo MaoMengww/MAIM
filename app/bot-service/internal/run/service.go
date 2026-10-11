@@ -57,46 +57,51 @@ type ExecutionConfig struct {
 	Capabilities     model.ExecutorCapabilities `json:"executor_capabilities"`
 }
 type Material struct {
-	Kind           string          `json:"kind"`
-	MessageID      string          `json:"message_id,omitempty"`
-	MessageType    string          `json:"message_type,omitempty"`
-	FileID         string          `json:"file_id,omitempty"`
-	FileName       string          `json:"file_name,omitempty"`
-	KnowledgeID    string          `json:"knowledge_id,omitempty"`
-	MimeType       string          `json:"mime_type,omitempty"`
-	ParentRunID    string          `json:"parent_run_id,omitempty"`
-	ResultType     string          `json:"result_type,omitempty"`
-	ResultContent  json.RawMessage `json:"result_content,omitempty"`
-	HistoryGrantID string          `json:"history_grant_id,omitempty"`
-	RequesterID    string          `json:"requester_id,omitempty"`
-	Shared         bool            `json:"shared,omitzero"`
-	SourceExplicit bool            `json:"source_explicit,omitzero"`
-	SenderID       *string         `json:"sender_id,omitempty"`
-	SenderType     string          `json:"sender_type,omitempty"`
-	Content        string          `json:"content"`
-	CreatedAt      int64           `json:"created_at"`
-	Seq            int64           `json:"seq"`
-	EditedAt       int64           `json:"edited_at"`
-	EditCount      int32           `json:"edit_count"`
-	Provenance     json.RawMessage `json:"provenance,omitempty"`
+	Kind           string           `json:"kind"`
+	MessageID      string           `json:"message_id,omitempty"`
+	MessageType    string           `json:"message_type,omitempty"`
+	FileID         string           `json:"file_id,omitempty"`
+	FileName       string           `json:"file_name,omitempty"`
+	KnowledgeID    string           `json:"knowledge_id,omitempty"`
+	MimeType       string           `json:"mime_type,omitempty"`
+	ParentRunID    string           `json:"parent_run_id,omitempty"`
+	ResultType     string           `json:"result_type,omitempty"`
+	ResultContent  json.RawMessage  `json:"result_content,omitempty"`
+	HistoryGrantID string           `json:"history_grant_id,omitempty"`
+	RequesterID    string           `json:"requester_id,omitempty"`
+	Shared         bool             `json:"shared,omitzero"`
+	SourceExplicit bool             `json:"source_explicit,omitzero"`
+	SenderID       *string          `json:"sender_id,omitempty"`
+	SenderType     string           `json:"sender_type,omitempty"`
+	Origin         *model.RunOrigin `json:"origin,omitempty"`
+	Content        string           `json:"content"`
+	CreatedAt      int64            `json:"created_at"`
+	Seq            int64            `json:"seq"`
+	EditedAt       int64            `json:"edited_at"`
+	EditCount      int32            `json:"edit_count"`
+	Provenance     json.RawMessage  `json:"provenance,omitempty"`
 }
 type Input struct {
-	BotID            string
-	ConvID           string
-	RequesterID      string
-	SubmissionKey    string
-	Message          string
-	SourceMessageID  *string
-	ReplyToMsgID     *string
-	HistoryGrantID   *string
-	ParentRunID      *string
-	MessageIDs       []string
-	FileIDs          []string
-	ReplyInput       bool
-	BindingID        string
-	Language         string
-	Visibility       string
-	ResourceGrantIDs []string
+	BotID                        string
+	ConvID                       string
+	RequesterID                  string
+	SubmissionKey                string
+	Message                      string
+	SourceMessageID              *string
+	ReplyToMsgID                 *string
+	HistoryGrantID               *string
+	ParentRunID                  *string
+	MessageIDs                   []string
+	FileIDs                      []string
+	ReplyInput                   bool
+	BindingID                    string
+	Language                     string
+	Visibility                   string
+	ResourceGrantIDs             []string
+	Origin                       *model.RunOrigin
+	Activity                     *model.ActivityEnvelope
+	DelegationSourceGeneration   int64
+	DelegationSourceInputVersion int64
 }
 type Service struct {
 	svc      *svc.ServiceContext
@@ -202,7 +207,14 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	if input.FileIDs == nil {
 		input.FileIDs = []string{}
 	}
-	if err := s.RequireMember(ctx, input.RequesterID, input.ConvID); err != nil {
+	principal := input.RequesterID
+	if input.Origin != nil {
+		if input.RequesterID != "" || input.Visibility != "conversation" || input.ParentRunID != nil || input.SourceMessageID != nil || input.ReplyToMsgID != nil || input.HistoryGrantID != nil || len(input.MessageIDs) != 0 || !slices.Contains([]string{"rule", "delegation"}, input.Origin.Kind) {
+			return nil, status.Error(codes.InvalidArgument, "nonhuman input must use explicit origin and shared context")
+		}
+		principal = input.Origin.AuthorizationUserID
+	}
+	if err := s.RequireMember(ctx, principal, input.ConvID); err != nil {
 		return nil, err
 	}
 	bot, binding, err := s.svc.BotRepo.FindByIDWithConvBot(ctx, input.BotID, input.ConvID)
@@ -249,17 +261,37 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	prior, err := s.repo.FindInput(ctx, input.BotID, input.BindingID, input.RequesterID, input.SubmissionKey)
-	if err == nil {
-		member, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), prior.ConvID, input.RequesterID)
+	if input.Origin != nil || input.Activity != nil {
+		fingerprint, err = hash(struct {
+			Base     string
+			Origin   *model.RunOrigin
+			Activity *model.ActivityEnvelope
+		}{fingerprint, input.Origin, input.Activity})
 		if err != nil {
 			return nil, err
 		}
-		if prior.RequesterMemberID == nil || *prior.RequesterMemberID != member {
-			return nil, status.Error(codes.PermissionDenied, "submission belongs to an earlier membership")
-		}
+	}
+	var prior *model.Run
+	if input.Origin != nil && input.Origin.Kind == "delegation" {
+		prior, err = s.repo.FindDelegationInput(ctx, input.Origin.SourceRunID, input.BotID, input.SubmissionKey)
+	} else {
+		prior, err = s.repo.FindInput(ctx, input.BotID, input.BindingID, input.RequesterID, input.SubmissionKey)
+	}
+	if err == nil {
 		if prior.InputHash != fingerprint {
 			return nil, status.Error(codes.AlreadyExists, "submission key has different content")
+		}
+		if input.Origin != nil && input.Origin.Kind == "delegation" && prior.BindingID != input.BindingID {
+			return nil, status.Error(codes.PermissionDenied, "delegation target binding is stale")
+		}
+		if prior.Origin == nil {
+			member, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), prior.ConvID, principal)
+			if err != nil {
+				return nil, err
+			}
+			if prior.RequesterMemberID == nil || *prior.RequesterMemberID != member {
+				return nil, status.Error(codes.PermissionDenied, "submission belongs to an earlier membership")
+			}
 		}
 		if err := s.authorize(ctx, prior, false); err != nil {
 			return nil, err
@@ -269,9 +301,35 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
+	if input.Origin != nil && input.Origin.Kind == "rule" {
+		if err := s.ValidateRuleInput(ctx, input, binding); err != nil {
+			return nil, err
+		}
+	}
+	if input.Origin != nil && input.Origin.Kind == "delegation" {
+		source, err := s.repo.Get(ctx, input.Origin.SourceRunID)
+		if err != nil {
+			return nil, err
+		}
+		if repo.TerminalRun(source) || source.Status == "stopping" || source.Status == "waiting_authorization" {
+			return nil, status.Error(codes.FailedPrecondition, "new delegation requires an active parent Run")
+		}
+	}
 	materials, sources, err := s.collectMaterials(ctx, input, min(max(bot.MaxContextMessages, 1), 100))
 	if err != nil {
 		return nil, err
+	}
+	if input.Activity != nil {
+		activityRaw, err := json.Marshal(input.Activity)
+		if err != nil {
+			return nil, err
+		}
+		materials = append(materials, Material{Kind: "activity", SenderType: "activity", SenderID: &input.Activity.ActorID, Content: string(activityRaw), Seq: input.Activity.Seq, Shared: true})
+		if input.Activity.Type == "message.created" {
+			materials[len(materials)-1].MessageID = input.Activity.MessageID
+			materials[len(materials)-1].RequesterID = input.Activity.ActorID
+		}
+		sources = append(sources, map[string]any{"type": "activity", "activity_id": input.Activity.ID, "sender_id": input.Activity.ActorID, "sender_type": "activity"})
 	}
 	freshMaterials, err := json.Marshal(materials)
 	if err != nil {
@@ -322,6 +380,14 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 				continue
 			}
 			materials = append(materials, Material{Kind: "parent_input", RequesterID: accepted.RequesterID, SenderID: &accepted.RequesterID, SenderType: "user", Content: accepted.Content, CreatedAt: accepted.CreatedAt.Unix()})
+			if accepted.RequesterID == "" && parent.Origin != nil {
+				material := &materials[len(materials)-1]
+				material.RequesterID, material.SenderID = "", nil
+				material.Origin, material.SenderType = parent.Origin, parent.Origin.Kind
+				if parent.Origin.Kind == "delegation" {
+					material.SenderType, material.SenderID = "bot", &parent.Origin.DelegatingBotID
+				}
+			}
 			versions := []model.SourceVersion{}
 			if accepted.SourceMessageID != nil {
 				versions = append(versions, model.SourceVersion{MessageID: *accepted.SourceMessageID, AcceptedEditCount: accepted.AcceptedEditCount})
@@ -413,6 +479,16 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 			return nil, err
 		}
 		tools = append(tools, definition)
+		for _, definition := range delegationTools() {
+			if slices.ContainsFunc(tools, func(t component.RunTool) bool { return t.Name == definition.Name }) {
+				return nil, status.Error(codes.FailedPrecondition, "reserved runtime tool name")
+			}
+			definition.DefinitionHash, err = hash(definition)
+			if err != nil {
+				return nil, err
+			}
+			tools = append(tools, definition)
+		}
 		slices.SortFunc(tools, func(a, b component.RunTool) int { return strings.Compare(a.Name, b.Name) })
 		prompt := bot.SystemPrompt
 		if prompt == "" {
@@ -490,6 +566,7 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	now := time.Now()
 	accepted := &model.Run{ID: id, InteractionID: interaction, BotID: bot.ID, ConvID: binding.ConvID, BindingID: binding.ID, RequesterID: input.RequesterID, InputKey: input.SubmissionKey, InputHash: fingerprint, SourceMessageID: input.SourceMessageID, ReplyToMsgID: input.ReplyToMsgID, HistoryGrantID: input.HistoryGrantID, InputVersion: 1, Version: 1, Status: "accepted", Stage: "accepted", OutputStatus: "none", Config: configRaw, Sources: sourcesRaw, Materials: materialRaw, Steps: []model.RunStep{{Version: 1, Stage: "accepted", CreatedAt: now.Unix()}}, CreatedAt: now, UpdatedAt: now}
 	accepted.SourceRevision, accepted.BranchVersion = 1, 1
+	accepted.ChildRunIDs = []string{}
 	accepted.Provenance, err = materialProvenance(materials)
 	if err != nil {
 		return nil, err
@@ -498,11 +575,27 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	if input.Visibility == "personal" {
 		accepted.PersonalUserID = &input.RequesterID
 	}
-	memberID, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), binding.ConvID, input.RequesterID)
+	memberID, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), binding.ConvID, principal)
 	if err != nil {
 		return nil, err
 	}
-	accepted.ControllerID, accepted.ControllerMemberID, accepted.RequesterMemberID = input.RequesterID, &memberID, &memberID
+	accepted.ControllerID, accepted.ControllerMemberID = principal, &memberID
+	if input.Origin == nil {
+		accepted.RequesterMemberID = &memberID
+	}
+	accepted.Origin, accepted.Activity = input.Origin, input.Activity
+	if input.Origin != nil {
+		if input.Origin.AuthorizationMemberID != memberID {
+			return nil, status.Error(codes.PermissionDenied, "origin authorizer membership changed")
+		}
+		accepted.TriggerKind = input.Origin.Kind
+		if input.Origin.Kind == "delegation" {
+			accepted.DelegationParentRunID = &input.Origin.SourceRunID
+			accepted.DelegationSourceGeneration, accepted.DelegationSourceInputVersion = input.DelegationSourceGeneration, input.DelegationSourceInputVersion
+			accepted.DelegationInputBytes = int64(len(input.Message) + len(materialRaw))
+			accepted.DelegationOutputTokens = 2048
+		}
+	}
 	accepted.ControlUserIDs, accepted.ControlMemberships = []string{}, map[string]string{}
 	accepted.StopStatus, accepted.StreamStatus = "none", "open"
 	accepted.BotAuthorizationVersion, accepted.BindingAuthorizationVersion = bot.AuthorizationVersion, binding.AuthorizationVersion
@@ -512,7 +605,9 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	accepted.ExecutorCapabilities = config.Capabilities
 	accepted.DeliveryStatus = "pending"
 	accepted.ExecutorStatus = "pending"
-	accepted.TriggerKind = "explicit"
+	if input.Origin == nil {
+		accepted.TriggerKind = "explicit"
+	}
 	if input.SourceMessageID != nil {
 		accepted.TriggerKind = "mention"
 	}
@@ -520,6 +615,13 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 		accepted.ExecutionGeneration = 1
 	}
 	accepted.InputSources = []model.InputSource{{Version: 1, RequesterID: input.RequesterID, SourceMessageID: input.SourceMessageID, SenderType: "user", MessageIDs: input.MessageIDs, FileIDs: input.FileIDs, HistoryGrantID: input.HistoryGrantID, ParentRunID: input.ParentRunID}}
+	if input.Origin != nil {
+		accepted.InputSources[0].Origin = input.Origin
+		accepted.InputSources[0].SenderType = input.Origin.Kind
+		if input.Origin.Kind == "delegation" {
+			accepted.InputSources[0].SenderType = "bot"
+		}
+	}
 	if err := s.authorize(ctx, accepted, false); err != nil {
 		return nil, err
 	}
@@ -582,7 +684,7 @@ func (s *Service) authorizeRun(ctx context.Context, r *model.Run, sharing bool, 
 		}
 		for _, tool := range config.Tools {
 			if tool.ServerID == "runtime" {
-				if tool.Name != "ask_for_input" {
+				if !slices.Contains([]string{"ask_for_input", "delegate_run", "delegation_result"}, tool.Name) {
 					return status.Error(codes.PermissionDenied, "unknown runtime tool")
 				}
 				continue
@@ -642,6 +744,11 @@ func (s *Service) authorizeRun(ctx context.Context, r *model.Run, sharing bool, 
 func (s *Service) visible(ctx context.Context, user string, r *model.Run) error {
 	if r.Visibility == "personal" && (r.PersonalUserID == nil || *r.PersonalUserID != user) {
 		return status.Error(codes.PermissionDenied, "personal Run is not visible")
+	}
+	if reason, err := s.originAuthorityState(ctx, r); err != nil {
+		return err
+	} else if reason != "" {
+		return status.Error(codes.PermissionDenied, reason)
 	}
 	if err := resourcegrant.CheckIDs(s.svc.DB.WithContext(ctx), resourceAccess(r), r.Visibility != "personal", false); err != nil {
 		return err
@@ -901,7 +1008,8 @@ func (s *Service) readFileMaterial(ctx context.Context, input Input, id string) 
 	if err != nil {
 		return Material{}, status.Error(codes.Unavailable, "file content could not be read")
 	}
-	defer response.Body.Close()
+	// Content reads report failures; closing the read-only response is cleanup.
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return Material{}, status.Error(codes.Unavailable, "file content could not be read")
 	}
@@ -952,7 +1060,11 @@ func (s *Service) authorizeMaterials(ctx context.Context, r *model.Run, visited 
 			if err := s.refreshAuthorizations(ctx, parent); err != nil {
 				return err
 			}
-			if parent.BotID != r.BotID || parent.ConvID != r.ConvID || parent.BindingID != r.BindingID || parent.InteractionID != r.InteractionID {
+			if material.Kind == "delegation_result" {
+				if err := repo.CheckDelegationResult(s.svc.DB.WithContext(ctx), r, parent); err != nil {
+					return err
+				}
+			} else if parent.BotID != r.BotID || parent.ConvID != r.ConvID || parent.BindingID != r.BindingID || parent.InteractionID != r.InteractionID {
 				return status.Error(codes.PermissionDenied, "parent material is outside this interaction")
 			}
 			if repo.TerminalRun(parent) && sharedMaterials(parent) {
@@ -965,7 +1077,7 @@ func (s *Service) authorizeMaterials(ctx context.Context, r *model.Run, visited 
 				}
 				parent.ControllerID, parent.ControllerMemberID = r.ControllerID, &member
 			}
-			if err := s.authorizeRun(ctx, parent, false, visited); err != nil {
+			if err := s.authorizeRun(ctx, parent, material.Kind == "delegation_result", visited); err != nil {
 				return err
 			}
 			parents[parent.ID] = true

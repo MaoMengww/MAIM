@@ -31,6 +31,7 @@ import { Avatar } from '@/components/common/Avatar';
 import { GroupInfoDrawer } from './GroupInfoDrawer';
 import { AuthorizationPanel } from './AuthorizationPanel';
 import { RunActions } from './RunActions';
+import { RunDelegation, RunOriginDetails } from './RunProvenance';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Message, MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource, BotRun, RunSource, BotInConv } from '@/types/model';
@@ -416,8 +417,8 @@ const RUN_STOP_REASON: Record<string, string> = {
   source_authorization_revoked: '工作依赖的来源授权已撤销', resource_authorization_revoked: '工作依赖的读取或分享许可已撤销',
   tool_authorization_revoked: '工作依赖的工具许可已撤销',
 };
-const RUN_SOURCE_LABEL: Record<string, string> = { request_source: '发起请求', reference: '明确引用', history: '获准历史', file: '文件', parent_run: '承接结果' };
-const SOURCE_SENDER_LABEL: Record<string, string> = { user: '用户', bot: 'Bot', system: '系统' };
+const RUN_SOURCE_LABEL: Record<string, string> = { request_source: '发起请求', reference: '明确引用', history: '获准历史', file: '文件', parent_run: '承接结果', activity: '获准活动', delegation_result: '委派返回结果' };
+const SOURCE_SENDER_LABEL: Record<string, string> = { user: '用户', bot: 'Bot', system: '系统', activity: '活动主体', rule: '显式规则' };
 
 function isTerminalRun(run: BotRun): boolean {
   return run.status === 'succeeded' || run.status === 'failed' || run.status === 'stopped';
@@ -501,7 +502,7 @@ function WorkSourcePicker({ materials, onChange, messages, uploadedFiles, disabl
 }
 
 function RunCard({ run, botName, requesterName, nameForUser, canContinue, activeWork, canManage, bindingActive, currentUserId, members, onLocate, onLocateFile, onRefresh, onCompose, onNew, onUpdated }: {
-  run: BotRun; botName: string; requesterName: string; nameForUser: (id: string) => string;
+  run: BotRun; botName: string; requesterName?: string; nameForUser: (id: string) => string;
   canContinue: boolean; activeWork: boolean; canManage: boolean; bindingActive: boolean;
   currentUserId: string; members: ConvMember[];
   onLocate: (messageId: string) => Promise<void>; onLocateFile: (fileId: string) => Promise<void>;
@@ -562,13 +563,14 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
   const stop = RUN_STOP[run.stop_status];
   const targetHasGrant = !!controlTarget && run.control_user_ids.includes(controlTarget);
   const controllerPresent = members.some((member) => member.user_id === run.controller_id);
-  const materialSources = run.sources.filter((source): source is Extract<RunSource, { type: 'request_source' | 'reference' | 'history' | 'file' | 'parent_run' }> => source.type !== 'rag' && source.type !== 'tool');
-  return <article className="chat-run-card" data-run-id={run.id} data-run-version={run.version} data-run-status={run.status}
-    data-stop-status={run.stop_status} data-stream-status={run.stream_status}
+  const materialSources = run.sources.filter((source): source is Extract<RunSource, { sender_type: string }> => source.type !== 'rag' && source.type !== 'tool');
+  return <article id={`run-${run.id}`} className="chat-run-card" data-run-id={run.id} data-run-version={run.version} data-run-status={run.status}
+    data-stop-status={run.stop_status} data-stream-status={run.stream_status} data-origin-kind={run.origin?.kind ?? 'human'}
     data-output-status={run.output_status} data-interaction-status={run.interaction_status} aria-label={`${botName} 执行：${state.label}`}>
     <div className="chat-run-header">
       <strong>{botName} · 执行</strong>
       <Tag color={state.color}>{state.label}</Tag>
+      {run.origin && <Tag>{run.origin.kind === 'rule' ? '显式规则触发' : 'Bot 明确委派'}</Tag>}
       <Tag>{run.interaction_status === 'closed' ? '交互已关闭' : '交互开放'}</Tag>
       <span className="chat-run-updated">{formatTime(run.updated_at)}</span>
       <Button size="small" loading={refreshing} onClick={async () => {
@@ -579,14 +581,30 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       }}>查询状态</Button>
     </div>
     <div className="chat-run-meta">
-      <span title={run.requester_id}>请求者：{requesterName}</span>
+      {run.requester_id ? <span title={run.requester_id}>请求者：{requesterName}</span> : <span>非人类发起 · 无人类请求者</span>}
       <span title={run.controller_id}>当前负责人：{nameForUser(run.controller_id)}{!controllerPresent ? '（已非当前成员）' : ''}</span>
       <span>显式控制者：{run.control_user_ids.length > 0 ? run.control_user_ids.map((userId) => `${nameForUser(userId)}${members.some((member) => member.user_id === userId) ? '' : '（已非当前成员）'}`).join('、') : '无'}</span>
       {run.source_message_id
         ? <Button type="link" size="small" onClick={() => void onLocate(run.source_message_id!).catch(() => message.error('来源消息无法读取'))}>查看输入来源消息</Button>
-        : <span>输入来源：明确操作</span>}
+        : <span>输入来源：{run.origin?.kind === 'rule' ? '获准活动与显式规则' : run.origin?.kind === 'delegation' ? '明确委派输入' : '明确操作'}</span>}
       {run.parent_run_id && <span>承接父执行：{run.parent_run_id}</span>}
     </div>
+    {run.origin && <RunOriginDetails origin={run.origin} nameForIdentity={nameForUser} />}
+    {run.activity && <details className="chat-run-details" data-activity-id={run.activity.id}>
+      <summary>触发活动与接受输入</summary>
+      <dl className="chat-run-identities">
+        <dt>活动 ID</dt><dd>{run.activity.id}</dd><dt>活动类型</dt><dd>{run.activity.type}</dd>
+        <dt>活动序号</dt><dd>{run.activity.seq}</dd><dt>会话 ID</dt><dd>{run.activity.conv_id}</dd>
+        {run.activity.binding_id && <><dt>活动绑定 ID</dt><dd>{run.activity.binding_id}</dd></>}
+        {run.activity.actor_id && <><dt>活动参与主体（不是请求者）</dt><dd>{nameForUser(run.activity.actor_id)}</dd></>}
+        {run.activity.message_id && <><dt>活动消息 ID</dt><dd>{run.activity.message_id}</dd></>}
+      </dl>
+      {run.activity.text && <div className="chat-run-result"><pre>{run.activity.text}</pre></div>}
+      {run.activity.data != null && <pre className="chat-run-activity-data">{JSON.stringify(run.activity.data, null, 2)}</pre>}
+      <p className="chat-run-notice">这是平台接受的活动输入快照。原消息操作不停止已接受工作；当前访问、资源与行动许可仍分别检查。</p>
+    </details>}
+    <RunDelegation run={run} nameForIdentity={nameForUser} />
+    {run.context_notice && <p className="chat-run-notice" role="status">{run.context_notice}</p>}
     <div className="chat-run-stage" role="status">当前阶段：{RUN_STAGE[run.stage] || run.stage} · {RUN_OUTPUT[run.output_status]}</div>
     <RunActions run={run} onUpdated={onUpdated} />
     {run.status === 'waiting_input' && <div className="chat-run-waiting" role="status">待补充事项：{run.waiting_reason || '执行器正在等待补充信息'}</div>}
@@ -607,7 +625,8 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
     </div>
     {run.input_sources.length > 0 && <details className="chat-run-details"><summary>已接受输入与补充者 · {run.input_sources.length} 条</summary>
       <ol className="chat-run-steps">{run.input_sources.map((source) => <li key={source.version}>
-        输入 v{source.version} · <span title={source.requester_id}>{SOURCE_SENDER_LABEL[source.sender_type]} {nameForUser(source.requester_id)}</span>
+        输入 v{source.version} · <span title={source.requester_id}>{source.sender_type === 'rule' ? '显式规则' : SOURCE_SENDER_LABEL[source.sender_type]}{source.requester_id ? ` ${nameForUser(source.requester_id)}` : ' · 非人类发起，无人类请求者'}</span>
+        {source.origin && <RunOriginDetails origin={source.origin} nameForIdentity={nameForUser} />}
         {source.source_message_id && <Button type="link" size="small" onClick={() => void onLocate(source.source_message_id!).catch(() => message.error('补充来源消息无法读取'))}>查看来源消息</Button>}
         {source.content !== undefined
           ? source.content === ''
@@ -637,8 +656,11 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       {bindingActive && acceptsRunInput(run) && <Button disabled={controlling} onClick={() => onCompose(run, 'input')}>补充输入</Button>}
       {canContinue && <Button disabled={controlling} onClick={() => onCompose(run, 'continue')}>继续此结果</Button>}
       {bindingActive && <Button disabled={controlling} onClick={() => onNew(run)}>独立新话题</Button>}
-      {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_stop && run.stop_status === 'none'
-        && <Button danger loading={controlling} onClick={() => void control('stop')}>请求停止</Button>}
+      {canOperate && ((run.child_run_ids?.length ?? 0) > 0
+        || !terminal && run.output_status === 'none' && run.executor_capabilities.supports_stop && run.stop_status === 'none')
+        && <Button danger loading={controlling} onClick={() => void control('stop')}>
+          {(run.child_run_ids?.length ?? 0) > 0 ? terminal ? '请求关联子工作停止' : '请求父子工作停止' : '请求停止'}
+        </Button>}
       {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_resume && run.status === 'waiting_input' && run.stop_status === 'none'
         && <Button loading={controlling} onClick={() => void control('resume')}>请求恢复</Button>}
       {canOperate && !terminal && run.status !== 'stopping'
@@ -670,7 +692,8 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       <p className="chat-run-notice">控制权只覆盖此工作，不授予会话读取或个人资源许可。撤销显式授权不改变请求者、当前负责人或当前群管理员自身的控制资格。</p>
       <p className="chat-run-notice">控制资格以当前成员身份与服务端检查为准；退出后重入不会继承原成员身份获得的控制权。</p>
     </details>}
-    {!terminal && !run.executor_capabilities.supports_stop && <p className="chat-run-notice" role="status">此执行器不支持停止，AIM 无法强制停止其外部进程；不提供可用停止入口。</p>}
+    {!terminal && !run.executor_capabilities.supports_stop && <p className="chat-run-notice" role="status">此执行器不支持停止，AIM 无法强制停止其外部进程；{(run.child_run_ids?.length ?? 0) > 0 ? '仍可请求关联子工作停止，各自实际结局须分别查询。' : '不提供可用停止入口。'}</p>}
+    {canOperate && (run.child_run_ids?.length ?? 0) > 0 && <p className="chat-run-notice">关联停止按当前权限分别请求子工作停止；父 Run 已完成时不会重开或改写其完成事实。请展开委派关系查询每个子 Run 的实际结局。</p>}
     {!bindingActive && <p className="chat-run-notice" role="status">当前 Bot 绑定已失效、停用或参与许可被撤销。只能查看执行事实，不能继续、补充、恢复或接手；重新绑定不会恢复旧交互。</p>}
     {run.interaction_status === 'active' && activeWork && <p className="chat-run-notice">清空或结束交互须先结束其中所有活动工作；聊天历史与执行事实始终保留。</p>}
     {run.interaction_status === 'active' && !canManage && <p className="chat-run-notice">你当前没有执行控制权。普通成员可按输入合同补充；停止、接手、授权与撤销仅限当前合资格请求者、负责人、显式控制者或群管理员。</p>}
@@ -692,7 +715,8 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       <ul className="chat-run-steps">{materialSources.map((source, index) => <li key={index}>
         {'message_id' in source && <Button type="link" size="small" onClick={() => void onLocate(source.message_id).catch(() => message.error('引用来源消息无法读取'))}>{RUN_SOURCE_LABEL[source.type]}：查看消息</Button>}
         {'file_id' in source && <Button type="link" size="small" onClick={() => void onLocateFile(source.file_id).catch(() => message.error('引用文件无法读取'))}>文件：{source.file_id}</Button>}
-        {'parent_run_id' in source && <span>承接结果：{source.parent_run_id} · </span>}
+        {'parent_run_id' in source && <span>{RUN_SOURCE_LABEL[source.type]}：<a href={`#run-${source.parent_run_id}`}>{source.parent_run_id}</a> · </span>}
+        {'activity_id' in source && <span>活动 ID：{source.activity_id} · </span>}
         <span title={source.sender_id}>{SOURCE_SENDER_LABEL[source.sender_type]}{source.sender_id ? ` · ${nameForUser(source.sender_id)}` : ''}</span>
         {source.history_grant_id && <span title={source.history_grant_id}> · 限定历史授权</span>}
       </li>)}</ul>
@@ -2280,7 +2304,7 @@ export function ChatPage() {
             {!runQuery.isError && !runQuery.isPending && runnableBots.length > 0 && runQuery.runs.length === 0 && <div className="chat-run-notice">尚无执行。选择 Bot 并明确发起工作，或在消息中提及它。</div>}
             {!runQuery.isError && runQuery.runs.map((run) => <RunCard key={run.id} run={run}
               botName={convBots.find((bot) => bot.bot_id === run.bot_id)?.name || `Bot ${run.bot_id}`}
-              requesterName={userMap.get(run.requester_id)?.username || run.requester_id}
+              requesterName={run.requester_id ? userMap.get(run.requester_id)?.username || run.requester_id : undefined}
               nameForUser={(userId) => userMap.get(userId)?.username || convBots.find((bot) => bot.bot_id === userId)?.name || userId}
               canContinue={!membersError && !!currentMember && isTerminalRun(run) && run.interaction_status === 'active' && hasCurrentRunBinding(run, runnableBots)}
               activeWork={runQuery.runs.some((candidate) => candidate.interaction_id === run.interaction_id && !isTerminalRun(candidate))}

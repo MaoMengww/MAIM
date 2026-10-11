@@ -494,6 +494,8 @@ message ControlRunReq {
 }
 
 message AuthorizationReq {
+	// resource | action | delegation; delegation is executor-only and carries
+	// operation delegate/result with run_id, generation and input_version.
   string kind = 1;
   bytes body = 2;
   string executor_bot_id = 3 [(common.entity_id) = true];

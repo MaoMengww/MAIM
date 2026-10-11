@@ -1,12 +1,16 @@
 package repo
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
+	"github.com/maomeng/aim/pkg/botpolicy"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/resourcegrant"
@@ -26,6 +30,11 @@ func NewRunRepo(db *database.DB) *RunRepo { return &RunRepo{DB: db} }
 func lockRunConversation(tx *gorm.DB, convID string) error {
 	var conv struct{ ID string }
 	return tx.Table("messaging.conversations").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", convID).Take(&conv).Error
+}
+
+// LockRunConversation shares the existing barrier with collaboration writes.
+func LockRunConversation(tx *gorm.DB, convID string) error {
+	return lockRunConversation(tx, convID)
 }
 
 func RunMember(tx *gorm.DB, convID, userID string) (string, int32, error) {
@@ -54,7 +63,16 @@ func RunController(tx *gorm.DB, run *model.Run, user string) error {
 	return status.Error(codes.PermissionDenied, "Run control requires current requester, controller, grant or administrator")
 }
 
-func lockRunAuthority(tx *gorm.DB, run *model.Run, controller bool) error {
+func lockRunPermissions(tx *gorm.DB, run *model.Run) error {
+	if err := CheckDelegationSource(tx, run); err != nil {
+		return err
+	}
+	if run.Origin != nil {
+		member, role, err := RunMember(tx, run.ConvID, run.Origin.AuthorizationUserID)
+		if err != nil || member != run.Origin.AuthorizationMemberID || (run.Origin.Kind == "rule" && role > 2) {
+			return status.Error(codes.PermissionDenied, "origin authorization revoked")
+		}
+	}
 	var binding model.ConvBot
 	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND revoked_at IS NULL", run.BindingID, run.BotID, run.ConvID).First(&binding).Error; err != nil {
 		return status.Error(codes.PermissionDenied, "binding revoked")
@@ -85,6 +103,13 @@ func lockRunAuthority(tx *gorm.DB, run *model.Run, controller bool) error {
 	if err := resourcegrant.CheckIDs(tx, resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}, run.Visibility != "personal", true); err != nil {
 		return err
 	}
+	return nil
+}
+
+func lockRunAuthority(tx *gorm.DB, run *model.Run, controller bool) error {
+	if err := lockRunPermissions(tx, run); err != nil {
+		return err
+	}
 	if err := CheckRunSources(tx, run); err != nil {
 		return err
 	}
@@ -101,6 +126,7 @@ type ReportAuthority struct {
 	UserID           string
 	Control          bool
 	StopConfirmation bool
+	StopTree         bool
 }
 
 func (r *RunRepo) Get(ctx context.Context, id string) (*model.Run, error) {
@@ -110,7 +136,13 @@ func (r *RunRepo) Get(ctx context.Context, id string) (*model.Run, error) {
 }
 func (r *RunRepo) FindInput(ctx context.Context, botID, bindingID, requesterID, key string) (*model.Run, error) {
 	var run model.Run
-	err := r.DB.WithContext(ctx).Where("bot_id = ? AND binding_id = ? AND requester_id = ? AND input_key = ?", botID, bindingID, requesterID, key).First(&run).Error
+	err := txInput(r.DB.WithContext(ctx), botID, bindingID, requesterID, key).First(&run).Error
+	return &run, err
+}
+
+func (r *RunRepo) FindDelegationInput(ctx context.Context, parentRunID, targetBotID, key string) (*model.Run, error) {
+	var run model.Run
+	err := txDelegationInput(r.DB.WithContext(ctx), parentRunID, targetBotID, key).First(&run).Error
 	return &run, err
 }
 func (r *RunRepo) List(ctx context.Context, convID string, limit int) ([]model.Run, error) {
@@ -131,6 +163,7 @@ func queueRun(tx *gorm.DB, run *model.Run, kind string) error {
 		public := run.Public()
 		public.ResultText, public.ResultType, public.ResultContent, public.WaitingReason, public.Error = "", "", nil, "", ""
 		public.Sources, public.Actions = []map[string]string{}, []model.PublicAction{}
+		public.Activity = nil
 		raw, err = json.Marshal(map[string]any{"type": "bot.run.updated", "conv_id": run.ConvID, "bot_id": run.BotID, "run": public})
 		if err != nil {
 			return err
@@ -147,9 +180,21 @@ func queueRun(tx *gorm.DB, run *model.Run, kind string) error {
 			}
 			ordered := make([]map[string]any, 0, len(inputs))
 			for _, input := range inputs {
-				ordered = append(ordered, map[string]any{"version": input.Version, "requester_id": input.RequesterID, "sender_type": "user", "source_message_id": input.SourceMessageID, "content": input.Content, "materials": input.Materials, "sources": input.Sources, "created_at": input.CreatedAt.Unix()})
+				sender := "user"
+				entry := map[string]any{"version": input.Version, "source_message_id": input.SourceMessageID, "content": input.Content, "materials": input.Materials, "sources": input.Sources, "created_at": input.CreatedAt.Unix()}
+				if input.RequesterID != "" {
+					entry["requester_id"] = input.RequesterID
+				} else if run.Origin != nil {
+					sender = run.Origin.Kind
+					if sender == "delegation" {
+						sender = "bot"
+					}
+					entry["origin"] = run.Origin
+				}
+				entry["sender_type"] = sender
+				ordered = append(ordered, entry)
 			}
-			raw, err = json.Marshal(map[string]any{"type": "bot.run.request", "run": run.Public(), "generation": run.ExecutionGeneration, "input_version": run.InputVersion, "inputs": ordered, "operation": run.ControlOperation})
+			raw, err = json.Marshal(map[string]any{"type": "bot.run.request", "run": run.Public(), "generation": run.ExecutionGeneration, "input_version": run.InputVersion, "inputs": ordered, "operation": run.ControlOperation, "max_output_tokens": 2048})
 		}
 		if err != nil {
 			return err
@@ -165,25 +210,38 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string, fres
 		if err := lockRunConversation(tx, run.ConvID); err != nil {
 			return err
 		}
-		if err := lockRunAuthority(tx, run, true); err != nil {
-			return err
-		}
 		key := run.BotID + ":" + run.BindingID + ":" + run.RequesterID + ":" + run.InputKey
+		lookup := txInput(tx, run.BotID, run.BindingID, run.RequesterID, run.InputKey)
+		delegated := run.Origin != nil && run.Origin.Kind == "delegation"
+		if delegated {
+			key = "delegation-input:" + run.Origin.SourceRunID + ":" + run.BotID + ":" + run.InputKey
+			lookup = txDelegationInput(tx, run.Origin.SourceRunID, run.BotID, run.InputKey)
+		}
+		// Retry identity is resolved before any row lock so retries acquire the
+		// accepted Run's barrier, not the newly generated candidate's barrier.
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", key).Error; err != nil {
 			return err
 		}
 		var prior model.Run
-		err := tx.Where("bot_id = ? AND binding_id = ? AND requester_id = ? AND input_key = ?", run.BotID, run.BindingID, run.RequesterID, run.InputKey).First(&prior).Error
+		err := lookup.First(&prior).Error
 		if err == nil {
 			if prior.InputHash != run.InputHash {
 				return status.Error(codes.AlreadyExists, "submission key has different content")
 			}
-			member, _, err := RunMember(tx, prior.ConvID, prior.RequesterID)
-			if err != nil {
-				return err
+			if delegated && prior.BindingID != run.BindingID {
+				return status.Error(codes.PermissionDenied, "delegation target binding is stale")
 			}
-			if prior.RequesterMemberID == nil || *prior.RequesterMemberID != member {
-				return status.Error(codes.PermissionDenied, "submission belongs to earlier membership")
+			if prior.Origin == nil {
+				member, _, err := RunMember(tx, prior.ConvID, prior.RequesterID)
+				if err != nil {
+					return err
+				}
+				if prior.RequesterMemberID == nil || *prior.RequesterMemberID != member {
+					return status.Error(codes.PermissionDenied, "submission belongs to earlier membership")
+				}
+			}
+			if err := LockDelegationTree(tx, &prior); err != nil {
+				return err
 			}
 			if err := lockRunAuthority(tx, &prior, false); err != nil {
 				return err
@@ -193,6 +251,36 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string, fres
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		if err := LockDelegationTree(tx, run); err != nil {
+			return err
+		}
+		if err := lockRunAuthority(tx, run, true); err != nil {
+			return err
+		}
+		if run.Origin != nil && run.Origin.Kind == "rule" {
+			var binding model.ConvBot
+			if err := tx.Where("id = ?", run.BindingID).First(&binding).Error; err != nil {
+				return err
+			}
+			rules, err := botpolicy.Rules(binding.BotSettings)
+			if err != nil {
+				return err
+			}
+			allowed := false
+			for _, rule := range rules {
+				if rule.ID == run.Origin.RuleID && rule.Enabled && rule.Version == run.Origin.RuleVersion && rule.AuthorizationUserID == run.Origin.AuthorizationUserID && rule.AuthorizationMemberID == run.Origin.AuthorizationMemberID && run.Activity != nil && botpolicy.Subscribed(binding.BotSettings, run.Activity.Type, run.Activity.Seq) {
+					allowed = true
+				}
+			}
+			if !allowed {
+				return status.Error(codes.PermissionDenied, "rule authorization changed during acceptance")
+			}
+		}
+		if run.DelegationParentRunID != nil {
+			if err := acceptDelegation(tx, run); err != nil {
+				return err
+			}
 		}
 		if err := CheckAcceptedMessages(tx, run, freshMaterials); err != nil {
 			return err
@@ -287,6 +375,9 @@ func (r *RunRepo) change(ctx context.Context, id string, generation int64, execu
 		if err := lockRunConversation(tx, prior.ConvID); err != nil {
 			return err
 		}
+		if err := LockDelegationTree(tx, prior); err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&run).Error; err != nil {
 			return err
 		}
@@ -360,6 +451,9 @@ func (r *RunRepo) ReconcileAuthorizations(ctx context.Context, id string, versio
 		if err := lockRunConversation(tx, prior.ConvID); err != nil {
 			return err
 		}
+		if err := LockDelegationTree(tx, prior); err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&run).Error; err != nil {
 			return err
 		}
@@ -399,6 +493,8 @@ func CheckMaterialHistory(tx *gorm.DB, run *model.Run, grant string, seq int64) 
 }
 
 type acceptedMessage struct {
+	Kind           string `json:"kind"`
+	ParentRunID    string `json:"parent_run_id"`
 	MessageID      string `json:"message_id"`
 	Seq            int64  `json:"seq"`
 	EditCount      int32  `json:"edit_count"`
@@ -464,33 +560,64 @@ func CheckAcceptedMessages(tx *gorm.DB, run *model.Run, raw json.RawMessage) err
 // CheckRunSources fences live authorization of accepted work. Message identity
 // and accepted versions are provenance only, never ongoing IM visibility checks.
 func CheckRunSources(tx *gorm.DB, run *model.Run) error {
+	var materials []acceptedMessage
+	if err := json.Unmarshal(run.Materials, &materials); err != nil {
+		return err
+	}
+	delegated := make(map[string]bool)
+	for _, material := range materials {
+		if material.Kind == "delegation_result" {
+			if material.ParentRunID == "" {
+				return status.Error(codes.PermissionDenied, "delegated result has no source")
+			}
+			delegated[material.ParentRunID] = true
+		}
+		if material.HistoryGrantID != "" {
+			if err := CheckMaterialHistory(tx, run, material.HistoryGrantID, material.Seq); err != nil {
+				return err
+			}
+		}
+	}
 	var versions []model.SourceVersion
+	checked := make(map[string]bool)
 	if len(run.Provenance) > 0 {
 		if err := json.Unmarshal(run.Provenance, &versions); err != nil {
 			return err
 		}
 	}
+	slices.SortFunc(versions, func(a, b model.SourceVersion) int {
+		return cmp.Compare(a.ParentRunID, b.ParentRunID)
+	})
 	for _, version := range versions {
 		if version.ParentRunID == "" {
 			continue
 		}
 		var parent model.Run
-		if err := tx.Where("id = ?", version.ParentRunID).Take(&parent).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", version.ParentRunID).Take(&parent).Error; err != nil {
 			return status.Error(codes.PermissionDenied, "parent source unavailable")
 		}
 		if parent.BranchVersion != version.SourceRevision || parent.AccessRevoked {
 			return status.Error(codes.Aborted, "parent source validity changed")
 		}
-	}
-	var materials []acceptedMessage
-	if err := json.Unmarshal(run.Materials, &materials); err != nil {
-		return err
-	}
-	for _, material := range materials {
-		if material.HistoryGrantID != "" {
-			if err := CheckMaterialHistory(tx, run, material.HistoryGrantID, material.Seq); err != nil {
+		if delegated[parent.ID] {
+			if err := CheckDelegationResult(tx, run, &parent); err != nil {
 				return err
 			}
+			checked[parent.ID] = true
+		} else if parent.BotID != run.BotID || parent.ConvID != run.ConvID || parent.BindingID != run.BindingID || parent.InteractionID != run.InteractionID {
+			return status.Error(codes.PermissionDenied, "parent source is outside this interaction")
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(delegated)) {
+		if checked[id] {
+			continue
+		}
+		var child model.Run
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", id).Take(&child).Error; err != nil {
+			return status.Error(codes.PermissionDenied, "delegated result source unavailable")
+		}
+		if err := CheckDelegationResult(tx, run, &child); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -498,6 +625,7 @@ func CheckRunSources(tx *gorm.DB, run *model.Run) error {
 func QueueRunOutput(tx *gorm.DB, run *model.Run) error    { return queueRun(tx, run, "output") }
 func QueueRunDelivery(tx *gorm.DB, run *model.Run) error  { return queueRun(tx, run, "deliver") }
 func QueueRunExecution(tx *gorm.DB, run *model.Run) error { return queueRun(tx, run, "execute") }
+func QueueRunUpdated(tx *gorm.DB, run *model.Run) error   { return queueRun(tx, run, "updated") }
 
 func TerminalRun(run *model.Run) bool {
 	return run.Status == "succeeded" || run.Status == "failed" || run.Status == "stopped"
@@ -616,6 +744,9 @@ func (r *RunRepo) reportOnce(ctx context.Context, id, key, digest string, author
 		if err := lockRunConversation(tx, checked.ConvID); err != nil {
 			return err
 		}
+		if err := LockDelegationTree(tx, checked); err != nil {
+			return err
+		}
 		var run model.Run
 		if err := tx.Where("id = ?", id).First(&run).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -668,7 +799,7 @@ func (r *RunRepo) reportOnce(ctx context.Context, id, key, digest string, author
 		if interaction.Status != "active" {
 			return status.Error(codes.FailedPrecondition, "interaction is closed")
 		}
-		if TerminalRun(&run) {
+		if TerminalRun(&run) && !authority.StopTree {
 			return status.Error(codes.FailedPrecondition, "Run no longer accepts updates")
 		}
 		before := run.Stage
@@ -706,8 +837,8 @@ func (r *RunRepo) reportOnce(ctx context.Context, id, key, digest string, author
 	return &receipt, err
 }
 
-// CloseInteraction takes the interaction lock before any Run lock, as Accept
-// and Report do. It cuts continuation atomically without deleting work facts.
+// CloseInteraction takes the shared ancestry barrier before interaction and Run
+// locks. It cuts continuation atomically without deleting accepted work facts.
 func (r *RunRepo) CloseInteraction(ctx context.Context, id, key, digest, user string, authorize func(*model.Run) error) (*model.PublicRun, error) {
 	var receipt model.PublicRun
 	checked, err := r.Get(ctx, id)
@@ -726,6 +857,9 @@ func (r *RunRepo) CloseInteraction(ctx context.Context, id, key, digest, user st
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return status.Error(codes.NotFound, "Run not found")
 			}
+			return err
+		}
+		if err := LockDelegationTree(tx, &target); err != nil {
 			return err
 		}
 		var interaction model.Interaction

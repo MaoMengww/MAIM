@@ -12,6 +12,7 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/botpolicy"
 	"github.com/maomeng/aim/pkg/consts"
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -63,6 +64,15 @@ func (l *AddMembersLogic) AddMembers(in *conversation.AddMembersReq) (*conversat
 		added, failed, err = r.AddMembersWithinLimit(l.ctx, conv.ID, members, l.svcCtx.Config.Conv.MaxMemberCount)
 		if err != nil || len(added) == 0 {
 			return err
+		}
+		for _, uid := range added {
+			member, err := r.GetMember(l.ctx, conv.ID, uid)
+			if err != nil {
+				return err
+			}
+			if err := publishBotActivity(l.ctx, l.svcCtx, tx, conv, botpolicy.MemberJoined, in.OperatorId, "Member joined", map[string]any{"user_id": uid, "member_id": member.ID}); err != nil {
+				return err
+			}
 		}
 		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)
 	})

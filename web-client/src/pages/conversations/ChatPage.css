@@ -1747,6 +1747,28 @@
   margin: 8px 0;
 }
 .group-info-binding-permission label { flex: 1; min-width: 0; }
+.group-info-binding-rules { margin-top: 12px; min-width: 0; }
+.group-info-binding-rules > summary { cursor: pointer; min-height: 44px; padding: 12px 0; }
+.group-info-binding-rules summary:focus-visible { outline: 2px solid var(--aim-primary); outline-offset: 2px; }
+.group-info-rule-fields, .group-info-response-rule { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.group-info-rule-fields { margin-top: 8px; }
+.group-info-response-rule {
+  margin: 0;
+  padding: 8px 12px 12px;
+  border: 1px solid var(--aim-border);
+  border-radius: var(--aim-radius-md, 8px);
+}
+.group-info-response-rule legend { font-size: 12px; overflow-wrap: anywhere; }
+.group-info-response-rule .group-info-binding-permission { margin: 0; }
+.group-info-rule-fields .ant-select { width: 100%; min-width: 0; }
+.group-info-rule-fields .ant-btn { align-self: flex-start; }
+.group-info-rule-fields .chat-run-notice { margin: 0; }
+.group-info-rule-fields label { font-size: 13px; }
+.group-info-binding-rules, .chat-run-related, .chat-run-identities dd { overflow-wrap: anywhere; }
+.chat-run-related { padding: 8px 0; border-bottom: 1px solid var(--aim-border); }
+.chat-run-related .ant-tag { white-space: normal; }
+.chat-run-activity-data { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
+.chat-run-card:target { outline: 2px solid var(--aim-primary); outline-offset: 2px; }
 .chat-run-result pre {
   max-width: 100%;
   white-space: pre-wrap;
@@ -1901,4 +1923,9 @@
   .chat-run-card .ant-btn, .chat-run-card summary { min-height: 44px; }
   .chat-work-source-fields { max-height: 32vh; }
   .chat-work-relation { padding: 8px; }
+}
+@media (max-width: 480px) {
+  .group-info-rule-fields .ant-btn { min-height: 44px; }
+  .chat-run-identities { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .chat-run-identities dd { margin-bottom: 4px; }
 }

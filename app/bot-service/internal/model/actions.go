@@ -12,7 +12,7 @@ type RunAction struct {
 	RunID                string `gorm:"type:uuid"`
 	BotID                string `gorm:"type:uuid"`
 	BindingID            string `gorm:"type:uuid"`
-	RequesterID          string `gorm:"type:uuid"`
+	RequesterID          string `gorm:"type:uuid;serializer:nullable_uuid"`
 	ControllerID         string `gorm:"type:uuid"`
 	ControllerMemberID   string `gorm:"type:uuid"`
 	ServerID             string

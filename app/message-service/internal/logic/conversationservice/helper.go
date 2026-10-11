@@ -10,10 +10,12 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	messagepb "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/consts"
 	"github.com/maomeng/aim/pkg/database"
 	pkgerrors "github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/interceptor"
+	"github.com/maomeng/aim/pkg/sequence"
 	"google.golang.org/grpc/metadata"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -152,4 +154,38 @@ func publishConversationChange(ctx context.Context, svcCtx *svc.ServiceContext, 
 		})
 	}
 	return nil
+}
+
+// publishBotActivity commits an authenticated domain fact, not a system message
+// interpreted as a trigger. The sequence shares the binding/rule watermark clock.
+func publishBotActivity(ctx context.Context, svcCtx *svc.ServiceContext, tx *gorm.DB, conv *model.Conversation, activityType, actorID, text string, data any) error {
+	seq, err := svcCtx.SequenceRepo.NextSeq(ctx, tx, conv.ID)
+	if err != nil {
+		return err
+	}
+	var publication struct{ PublicationSequence int64 }
+	if err := tx.Table("messaging.conversations").Where("id = ?", conv.ID).Take(&publication).Error; err != nil {
+		return err
+	}
+	next, err := sequence.Next(publication.PublicationSequence)
+	if err != nil {
+		return err
+	}
+	id, err := identity.New()
+	if err != nil {
+		return err
+	}
+	payload := map[string]any{"kind": "bot.activity", "activity": map[string]any{
+		"id": id, "type": activityType, "conv_id": conv.ID, "actor_id": actorID,
+		"text": text, "seq": seq, "data": data,
+	}}
+	event := &model.OutboxEvent{ID: id, ConvID: conv.ID, PublicationSequence: next, Topic: consts.KafkaTopicConvBotAdded, Key: conv.ID, MaxRetries: model.DefaultMaxRetries}
+	if err := event.SetPayload(payload); err != nil {
+		return err
+	}
+	if err := tx.Model(&model.Conversation{}).Where("id = ?", conv.ID).Updates(map[string]any{"max_seq": seq, "publication_sequence": next}).Error; err != nil {
+		return err
+	}
+	conv.MaxSeq = seq
+	return svcCtx.OutboxRepo.Insert(ctx, tx, event)
 }

@@ -16,6 +16,7 @@ from urllib.error import HTTPError
 import run_control
 import authorization
 import compaction
+import collaboration
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8099"))
@@ -653,7 +654,13 @@ class Handler(BaseHTTPRequestHandler):
                                  "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
                 return
             tool_messages = [item for item in messages if item.get("role") == "tool"]
-            if model.startswith("fixture-interaction-"):
+            if model.startswith("fixture-collaboration-"):
+                try:
+                    message, reason = collaboration.reply(body, accepted_input)
+                except (KeyError, ValueError, TypeError) as error:
+                    self._json(400, {"error": {"message": str(error)}})
+                    return
+            elif model.startswith("fixture-interaction-"):
                 try:
                     message, reason = interaction_reply(body, messages)
                 except (KeyError, ValueError, TypeError) as error:

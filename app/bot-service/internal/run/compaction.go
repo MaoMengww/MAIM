@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
+	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	llm "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/pkg/identity"
 	"google.golang.org/grpc/codes"
@@ -444,6 +445,9 @@ func (s *Service) compactWork(ctx context.Context, r *model.Run, generation int6
 			}
 			if attempts >= int64(config.MaxSteps) {
 				return status.Error(codes.ResourceExhausted, "cumulative working summary call budget exceeded")
+			}
+			if err := repo.ReserveDelegationOutput(tx, current, int64(request.MaxTokens), false); err != nil {
+				return err
 			}
 			return tx.Create(&call).Error
 		}); err != nil {

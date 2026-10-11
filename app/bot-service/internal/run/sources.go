@@ -83,6 +83,15 @@ func dependent(raw json.RawMessage, invalid map[string]bool, parents map[string]
 // Revalidate only live authorizations. Accepted message bodies and versions are
 // durable work facts; their original IM rows never participate in this boundary.
 func (s *Service) refreshAuthorizations(ctx context.Context, r *model.Run) error {
+	return s.refreshAuthorizationSources(ctx, r, make(map[string]bool))
+}
+
+func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run, visiting map[string]bool) error {
+	if visiting[r.ID] {
+		return status.Error(codes.PermissionDenied, "Run source ancestry is cyclic")
+	}
+	visiting[r.ID] = true
+	defer delete(visiting, r.ID)
 	var materials []Material
 	if err := json.Unmarshal(r.Materials, &materials); err != nil {
 		return err
@@ -132,8 +141,21 @@ func (s *Service) refreshAuthorizations(ctx context.Context, r *model.Run) error
 			if err != nil {
 				return err
 			}
-			if err := s.refreshAuthorizations(ctx, parent); err != nil {
+			if err := s.refreshAuthorizationSources(ctx, parent, visiting); err != nil {
 				return err
+			}
+			authority := *parent
+			if repo.TerminalRun(parent) && sharedMaterials(parent) {
+				member, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, r.ControllerID)
+				if err != nil {
+					return err
+				}
+				authority.ControllerID, authority.ControllerMemberID = r.ControllerID, &member
+			}
+			if reason, err := s.authorityState(ctx, &authority); err != nil {
+				return err
+			} else if reason != "" {
+				parents[parent.ID] = true
 			}
 			if parent.BranchVersion != version.SourceRevision || parent.AccessRevoked {
 				parents[parent.ID] = true
@@ -330,7 +352,8 @@ func (s *Service) refreshAuthorizations(ctx context.Context, r *model.Run) error
 			return e
 		}
 		*r = *fresh
-		return s.refreshAuthorizations(ctx, r)
+		delete(visiting, r.ID)
+		return s.refreshAuthorizationSources(ctx, r, visiting)
 	}
 	if err == nil {
 		*r = *current

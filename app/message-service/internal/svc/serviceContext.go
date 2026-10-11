@@ -151,6 +151,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			repo.NewOutboxRepo(db),
 			map[string]*kafka.Producer{
 				consts.KafkaTopicMessageCreated: kpCreated,
+				consts.KafkaTopicConvBotAdded:   botEventProducer,
 			},
 			logger,
 		),

@@ -7,6 +7,7 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/botpolicy"
 	"github.com/maomeng/aim/pkg/consts"
 	pkg_errors "github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/pb/common"
@@ -67,6 +68,11 @@ func (l *RemoveMembersLogic) RemoveMembers(in *conversation.RemoveMembersReq) (*
 		for _, member := range members {
 			if err := r.RemoveMember(l.ctx, conv.ID, memberIdentity(member)); err != nil {
 				return err
+			}
+			if member.MemberType == model.MemberTypeUser {
+				if err := publishBotActivity(l.ctx, l.svcCtx, tx, conv, botpolicy.MemberLeft, in.OperatorId, "Member left", map[string]any{"user_id": memberIdentity(member), "member_id": member.ID}); err != nil {
+					return err
+				}
 			}
 		}
 		if err := r.IncrementMemberCount(l.ctx, conv.ID, -len(members)); err != nil {

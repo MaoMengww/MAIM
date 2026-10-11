@@ -267,6 +267,9 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 				r.Stage = update.Stage
 			}
 			if update.Status == "completed" {
+				if r.DelegationRootRunID != nil && len(update.ResultText)+len(update.Content) > 32768 {
+					return status.Error(codes.ResourceExhausted, "delegated result exceeds reserved output envelope")
+				}
 				if update.MsgType == "file" {
 					submitted := new(msg.FileContent)
 					if err := protocol.Unmarshal(update.Content, submitted); err != nil {
@@ -481,9 +484,9 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 		}
 		return receipt, err
 	}
-	receipt, err := s.repo.Report(ctx, id, key, digest, repo.ReportAuthority{UserID: user, Control: operation != "input"}, authorize, func(tx *gorm.DB, r *model.Run) error {
+	receipt, err := s.repo.Report(ctx, id, key, digest, repo.ReportAuthority{UserID: user, Control: operation != "input", StopTree: operation == "stop"}, authorize, func(tx *gorm.DB, r *model.Run) error {
 		caps := r.ExecutorCapabilities
-		if (operation == "input" && !caps.SupportsInput) || (operation == "stop" && !caps.SupportsStop) || (operation == "resume" && !caps.SupportsResume) {
+		if (operation == "input" && !caps.SupportsInput) || (operation == "resume" && !caps.SupportsResume) {
 			return status.Error(codes.FailedPrecondition, "executor does not support this operation")
 		}
 		if r.Status == "stopping" && operation != "stop" && operation != "grant_control" && operation != "revoke_control" {
@@ -555,6 +558,9 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 			if err != nil {
 				return err
 			}
+			if err := repo.ReserveDelegationInput(tx, r, int64(len(command.Message)+len(materialRaw))); err != nil {
+				return err
+			}
 			sourcesRaw, err := json.Marshal(sources)
 			if err != nil {
 				return err
@@ -601,6 +607,17 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 				r.Status, r.Stage, r.WaitingReason = "running", "input_received", ""
 			}
 		case "stop":
+			if err := requestDelegatedStops(tx, r); err != nil {
+				return err
+			}
+			if repo.TerminalRun(r) {
+				r.StopReason = "user_requested"
+				return nil
+			}
+			if !caps.SupportsStop {
+				r.StopStatus, r.StopReason = "rejected", "user_requested"
+				return nil
+			}
 			return requestRunStop(tx, r, "user_requested")
 		case "resume":
 			if !wasWaiting {

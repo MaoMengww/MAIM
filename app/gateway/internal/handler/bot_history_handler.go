@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -120,4 +121,30 @@ func (h *BotHistoryHandler) ExecutorUpdate(c *gin.Context) {
 		return
 	}
 	writeRunJSON(c, resp.GetRunJson(), false)
+}
+
+func (h *BotHistoryHandler) Delegations(c *gin.Context) {
+	botID := h.authenticatedBot(c)
+	if botID == "" {
+		return
+	}
+	_, token, _ := strings.Cut(c.GetHeader("Authorization"), " ")
+	c.Header("Cache-Control", "no-store")
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 131072)
+	raw, err := c.GetRawData()
+	if err != nil || !json.Valid(raw) {
+		response.BadRequest(c, "invalid delegation body")
+		return
+	}
+	result, err := h.bots.Authorization(c.Request.Context(), &botpb.AuthorizationReq{Kind: "delegation", ExecutorBotId: botID, Token: token, Body: raw})
+	if err != nil {
+		runRPCError(c, err)
+		return
+	}
+	var payload any
+	if json.Unmarshal(result.GetBody(), &payload) != nil {
+		response.InternalError(c, "invalid delegation response")
+		return
+	}
+	response.Success(c, payload)
 }

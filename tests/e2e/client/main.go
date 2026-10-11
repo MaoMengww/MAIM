@@ -233,6 +233,7 @@ func run(args []string) error {
 			{"bot-executor-runs", *realtimeA, *realtimeB},
 			{"bot-run-controls", *realtimeA, *realtimeB},
 			{"bot-authorizations", *realtimeA, *realtimeB},
+			{"bot-collaboration", *realtimeA, *realtimeB},
 			{"bot-compaction", *realtimeA, *realtimeB},
 			{"knowledge-ingest", "", ""},
 			{"llm-chat", "", ""},
@@ -275,6 +276,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"bot-run-controls", *realtimeA, *realtimeB}}
 	case "bot-authorizations":
 		scenarios = []scenarioSpec{{"bot-authorizations", *realtimeA, *realtimeB}}
+	case "bot-collaboration":
+		scenarios = []scenarioSpec{{"bot-collaboration", *realtimeA, *realtimeB}}
 	case "bot-runtime":
 		scenarios = []scenarioSpec{{"bot-runtime", *realtimeA, *realtimeA}}
 	case "bot-runtime-cross-instance":
@@ -364,6 +367,8 @@ func run(args []string) error {
 			err = d.botRunControls(scenario.a, scenario.b)
 		case "bot-authorizations":
 			err = d.botAuthorizations(scenario.a, scenario.b)
+		case "bot-collaboration":
+			err = d.botCollaboration(scenario.a, scenario.b)
 		case "bot-runtime", "bot-runtime-cross-instance":
 			err = d.botRuntime(scenario.a, scenario.b)
 		case "knowledge-ingest":
@@ -405,6 +410,8 @@ func run(args []string) error {
 			fmt.Println("E2E PASS: bot-run-controls 当前控制权限/重放 → 实际模型及工具取消 → 第三方工作循环确认/未确认/拒绝/完成竞态 → 接手来源与个人许可隔离 → 退群暂停/明确接手/新成员历史 → Bot撤绑停用许可撤销即刻拒读输出/无材料确认/重入不复活")
 		} else if scenario.name == "bot-authorizations" {
 			fmt.Println("E2E PASS: bot-authorizations public REST/WS resource read/share/private/revocation and exact external action authority")
+		} else if scenario.name == "bot-collaboration" {
+			fmt.Println("E2E PASS: bot-collaboration explicit activity rules and independent delegated Run outcomes")
 		} else if scenario.name == "bot-compaction" {
 			fmt.Println("E2E PASS: bot-compaction actual provider prefix/summary/tail/tools -> IM mutations preserve accepted work + watermark/concurrent input -> runtime restart -> independent parent/child results + original-only sync -> live resource/history revocation; no simulated KV-hit claim")
 		} else if scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" {

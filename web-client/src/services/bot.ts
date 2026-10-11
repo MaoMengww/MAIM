@@ -1,6 +1,6 @@
 import client, { unwrap } from './client';
 import type { CreateBotReq, UpdateBotReq, StartRunReq, ControlRunReq } from '@/types/api';
-import type { APIResponse, Bot, BotInConv, BotRun } from '@/types/model';
+import type { APIResponse, Bot, BotInConv, BotRun, RunOrigin, RunActivity } from '@/types/model';
 import { entityId, optionalEntityId, quantity, sequence } from '@/utils/json';
 
 export const botApi = {
@@ -50,8 +50,21 @@ export const botApi = {
   removeFromConv: (convId: string, botId: string) =>
     client.delete<APIResponse<null>>(`/convs/${convId}/bots/${botId}`).then(unwrap),
 
-  setParticipation: (convId: string, botId: string, botSettings: string) =>
-    client.put<APIResponse<null>>(`/convs/${convId}/bots/${botId}`, { bot_settings: botSettings }).then(unwrap),
+  setParticipation: (convId: string, botId: string, botSettings: string) => {
+    const settings: unknown = JSON.parse(botSettings);
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('绑定设置格式无效');
+    const editable = { ...settings as Record<string, unknown> };
+    if (Array.isArray(editable.response_rules)) editable.response_rules = editable.response_rules.map((value: unknown) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('响应规则格式无效');
+      const rule = value as Record<string, unknown>;
+      return { id: rule.id, enabled: rule.enabled, activity_type: rule.activity_type,
+        ...(rule.message_contains == null ? {} : { message_contains: rule.message_contains }),
+        ...(rule.business_type == null ? {} : { business_type: rule.business_type }) };
+    });
+    delete editable.activity_start_seq;
+    delete editable.response_rules_version;
+    return client.put<APIResponse<null>>(`/convs/${convId}/bots/${botId}`, { bot_settings: JSON.stringify(editable) }).then(unwrap);
+  },
 
   listConvBots: (convId: string): Promise<BotInConv[]> =>
     client.get<APIResponse<{ bots: BotInConv[] }>>(`/convs/${convId}/bots`).then((r) => (r.data.data.bots ?? []).map((bot) => {
@@ -98,10 +111,44 @@ export function isBotBindingActive(bot: BotInConv | undefined): bot is BotInConv
   return !!bot && bot.status === 'active' && botParticipationEnabled(bot);
 }
 
+function normalizeOrigin(value: unknown): RunOrigin | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('执行触发来源格式无效');
+  const origin = value as Record<string, unknown>;
+  if (origin.kind !== 'rule' && origin.kind !== 'delegation') throw new Error('执行触发来源类型无效');
+  return {
+    kind: origin.kind,
+    rule_id: optionalEntityId(origin.rule_id, 'origin.rule_id'),
+    rule_version: origin.rule_version == null ? undefined : sequence(origin.rule_version, 'origin.rule_version', true),
+    authorization_user_id: optionalEntityId(origin.authorization_user_id, 'origin.authorization_user_id'),
+    authorization_member_id: optionalEntityId(origin.authorization_member_id, 'origin.authorization_member_id'),
+    activity_id: optionalEntityId(origin.activity_id, 'origin.activity_id'),
+    source_run_id: optionalEntityId(origin.source_run_id, 'origin.source_run_id'),
+    delegating_bot_id: optionalEntityId(origin.delegating_bot_id, 'origin.delegating_bot_id'),
+  };
+}
+
 // Decode the viewer projection only; accepted input text is not an IM message body.
 export function normalizeRun(value: unknown): BotRun {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('执行必须是对象');
   const run = value as Record<string, unknown>;
+  const origin = normalizeOrigin(run.origin);
+  if (run.child_run_ids != null && !Array.isArray(run.child_run_ids)) throw new Error('委派子执行必须是数组');
+  let activity: RunActivity | undefined;
+  if (run.activity != null) {
+    if (typeof run.activity !== 'object' || Array.isArray(run.activity)) throw new Error('活动输入格式无效');
+    const envelope = run.activity as Record<string, unknown>;
+    if (!['message.created', 'member.joined', 'member.left', 'business.activity'].includes(String(envelope.type))
+      || envelope.text != null && typeof envelope.text !== 'string') throw new Error('活动输入类型或正文无效');
+    activity = {
+      id: entityId(envelope.id, 'activity.id'), type: envelope.type as RunActivity['type'],
+      conv_id: entityId(envelope.conv_id, 'activity.conv_id'),
+      binding_id: optionalEntityId(envelope.binding_id === '' ? undefined : envelope.binding_id, 'activity.binding_id'),
+      message_id: optionalEntityId(envelope.message_id === '' ? undefined : envelope.message_id, 'activity.message_id'),
+      actor_id: optionalEntityId(envelope.actor_id === '' ? undefined : envelope.actor_id, 'activity.actor_id'),
+      text: envelope.text == null ? '' : envelope.text as string, seq: sequence(envelope.seq, 'activity.seq'), data: envelope.data,
+    };
+  }
   const status = run.status;
   const output = run.output_status;
   if (!['accepted', 'running', 'waiting_input', 'waiting_authorization', 'stopping', 'stopped', 'succeeded', 'failed'].includes(String(status))) throw new Error('执行状态无效');
@@ -136,8 +183,13 @@ export function normalizeRun(value: unknown): BotRun {
     actions: Array.isArray(run.actions) ? run.actions.map(normalizeAction) : [],
     id: entityId(run.id, 'run.id'), interaction_id: entityId(run.interaction_id, 'run.interaction_id'),
     parent_run_id: optionalEntityId(run.parent_run_id, 'run.parent_run_id'), interaction_status: run.interaction_status,
+    origin, activity,
+    delegation_parent_run_id: optionalEntityId(run.delegation_parent_run_id, 'run.delegation_parent_run_id'),
+    delegation_depth: run.delegation_depth == null ? undefined : sequence(run.delegation_depth, 'run.delegation_depth'),
+    child_run_ids: run.child_run_ids == null ? undefined : (run.child_run_ids as unknown[]).map((id) => entityId(id, 'run.child_run_id')),
     bot_id: entityId(run.bot_id, 'run.bot_id'), conv_id: entityId(run.conv_id, 'run.conv_id'),
-    binding_id: entityId(run.binding_id, 'run.binding_id'), requester_id: entityId(run.requester_id, 'run.requester_id'),
+    binding_id: entityId(run.binding_id, 'run.binding_id'), requester_id: origin
+      ? optionalEntityId(run.requester_id === '' ? undefined : run.requester_id, 'run.requester_id') : entityId(run.requester_id, 'run.requester_id'),
     controller_id: entityId(run.controller_id, 'run.controller_id'),
     control_user_ids: run.control_user_ids.map((id) => entityId(id, 'run.control_user_id')),
     stop_status: run.stop_status as BotRun['stop_status'], stream_status: run.stream_status,
@@ -150,9 +202,12 @@ export function normalizeRun(value: unknown): BotRun {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('输入来源格式无效');
       const source = value as Record<string, unknown>;
       if (!Array.isArray(source.message_ids) || !Array.isArray(source.file_ids)) throw new Error('输入引用必须是数组');
-      if (source.sender_type !== 'user' && source.sender_type !== 'bot' && source.sender_type !== 'system') throw new Error('补充者类型无效');
+      if (source.sender_type !== 'user' && source.sender_type !== 'bot' && source.sender_type !== 'system' && source.sender_type !== 'rule') throw new Error('补充者类型无效');
+      const sourceOrigin = normalizeOrigin(source.origin);
       return {
-        version: sequence(source.version, 'input_source.version', true), requester_id: entityId(source.requester_id, 'input_source.requester_id'),
+        version: sequence(source.version, 'input_source.version', true), origin: sourceOrigin,
+        requester_id: sourceOrigin ? optionalEntityId(source.requester_id === '' ? undefined : source.requester_id, 'input_source.requester_id')
+          : entityId(source.requester_id, 'input_source.requester_id'),
         sender_type: source.sender_type, source_message_id: optionalEntityId(source.source_message_id, 'input_source.source_message_id'),
         ...(source.content === undefined ? {} : { content: text(source.content, 'input_source.content') }),
         message_ids: source.message_ids.map((id) => entityId(id, 'input_source.message_id')),
@@ -184,11 +239,13 @@ export function normalizeRun(value: unknown): BotRun {
       if (source.type === 'tool') return { ...identity, type: 'tool' as const, tool_name: text(source.tool_name, 'source.tool_name') };
       const kind = source.type;
       const sender = source.sender_type;
-      if (kind !== 'request_source' && kind !== 'reference' && kind !== 'history' && kind !== 'file' && kind !== 'parent_run') throw new Error('执行来源类型无效');
-      if (sender !== 'user' && sender !== 'bot' && sender !== 'system') throw new Error('执行来源发送者类型无效');
-      const senderId = sender === 'system' ? optionalEntityId(source.sender_id === '' ? undefined : source.sender_id, 'source.sender_id') : entityId(source.sender_id, 'source.sender_id');
+      if (kind !== 'request_source' && kind !== 'reference' && kind !== 'history' && kind !== 'file' && kind !== 'parent_run' && kind !== 'activity' && kind !== 'delegation_result') throw new Error('执行来源类型无效');
+      if (sender !== 'user' && sender !== 'bot' && sender !== 'system' && sender !== 'activity' && sender !== 'rule') throw new Error('执行来源发送者类型无效');
+      const senderId = sender === 'system' || sender === 'activity' || sender === 'rule'
+        ? optionalEntityId(source.sender_id === '' ? undefined : source.sender_id, 'source.sender_id') : entityId(source.sender_id, 'source.sender_id');
       if (kind === 'file') return { ...identity, type: kind, file_id: entityId(source.file_id, 'source.file_id'), sender_type: sender, sender_id: senderId };
-      if (kind === 'parent_run') return { ...identity, type: kind, parent_run_id: entityId(source.parent_run_id, 'source.parent_run_id'), sender_type: sender, sender_id: senderId };
+      if (kind === 'parent_run' || kind === 'delegation_result') return { ...identity, type: kind, parent_run_id: entityId(source.parent_run_id, 'source.parent_run_id'), sender_type: sender, sender_id: senderId };
+      if (kind === 'activity') return { ...identity, type: kind, activity_id: entityId(source.activity_id, 'source.activity_id'), sender_type: sender, sender_id: senderId };
       return { ...identity, type: kind, message_id: entityId(source.message_id, 'source.message_id'), sender_type: sender, sender_id: senderId };
     }), steps: run.steps.map((value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('执行阶段格式无效');
@@ -214,6 +271,8 @@ export function mergeRuns(previous: BotRun[] | undefined, updates: BotRun[]): Bo
         update.interaction_status !== current.interaction_status || update.stop_reason !== current.stop_reason
         || JSON.stringify(update.actions) !== JSON.stringify(current.actions)
         || update.context_notice !== current.context_notice
+        || JSON.stringify(update.activity) !== JSON.stringify(current.activity)
+        || JSON.stringify(update.child_run_ids) !== JSON.stringify(current.child_run_ids)
         || update.input_sources.length !== current.input_sources.length
         || update.input_sources.some((source, index) => source.version !== current.input_sources[index]?.version || source.content !== current.input_sources[index]?.content)
         || update.stream_status !== current.stream_status || update.control_user_ids.length !== current.control_user_ids.length

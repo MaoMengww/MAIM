@@ -73,16 +73,17 @@ func main() {
 	var eventConsumer *kafka.Consumer
 	kafkaCtx, kafkaCancel := context.WithCancel(context.Background())
 	if c.Role != "control" {
-		// Kafka consumer for message.created events
+		// Message inputs and authenticated membership/business activity facts.
 		var err error
-		eventConsumer, err = kafka.NewConsumer(c.Kafka, []string{consts.KafkaTopicMessageCreated}, c.Kafka.ConsumerGroup, logger)
+		activityTopics := []string{consts.KafkaTopicMessageCreated, consts.KafkaTopicConvBotAdded}
+		eventConsumer, err = kafka.NewConsumer(c.Kafka, activityTopics, c.Kafka.ConsumerGroup, logger)
 		if err != nil {
 			panic(fmt.Sprintf("kafka consumer init failed: %v", err))
 		}
 
 		// Start Kafka consumer lag monitoring
 		if kafkaClient := eventConsumer.GetClient(); kafkaClient != nil {
-			kafka.CollectConsumerLag(kafkaClient, c.Kafka.ConsumerGroup, []string{consts.KafkaTopicMessageCreated})
+			kafka.CollectConsumerLag(kafkaClient, c.Kafka.ConsumerGroup, activityTopics)
 		}
 
 		runs := run.NewService(ctx)

@@ -189,6 +189,8 @@ func CodeFromGRPCCode(c codes.Code) int {
 		return CodeNotFound
 	case codes.AlreadyExists:
 		return CodeConflict
+	case codes.ResourceExhausted:
+		return CodeTooManyRequests
 	case codes.DeadlineExceeded:
 		return CodeTimeout
 	case codes.Unavailable:

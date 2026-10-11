@@ -9,6 +9,7 @@ import (
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	conversation "github.com/maomeng/aim/app/message-service/pb/message"
 	messagepb "github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/botpolicy"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -36,6 +37,12 @@ func (l *SetAnnouncementLogic) SetAnnouncement(in *conversation.SetAnnouncementR
 		}
 		oldContent = conv.Announcement
 		if err := r.UpdateConversationAnnouncement(l.ctx, conv.ID, in.Content); err != nil {
+			return err
+		}
+		if len(in.Content) > 32768 {
+			return ErrInvalidParam
+		}
+		if err := publishBotActivity(l.ctx, l.svcCtx, tx, conv, botpolicy.BusinessActivity, in.OperatorId, in.Content, map[string]any{"business_type": "conversation.announcement.updated"}); err != nil {
 			return err
 		}
 		return publishConversationChange(l.ctx, l.svcCtx, tx, conv.ID, nil, nil)

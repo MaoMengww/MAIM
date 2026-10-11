@@ -153,6 +153,8 @@ func (s *RuntimeServer) Authorization(ctx context.Context, req *pb.Authorization
 		body, err = s.runs.ResourceAuthorization(ctx, user, executor, req.Body)
 	case "action":
 		body, err = s.runs.ActionAuthorization(ctx, user, executor, req.Body)
+	case "delegation":
+		body, err = s.runs.DelegationAuthorization(ctx, executor, req.Body)
 	default:
 		return nil, status.Error(codes.InvalidArgument, "unknown authorization kind")
 	}

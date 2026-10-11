@@ -369,6 +369,34 @@ func (h *WSHandler) handleBot(ctx context.Context, s *session.Session, raw []byt
 		return s.WriteMessage([]byte(`{"type":"pong"}`))
 	case "message.send":
 		return reply(s, map[string]any{"type": "error", "error": "message.send is not supported; submit run updates"})
+	case "bot.run.delegate", "bot.run.delegation.result":
+		var body map[string]json.RawMessage
+		if json.Unmarshal(raw, &body) != nil {
+			return errors.New("invalid delegation body")
+		}
+		delete(body, "type")
+		operation := "delegate"
+		if event.Type == "bot.run.delegation.result" {
+			operation = "result"
+		}
+		body["operation"], _ = json.Marshal(operation)
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		md, _ := metadata.FromOutgoingContext(ctx)
+		md = md.Copy()
+		md.Delete("user-id")
+		md.Delete("x-user-id")
+		ctx = metadata.NewOutgoingContext(ctx, md)
+		result, err := h.BotClient.Authorization(ctx, &botpb.AuthorizationReq{Kind: "delegation", ExecutorBotId: s.Route.ID, Token: token, Body: payload})
+		if err != nil {
+			return err
+		}
+		if !json.Valid(result.GetBody()) {
+			return errors.New("invalid delegation response contract")
+		}
+		return reply(s, map[string]any{"type": "bot.run.delegation.receipt", "result": json.RawMessage(result.GetBody())})
 	case "run.delivery_ack", "run.claim", "run.update":
 	default:
 		return errors.New("unsupported bot event")

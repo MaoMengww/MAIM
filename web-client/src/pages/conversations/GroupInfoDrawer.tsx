@@ -13,6 +13,7 @@ import { friendApi } from '@/services/friend';
 import { botApi, botParticipationEnabled, isBotBindingActive } from '@/services/bot';
 import { Avatar } from '@/components/common/Avatar';
 import type { ConvMember, BotInConv } from '@/types/model';
+import { BindingRules } from './BindingRules';
 import './ChatPage.css';
 
 
@@ -506,6 +507,9 @@ export function GroupInfoDrawer(props: GroupInfoDrawerProps) {
                           })} />
                       </div>}
                       {isAdmin && <Button size="small" disabled={!conv?.max_seq || !isBotBindingActive(bot)} onClick={() => { setGrantBot(bot); setStartSeq(null); setEndSeq(null); }}>授权历史范围</Button>}
+                      <BindingRules key={`${convId}:${bot.binding_id}`} bot={bot} convId={convId!} isAdmin={isAdmin}
+                        unavailable={!open || botsLoading || botsError || participationMutation.isPending}
+                        onSaved={async () => { await refetchBots(); props.onMembersChange(); message.success('订阅与规则已保存，仅影响后续活动'); }} />
                     </div>
                     {isAdmin && (
                       <Popconfirm

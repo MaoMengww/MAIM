@@ -107,7 +107,14 @@ func Owner(tx *gorm.DB, kind, id string) (string, error) {
 // Check revalidates every source, member incarnation and participation epoch.
 // lock=true supplies the grant commit barrier to authoritative Run/output writes.
 func Check(tx *gorm.DB, a Access, kind, id string, sharing, lock bool) (*Grant, error) {
-	for _, value := range append([]string{a.BotID, a.ConvID, a.BindingID, a.RequesterID, id}, a.GrantIDs...) {
+	if a.RequesterID == "" && a.Visibility != "conversation" {
+		return nil, denial()
+	}
+	ids := []string{a.BotID, a.ConvID, a.BindingID, id}
+	if a.RequesterID != "" {
+		ids = append(ids, a.RequesterID)
+	}
+	for _, value := range append(ids, a.GrantIDs...) {
 		if identity.Validate(value) != nil {
 			return nil, denial()
 		}

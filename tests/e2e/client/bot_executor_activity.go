@@ -21,12 +21,11 @@ type executorActivity struct {
 	RunID        json.RawMessage `json:"run_id"`
 	Run          json.RawMessage `json:"run"`
 	Message      struct {
-		MessageID  entityID       `json:"message_id"`
-		SenderID   entityID       `json:"sender_id"`
-		SenderType string         `json:"sender_type"`
-		Text       string         `json:"text"`
-		Seq        sequenceNumber `json:"seq"`
-	} `json:"message"`
+		MessageID entityID       `json:"message_id"`
+		SenderID  entityID       `json:"actor_id"`
+		Text      string         `json:"text"`
+		Seq       sequenceNumber `json:"seq"`
+	} `json:"activity"`
 }
 
 type activityObserver struct {
@@ -117,7 +116,7 @@ func (o *activityObserver) wait(source sentMessage, binding entityID) error {
 			if activity.Message.MessageID != source.MessageID {
 				continue
 			}
-			if activity.Type != "bot.activity" || activity.ActivityType != "message.created" || activity.BotID != o.x.bot || activity.ConvID != source.ConvID || activity.BindingID != binding || len(activity.RunID) != 0 || len(activity.Run) != 0 || activity.Message.SenderID != source.SenderID || activity.Message.SenderType != "user" || activity.Message.Text != source.Content.Text || activity.Message.Seq != source.Seq {
+			if activity.Type != "bot.activity" || activity.ActivityType != "message.created" || activity.BotID != o.x.bot || activity.ConvID != source.ConvID || activity.BindingID != binding || len(activity.RunID) != 0 || len(activity.Run) != 0 || activity.Message.SenderID != source.SenderID || activity.Message.Text != source.Content.Text || activity.Message.Seq != source.Seq {
 				return errors.New("activity: source identity/text/binding or observation-only contract mismatch")
 			}
 			return nil
@@ -276,7 +275,7 @@ func (d *driver) executorActivities(owner, admin, caller account, bots [2]botVie
 	if err := denied(0, "default-unsubscribed"); err != nil {
 		return err
 	}
-	if err := d.activitySettings(admin, convs[0], bots[0].ID, `{"activity_types":["message.unknown"]}`); err != nil {
+	if err := d.runtimeReject(http.MethodPut, "/convs/"+convs[0].String()+"/bots/"+bots[0].ID.String(), admin, map[string]string{"bot_settings": `{"activity_types":["message.unknown"]}`}, http.StatusBadRequest); err != nil {
 		return err
 	}
 	if err := denied(0, "unknown-type"); err != nil {

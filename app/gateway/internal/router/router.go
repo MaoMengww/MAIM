@@ -264,6 +264,7 @@ func New(
 	botApp := api.Group("/bot-app")
 	botApp.GET("/convs/:id/messages", botHistoryH.Read)
 	botApp.POST("/runs/update", botHistoryH.ExecutorUpdate)
+	botApp.POST("/delegations", botHistoryH.Delegations)
 	api.POST("/bots/:id/executor/resources", botH.ExecutorResourceAuthorization)
 	api.POST("/bots/:id/executor/actions", botH.ExecutorActionAuthorization)
 

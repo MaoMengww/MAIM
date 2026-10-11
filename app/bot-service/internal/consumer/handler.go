@@ -12,6 +12,7 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/app/bot-service/internal/run"
+	"github.com/maomeng/aim/pkg/botpolicy"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/zeromicro/go-zero/core/logx"
 	"google.golang.org/grpc/codes"
@@ -51,11 +52,15 @@ func (h *Handler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama
 }
 func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 	var envelope struct {
-		Kind       string `json:"kind"`
-		SenderType string `json:"sender_type"`
+		Kind       string                  `json:"kind"`
+		SenderType string                  `json:"sender_type"`
+		Activity   *model.ActivityEnvelope `json:"activity"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return nil
+	}
+	if envelope.Kind == "bot.activity" {
+		return h.handleActivity(ctx, envelope.Activity)
 	}
 	if envelope.Kind != "" && envelope.Kind != "message.new" {
 		return nil
@@ -101,7 +106,8 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 		}
 		source := event.Message.MsgID
 		input := run.Input{BotID: binding.BotID, ConvID: event.ConvID, BindingID: binding.ID, RequesterID: *event.Sender.UserID, SubmissionKey: "message:" + source, Message: event.Message.Text, SourceMessageID: &source, ReplyToMsgID: event.Message.ReplyToMsgID, Language: event.Sender.Language}
-		observationErr := h.runs.Observe(ctx, input)
+		activity := &model.ActivityEnvelope{ID: source, Type: botpolicy.MessageCreated, ConvID: event.ConvID, BindingID: binding.ID, MessageID: source, ActorID: *event.Sender.UserID, Text: event.Message.Text, Seq: event.Message.Seq}
+		observationErr := h.runs.ObserveActivity(ctx, binding.BotID, binding.ID, activity)
 		switch status.Code(observationErr) {
 		case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.InvalidArgument, codes.FailedPrecondition:
 			observationErr = nil
@@ -126,7 +132,49 @@ func (h *Handler) Handle(ctx context.Context, raw []byte) error {
 				}
 			}
 		}
+		if !replied && !shouldRespond(event, bot) {
+			if err := h.runs.TriggerRules(ctx, binding.BotID, binding.ID, activity); err != nil && !discardActivityError(err) {
+				return err
+			}
+		}
 		if observationErr != nil {
+			return observationErr
+		}
+	}
+	return nil
+}
+
+func discardActivityError(err error) bool {
+	if err == nil {
+		return true
+	}
+	switch status.Code(err) {
+	case codes.AlreadyExists:
+		logx.Error("Bot activity submission conflicts with accepted input")
+		return true
+	case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.InvalidArgument, codes.FailedPrecondition:
+		return true
+	default:
+		return errors.Is(err, gorm.ErrRecordNotFound)
+	}
+}
+
+func (h *Handler) handleActivity(ctx context.Context, activity *model.ActivityEnvelope) error {
+	if activity == nil || identity.Validate(activity.ID) != nil || identity.Validate(activity.ConvID) != nil || identity.Validate(activity.ActorID) != nil || !botpolicy.Supported(activity.Type) || activity.Type == botpolicy.MessageCreated || activity.BindingID != "" {
+		return nil
+	}
+	bindings, err := h.bindings.FindByConv(ctx, activity.ConvID)
+	if err != nil {
+		return err
+	}
+	for _, binding := range bindings {
+		selected := *activity
+		selected.BindingID = binding.ID
+		observationErr := h.runs.ObserveActivity(ctx, binding.BotID, binding.ID, &selected)
+		if err := h.runs.TriggerRules(ctx, binding.BotID, binding.ID, &selected); err != nil && !discardActivityError(err) {
+			return err
+		}
+		if !discardActivityError(observationErr) {
 			return observationErr
 		}
 	}
@@ -185,8 +233,8 @@ func parseEvent(raw []byte) (*model.BotEvent, string, error) {
 	return &evt, evt.Message.MsgID, nil
 }
 
-// Only a mention of this Bot accepts work; merely observing activity
-// or arbitrary mentions, keywords and Bot replies cannot authorize execution.
+// Exact mentions remain the default trigger, independent of subscriptions and
+// explicit administrator rules. Arbitrary mentions never authorize this Bot.
 func shouldRespond(event *model.BotEvent, bot *model.Bot) bool {
 	return bot != nil && event != nil && event.Message != nil && slices.Contains(event.MentionedUserIDs, bot.ID)
 }

@@ -250,13 +250,20 @@ func (s *Service) appendInputs(tx *gorm.DB, current *model.Run) error {
 				return err
 			}
 		}
+		sender := "user"
+		if input.RequesterID == "" && current.Origin != nil {
+			sender = current.Origin.Kind
+			if sender == "delegation" {
+				sender = "bot"
+			}
+		}
 		raw, err := json.Marshal(struct {
 			Version         int64   `json:"version"`
-			RequesterID     string  `json:"requester_id"`
+			RequesterID     string  `json:"requester_id,omitempty"`
 			SenderType      string  `json:"sender_type"`
 			SourceMessageID *string `json:"source_message_id,omitempty"`
 			Content         string  `json:"content"`
-		}{input.Version, input.RequesterID, "user", input.SourceMessageID, input.Content})
+		}{input.Version, input.RequesterID, sender, input.SourceMessageID, input.Content})
 		if err != nil {
 			return err
 		}
@@ -423,6 +430,9 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 			}
 			if current.TrajectoryVersion != call.TrajectoryVersion || current.AppliedInputVersion != call.InputUpperBound || current.BranchVersion != call.BranchVersion || current.SourceRevision != call.SourceRevision {
 				return status.Error(codes.Aborted, "model trajectory changed before snapshot")
+			}
+			if err := repo.ReserveDelegationOutput(tx, current, int64(config.MaxOutputTokens), true); err != nil {
+				return err
 			}
 			current.Stage = "model"
 			return tx.Create(&call).Error
@@ -643,6 +653,9 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 	if frozen.ServerID == "runtime" && frozen.Name == "ask_for_input" {
 		return s.waitForInput(ctx, r, generation, call)
 	}
+	if frozen.ServerID == "runtime" && slices.Contains([]string{"delegate_run", "delegation_result"}, frozen.Name) {
+		return s.performDelegationTool(ctx, r, generation, call)
+	}
 	action, err := s.actionInterrupt(ctx, r, frozen, call.Function.Arguments, call.Id)
 	if err != nil {
 		return err
@@ -775,6 +788,9 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 		replyTo = r.ReplyToMsgID
 	}
 	request := &msg.SendBotReplyReq{BotId: r.BotID, ConversationId: r.ConvID, BindingId: r.BindingID, RequesterId: &r.RequesterID, ControllerId: &r.ControllerID, Type: msg.MessageType_MESSAGE_TYPE_TEXT, Text: r.ResultText, ReplyToId: replyTo, RawPayload: string(raw), OutputKey: &key, RunId: &r.ID}
+	if r.RequesterID == "" {
+		request.RequesterId = nil
+	}
 	switch r.ResultType {
 	case "file":
 		request.Type = msg.MessageType_MESSAGE_TYPE_FILE
@@ -841,6 +857,7 @@ func (s *Service) publishUpdate(ctx context.Context, item *model.RunOutbox) erro
 	public := r.Public()
 	public.ResultText, public.ResultType, public.ResultContent = "", "", nil
 	public.Sources, public.Actions = nil, nil
+	public.Activity = nil
 	public.WaitingReason, public.Error = "", ""
 	raw, err := json.Marshal(map[string]any{"type": "bot.run.updated", "conv_id": r.ConvID, "bot_id": r.BotID, "run": public})
 	if err != nil {

@@ -50,7 +50,7 @@ func TrustedToolPolicy(ownerType string, policies map[string]ToolPolicy, name st
 func CheckToolPermissions(tx *gorm.DB, a Access, refs []ToolRef, lock bool) error {
 	for _, ref := range refs {
 		if ref.ServerID == "runtime" {
-			if ref.Name != "ask_for_input" {
+			if !slices.Contains([]string{"ask_for_input", "delegate_run", "delegation_result"}, ref.Name) {
 				return toolDenial()
 			}
 			continue

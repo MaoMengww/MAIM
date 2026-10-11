@@ -7,31 +7,41 @@ import (
 
 // Run owns work facts. Private snapshots and trajectory are never serialized publicly.
 type Run struct {
-	ID                          string  `gorm:"type:uuid;primaryKey"`
-	InteractionID               string  `gorm:"type:uuid"`
-	ParentRunID                 *string `gorm:"type:uuid"`
-	InteractionStatus           string
-	BotID                       string `gorm:"type:uuid"`
-	ConvID                      string `gorm:"type:uuid"`
-	BindingID                   string `gorm:"type:uuid"`
-	RequesterID                 string `gorm:"type:uuid"`
-	Visibility                  string
-	PersonalUserID              *string           `gorm:"type:uuid"`
-	ResourceGrantIDs            []string          `gorm:"type:jsonb;serializer:json"`
-	Actions                     []PublicAction    `gorm:"-"`
-	RequesterMemberID           *string           `gorm:"type:uuid"`
-	ControllerID                string            `gorm:"type:uuid"`
-	ControllerMemberID          *string           `gorm:"type:uuid"`
-	ControlUserIDs              []string          `gorm:"type:jsonb;serializer:json"`
-	ControlMemberships          map[string]string `gorm:"type:jsonb;serializer:json"`
-	StopStatus                  string
-	StreamStatus                string
-	StopReason                  string
-	StopRequestedAt             *time.Time
-	AccessRevoked               bool
-	BotAuthorizationVersion     int64
-	BindingAuthorizationVersion int64
-	ViewerCanControl            *bool `gorm:"-"`
+	ID                           string            `gorm:"type:uuid;primaryKey"`
+	InteractionID                string            `gorm:"type:uuid"`
+	ParentRunID                  *string           `gorm:"type:uuid"`
+	Origin                       *RunOrigin        `gorm:"type:jsonb;serializer:json"`
+	Activity                     *ActivityEnvelope `gorm:"type:jsonb;serializer:json"`
+	DelegationParentRunID        *string           `gorm:"type:uuid"`
+	DelegationRootRunID          *string           `gorm:"type:uuid"`
+	DelegationDepth              int
+	DelegationInputBytes         int64
+	DelegationOutputTokens       int64
+	DelegationSourceGeneration   int64
+	DelegationSourceInputVersion int64
+	ChildRunIDs                  []string `gorm:"type:jsonb;serializer:json"`
+	InteractionStatus            string
+	BotID                        string `gorm:"type:uuid"`
+	ConvID                       string `gorm:"type:uuid"`
+	BindingID                    string `gorm:"type:uuid"`
+	RequesterID                  string `gorm:"type:uuid;serializer:nullable_uuid"`
+	Visibility                   string
+	PersonalUserID               *string           `gorm:"type:uuid"`
+	ResourceGrantIDs             []string          `gorm:"type:jsonb;serializer:json"`
+	Actions                      []PublicAction    `gorm:"-"`
+	RequesterMemberID            *string           `gorm:"type:uuid"`
+	ControllerID                 string            `gorm:"type:uuid"`
+	ControllerMemberID           *string           `gorm:"type:uuid"`
+	ControlUserIDs               []string          `gorm:"type:jsonb;serializer:json"`
+	ControlMemberships           map[string]string `gorm:"type:jsonb;serializer:json"`
+	StopStatus                   string
+	StreamStatus                 string
+	StopReason                   string
+	StopRequestedAt              *time.Time
+	AccessRevoked                bool
+	BotAuthorizationVersion      int64
+	BindingAuthorizationVersion  int64
+	ViewerCanControl             *bool `gorm:"-"`
 	// ViewerPublicRun is the complete authorized response, never persisted.
 	ViewerPublicRun      *PublicRun `gorm:"-"`
 	InputKey             string
@@ -76,6 +86,30 @@ type Run struct {
 
 func (Run) TableName() string { return "bot.runs" }
 
+// RunOrigin records authority without inventing a human requester.
+type RunOrigin struct {
+	Kind                  string `json:"kind"`
+	RuleID                string `json:"rule_id,omitempty"`
+	RuleVersion           int64  `json:"rule_version,omitzero"`
+	AuthorizationUserID   string `json:"authorization_user_id,omitempty"`
+	AuthorizationMemberID string `json:"authorization_member_id,omitempty"`
+	ActivityID            string `json:"activity_id,omitempty"`
+	SourceRunID           string `json:"source_run_id,omitempty"`
+	DelegatingBotID       string `json:"delegating_bot_id,omitempty"`
+}
+
+type ActivityEnvelope struct {
+	ID        string          `json:"id"`
+	Type      string          `json:"type"`
+	ConvID    string          `json:"conv_id"`
+	BindingID string          `json:"binding_id"`
+	MessageID string          `json:"message_id,omitempty"`
+	ActorID   string          `json:"actor_id,omitempty"`
+	Text      string          `json:"text,omitempty"`
+	Seq       int64           `json:"seq"`
+	Data      json.RawMessage `json:"data,omitempty"`
+}
+
 type RunStep struct {
 	Version   int64  `json:"version"`
 	Stage     string `json:"stage"`
@@ -89,15 +123,16 @@ type ExecutorCapabilities struct {
 	SupportsResume bool     `json:"supports_resume"`
 }
 type InputSource struct {
-	Version         int64    `json:"version"`
-	Content         *string  `json:"content,omitempty"`
-	RequesterID     string   `json:"requester_id"`
-	SourceMessageID *string  `json:"source_message_id,omitempty"`
-	SenderType      string   `json:"sender_type"`
-	MessageIDs      []string `json:"message_ids"`
-	FileIDs         []string `json:"file_ids"`
-	HistoryGrantID  *string  `json:"history_grant_id,omitempty"`
-	ParentRunID     *string  `json:"parent_run_id,omitempty"`
+	Version         int64      `json:"version"`
+	Content         *string    `json:"content,omitempty"`
+	RequesterID     string     `json:"requester_id,omitempty"`
+	SourceMessageID *string    `json:"source_message_id,omitempty"`
+	SenderType      string     `json:"sender_type"`
+	MessageIDs      []string   `json:"message_ids"`
+	FileIDs         []string   `json:"file_ids"`
+	HistoryGrantID  *string    `json:"history_grant_id,omitempty"`
+	ParentRunID     *string    `json:"parent_run_id,omitempty"`
+	Origin          *RunOrigin `json:"origin,omitempty"`
 }
 
 // SourceVersion is private provenance, not material or authorization.
@@ -122,48 +157,53 @@ type RunReceipt struct {
 func (RunReceipt) TableName() string { return "bot.run_receipts" }
 
 type PublicRun struct {
-	ID                   string               `json:"id"`
-	InteractionID        string               `json:"interaction_id"`
-	ParentRunID          *string              `json:"parent_run_id,omitempty"`
-	InteractionStatus    string               `json:"interaction_status"`
-	Visibility           string               `json:"visibility"`
-	PersonalUserID       *string              `json:"personal_user_id,omitempty"`
-	Actions              []PublicAction       `json:"actions"`
-	BotID                string               `json:"bot_id"`
-	ConvID               string               `json:"conv_id"`
-	BindingID            string               `json:"binding_id"`
-	RequesterID          string               `json:"requester_id"`
-	ControllerID         string               `json:"controller_id"`
-	ControlUserIDs       []string             `json:"control_user_ids"`
-	StopStatus           string               `json:"stop_status"`
-	StreamStatus         string               `json:"stream_status"`
-	StopReason           string               `json:"stop_reason"`
-	CanControl           *bool                `json:"can_control,omitempty"`
-	InputKey             string               `json:"input_key"`
-	InputSources         []InputSource        `json:"input_sources"`
-	ContextNotice        string               `json:"context_notice"`
-	SourceMessageID      *string              `json:"source_message_id,omitempty"`
-	InputVersion         int64                `json:"input_version"`
-	Version              int64                `json:"version"`
-	ExecutorType         string               `json:"executor_type"`
-	ExecutorCapabilities ExecutorCapabilities `json:"executor_capabilities"`
-	DeliveryStatus       string               `json:"delivery_status"`
-	ExecutorStatus       string               `json:"executor_status"`
-	Generation           int64                `json:"generation"`
-	TriggerKind          string               `json:"trigger_kind"`
-	Status               string               `json:"status"`
-	Stage                string               `json:"stage"`
-	WaitingReason        string               `json:"waiting_reason"`
-	ResultText           string               `json:"result_text"`
-	ResultType           string               `json:"result_type"`
-	ResultContent        json.RawMessage      `json:"result_content,omitempty"`
-	OutputStatus         string               `json:"output_status"`
-	MessageID            *string              `json:"message_id,omitempty"`
-	Error                string               `json:"error,omitempty"`
-	Sources              []map[string]string  `json:"sources"`
-	Steps                []RunStep            `json:"steps"`
-	CreatedAt            int64                `json:"created_at"`
-	UpdatedAt            int64                `json:"updated_at"`
+	ID                    string               `json:"id"`
+	InteractionID         string               `json:"interaction_id"`
+	ParentRunID           *string              `json:"parent_run_id,omitempty"`
+	Origin                *RunOrigin           `json:"origin,omitempty"`
+	Activity              *ActivityEnvelope    `json:"activity,omitempty"`
+	DelegationParentRunID *string              `json:"delegation_parent_run_id,omitempty"`
+	DelegationDepth       int                  `json:"delegation_depth,omitzero"`
+	ChildRunIDs           []string             `json:"child_run_ids,omitempty"`
+	InteractionStatus     string               `json:"interaction_status"`
+	Visibility            string               `json:"visibility"`
+	PersonalUserID        *string              `json:"personal_user_id,omitempty"`
+	Actions               []PublicAction       `json:"actions"`
+	BotID                 string               `json:"bot_id"`
+	ConvID                string               `json:"conv_id"`
+	BindingID             string               `json:"binding_id"`
+	RequesterID           string               `json:"requester_id,omitempty"`
+	ControllerID          string               `json:"controller_id"`
+	ControlUserIDs        []string             `json:"control_user_ids"`
+	StopStatus            string               `json:"stop_status"`
+	StreamStatus          string               `json:"stream_status"`
+	StopReason            string               `json:"stop_reason"`
+	CanControl            *bool                `json:"can_control,omitempty"`
+	InputKey              string               `json:"input_key"`
+	InputSources          []InputSource        `json:"input_sources"`
+	ContextNotice         string               `json:"context_notice"`
+	SourceMessageID       *string              `json:"source_message_id,omitempty"`
+	InputVersion          int64                `json:"input_version"`
+	Version               int64                `json:"version"`
+	ExecutorType          string               `json:"executor_type"`
+	ExecutorCapabilities  ExecutorCapabilities `json:"executor_capabilities"`
+	DeliveryStatus        string               `json:"delivery_status"`
+	ExecutorStatus        string               `json:"executor_status"`
+	Generation            int64                `json:"generation"`
+	TriggerKind           string               `json:"trigger_kind"`
+	Status                string               `json:"status"`
+	Stage                 string               `json:"stage"`
+	WaitingReason         string               `json:"waiting_reason"`
+	ResultText            string               `json:"result_text"`
+	ResultType            string               `json:"result_type"`
+	ResultContent         json.RawMessage      `json:"result_content,omitempty"`
+	OutputStatus          string               `json:"output_status"`
+	MessageID             *string              `json:"message_id,omitempty"`
+	Error                 string               `json:"error,omitempty"`
+	Sources               []map[string]string  `json:"sources"`
+	Steps                 []RunStep            `json:"steps"`
+	CreatedAt             int64                `json:"created_at"`
+	UpdatedAt             int64                `json:"updated_at"`
 }
 
 func (r *Run) Public() PublicRun {
@@ -177,7 +217,7 @@ func (r *Run) Public() PublicRun {
 	_ = json.Unmarshal(r.Sources, &private)
 	for _, source := range private {
 		public := make(map[string]string)
-		for _, key := range []string{"type", "kind", "kb_name", "kb_id", "doc_id", "chunk_id", "title", "message_id", "file_id", "parent_run_id", "requester_id", "history_grant_id", "sender_type", "sender_id", "tool_name"} {
+		for _, key := range []string{"type", "kind", "kb_name", "kb_id", "doc_id", "chunk_id", "title", "message_id", "file_id", "parent_run_id", "requester_id", "history_grant_id", "sender_type", "sender_id", "tool_name", "activity_id"} {
 			if value, ok := source[key].(string); ok {
 				public[key] = value
 			}
@@ -194,6 +234,7 @@ func (r *Run) Public() PublicRun {
 	}
 	public := PublicRun{ID: r.ID, InteractionID: r.InteractionID, BotID: r.BotID, ConvID: r.ConvID,
 		Visibility: r.Visibility, PersonalUserID: r.PersonalUserID, Actions: r.Actions,
+		Origin: r.Origin, Activity: r.Activity, DelegationParentRunID: r.DelegationParentRunID, DelegationDepth: r.DelegationDepth, ChildRunIDs: r.ChildRunIDs,
 		ParentRunID: r.ParentRunID, InteractionStatus: r.InteractionStatus, WaitingReason: r.WaitingReason,
 		BindingID: r.BindingID, RequesterID: r.RequesterID, InputKey: r.InputKey, SourceMessageID: r.SourceMessageID,
 		ControllerID: r.ControllerID, ControlUserIDs: controllers, StopStatus: r.StopStatus, StreamStatus: r.StreamStatus, StopReason: r.StopReason,
@@ -214,7 +255,7 @@ type RunInput struct {
 	ID                string `gorm:"type:uuid;primaryKey"`
 	RunID             string `gorm:"type:uuid"`
 	Version           int64
-	RequesterID       string  `gorm:"type:uuid"`
+	RequesterID       string  `gorm:"type:uuid;serializer:nullable_uuid"`
 	SourceMessageID   *string `gorm:"type:uuid"`
 	AcceptedEditCount int32
 	Provenance        json.RawMessage `gorm:"type:jsonb"`
@@ -234,7 +275,7 @@ type Interaction struct {
 	BotID          string `gorm:"type:uuid"`
 	ConvID         string `gorm:"type:uuid"`
 	BindingID      string `gorm:"type:uuid"`
-	RequesterID    string `gorm:"type:uuid"`
+	RequesterID    string `gorm:"type:uuid;serializer:nullable_uuid"`
 	Visibility     string
 	PersonalUserID *string `gorm:"type:uuid"`
 	Status         string

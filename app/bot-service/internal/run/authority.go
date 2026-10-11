@@ -15,10 +15,34 @@ import (
 	"gorm.io/gorm"
 )
 
+// originAuthorityState also protects terminal viewer projections. Accepted human
+// IM input is independent of later message edits or recall.
+func (s *Service) originAuthorityState(ctx context.Context, r *model.Run) (string, error) {
+	if r.Origin != nil {
+		member, role, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, r.Origin.AuthorizationUserID)
+		if status.Code(err) == codes.PermissionDenied || (err == nil && (member != r.Origin.AuthorizationMemberID || (r.Origin.Kind == "rule" && role > 2))) {
+			return "origin_authorization_revoked", nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := repo.CheckDelegationSource(s.svc.DB.WithContext(ctx), r); err != nil {
+		if status.Code(err) == codes.PermissionDenied {
+			return "delegation_source_revoked", nil
+		}
+		return "", err
+	}
+	return "", nil
+}
+
 // authorityState is a cheap current-row boundary, not an event-driven cache.
 func (s *Service) authorityState(ctx context.Context, r *model.Run) (string, error) {
 	if r.AccessRevoked {
 		return r.StopReason, nil
+	}
+	if reason, err := s.originAuthorityState(ctx, r); reason != "" || err != nil {
+		return reason, err
 	}
 	var binding model.ConvBot
 	err := s.svc.DB.WithContext(ctx).Where("id = ? AND bot_id = ? AND conv_id = ?", r.BindingID, r.BotID, r.ConvID).First(&binding).Error
@@ -292,7 +316,7 @@ func (s *Service) confirmBuiltinStop(ctx context.Context, r *model.Run, generati
 // A stopped executor receives a minimal receipt, not cached materials/results.
 func stopReceipt(r *model.PublicRun) *model.PublicRun {
 	r.ResultText, r.ResultType, r.ResultContent, r.Error = "", "", nil, ""
-	r.WaitingReason = ""
+	r.WaitingReason, r.ContextNotice, r.Activity = "", "", nil
 	r.Sources, r.InputSources = []map[string]string{}, []model.InputSource{}
 	return r
 }
@@ -355,6 +379,9 @@ func (s *Service) decorateControl(ctx context.Context, public *model.PublicRun, 
 		current := r.Public()
 		public.Sources, public.ContextNotice = current.Sources, current.ContextNotice
 		public.ResultText, public.ResultType, public.ResultContent = current.ResultText, current.ResultType, current.ResultContent
+	}
+	if reason == "binding_revoked" || reason == "bot_disabled" || reason == "participation_revoked" {
+		stopReceipt(public)
 	}
 	if err := repo.RunController(s.svc.DB.WithContext(ctx), r, user); err == nil {
 		allowed = (reason == "" || reason == "controller_membership_lost") && r.InteractionStatus == "active"

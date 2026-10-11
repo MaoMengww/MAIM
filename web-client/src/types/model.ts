@@ -137,15 +137,40 @@ export interface BotInConv {
 export type RunSource = (Omit<KnowledgeSource, 'content'> | {
   type: 'request_source' | 'reference' | 'history';
   message_id: string;
-  sender_type: 'user' | 'bot' | 'system';
+  sender_type: 'user' | 'bot' | 'system' | 'activity' | 'rule';
   sender_id?: string;
 } | { type: 'tool'; tool_name: string }
-  | { type: 'file'; file_id: string; sender_type: 'user' | 'bot' | 'system'; sender_id?: string }
-  | { type: 'parent_run'; parent_run_id: string; sender_type: 'user' | 'bot' | 'system'; sender_id?: string }) & {
+  | { type: 'file'; file_id: string; sender_type: 'user' | 'bot' | 'system' | 'activity' | 'rule'; sender_id?: string }
+  | { type: 'parent_run' | 'delegation_result'; parent_run_id: string; sender_type: 'user' | 'bot' | 'system' | 'activity' | 'rule'; sender_id?: string }
+  | { type: 'activity'; activity_id: string; sender_type: 'user' | 'bot' | 'system' | 'activity' | 'rule'; sender_id?: string }) & {
   kind?: string;
   requester_id?: string;
   history_grant_id?: string;
 };
+
+export interface RunOrigin {
+  kind: 'rule' | 'delegation';
+  rule_id?: string;
+  rule_version?: number;
+  authorization_user_id?: string;
+  authorization_member_id?: string;
+  activity_id?: string;
+  source_run_id?: string;
+  delegating_bot_id?: string;
+}
+
+export interface RunActivity {
+  id: string;
+  type: 'message.created' | 'member.joined' | 'member.left' | 'business.activity';
+  conv_id: string;
+  binding_id?: string;
+  message_id?: string;
+  actor_id?: string;
+  text: string;
+  seq: number;
+  data?: unknown;
+}
+
 
 export interface BotRun {
   visibility: 'conversation' | 'personal';
@@ -154,11 +179,16 @@ export interface BotRun {
   id: string;
   interaction_id: string;
   parent_run_id?: string;
+  origin?: RunOrigin;
+  activity?: RunActivity;
+  delegation_parent_run_id?: string;
+  delegation_depth?: number;
+  child_run_ids?: string[];
   interaction_status: 'active' | 'closed';
   bot_id: string;
   conv_id: string;
   binding_id: string;
-  requester_id: string;
+  requester_id?: string;
   controller_id: string;
   control_user_ids: string[];
   stop_status: 'none' | 'requested' | 'confirmed' | 'rejected' | 'unknown';
@@ -171,8 +201,9 @@ export interface BotRun {
   version: number;
   input_sources: {
     version: number;
-    requester_id: string;
-    sender_type: 'user' | 'bot' | 'system';
+    requester_id?: string;
+    sender_type: 'user' | 'bot' | 'system' | 'rule';
+    origin?: RunOrigin;
     content?: string;
     source_message_id?: string;
     message_ids: string[];

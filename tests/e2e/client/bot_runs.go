@@ -44,7 +44,17 @@ type publicRun struct {
 		RequesterID     entityID  `json:"requester_id"`
 		SourceMessageID *entityID `json:"source_message_id"`
 	} `json:"input_sources"`
-	TriggerKind          string `json:"trigger_kind"`
+	TriggerKind           string               `json:"trigger_kind"`
+	Origin                *collaborationOrigin `json:"origin"`
+	DelegationParentRunID *entityID            `json:"delegation_parent_run_id"`
+	ChildRunIDs           []entityID           `json:"child_run_ids"`
+	DelegationDepth       int64                `json:"delegation_depth"`
+	Activity              *struct {
+		MessageID entityID `json:"message_id"`
+		ID        string   `json:"id"`
+		Type      string   `json:"type"`
+	} `json:"activity"`
+	ContextNotice        string `json:"context_notice"`
 	ExecutorType         string `json:"executor_type"`
 	DeliveryStatus       string `json:"delivery_status"`
 	ExecutorStatus       string `json:"executor_status"`
