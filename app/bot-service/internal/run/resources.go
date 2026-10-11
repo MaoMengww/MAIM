@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/maomeng/aim/app/bot-service/internal/graph"
 	"github.com/maomeng/aim/app/bot-service/internal/model"
+	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	kb "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase"
 	"github.com/maomeng/aim/pkg/identity"
@@ -88,6 +89,11 @@ func (s *Service) ResourceAuthorization(ctx context.Context, user, executorBot s
 		if err != nil {
 			return nil, err
 		}
+		if executorBot != "" {
+			if err := repo.CheckExecutionLease(s.svc.DB.WithContext(ctx), r, req.Generation); err != nil {
+				return nil, err
+			}
+		}
 		if !slices.Contains(r.ResourceGrantIDs, req.GrantID) {
 			return nil, status.Error(codes.PermissionDenied, "grant was not selected for Run")
 		}
@@ -115,6 +121,11 @@ func (s *Service) ResourceAuthorization(ctx context.Context, user, executorBot s
 			}
 			if executorBot != "" && (current.ExecutionGeneration != req.Generation || current.InputVersion != req.InputVersion || current.Status == "stopping" || current.Status == "waiting_authorization" || !slices.Contains([]string{"accepted", "stop_rejected"}, current.ExecutorStatus)) {
 				return status.Error(codes.PermissionDenied, "executor claim superseded")
+			}
+			if executorBot != "" {
+				if err := repo.CheckExecutionLease(s.svc.DB.WithContext(ctx), current, req.Generation); err != nil {
+					return err
+				}
 			}
 			return s.authorize(ctx, current, false)
 		}

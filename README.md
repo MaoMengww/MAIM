@@ -682,6 +682,14 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 - 最低活动订阅通过管理员的会话绑定 `bot_settings.activity_types:["message.created"]` 显式启用，平台写入安全整数 `activity_start_seq`，不补授此前历史。当前绑定/来源可见性复核后独立投递 `bot.activity`，不带 Run、不创建工作、不授权输出；默认无订阅。更完整订阅/自动规则仍由后续票处理。
 - 公开卡片展示投递、执行器接受/完成、实际能力、输入来源、认领代次、结果和最终消息；断线后以权威查询恢复。验收 `python3 tests/e2e/run.py --scenario bot-executor-runs` 覆盖真实 WS/Webhook 计算、凭据隔离、顺序/幂等、补充/停止/恢复、获准活动、跨实例输出和历史。
 
+#### 执行器故障与安全恢复
+
+- `019_safe_runtime_recovery.sql` 持久化认领期限和内置 execute outbox 的代次。第三方成功认领或新业务更新续租 60 秒；长步骤、等待输入及等待授权期间每 20 秒提交 `run.heartbeat`：`{type:"run.heartbeat",run_id,generation,input_version,sequence:0,update_key}`，不带业务状态/正文、不占业务 sequence。每次心跳使用新键；重复 receipt、传输 ACK 和 WS ping 不续租。
+- 认领过期显示 `executor_status=lost`；普通工作阶段为 `executor_lost`，等待输入、等待授权及停止未确认保留原语义。公开 `executor_lease_until` 为 Unix 秒。恢复不能把失联解释为实际停工；内置安全步骤由 outbox 再认领，第三方未结束且无未知外部行动的工作须明确 `resume`。新认领推进代次；旧代次的进展、结果、资源、行动及 receipt 回放均被拒绝。终态的同代次、同输入版本、同内容耐久 receipt 可在原租约过期后返回当前授权投影；原代次的无材料停止确认亦可记录实际停工，两者均不续租、不恢复执行权。终态不得复活；继续终态工作使用 `parent_run_id` 创建关联新 Run。
+- 平台模型请求快照、已完成轨迹/行动、压缩检查点和 Eino execution checkpoint 分别核对。`020_agent_checkpoint_boundary.sql` 保存框架检查点的分支、来源版本、轨迹水位、接受输入上界及组装版本；检查点与平台事实不匹配时从耐久轨迹恢复，不重放已完成模型或工具事实，不依赖供应商 KV 缓存。聊天消息的编辑、删除或撤回不使已接受快照失效；当前真实授权仍逐边界检查。
+- 外部行动成功且 receipt 已耐久提交时复用可核对结果；只读/草稿步骤的未确认往返可安全重试。外部写已派发但没有耐久结果且无外部核对能力时，行动为 `unknown`，工作停在 `waiting_authorization/action_outcome_unknown`，等待人工核对；补充、恢复、接手或重放批准不能盲目重做。已发生副作用不自动回滚，也不承诺外部系统恰好一次。
+- 输出请求与最终消息 receipt 使用稳定发布键恢复，跨 domain 不假设原子事务；临时输出丢失不影响权威 Run 查询。公开故障验收：`python3 tests/e2e/run.py --scenario bot-recovery --timeout 100s`，实际 SIGKILL、认领到期/重放及消息服务停服，核对受控外部动作数量和唯一最终消息；`bot-compaction` 另验证重启后的摘要/尾部表示和接受快照。
+
 #### 停止、接手与当前资格
 
 - `008_run_control_membership.sql` 持久化原请求者、后续负责人、显式控制授权及成员资格代次。`takeover` 只改变后续负责人并清空旧显式授权，不改原来源、不转移私人资源许可；退群重入不会复活旧控制权。REST 的 `can_control` 是当前查看者投影，不随共享 WS 或执行器信封广播。

@@ -156,7 +156,7 @@ func (s *Service) workingModelView(ctx context.Context, r *model.Run, generation
 	var pending model.RunModelCall
 	err := s.svc.DB.WithContext(ctx).Where("run_id = ? AND status = 'requested'", r.ID).Order("created_at DESC").First(&pending).Error
 	if err == nil {
-		if pending.BranchVersion != r.BranchVersion || pending.InputUpperBound != r.AppliedInputVersion || pending.TrajectoryVersion != r.TrajectoryVersion {
+		if pending.AssemblyVersion != config.AssemblyVersion || pending.SourceRevision != r.SourceRevision || pending.BranchVersion != r.BranchVersion || pending.InputUpperBound != r.AppliedInputVersion || pending.TrajectoryVersion != r.TrajectoryVersion {
 			return nil, status.Error(codes.Aborted, "pending model view superseded")
 		}
 		request := &llm.ChatReq{}

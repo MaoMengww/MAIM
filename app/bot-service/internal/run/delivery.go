@@ -49,7 +49,10 @@ func (s *Service) deliverRun(ctx context.Context, item *model.RunOutbox) error {
 		if err := s.authorize(ctx, r, false); err != nil {
 			switch status.Code(err) {
 			case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.FailedPrecondition:
-				_, err = s.repo.ChangeLifecycle(ctx, r.ID, r.ExecutionGeneration, func(tx *gorm.DB, current *model.Run) error {
+				_, err = s.repo.ChangeLifecycle(ctx, r.ID, 0, func(tx *gorm.DB, current *model.Run) error {
+					if current.ExecutionGeneration != payload.Generation {
+						return status.Error(codes.Aborted, "delivery generation superseded")
+					}
 					return requestRunStop(tx, current, "authorization_revoked")
 				})
 				return err
@@ -71,7 +74,10 @@ func (s *Service) deliverRun(ctx context.Context, item *model.RunOutbox) error {
 		if stop {
 			return status.Error(codes.Unavailable, "original executor stop route unavailable")
 		}
-		_, err = s.repo.ChangeLifecycle(ctx, r.ID, r.ExecutionGeneration, func(tx *gorm.DB, current *model.Run) error {
+		_, err = s.repo.ChangeLifecycle(ctx, r.ID, 0, func(tx *gorm.DB, current *model.Run) error {
+			if current.ExecutionGeneration != payload.Generation {
+				return status.Error(codes.Aborted, "delivery generation superseded")
+			}
 			return requestRunStop(tx, current, "executor_routing_changed")
 		})
 		return err
@@ -85,8 +91,8 @@ func (s *Service) deliverRun(ctx context.Context, item *model.RunOutbox) error {
 	if bot.ConnMode == "ws" {
 		return status.Error(codes.Unavailable, "awaiting executor delivery acknowledgement or claim")
 	}
-	_, err = s.repo.Change(ctx, r.ID, r.ExecutionGeneration, func(_ *gorm.DB, current *model.Run) error {
-		if current.InputVersion != payload.InputVersion {
+	_, err = s.repo.ChangeLifecycle(ctx, r.ID, 0, func(_ *gorm.DB, current *model.Run) error {
+		if current.ExecutionGeneration != payload.Generation || current.InputVersion != payload.InputVersion {
 			return status.Error(codes.Aborted, "input delivery superseded")
 		}
 		if current.DeliveryStatus == "pending" {

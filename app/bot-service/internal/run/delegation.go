@@ -66,6 +66,11 @@ func (s *Service) delegationParent(ctx context.Context, executor string, req del
 	if !terminalReplay && parent.ExecutorType == "third_party" && !slices.Contains([]string{"accepted", "stop_rejected"}, parent.ExecutorStatus) {
 		return nil, status.Error(codes.PermissionDenied, "current executor claim required")
 	}
+	if !terminalReplay {
+		if err := repo.CheckExecutionLease(s.svc.DB.WithContext(ctx), parent, req.Generation); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.authorize(ctx, parent, true); err != nil {
 		return nil, err
 	}
@@ -137,6 +142,9 @@ func (s *Service) delegation(ctx context.Context, executor string, req delegatio
 			}
 			if current.ExecutionGeneration != req.Generation || current.InputVersion != req.InputVersion || repo.TerminalRun(&current) || current.Status == "stopping" || current.Status == "waiting_authorization" {
 				return status.Error(codes.Aborted, "parent executor claim superseded")
+			}
+			if err := repo.CheckExecutionLease(tx, &current, req.Generation); err != nil {
+				return err
 			}
 			if err := repo.LockRunAuthority(tx, &current); err != nil {
 				return err

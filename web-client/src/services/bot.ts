@@ -168,7 +168,7 @@ export function normalizeRun(value: unknown): BotRun {
   if (run.visibility === 'conversation' && ((output === 'committed' && !run.message_id) || (status === 'succeeded' && output !== 'committed'))) throw new Error('执行提交结果缺少最终消息确认');
   if (run.executor_type !== 'builtin' && run.executor_type !== 'third_party') throw new Error('执行器类型无效');
   if (!['pending', 'delivered', 'acknowledged'].includes(String(run.delivery_status))) throw new Error('投递状态无效');
-  if (!['pending', 'accepted', 'completed', 'stopped', 'stop_rejected'].includes(String(run.executor_status))) throw new Error('执行器接受状态无效');
+  if (!['pending', 'accepted', 'completed', 'stopped', 'stop_rejected', 'lost'].includes(String(run.executor_status))) throw new Error('执行器接受状态无效');
   const capabilities = run.executor_capabilities;
   if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)) throw new Error('执行器能力无效');
   const caps = capabilities as Record<string, unknown>;
@@ -198,6 +198,7 @@ export function normalizeRun(value: unknown): BotRun {
     input_key: text(run.input_key, 'run.input_key'), source_message_id: optionalEntityId(run.source_message_id, 'run.source_message_id'),
     input_version: sequence(run.input_version, 'run.input_version', true), version: sequence(run.version, 'run.version', true),
     generation: sequence(run.generation, 'run.generation'),
+    executor_lease_until: run.executor_lease_until == null ? undefined : sequence(run.executor_lease_until, 'run.executor_lease_until'),
     input_sources: run.input_sources.map((value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('输入来源格式无效');
       const source = value as Record<string, unknown>;

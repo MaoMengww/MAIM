@@ -397,7 +397,7 @@ func (h *WSHandler) handleBot(ctx context.Context, s *session.Session, raw []byt
 			return errors.New("invalid delegation response contract")
 		}
 		return reply(s, map[string]any{"type": "bot.run.delegation.receipt", "result": json.RawMessage(result.GetBody())})
-	case "run.delivery_ack", "run.claim", "run.update":
+	case "run.delivery_ack", "run.claim", "run.heartbeat", "run.update":
 	default:
 		return errors.New("unsupported bot event")
 	}

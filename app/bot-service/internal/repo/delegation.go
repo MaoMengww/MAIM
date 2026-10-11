@@ -74,6 +74,9 @@ func acceptDelegation(tx *gorm.DB, child *model.Run) error {
 	if parent.ExecutorType == "third_party" && parent.ExecutorStatus != "accepted" && parent.ExecutorStatus != "stop_rejected" {
 		return status.Error(codes.PermissionDenied, "current executor claim required")
 	}
+	if err := CheckExecutionLease(tx, &parent, child.DelegationSourceGeneration); err != nil {
+		return err
+	}
 	if err := lockRunAuthority(tx, &parent, true); err != nil {
 		return err
 	}

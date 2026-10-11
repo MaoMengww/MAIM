@@ -97,8 +97,47 @@ func (s *Service) reconcile(ctx context.Context, r *model.Run) (*model.Run, erro
 	if err := s.refreshAuthorizations(ctx, r); err != nil {
 		return r, err
 	}
+	var recoveryErr error
+	r, recoveryErr = s.recoverActions(ctx, r)
+	if recoveryErr != nil {
+		return r, recoveryErr
+	}
 	if repo.TerminalRun(r) {
 		return r, nil
+	}
+	if (r.ExecutorStatus == "accepted" || r.ExecutorStatus == "stop_rejected") && (r.ExecutorType == "third_party" || (r.Status != "waiting_input" && r.Status != "waiting_authorization")) {
+		leaseErr := repo.CheckExecutionLease(s.svc.DB.WithContext(ctx), r, r.ExecutionGeneration)
+		if leaseErr != nil && status.Code(leaseErr) != codes.Aborted {
+			return r, leaseErr
+		}
+		if status.Code(leaseErr) == codes.Aborted {
+			current, err := s.repo.ChangeLifecycle(ctx, r.ID, 0, func(tx *gorm.DB, current *model.Run) error {
+				if current.Version != r.Version {
+					return status.Error(codes.Aborted, "Run changed during lease reconciliation")
+				}
+				if err := repo.CheckExecutionLease(tx, current, current.ExecutionGeneration); status.Code(err) != codes.Aborted {
+					if err != nil {
+						return err
+					}
+					return status.Error(codes.Aborted, "executor renewed during reconciliation")
+				}
+				current.ExecutorStatus = "lost"
+				current.StreamStatus = "closed"
+				if current.Status == "accepted" || current.Status == "running" {
+					current.Stage = "executor_lost"
+				} else if current.Status == "stopping" && current.StopStatus == "requested" {
+					current.StopStatus = "unknown"
+				}
+				return nil
+			})
+			if status.Code(err) == codes.Aborted || status.Code(err) == codes.FailedPrecondition {
+				return s.repo.Get(ctx, r.ID)
+			}
+			if err != nil {
+				return r, err
+			}
+			r = current
+		}
 	}
 	if len(r.ControlUserIDs) > 0 {
 		var stale []string
@@ -263,7 +302,7 @@ func (s *Service) guardExecution(parent context.Context, r *model.Run, generatio
 				return
 			}
 			current, err = s.reconcile(ctx, current)
-			if err != nil || current.ExecutionGeneration != generation || repo.TerminalRun(current) || current.Status == "stopping" || (current.Status == "waiting_authorization" && current.Stage != "pending_action") {
+			if err != nil || repo.CheckExecutionLease(s.svc.DB.WithContext(ctx), current, generation) != nil || repo.TerminalRun(current) || current.Status == "stopping" || (current.Status == "waiting_authorization" && current.Stage != "pending_action") {
 				cancel()
 				return
 			}
@@ -284,8 +323,8 @@ func (s *Service) executionBoundary(ctx context.Context, r *model.Run, generatio
 	if err != nil {
 		return nil, err
 	}
-	if current.ExecutionGeneration != generation {
-		return nil, status.Error(codes.Aborted, "execution generation superseded")
+	if err := repo.CheckExecutionLease(s.svc.DB.WithContext(ctx), current, generation); err != nil {
+		return nil, err
 	}
 	if repo.TerminalRun(current) || current.Status == "stopping" || current.Status == "waiting_authorization" {
 		return nil, status.Error(codes.FailedPrecondition, "Run execution is suspended")

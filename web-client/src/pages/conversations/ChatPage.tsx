@@ -398,6 +398,8 @@ const RUN_STAGE: Record<string, string> = {
   control_granted: '授予执行控制权', control_revoked: '撤销执行控制权', stop_rejected: '执行器拒绝停止',
   stop_unknown: '停止结果未知', stream_closed: '会话输出流关闭',
   compacting: '压缩已完成工作段',
+  executor_lost: '执行器失联 · 认领已过期',
+  action_outcome_unknown: '外部行动结果未知 · 等待人工核对',
 };
 const RUN_OUTPUT: Record<BotRun['output_status'], string> = {
   none: '尚无结果', generated: '结果已生成 · 尚未发送', pending: '结果待提交 · 尚未发送',
@@ -556,10 +558,14 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
     okText: operation === 'clear_context' ? '清空上下文' : '结束交互', cancelText: '取消',
     onOk: () => control(operation),
   });
-  const state = run.status === 'waiting_authorization' && run.stage === 'pending_action'
-    ? { label: '等待具体行动确认', color: 'warning' }
-    : run.status === 'stopping' && (run.stop_status === 'rejected' || run.stop_status === 'unknown')
-      ? RUN_STOP[run.stop_status] : RUN_STATUS[run.status];
+  const state = run.stage === 'action_outcome_unknown'
+    ? { label: '行动结果未知', color: 'warning' }
+    : run.executor_status === 'lost'
+      ? { label: '执行器失联', color: 'warning' }
+      : run.status === 'waiting_authorization' && run.stage === 'pending_action'
+        ? { label: '等待具体行动确认', color: 'warning' }
+        : run.status === 'stopping' && (run.stop_status === 'rejected' || run.stop_status === 'unknown')
+          ? RUN_STOP[run.stop_status] : RUN_STATUS[run.status];
   const stop = RUN_STOP[run.stop_status];
   const targetHasGrant = !!controlTarget && run.control_user_ids.includes(controlTarget);
   const controllerPresent = members.some((member) => member.user_id === run.controller_id);
@@ -607,6 +613,8 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
     {run.context_notice && <p className="chat-run-notice" role="status">{run.context_notice}</p>}
     <div className="chat-run-stage" role="status">当前阶段：{RUN_STAGE[run.stage] || run.stage} · {RUN_OUTPUT[run.output_status]}</div>
     <RunActions run={run} onUpdated={onUpdated} />
+    {run.executor_status === 'lost' && <div className="chat-run-waiting" role="status">执行器认领已过期，旧执行器不能提交进展或结果。只有无未知外部行动的未结束工作可以明确恢复；失联不表示外部行动已停止。</div>}
+    {run.stage === 'action_outcome_unknown' && <div className="chat-run-waiting" role="status">外部行动可能已经完成，尚无可核对的结果。请人工核对外部系统；AIM 不会重做行动，也不会自动回滚已发生的副作用。</div>}
     {run.status === 'waiting_input' && <div className="chat-run-waiting" role="status">待补充事项：{run.waiting_reason || '执行器正在等待补充信息'}</div>}
     {run.status === 'waiting_authorization' && <div className="chat-run-waiting" role="status">
       {run.actions.some((action) => action.status === 'pending')
@@ -644,7 +652,7 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       <div className="chat-run-meta" role="status">
         <span>第三方执行器</span>
         <span>送达：{{ pending: '等待投递', delivered: '传输已送达', acknowledged: '执行器确认收到' }[run.delivery_status]}</span>
-        <span>工作：{{ pending: '执行器尚未接受', accepted: '执行器已接受', completed: '执行器已完成', stopped: '执行器已停止', stop_rejected: '执行器拒绝取消' }[run.executor_status]}</span>
+        <span>工作：{{ pending: '执行器尚未接受', accepted: '执行器已接受', completed: '执行器已完成', stopped: '执行器已停止', stop_rejected: '执行器拒绝取消', lost: '执行器失联，认领已过期' }[run.executor_status]}</span>
       </div>
       <details className="chat-run-details"><summary>执行器实际能力</summary>
         <p>输入类型：{run.executor_capabilities.input_types.join('、')}。传输确认不表示工作完成。</p>
@@ -661,9 +669,9 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
         && <Button danger loading={controlling} onClick={() => void control('stop')}>
           {(run.child_run_ids?.length ?? 0) > 0 ? terminal ? '请求关联子工作停止' : '请求父子工作停止' : '请求停止'}
         </Button>}
-      {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_resume && run.status === 'waiting_input' && run.stop_status === 'none'
+      {canOperate && !terminal && run.output_status === 'none' && run.executor_capabilities.supports_resume && (run.status === 'waiting_input' || run.executor_status === 'lost' && (run.status === 'accepted' || run.status === 'running')) && run.stage !== 'action_outcome_unknown' && run.stop_status === 'none'
         && <Button loading={controlling} onClick={() => void control('resume')}>请求恢复</Button>}
-      {canOperate && !terminal && run.status !== 'stopping'
+      {canOperate && !terminal && run.status !== 'stopping' && run.stage !== 'action_outcome_unknown'
         && (run.status === 'waiting_authorization'
           ? run.stop_status === (run.executor_type === 'third_party' ? 'confirmed' : 'none')
           : run.stop_status === 'none')

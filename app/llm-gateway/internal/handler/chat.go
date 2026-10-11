@@ -219,6 +219,16 @@ func (h *LLMGatewayHandler) authorizeRunRequest(ctx context.Context, req *pb.Cha
 			return status.Error(codes.PermissionDenied, "Run inference authority changed")
 		}
 		var count int64
+		// A frozen request and matching generation do not prove a live claim.
+		// Check the same durable lease as the Bot execution boundary before any
+		// provider dispatch; expired owners cannot spend another model call.
+		if err := tx.Table("bot.runs AS r").Where("r.id = ? AND r.execution_generation = ?", *req.RunId, req.ExecutionGeneration).
+			Where("(r.executor_type = 'third_party' AND r.executor_lease_until > NOW()) OR (r.executor_type = 'builtin' AND EXISTS (SELECT 1 FROM bot.run_outbox lease WHERE lease.run_id = r.id AND lease.kind = 'execute' AND lease.execution_generation = r.execution_generation AND lease.completed_at IS NULL AND lease.lease_until > NOW()))").Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 1 {
+			return status.Error(codes.PermissionDenied, "Run inference claim expired or superseded")
+		}
 		if err := tx.Table("messaging.conv_bots AS c").Joins("JOIN bot.bots b ON b.id = c.bot_id").Where("c.id = ? AND c.bot_id = ? AND c.conv_id = ? AND c.revoked_at IS NULL AND c.authorization_version = ? AND b.status = 'active' AND b.authorization_version = ? AND COALESCE(NULLIF(c.bot_settings, '')::jsonb->>'enabled', 'true') = 'true'", run.BindingID, run.BotID, run.ConvID, run.BindingAuthorizationVersion, run.BotAuthorizationVersion).Count(&count).Error; err != nil {
 			return err
 		}

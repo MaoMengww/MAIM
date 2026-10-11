@@ -65,6 +65,7 @@ type Run struct {
 	DeliveryStatus       string
 	ExecutorStatus       string
 	ExecutorSequence     int64
+	ExecutorLeaseUntil   *time.Time
 	ControlOperation     string
 	TriggerKind          string
 	Status               string
@@ -189,6 +190,7 @@ type PublicRun struct {
 	ExecutorCapabilities  ExecutorCapabilities `json:"executor_capabilities"`
 	DeliveryStatus        string               `json:"delivery_status"`
 	ExecutorStatus        string               `json:"executor_status"`
+	ExecutorLeaseUntil    int64                `json:"executor_lease_until,omitzero"`
 	Generation            int64                `json:"generation"`
 	TriggerKind           string               `json:"trigger_kind"`
 	Status                string               `json:"status"`
@@ -245,6 +247,9 @@ func (r *Run) Public() PublicRun {
 		ExecutorType:  r.ExecutorType, ExecutorCapabilities: r.ExecutorCapabilities, DeliveryStatus: r.DeliveryStatus, ExecutorStatus: r.ExecutorStatus, Generation: r.ExecutionGeneration, TriggerKind: r.TriggerKind, ResultType: r.ResultType, ResultContent: r.ResultContent,
 		ResultText: r.ResultText, OutputStatus: r.OutputStatus, MessageID: r.MessageID, Error: r.Error,
 		Sources: sources, Steps: steps, CreatedAt: r.CreatedAt.Unix(), UpdatedAt: r.UpdatedAt.Unix()}
+	if r.ExecutorLeaseUntil != nil {
+		public.ExecutorLeaseUntil = r.ExecutorLeaseUntil.Unix()
+	}
 	if r.ResultInvalidated {
 		public.ResultText, public.ResultType, public.ResultContent = "", "", nil
 	}
@@ -323,9 +328,15 @@ type RunModelCall struct {
 func (RunModelCall) TableName() string { return "bot.run_model_calls" }
 
 type RunAgentCheckpoint struct {
-	RunID      string    `gorm:"type:uuid;primaryKey"`
-	Checkpoint []byte    `gorm:"type:bytea;not null"`
-	UpdatedAt  time.Time `gorm:"not null"`
+	RunID               string `gorm:"type:uuid;primaryKey"`
+	Checkpoint          []byte `gorm:"type:bytea;not null"`
+	ExecutionGeneration int64
+	BranchVersion       int64
+	SourceRevision      int64
+	TrajectoryVersion   int64
+	InputUpperBound     int64
+	AssemblyVersion     string
+	UpdatedAt           time.Time `gorm:"not null"`
 }
 
 func (RunAgentCheckpoint) TableName() string { return "bot.run_agent_checkpoints" }
@@ -340,7 +351,7 @@ type RunOutbox struct {
 	AvailableAt         time.Time
 	LeaseUntil          *time.Time
 	LeaseToken          *string `gorm:"type:uuid"`
-	ExecutionGeneration int64   `gorm:"-"` // Captured only by Claim; never read from a newer worker.
+	ExecutionGeneration int64
 	CompletedAt         *time.Time
 	CreatedAt           time.Time
 }

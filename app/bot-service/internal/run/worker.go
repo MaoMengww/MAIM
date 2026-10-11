@@ -115,6 +115,10 @@ func (s *Service) execute(ctx context.Context, item *model.RunOutbox) error {
 	if err != nil {
 		return err
 	}
+	r, err = s.recoverActions(ctx, r)
+	if err != nil {
+		return err
+	}
 	if repo.TerminalRun(r) || r.Status == "waiting_input" || r.Status == "waiting_authorization" {
 		return nil
 	}
@@ -183,9 +187,12 @@ func (s *Service) advance(ctx context.Context, r *model.Run, generation int64) e
 	if config.AssemblyVersion != assemblyVersion {
 		return status.Error(codes.FailedPrecondition, "unsupported request assembly version")
 	}
-	if r.TrajectoryVersion > 0 && r.Status == "accepted" {
+	if r.TrajectoryVersion > 0 && (r.Status == "accepted" || r.ExecutorStatus == "lost") {
 		if _, err := s.repo.Change(ctx, r.ID, generation, func(_ *gorm.DB, current *model.Run) error {
-			current.Status, current.ExecutorStatus = "running", "accepted"
+			current.Status, current.ExecutorStatus, current.StreamStatus = "running", "accepted", "open"
+			if current.Stage == "executor_lost" {
+				current.Stage = "resuming"
+			}
 			return nil
 		}); err != nil {
 			return err
@@ -369,7 +376,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		if err := protojson.Unmarshal(call.Request, request); err != nil {
 			return err
 		}
-		if call.InputUpperBound != r.AppliedInputVersion || call.TrajectoryVersion != r.TrajectoryVersion || call.BranchVersion != r.BranchVersion {
+		if call.AssemblyVersion != config.AssemblyVersion || call.SourceRevision != r.SourceRevision || call.InputUpperBound != r.AppliedInputVersion || call.TrajectoryVersion != r.TrajectoryVersion || call.BranchVersion != r.BranchVersion {
 			return status.Error(codes.FailedPrecondition, "pending request snapshot does not match the trajectory")
 		}
 		request.RunId, request.ExecutionGeneration, request.InputVersion = &r.ID, generation, call.InputUpperBound
@@ -661,6 +668,12 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 		return err
 	}
 	result, toolErr := s.invokeAction(ctx, r, action, frozen)
+	// An ambiguous external write is not a failed paired tool result. Keep the
+	// pending call and durable unknown action for human reconciliation, never
+	// let a new Runner turn it into an automatic retry or a successful answer.
+	if action.Status == "unknown" || action.Status == "executing" && toolErr != nil {
+		return status.Error(codes.FailedPrecondition, "action outcome unknown; human reconciliation required")
+	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -734,7 +747,7 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 			if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
 				return err
 			}
-			if err := s.actionFence(tx, current, current.ExecutionGeneration, current.InputVersion); err != nil {
+			if err := s.actionAuthorityFence(tx, current, current.ExecutionGeneration, current.InputVersion); err != nil {
 				return err
 			}
 			if err := resourcegrant.CheckIDs(tx, resourceAccess(current), false, true); err != nil {

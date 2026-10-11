@@ -328,7 +328,9 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 		}
 		current.ContextNotice = "Revoked source authorization and dependent context were removed."
 		if !repo.TerminalRun(current) {
-			current.ExecutionGeneration++
+			if current.ExecutorType == "builtin" {
+				current.ExecutionGeneration++
+			}
 			if err := requestRunStop(tx, current, "source_authorization_revoked"); err != nil {
 				return err
 			}

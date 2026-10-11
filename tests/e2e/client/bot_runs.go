@@ -58,6 +58,7 @@ type publicRun struct {
 	ExecutorType         string `json:"executor_type"`
 	DeliveryStatus       string `json:"delivery_status"`
 	ExecutorStatus       string `json:"executor_status"`
+	ExecutorLeaseUntil   *int64 `json:"executor_lease_until"`
 	ExecutorCapabilities struct {
 		InputTypes     []string `json:"input_types"`
 		SupportsInput  bool     `json:"supports_input"`

@@ -254,6 +254,14 @@ func (s *Service) decorateActions(ctx context.Context, run *model.PublicRun, use
 
 // A confirmation discloses only this action, never its Run or private results.
 func (s *Service) actionDisclosure(ctx context.Context, r *model.Run, a *model.RunAction, user string) error {
+	if err := s.actionDisclosureAccess(ctx, r, a, user); err != nil {
+		return err
+	}
+	return s.currentActionScope(s.svc.DB.WithContext(ctx), r, a)
+}
+
+// Receipt replay requires current disclosure rights, not a renewed permit.
+func (s *Service) actionDisclosureAccess(ctx context.Context, r *model.Run, a *model.RunAction, user string) error {
 	tx := s.svc.DB.WithContext(ctx)
 	if err := s.actionSourcesCurrent(tx, r, a); err != nil {
 		return err
@@ -276,7 +284,7 @@ func (s *Service) actionDisclosure(ctx context.Context, r *model.Run, a *model.R
 	if err := s.authorize(ctx, r, false); err != nil {
 		return err
 	}
-	return s.currentActionScope(tx, r, a)
+	return actionDefinitionCurrent(tx, r, a)
 }
 
 func (s *Service) currentActionScope(tx *gorm.DB, r *model.Run, a *model.RunAction) error {
@@ -286,6 +294,10 @@ func (s *Service) currentActionScope(tx *gorm.DB, r *model.Run, a *model.RunActi
 	if r.AccessRevoked || r.Status == "stopping" || a.RunID != r.ID || a.BotID != r.BotID || a.BindingID != r.BindingID || a.RequesterID != r.RequesterID || a.Generation != r.ExecutionGeneration || a.InputVersion != r.InputVersion || !actionPrincipalMatches(a, r) || !a.ExpiresAt.After(time.Now()) {
 		return status.Error(codes.PermissionDenied, "action scope is no longer current")
 	}
+	return actionDefinitionCurrent(tx, r, a)
+}
+
+func actionDefinitionCurrent(tx *gorm.DB, r *model.Run, a *model.RunAction) error {
 	var frozen component.RunTool
 	if json.Unmarshal(a.ToolDefinition, &frozen) != nil || frozen.ServerID != a.ServerID || frozen.Name != a.ToolName || frozen.DefinitionHash != a.DefinitionHash || frozen.Risk != a.Risk {
 		return status.Error(codes.PermissionDenied, "action definition changed")
@@ -385,12 +397,22 @@ func redactActionSecret(value any, secret string) any {
 
 // actionFence is rechecked under the Run lock, taking the same participation rows
 // as normal execution. A checkpoint, Bot ownership or conversation role is not approval.
-func (s *Service) actionFence(tx *gorm.DB, r *model.Run, generation, input int64) error {
+func (s *Service) actionAuthorityFence(tx *gorm.DB, r *model.Run, generation, input int64) error {
 	if repo.TerminalRun(r) || r.Status == "stopping" || r.AccessRevoked || r.ExecutionGeneration != generation || r.InputVersion != input {
 		return status.Error(codes.Aborted, "action execution authority superseded")
 	}
 	if r.Status == "waiting_authorization" && r.Stage != "pending_action" {
 		return status.Error(codes.FailedPrecondition, "Run requires explicit takeover")
+	}
+	if err := unresolvedWriteAction(tx, r); err != nil {
+		return err
+	}
+	return s.actionParticipationFence(tx, r)
+}
+
+func (s *Service) actionParticipationFence(tx *gorm.DB, r *model.Run) error {
+	if r.AccessRevoked {
+		return status.Error(codes.PermissionDenied, "Run authority revoked")
 	}
 	var bot model.Bot
 	var binding model.ConvBot
@@ -414,6 +436,13 @@ func (s *Service) actionFence(tx *gorm.DB, r *model.Run, generation, input int64
 		return err
 	}
 	return repo.CheckRunSources(tx, r)
+}
+
+func (s *Service) actionFence(tx *gorm.DB, r *model.Run, generation, input int64) error {
+	if err := s.actionAuthorityFence(tx, r, generation, input); err != nil {
+		return err
+	}
+	return repo.CheckExecutionLease(tx, r, generation)
 }
 
 func actionPrincipalMatches(a *model.RunAction, r *model.Run) bool {
@@ -491,18 +520,9 @@ func (s *Service) prepareAction(ctx context.Context, r *model.Run, frozen compon
 		if err != nil {
 			return err
 		}
-		priorErr := tx.Where("run_id = ? AND submission_key = ?", r.ID, submission).First(&result).Error
+		priorErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("run_id = ? AND submission_key = ?", r.ID, submission).First(&result).Error
 		if priorErr == nil {
-			if err := s.actionSourcesCurrent(tx, current, &result); err != nil {
-				return err
-			}
-			if !actionPrincipalMatches(&result, current) {
-				return status.Error(codes.PermissionDenied, "action principal changed")
-			}
-			if result.ParametersHash != digest || result.DefinitionHash != frozen.DefinitionHash || result.Generation != r.ExecutionGeneration || result.InputVersion != r.InputVersion {
-				return status.Error(codes.AlreadyExists, "action submission differs from its exact authorization")
-			}
-			return nil
+			return s.rebindAction(tx, current, &result, frozen, server, digest)
 		}
 		if !errors.Is(priorErr, gorm.ErrRecordNotFound) {
 			return priorErr
@@ -578,7 +598,7 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 	var server model.McpServer
 	replay := false
 	_, err := s.repo.Change(ctx, r.ID, r.ExecutionGeneration, func(tx *gorm.DB, current *model.Run) error {
-		if err := s.actionFence(tx, current, a.Generation, a.InputVersion); err != nil {
+		if err := s.actionFence(tx, current, r.ExecutionGeneration, r.InputVersion); err != nil {
 			return err
 		}
 		var err error
@@ -589,15 +609,8 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", a.ID).First(a).Error; err != nil {
 			return err
 		}
-		if err := s.actionSourcesCurrent(tx, current, a); err != nil {
+		if err := s.rebindAction(tx, current, a, frozen, server, a.ParametersHash); err != nil {
 			return err
-		}
-		if !actionPrincipalMatches(a, current) || a.Generation != current.ExecutionGeneration || a.InputVersion != current.InputVersion || a.BindingID != current.BindingID || a.RequesterID != current.RequesterID || a.DefinitionHash != frozen.DefinitionHash {
-			return status.Error(codes.Aborted, "stale action scope")
-		}
-		_, digest, err := canonicalActionArguments(a.Arguments, server)
-		if err != nil || digest != a.ParametersHash {
-			return status.Error(codes.PermissionDenied, "action parameters changed")
 		}
 		switch a.Status {
 		case "succeeded", "failed":
@@ -605,7 +618,7 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 			return nil
 		case "executing", "unknown":
 			return status.Error(codes.FailedPrecondition, "action outcome unknown; external write will not be replayed")
-		case "denied", "revoked":
+		case "denied", "revoked", "expired":
 			replay = true
 			a.Result = `{"status":"` + a.Status + `"}`
 			return nil
@@ -617,17 +630,8 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 			return status.Error(codes.PermissionDenied, "action authorization expired")
 		}
 		if actionWrite(a.Risk) {
-			if server.OwnerType != "user" || server.OwnerID == nil || *server.OwnerID != a.ApproverID {
-				return status.Error(codes.PermissionDenied, "action approver no longer owns resource")
-			}
-			if a.GrantID != nil {
-				var grant model.ActionGrant
-				if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND revoked_at IS NULL AND expires_at > NOW()", *a.GrantID).First(&grant).Error; err != nil {
-					return status.Error(codes.PermissionDenied, "automatic action permission revoked")
-				}
-				if !actionGrantPrincipal(tx, &grant, current) || grant.BindingID != current.BindingID || grant.RequesterID != current.RequesterID || grant.ParametersHash != a.ParametersHash || grant.DefinitionHash != a.DefinitionHash {
-					return status.Error(codes.PermissionDenied, "automatic action scope changed")
-				}
+			if err := actionApprovalCurrent(tx, current, a, server); err != nil {
+				return err
 			}
 		}
 		now := time.Now()
@@ -668,16 +672,9 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 			if !actionPrincipalMatches(&live, current) || !live.ExpiresAt.After(time.Now()) || live.ParametersHash != a.ParametersHash || live.Generation != current.ExecutionGeneration || live.InputVersion != current.InputVersion {
 				return status.Error(codes.PermissionDenied, "claimed action scope superseded")
 			}
-			if actionWrite(live.Risk) && (liveServer.OwnerType != "user" || liveServer.OwnerID == nil || *liveServer.OwnerID != live.ApproverID) {
-				return status.Error(codes.PermissionDenied, "claimed action resource ownership changed")
-			}
-			if live.GrantID != nil {
-				var grant model.ActionGrant
-				if tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND revoked_at IS NULL AND expires_at > NOW()", *live.GrantID).First(&grant).Error != nil {
-					return status.Error(codes.PermissionDenied, "action permission revoked before dispatch")
-				}
-				if !actionGrantPrincipal(tx, &grant, current) {
-					return status.Error(codes.PermissionDenied, "automatic action principal changed before dispatch")
+			if actionWrite(live.Risk) {
+				if err := actionApprovalCurrent(tx, current, &live, liveServer); err != nil {
+					return err
 				}
 			}
 			return nil
@@ -695,7 +692,7 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 	state := "succeeded"
 	if callErr != nil {
 		state = "unknown"
-		if !actionWrite(a.Risk) {
+		if a.Risk == "read" || a.Risk == "draft" {
 			state = "failed"
 		}
 		result = `{"status":"` + state + `","error":"tool invocation did not produce a confirmed success"}`
@@ -708,13 +705,39 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 		raw, _ := json.Marshal(redactActionValue(decoded))
 		result = string(raw)
 	}
-	// Record actual/unknown outcome even if stop/revocation superseded the Run.
+	// Stop/revocation may hide a fact; it never authorizes an old executor receipt.
 	receiptCtx, receiptCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer receiptCancel()
-	now := time.Now()
-	updated := s.svc.DB.WithContext(receiptCtx).Model(&model.RunAction{}).Where("id = ? AND status = 'executing'", a.ID).Updates(map[string]any{"status": state, "result": gorm.Expr("CASE WHEN source_invalidated THEN '' ELSE ? END", result), "completed_at": now, "updated_at": now})
-	if updated.Error != nil {
-		return "", updated.Error
+	_, receiptErr := s.repo.ChangeActionFacts(receiptCtx, r.ID, func(tx *gorm.DB, current *model.Run) error {
+		// Stop and source revocation may hide the payload, but only the current
+		// live claim can record a fact. An old worker cannot erase an unknown.
+		if err := repo.CheckExecutionLease(tx, current, a.Generation); err != nil {
+			return err
+		}
+		var live model.RunAction
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND run_id = ?", a.ID, current.ID).First(&live).Error; err != nil {
+			return err
+		}
+		if live.Status != "executing" || live.Generation != a.Generation || live.InputVersion != a.InputVersion || live.ParametersHash != a.ParametersHash || live.DefinitionHash != a.DefinitionHash {
+			return status.Error(codes.Aborted, "action receipt claim superseded")
+		}
+		now := time.Now()
+		live.Status, live.CompletedAt = state, &now
+		if !live.SourceInvalidated {
+			live.Result = result
+		}
+		if err := tx.Save(&live).Error; err != nil {
+			return err
+		}
+		*a = live
+		if state == "unknown" && !repo.TerminalRun(current) && current.Status != "stopping" {
+			current.Status, current.Stage, current.WaitingReason = "waiting_authorization", "action_outcome_unknown", "action_outcome_unknown"
+			current.StreamStatus = "closed"
+		}
+		return nil
+	})
+	if receiptErr != nil {
+		return "", receiptErr
 	}
 	if err := s.refreshAuthorizations(receiptCtx, r); err != nil {
 		return "", err
@@ -725,8 +748,11 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 	if a.SourceInvalidated {
 		return "", status.Error(codes.PermissionDenied, "action source is no longer available")
 	}
+	if state == "unknown" {
+		return result, status.Error(codes.FailedPrecondition, "action outcome unknown; human reconciliation required")
+	}
 	if callErr != nil {
-		return result, status.Error(codes.Unavailable, "tool outcome is not confirmed; action will not be replayed")
+		return result, status.Error(codes.Unavailable, "tool invocation failed")
 	}
 	return result, nil
 }
@@ -825,13 +851,14 @@ func (s *Service) ActionAuthorization(ctx context.Context, user, executorBot str
 	if err := s.svc.DB.WithContext(ctx).Where("id = ? AND run_id = ?", req.ActionID, r.ID).First(&a).Error; err != nil {
 		return nil, err
 	}
-	if req.Generation != a.Generation || req.InputVersion != a.InputVersion {
+	decision := !executor && slices.Contains([]string{"approve", "deny", "revoke"}, req.Op)
+	if !decision && (req.Generation != a.Generation || req.InputVersion != a.InputVersion) {
 		return nil, status.Error(codes.Aborted, "action version mismatch")
 	}
-	if req.ServerID != "" && req.ServerID != a.ServerID || req.ToolName != "" && req.ToolName != a.ToolName {
+	if !decision && (req.ServerID != "" && req.ServerID != a.ServerID || req.ToolName != "" && req.ToolName != a.ToolName) {
 		return nil, status.Error(codes.PermissionDenied, "action tool differs from exact authorization")
 	}
-	if len(req.Arguments) > 0 {
+	if !decision && len(req.Arguments) > 0 {
 		_, digest, err := canonicalActionArguments(req.Arguments, model.McpServer{})
 		if err != nil {
 			return nil, err
@@ -855,11 +882,11 @@ func (s *Service) ActionAuthorization(ctx context.Context, user, executorBot str
 		return json.Marshal(map[string]any{"action": s.publicAction(ctx, &a, ""), "result": result})
 	}
 	if req.Op == "share_confirmation" {
-		_, err := s.repo.ChangeLifecycle(ctx, r.ID, a.Generation, func(tx *gorm.DB, current *model.Run) error {
+		_, err := s.repo.ChangeLifecycle(ctx, r.ID, 0, func(tx *gorm.DB, current *model.Run) error {
 			if current.PersonalUserID == nil || *current.PersonalUserID != user || current.RequesterID != user {
 				return status.Error(codes.PermissionDenied, "only private requester may share confirmation")
 			}
-			if err := s.actionFence(tx, current, a.Generation, a.InputVersion); err != nil {
+			if err := s.actionAuthorityFence(tx, current, a.Generation, a.InputVersion); err != nil {
 				return err
 			}
 			if err := s.privateConfirmationSources(tx, current); err != nil {
@@ -890,7 +917,7 @@ func (s *Service) ActionAuthorization(ctx context.Context, user, executorBot str
 		}
 		return json.Marshal(s.publicAction(ctx, &a, user))
 	}
-	if err := s.actionDisclosure(ctx, r, &a, user); err != nil {
+	if err := s.actionDisclosureAccess(ctx, r, &a, user); err != nil {
 		return nil, err
 	}
 	if !s.actionOwner(ctx, a.ServerID, user) {
@@ -903,43 +930,34 @@ func (s *Service) ActionAuthorization(ctx context.Context, user, executorBot str
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.repo.ChangeLifecycle(ctx, r.ID, a.Generation, func(tx *gorm.DB, current *model.Run) error {
-		if err := s.actionFence(tx, current, a.Generation, a.InputVersion); err != nil {
+	err = s.actionDecision(ctx, r, &a, user, req, func(tx *gorm.DB, current *model.Run) error {
+		if err := s.actionAuthorityFence(tx, current, a.Generation, a.InputVersion); err != nil {
 			return err
 		}
 		server, err := currentActionTool(tx, current, frozen)
 		if err != nil {
 			return err
 		}
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", a.ID).First(&a).Error; err != nil {
-			return err
+		if req.Generation != a.Generation || req.InputVersion != a.InputVersion {
+			return status.Error(codes.Aborted, "action version mismatch")
 		}
-		if _, _, err := repo.RunMember(tx, current.ConvID, user); err != nil {
-			return err
+		if req.ServerID != "" && req.ServerID != a.ServerID || req.ToolName != "" && req.ToolName != a.ToolName {
+			return status.Error(codes.PermissionDenied, "action tool differs from exact authorization")
 		}
-		if current.Visibility == "personal" && (current.PersonalUserID == nil || *current.PersonalUserID != user) {
-			if a.ConfirmationSharedAt == nil || a.ConfirmationOwnerID == nil || *a.ConfirmationOwnerID != user {
-				return status.Error(codes.PermissionDenied, "private confirmation not shared with this owner")
-			}
-			if err := s.privateConfirmationSources(tx, current); err != nil {
+		if len(req.Arguments) > 0 {
+			_, digest, err := canonicalActionArguments(req.Arguments, server)
+			if err != nil {
 				return err
+			}
+			if digest != a.ParametersHash {
+				return status.Error(codes.PermissionDenied, "parameters differ from exact action authorization")
 			}
 		}
 		if err := s.currentActionScope(tx, current, &a); err != nil {
 			return err
 		}
-		if !actionPrincipalMatches(&a, current) {
-			return status.Error(codes.PermissionDenied, "action approval principal changed")
-		}
 		if a.DefinitionHash != frozen.DefinitionHash {
 			return status.Error(codes.PermissionDenied, "action definition changed")
-		}
-		_, digest, err := canonicalActionArguments(a.Arguments, server)
-		if err != nil || digest != a.ParametersHash {
-			return status.Error(codes.PermissionDenied, "action parameters changed")
-		}
-		if server.OwnerType != "user" || server.OwnerID == nil || *server.OwnerID != user {
-			return status.Error(codes.PermissionDenied, "action resource ownership changed")
 		}
 		desired := map[string]string{"approve": "approved", "deny": "denied", "revoke": "revoked"}[req.Op]
 		if a.Status == desired || req.Op == "approve" && slices.Contains([]string{"executing", "succeeded", "failed", "unknown"}, a.Status) {
@@ -947,9 +965,6 @@ func (s *Service) ActionAuthorization(ctx context.Context, user, executorBot str
 		}
 		if a.Status != "pending" && !(req.Op == "revoke" && a.Status == "approved") {
 			return status.Error(codes.FailedPrecondition, "action decision already final")
-		}
-		if req.Op == "approve" && !a.ExpiresAt.After(time.Now()) {
-			return status.Error(codes.PermissionDenied, "action authorization expired")
 		}
 		if req.ExpiresAt != 0 {
 			expiry := time.Unix(req.ExpiresAt, 0)
@@ -1150,4 +1165,121 @@ func (s *Service) actionInterrupt(ctx context.Context, r *model.Run, frozen comp
 		return nil, compose.Interrupt(ctx, "concrete action approval required")
 	}
 	return a, nil
+}
+
+var errActionDecisionChanged = errors.New("action changed during decision authorization")
+
+// Human decisions are durable commands. Replays reauthorize disclosure and
+// return the current action, without renewing or applying an old approval.
+func (s *Service) actionDecision(ctx context.Context, r *model.Run, a *model.RunAction, user string, req actionRequest, apply func(*gorm.DB, *model.Run) error) error {
+	digest, err := hash(req)
+	if err != nil {
+		return err
+	}
+	key := "action-decision:" + user + ":" + req.SubmissionKey
+	for {
+		checked, err := s.repo.Get(ctx, r.ID)
+		if err != nil {
+			return err
+		}
+		if err := s.svc.DB.WithContext(ctx).Where("id = ? AND run_id = ?", a.ID, checked.ID).First(a).Error; err != nil {
+			return err
+		}
+		if err := s.actionDisclosureAccess(ctx, checked, a, user); err != nil {
+			return err
+		}
+		if !s.actionOwner(ctx, a.ServerID, user) {
+			return status.Error(codes.PermissionDenied, "only current tool owner may replay an action decision")
+		}
+		err = s.svc.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := repo.LockRunConversation(tx, checked.ConvID); err != nil {
+				return err
+			}
+			if err := repo.LockDelegationTree(tx, checked); err != nil {
+				return err
+			}
+			var interaction model.Interaction
+			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", checked.InteractionID).First(&interaction).Error; err != nil {
+				return err
+			}
+			var current model.Run
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", checked.ID).First(&current).Error; err != nil {
+				return err
+			}
+			if current.Version != checked.Version {
+				return errActionDecisionChanged
+			}
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND run_id = ?", a.ID, current.ID).First(a).Error; err != nil {
+				return err
+			}
+			if err := s.actionParticipationFence(tx, &current); err != nil {
+				return err
+			}
+			if err := s.actionSourcesCurrent(tx, &current, a); err != nil {
+				return err
+			}
+			if err := actionDefinitionCurrent(tx, &current, a); err != nil {
+				return err
+			}
+			if _, _, err := repo.RunMember(tx, current.ConvID, user); err != nil {
+				return err
+			}
+			if current.Visibility == "personal" && (current.PersonalUserID == nil || *current.PersonalUserID != user) {
+				if a.ConfirmationSharedAt == nil || a.ConfirmationOwnerID == nil || *a.ConfirmationOwnerID != user {
+					return status.Error(codes.PermissionDenied, "private confirmation no longer shared with owner")
+				}
+				if err := s.privateConfirmationSources(tx, &current); err != nil {
+					return err
+				}
+			}
+			var server model.McpServer
+			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND enabled = true", a.ServerID).First(&server).Error; err != nil {
+				return err
+			}
+			if server.OwnerType != "user" || server.OwnerID == nil || *server.OwnerID != user {
+				return status.Error(codes.PermissionDenied, "action resource ownership changed")
+			}
+			var prior model.RunReceipt
+			priorErr := tx.Where("run_id = ? AND update_key = ?", current.ID, key).First(&prior).Error
+			if priorErr == nil {
+				if prior.ContentHash != digest {
+					return status.Error(codes.AlreadyExists, "action decision key has different content")
+				}
+				return nil
+			}
+			if !errors.Is(priorErr, gorm.ErrRecordNotFound) {
+				return priorErr
+			}
+			if repo.TerminalRun(&current) || interaction.Status != "active" {
+				return status.Error(codes.FailedPrecondition, "Run no longer accepts new action decisions")
+			}
+			before := current.Stage
+			if err := apply(tx, &current); err != nil {
+				return err
+			}
+			current.Version++
+			current.UpdatedAt = time.Now()
+			if current.Stage != before {
+				current.Steps = append(current.Steps, model.RunStep{Version: current.Version, Stage: current.Stage, CreatedAt: current.UpdatedAt.Unix()})
+			}
+			if err := tx.Save(&current).Error; err != nil {
+				return err
+			}
+			if err := repo.QueueRunUpdated(tx, &current); err != nil {
+				return err
+			}
+			id, err := identity.New()
+			if err != nil {
+				return err
+			}
+			raw, err := json.Marshal(map[string]string{"action_id": a.ID, "status": a.Status})
+			if err != nil {
+				return err
+			}
+			return tx.Create(&model.RunReceipt{ID: id, RunID: current.ID, UpdateKey: key, ContentHash: digest, Receipt: raw}).Error
+		})
+		if !errors.Is(err, errActionDecisionChanged) {
+			return err
+		}
+	}
 }

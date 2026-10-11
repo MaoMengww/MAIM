@@ -14,6 +14,7 @@ import (
 	"github.com/eino-contrib/jsonschema"
 	"github.com/maomeng/aim/app/bot-service/internal/component"
 	"github.com/maomeng/aim/app/bot-service/internal/model"
+	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	llm "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -230,6 +231,21 @@ func (c *runAgentCheckpoint) Get(ctx context.Context, id string) ([]byte, bool, 
 	if err != nil {
 		return nil, false, err
 	}
+	current, err := c.bridge.service.executionBoundary(ctx, c.bridge.run, c.bridge.generation)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := repo.CheckExecutionLease(c.bridge.service.svc.DB.WithContext(ctx), current, c.bridge.generation); err != nil {
+		return nil, false, err
+	}
+	// A process may die after committing a model/tool fact but before ADK writes
+	// its next interrupt. Resume opaque state only at its exact durable boundary;
+	// otherwise a fresh Runner dispatches from platform facts without redoing them.
+	if checkpoint.BranchVersion != current.BranchVersion || checkpoint.SourceRevision != current.SourceRevision ||
+		checkpoint.TrajectoryVersion != current.TrajectoryVersion || checkpoint.InputUpperBound != current.AppliedInputVersion ||
+		checkpoint.AssemblyVersion != c.bridge.config.AssemblyVersion || checkpoint.ExecutionGeneration > current.ExecutionGeneration {
+		return nil, false, nil
+	}
 	return checkpoint.Checkpoint, true, nil
 }
 func (c *runAgentCheckpoint) Set(ctx context.Context, id string, data []byte) error {
@@ -246,9 +262,15 @@ func (c *runAgentCheckpoint) Set(ctx context.Context, id string, data []byte) er
 		if current.Status == "stopping" || current.AccessRevoked || (current.Status == "waiting_authorization" && current.Stage != "pending_action") {
 			return status.Error(codes.FailedPrecondition, "agent checkpoint authority superseded")
 		}
-		return tx.Exec(`INSERT INTO bot.run_agent_checkpoints (run_id, checkpoint, updated_at)
-			VALUES (?, ?, NOW())
-			ON CONFLICT (run_id) DO UPDATE SET checkpoint = EXCLUDED.checkpoint, updated_at = NOW()`, id, data).Error
+		return tx.Exec(`INSERT INTO bot.run_agent_checkpoints
+			(run_id, checkpoint, execution_generation, branch_version, source_revision, trajectory_version, input_upper_bound, assembly_version, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+			ON CONFLICT (run_id) DO UPDATE SET checkpoint = EXCLUDED.checkpoint,
+			execution_generation = EXCLUDED.execution_generation, branch_version = EXCLUDED.branch_version,
+			source_revision = EXCLUDED.source_revision, trajectory_version = EXCLUDED.trajectory_version,
+			input_upper_bound = EXCLUDED.input_upper_bound, assembly_version = EXCLUDED.assembly_version, updated_at = NOW()`,
+			id, data, current.ExecutionGeneration, current.BranchVersion, current.SourceRevision,
+			current.TrajectoryVersion, current.AppliedInputVersion, c.bridge.config.AssemblyVersion).Error
 	})
 	return err
 }

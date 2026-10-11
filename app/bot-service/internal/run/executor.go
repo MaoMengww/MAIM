@@ -66,6 +66,10 @@ func decodeUpdate(body []byte) (executorUpdate, error) {
 		if update.Sequence != 0 || update.Status != "" || update.Stage != "" || update.ResultText != "" || update.MsgType != "" || len(update.Content) > 0 {
 			return update, status.Error(codes.InvalidArgument, "delivery ACK contains business update")
 		}
+	case "run.heartbeat":
+		if update.Sequence != 0 || update.Status != "" || update.Stage != "" || update.WaitingReason != "" || update.ResultText != "" || update.MsgType != "" || len(update.Content) > 0 {
+			return update, status.Error(codes.InvalidArgument, "heartbeat contains business update")
+		}
 	case "run.claim":
 		if update.Sequence != 0 || update.Status != "accepted" || update.Stage != "" || update.ResultText != "" || update.MsgType != "" || len(update.Content) > 0 {
 			return update, status.Error(codes.InvalidArgument, "invalid claim")
@@ -173,7 +177,7 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 	if err != nil {
 		return nil, err
 	}
-	receipt, err := s.repo.Report(ctx, update.RunID, "executor:"+update.UpdateKey, digest, repo.ReportAuthority{StopConfirmation: confirmation}, func(r *model.Run) error {
+	receipt, err := s.repo.Report(ctx, update.RunID, "executor:"+update.UpdateKey, digest, repo.ReportAuthority{StopConfirmation: confirmation, Generation: update.Generation, InputVersion: update.InputVersion, AllowUnclaimed: update.Type == "run.claim" || update.Type == "run.delivery_ack"}, func(r *model.Run) error {
 		if err := s.refreshAuthorizations(ctx, r); err != nil {
 			return err
 		}
@@ -206,6 +210,15 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 		}
 		return nil
 	}, func(tx *gorm.DB, r *model.Run) error {
+		// Only a new, authorized claim or update renews ownership. Receipt replay
+		// returns before apply and can never extend a lease.
+		if update.Type != "run.delivery_ack" && !confirmation {
+			var until time.Time
+			if err := tx.Raw("SELECT NOW() + INTERVAL '60 seconds'").Scan(&until).Error; err != nil {
+				return err
+			}
+			r.ExecutorLeaseUntil = &until
+		}
 		switch update.Type {
 		case "run.delivery_ack":
 			r.DeliveryStatus = "acknowledged"
@@ -216,6 +229,10 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 			r.ExecutorStatus = "accepted"
 			r.Status = "running"
 			r.Stage = "running"
+		case "run.heartbeat":
+			if r.ExecutorStatus != "accepted" && r.ExecutorStatus != "stop_rejected" {
+				return status.Error(codes.FailedPrecondition, "Run must be claimed")
+			}
 		case "run.update":
 			if !confirmation && r.ExecutorStatus != "accepted" && r.ExecutorStatus != "stop_rejected" {
 				return status.Error(codes.FailedPrecondition, "Run must be claimed")
@@ -485,6 +502,14 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 		return receipt, err
 	}
 	receipt, err := s.repo.Report(ctx, id, key, digest, repo.ReportAuthority{UserID: user, Control: operation != "input", StopTree: operation == "stop"}, authorize, func(tx *gorm.DB, r *model.Run) error {
+		if operation == "input" || operation == "resume" || operation == "takeover" {
+			if err := pendingExternalWrite(tx, r); err != nil {
+				return err
+			}
+		}
+		if operation == "input" && r.ExecutorStatus == "lost" {
+			return status.Error(codes.FailedPrecondition, "lost executor requires explicit resume")
+		}
 		caps := r.ExecutorCapabilities
 		if (operation == "input" && !caps.SupportsInput) || (operation == "resume" && !caps.SupportsResume) {
 			return status.Error(codes.FailedPrecondition, "executor does not support this operation")
@@ -540,6 +565,7 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 				return repo.QueueRunExecution(tx, &next)
 			}
 			r.ExecutionGeneration++
+			r.ExecutorLeaseUntil = nil
 			r.ExecutorSequence, r.ExecutorStatus, r.DeliveryStatus = 0, "pending", "pending"
 			next := *r
 			next.Version++
@@ -620,11 +646,13 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 			}
 			return requestRunStop(tx, r, "user_requested")
 		case "resume":
-			if !wasWaiting {
-				return status.Error(codes.FailedPrecondition, "only unfinished waiting work may resume")
+			if !wasWaiting && !(r.ExecutorStatus == "lost" && (r.Status == "accepted" || r.Status == "running")) {
+				return status.Error(codes.FailedPrecondition, "only unfinished waiting or lost work may resume")
 			}
 			r.ExecutionGeneration++
 			r.ExecutorSequence, r.ExecutorStatus, r.Status, r.Stage, r.WaitingReason = 0, "pending", "accepted", "resuming", ""
+			r.ExecutorLeaseUntil = nil
+			r.StreamStatus = "open"
 		}
 		r.ControlOperation = operation
 		next := *r
@@ -632,7 +660,7 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 		if r.ExecutorType == "builtin" {
 			// Accepted/running work already has one live worker. Only wake a parked
 			// waiting Run; an additional queue item would supersede its current lease.
-			if wasWaiting {
+			if wasWaiting || operation == "resume" {
 				return repo.QueueRunExecution(tx, &next)
 			}
 			return nil

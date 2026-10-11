@@ -127,6 +127,9 @@ type ReportAuthority struct {
 	Control          bool
 	StopConfirmation bool
 	StopTree         bool
+	Generation       int64
+	InputVersion     int64
+	AllowUnclaimed   bool
 }
 
 func (r *RunRepo) Get(ctx context.Context, id string) (*model.Run, error) {
@@ -358,14 +361,45 @@ func (r *RunRepo) Accept(ctx context.Context, run *model.Run, input string, fres
 
 // Change fences every worker mutation with its current execution generation.
 func (r *RunRepo) Change(ctx context.Context, id string, generation int64, fn func(*gorm.DB, *model.Run) error) (*model.Run, error) {
-	return r.change(ctx, id, generation, true, fn)
+	return r.change(ctx, id, generation, true, false, fn)
 }
 
 func (r *RunRepo) ChangeLifecycle(ctx context.Context, id string, generation int64, fn func(*gorm.DB, *model.Run) error) (*model.Run, error) {
-	return r.change(ctx, id, generation, false, fn)
+	return r.change(ctx, id, generation, false, false, fn)
 }
 
-func (r *RunRepo) change(ctx context.Context, id string, generation int64, execution bool, fn func(*gorm.DB, *model.Run) error) (*model.Run, error) {
+// ChangeActionFacts records a dispatched action's outcome without reviving an
+// ended Run. The terminal lifecycle is immutable even when facts arrive late.
+func (r *RunRepo) ChangeActionFacts(ctx context.Context, id string, fn func(*gorm.DB, *model.Run) error) (*model.Run, error) {
+	return r.change(ctx, id, 0, false, true, fn)
+}
+
+// CheckExecutionLease fences against durable current ownership, including replay.
+// Generation zero is reserved for platform lifecycle and human authorization.
+func CheckExecutionLease(tx *gorm.DB, run *model.Run, generation int64) error {
+	if generation == 0 {
+		return nil
+	}
+	if generation != run.ExecutionGeneration || generation < 1 {
+		return status.Error(codes.Aborted, "execution lease superseded")
+	}
+	var live int64
+	query := tx.Model(&model.Run{})
+	if run.ExecutorType == "third_party" {
+		query = query.Where("id = ? AND execution_generation = ? AND executor_lease_until > NOW()", run.ID, generation)
+	} else {
+		query = query.Where("id = ? AND execution_generation = ? AND EXISTS (SELECT 1 FROM bot.run_outbox lease WHERE lease.run_id = runs.id AND lease.kind = 'execute' AND lease.execution_generation = ? AND lease.completed_at IS NULL AND lease.lease_until > NOW())", run.ID, generation, generation)
+	}
+	if err := query.Count(&live).Error; err != nil {
+		return err
+	}
+	if live != 1 {
+		return status.Error(codes.Aborted, "execution lease expired or lost")
+	}
+	return nil
+}
+
+func (r *RunRepo) change(ctx context.Context, id string, generation int64, execution, actionFacts bool, fn func(*gorm.DB, *model.Run) error) (*model.Run, error) {
 	var run model.Run
 	prior, err := r.Get(ctx, id)
 	if err != nil {
@@ -381,10 +415,12 @@ func (r *RunRepo) change(ctx context.Context, id string, generation int64, execu
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&run).Error; err != nil {
 			return err
 		}
-		if generation > 0 && run.ExecutionGeneration != generation {
-			return status.Error(codes.Aborted, "execution lease superseded")
+		if err := CheckExecutionLease(tx, &run, generation); err != nil {
+			return err
 		}
-		if run.Status == "succeeded" || run.Status == "failed" || run.Status == "stopped" {
+		terminal := TerminalRun(&run)
+		terminalStatus, terminalStage := run.Status, run.Stage
+		if terminal && !actionFacts {
 			return status.Error(codes.FailedPrecondition, "run is terminal")
 		}
 		if execution {
@@ -398,6 +434,9 @@ func (r *RunRepo) change(ctx context.Context, id string, generation int64, execu
 		before := run.Stage
 		if err := fn(tx, &run); err != nil {
 			return err
+		}
+		if terminal && (run.Status != terminalStatus || run.Stage != terminalStage) {
+			return status.Error(codes.FailedPrecondition, "action facts cannot change terminal Run lifecycle")
 		}
 		run.Version++
 		run.UpdatedAt = time.Now()
@@ -653,40 +692,59 @@ func (r *RunRepo) FindResult(ctx context.Context, bot, conv, binding, message st
 func (r *RunRepo) Claim(ctx context.Context, kinds []string) (*model.RunOutbox, error) {
 	var item model.RunOutbox
 	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		now := time.Now()
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("kind IN ? AND completed_at IS NULL AND available_at <= ? AND (lease_until IS NULL OR lease_until < ?)", kinds, now, now).Where("kind <> 'execute' OR NOT EXISTS (SELECT 1 FROM bot.run_outbox live WHERE live.run_id = run_outbox.run_id AND live.id <> run_outbox.id AND live.kind = 'execute' AND live.completed_at IS NULL AND live.lease_until > ?)", now).Order("created_at ASC,id ASC").First(&item).Error; err != nil {
+		eligible := func(db *gorm.DB) *gorm.DB {
+			return db.Where("kind IN ? AND completed_at IS NULL AND available_at <= NOW() AND (lease_until IS NULL OR lease_until <= NOW())", kinds).
+				Where("kind <> 'execute' OR NOT EXISTS (SELECT 1 FROM bot.run_outbox live WHERE live.run_id = run_outbox.run_id AND live.id <> run_outbox.id AND live.kind = 'execute' AND live.completed_at IS NULL AND live.lease_until > NOW())")
+		}
+		if err := eligible(tx).Order("created_at ASC,id ASC").First(&item).Error; err != nil {
+			return err
+		}
+		var claimed model.Run
+		if item.Kind == "execute" {
+			if err := tx.Where("id = ?", item.RunID).First(&claimed).Error; err != nil {
+				return err
+			}
+			// Follow lifecycle writes' conversation/tree/Run/outbox lock ordering.
+			if err := lockRunConversation(tx, claimed.ConvID); err != nil {
+				return err
+			}
+			if err := LockDelegationTree(tx, &claimed); err != nil {
+				return err
+			}
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", item.RunID).First(&claimed).Error; err != nil {
+				return err
+			}
+		}
+		if err := eligible(tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"})).Where("id = ?", item.ID).First(&item).Error; err != nil {
 			return err
 		}
 		token, err := identity.New()
 		if err != nil {
 			return err
 		}
+		var now time.Time
+		if err := tx.Raw("SELECT NOW()").Scan(&now).Error; err != nil {
+			return err
+		}
 		until := now.Add(time.Minute)
-		item.LeaseToken = &token
-		item.LeaseUntil = &until
+		item.LeaseToken, item.LeaseUntil = &token, &until
 		item.Attempts++
-		if item.Kind == "execute" {
-			var claimed model.Run
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", item.RunID).First(&claimed).Error; err != nil {
+		// Parked work owns no executable step. An unfinished outbox row can
+		// survive the interrupt transaction; draining it must not stale the
+		// concrete approval while the Run remains waiting for a human.
+		if item.Kind == "execute" && (claimed.Status == "accepted" || claimed.Status == "running" || claimed.Status == "stopping") {
+			claimed.ExecutionGeneration++
+			claimed.Version++
+			claimed.UpdatedAt = now
+			item.ExecutionGeneration = claimed.ExecutionGeneration
+			if claimed.ExecutorStatus != "lost" && (claimed.Status == "accepted" || claimed.Status == "running") {
+				claimed.ExecutorStatus = "accepted"
+			}
+			if err := tx.Save(&claimed).Error; err != nil {
 				return err
 			}
-			// Recheck after the Run lock: concurrent claim queries may have both
-			// observed the same pre-commit absence of a live execution lease.
-			var live int64
-			if err := tx.Model(&model.RunOutbox{}).Where("run_id = ? AND id <> ? AND kind = 'execute' AND completed_at IS NULL AND lease_until > ?", item.RunID, item.ID, now).Count(&live).Error; err != nil {
+			if err := queueRun(tx, &claimed, "updated"); err != nil {
 				return err
-			}
-			if live > 0 {
-				return gorm.ErrRecordNotFound
-			}
-			if claimed.Status == "accepted" || claimed.Status == "running" {
-				if claimed.Stage != "action_decided" || item.Attempts != 1 {
-					claimed.ExecutionGeneration++
-					if err := tx.Model(&claimed).UpdateColumn("execution_generation", claimed.ExecutionGeneration).Error; err != nil {
-						return err
-					}
-				}
-				item.ExecutionGeneration = claimed.ExecutionGeneration
 			}
 		}
 		return tx.Save(&item).Error
@@ -694,7 +752,7 @@ func (r *RunRepo) Claim(ctx context.Context, kinds []string) (*model.RunOutbox, 
 	return &item, err
 }
 func (r *RunRepo) Renew(ctx context.Context, item *model.RunOutbox) error {
-	result := r.DB.WithContext(ctx).Model(&model.RunOutbox{}).Where("id = ? AND lease_token = ? AND completed_at IS NULL", item.ID, item.LeaseToken).Update("lease_until", time.Now().Add(time.Minute))
+	result := r.DB.WithContext(ctx).Model(&model.RunOutbox{}).Where("id = ? AND lease_token = ? AND completed_at IS NULL AND lease_until > NOW()", item.ID, item.LeaseToken).Update("lease_until", gorm.Expr("NOW() + INTERVAL '60 seconds'"))
 	if result.Error != nil {
 		return result.Error
 	}
@@ -784,8 +842,20 @@ func (r *RunRepo) reportOnce(ctx context.Context, id, key, digest string, author
 				return err
 			}
 		}
+		if authority.Generation > 0 {
+			if run.ExecutionGeneration != authority.Generation || run.InputVersion != authority.InputVersion {
+				return status.Error(codes.Aborted, "stale executor generation or input version")
+			}
+		}
 		var prior model.RunReceipt
+		// A terminal receipt is a durable acknowledgement, not execution. Current
+		// authority and generation still fence it; replay never renews a lease.
 		err := tx.Where("run_id = ? AND update_key = ?", id, key).First(&prior).Error
+		if authority.Generation > 0 && !authority.StopConfirmation && !(err == nil && TerminalRun(&run)) && !(authority.AllowUnclaimed && run.ExecutorStatus == "pending" && run.ExecutorLeaseUntil == nil) {
+			if leaseErr := CheckExecutionLease(tx, &run, authority.Generation); leaseErr != nil {
+				return leaseErr
+			}
+		}
 		if err == nil {
 			if prior.ContentHash != digest {
 				return status.Error(codes.AlreadyExists, "update key has different content")

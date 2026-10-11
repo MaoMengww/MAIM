@@ -453,7 +453,7 @@ func (d *driver) executorMatrix(x, wrong *controlledExecutor, caller, admin acco
 	if _, err = x.update(invalid, true, false); err != nil {
 		return err
 	}
-	for _, operation := range []string{"input", "stop", "resume"} {
+	for _, operation := range []string{"input", "resume"} {
 		control := map[string]any{"operation": operation, "submission_key": uuid.NewString()}
 		if operation == "input" {
 			control["message"] = "more"
@@ -468,6 +468,13 @@ func (d *driver) executorMatrix(x, wrong *controlledExecutor, caller, admin acco
 	}
 	if unchanged.Version != accepted.Version || unchanged.Status != accepted.Status {
 		return errors.New("executor: unsupported controls mutated authoritative run")
+	}
+	var rejected publicRun
+	if err = d.request(http.MethodPost, "/runs/"+request.Run.ID.String()+"/control", caller.token, map[string]any{"operation": "stop", "submission_key": uuid.NewString()}, &rejected); err != nil {
+		return fmt.Errorf("unsupported stop receipt: %w", err)
+	}
+	if rejected.StopStatus != "rejected" || rejected.Status != "running" || rejected.OutputStatus != "none" || rejected.MessageID != nil {
+		return errors.New("executor: unsupported stop falsely confirmed stopping or completed output")
 	}
 	running := executorPayload(request, "run.update", "running", 1)
 	running["stage"] = "computing"

@@ -2,10 +2,12 @@ package interceptor
 
 import (
 	"context"
+	stderrors "errors"
 	"runtime/debug"
 
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
+	"github.com/zeromicro/go-zero/core/breaker"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcMetadata "google.golang.org/grpc/metadata"
@@ -134,6 +136,9 @@ func WithRequestIDFromMetadata(ctx context.Context) context.Context {
 func toGRPCError(err error) error {
 	if err == nil {
 		return nil
+	}
+	if stderrors.Is(err, breaker.ErrServiceUnavailable) {
+		return status.Error(codes.Unavailable, "service unavailable")
 	}
 	// If already a gRPC status error, preserve it.
 	if _, ok := status.FromError(err); ok {

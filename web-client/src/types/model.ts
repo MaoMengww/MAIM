@@ -222,7 +222,8 @@ export interface BotRun {
   executor_type: 'builtin' | 'third_party';
   executor_capabilities: { input_types: string[]; supports_input: boolean; supports_stop: boolean; supports_resume: boolean };
   delivery_status: 'pending' | 'delivered' | 'acknowledged';
-  executor_status: 'pending' | 'accepted' | 'completed' | 'stopped' | 'stop_rejected';
+  executor_status: 'pending' | 'accepted' | 'completed' | 'stopped' | 'stop_rejected' | 'lost';
+  executor_lease_until?: number;
   output_status: 'none' | 'generated' | 'pending' | 'committed' | 'failed';
   message_id?: string;
   error?: string;

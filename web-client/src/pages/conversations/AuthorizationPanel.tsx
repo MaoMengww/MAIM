@@ -113,7 +113,7 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
   && ['accepted', 'running', 'waiting_input'].includes(personal.status) && personal.executor_capabilities.supports_input;
  const personalCanStop = personalCanControl && !['succeeded', 'failed', 'stopped'].includes(personal.status) && personal.output_status === 'none'
   && personal.stop_status === 'none' && personal.executor_capabilities.supports_stop;
- const personalCanResume = personalCanControl && personal.status === 'waiting_input' && personal.output_status === 'none'
+ const personalCanResume = personalCanControl && (personal.status === 'waiting_input' || personal.executor_status === 'lost' && ['accepted', 'running'].includes(personal.status)) && personal.stage !== 'action_outcome_unknown' && personal.output_status === 'none'
   && personal.stop_status === 'none' && personal.executor_capabilities.supports_resume;
  const controlPersonal = async (operation: 'input' | 'stop' | 'resume', message?: string) => {
   if (currentScope.current !== scopeKey || !personal || !(operation === 'input' ? personalCanInput : operation === 'stop' ? personalCanStop : personalCanResume)) throw new Error('当前个人工作不允许此操作，请查询最新状态');
@@ -204,6 +204,8 @@ export function AuthorizationPanel({ convId, bots, onSelect }: { convId: string;
       <strong>个人 Run：{personal.id}</strong><p>真实状态：{personal.status} · 结果状态：{personal.output_status}</p>
       {personal.waiting_reason && <p>{personal.waiting_reason}</p>}{personal.error && <Alert type="error" message={personal.error} />}
       <p>停止状态：{personal.stop_status} · 执行器状态：{personal.executor_status}。停止请求不等于实际停工，已发生的行动不会自动回滚。</p>
+      {personal.executor_status === 'lost' && <Alert type="warning" message="执行器失联，旧认领已过期；安全工作须明确恢复。" />}
+      {personal.stage === 'action_outcome_unknown' && <Alert type="warning" message="外部行动结果未知，等待人工核对；不会自动重做或回滚。" />}
       {personal.input_sources.length > 0 && <details className="chat-run-details"><summary>已接受输入与补充者 · {personal.input_sources.length} 条</summary>
        <ol className="chat-run-steps">{personal.input_sources.map((source) => <li key={source.version}>
         输入 v{source.version} · <span title={source.requester_id}>{source.sender_type === 'user' ? '用户' : source.sender_type === 'bot' ? 'Bot' : source.sender_type === 'rule' ? '显式规则' : '系统'} {source.requester_id || '非人类发起，无人类请求者'}</span>
