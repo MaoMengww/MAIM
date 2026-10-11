@@ -14,10 +14,10 @@ import (
 	"github.com/maomeng/aim/pkg/logx"
 )
 
-func CreateEmbeddings(ctx context.Context, apiKey, baseURL, model string, inputs []string, dimensions ...int) ([][]float32, *int, error) {
-	switch {
-	case strings.Contains(baseURL, "cohere"):
-		return cohereEmbed(ctx, apiKey, baseURL, model, inputs)
+func CreateEmbeddings(ctx context.Context, provider, apiKey, baseURL, model string, inputs []string, dimensions ...int) ([][]float32, *int, error) {
+	switch provider {
+	case "cohere":
+		return cohereEmbed(ctx, apiKey, baseURL, model, inputs, dimensions...)
 	default:
 		return openaiCompatEmbed(ctx, apiKey, baseURL, model, inputs, dimensions...)
 	}
@@ -97,10 +97,14 @@ func (b *embeddingWireBridge) RoundTrip(req *http.Request) (*http.Response, erro
 		b.err = &HTTPError{StatusCode: response.StatusCode}
 		return nil, b.err
 	}
-	data, err := io.ReadAll(response.Body)
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxProviderResponseBytes+1))
 	response.Body.Close()
 	if err != nil {
 		b.err = fmt.Errorf("embedding provider response read failed")
+		return nil, b.err
+	}
+	if len(data) > maxProviderResponseBytes {
+		b.err = fmt.Errorf("embedding provider response too large")
 		return nil, b.err
 	}
 	var metadata struct {
@@ -137,30 +141,47 @@ func (b *embeddingWireBridge) RoundTrip(req *http.Request) (*http.Response, erro
 }
 
 // Cohere keeps its native request/response contract; it is not an OpenAI embedder.
-func cohereEmbed(ctx context.Context, apiKey, baseURL, model string, inputs []string) ([][]float32, *int, error) {
+func cohereEmbed(ctx context.Context, apiKey, baseURL, model string, inputs []string, dimensions ...int) ([][]float32, *int, error) {
+	if len(inputs) == 0 {
+		return nil, nil, &RequestError{Err: fmt.Errorf("embedding inputs required")}
+	}
 	logger := logx.DefaultLogger().WithContext(ctx)
-	body := map[string]any{"model": model, "texts": inputs, "input_type": "search_document"}
+	body := map[string]any{"model": model, "texts": inputs, "input_type": "search_document", "embedding_types": []string{"float"}}
 	respBytes, err := DoRequest(ctx, strings.TrimRight(baseURL, "/")+"/v2/embed", apiKey, body)
 	if err != nil {
 		logger.Errorf("model=%s cohere embed error: %v", model, err)
 		return nil, nil, err
 	}
 	var result struct {
-		Embeddings [][]float32 `json:"embeddings"`
-		Meta       struct {
+		Embeddings struct {
+			Float [][]float32 `json:"float"`
+		} `json:"embeddings"`
+		Meta struct {
 			BilledUnits struct {
 				InputTokens *int `json:"input_tokens"`
 			} `json:"billed_units"`
 		} `json:"meta"`
 	}
 	if err := json.Unmarshal(respBytes, &result); err != nil {
-		logger.Errorf("model=%s cohere embed decode error: %v", model, err)
-		return nil, nil, fmt.Errorf("decode cohere embed response: %w", err)
+		logger.Errorf("model=%s cohere embed response invalid", model)
+		return nil, nil, fmt.Errorf("cohere embed response invalid")
+	}
+	if len(result.Embeddings.Float) != len(inputs) {
+		return nil, nil, fmt.Errorf("embedding response count mismatch")
+	}
+	dimension := len(result.Embeddings.Float[0])
+	if len(dimensions) > 0 && dimensions[0] > 0 {
+		dimension = dimensions[0]
+	}
+	for _, vector := range result.Embeddings.Float {
+		if dimension == 0 || len(vector) != dimension {
+			return nil, nil, fmt.Errorf("embedding response dimension mismatch")
+		}
 	}
 	if result.Meta.BilledUnits.InputTokens != nil {
-		logger.Infof("model=%s input_tokens=%d embeddings=%d", model, *result.Meta.BilledUnits.InputTokens, len(result.Embeddings))
+		logger.Infof("model=%s input_tokens=%d embeddings=%d", model, *result.Meta.BilledUnits.InputTokens, len(result.Embeddings.Float))
 	} else {
-		logger.Infof("model=%s embeddings=%d", model, len(result.Embeddings))
+		logger.Infof("model=%s embeddings=%d", model, len(result.Embeddings.Float))
 	}
-	return result.Embeddings, result.Meta.BilledUnits.InputTokens, nil
+	return result.Embeddings.Float, result.Meta.BilledUnits.InputTokens, nil
 }

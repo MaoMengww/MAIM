@@ -362,6 +362,25 @@ func (d *driver) llmChatScenario() (result error) {
 			return fmt.Errorf("llm-chat %s finish/DONE fixture evidence mismatch", failure.token)
 		}
 	}
+	// Many individually legal SSE frames must not permit unbounded aggregate
+	// content or tool arguments. Both public modes fail and release admission.
+	for _, token := range []string{"LLM_OVERSIZED_CONTENT", "LLM_OVERSIZED_TOOLS"} {
+		for _, invoke := range []func(*llmpb.ChatReq) error{
+			func(req *llmpb.ChatReq) error { _, err := chat(req); return err },
+			func(req *llmpb.ChatReq) error { _, err := stream(req); return err },
+		} {
+			callErr := invoke(request(cfg, token))
+			if status.Code(callErr) != codes.Unavailable {
+				return fmt.Errorf("llm-chat unbounded aggregate %s: expected Unavailable, got %v", token, callErr)
+			}
+			if err := requireProviderErrorRedaction(callErr, token, apiKey); err != nil {
+				return err
+			}
+			if _, err := chat(request(cfg, "LLM_AFTER_BUDGET")); err != nil {
+				return fmt.Errorf("llm-chat response-budget concurrency release: %w", err)
+			}
+		}
+	}
 
 	// Cancel only after receiving actual content, then require the provider to
 	// observe the underlying HTTP stream closing before any finish or DONE.
@@ -404,9 +423,8 @@ func (d *driver) llmChatScenario() (result error) {
 		return fmt.Errorf("llm-chat post-cancel concurrency release: %w", err)
 	}
 
-	// Endpoint changes invalidate the authenticated routing snapshot before any
-	// request is sent. Key-only rotation keeps that route snapshot valid but must
-	// use the current credential.
+	// Endpoint and credential changes invalidate the authenticated snapshot
+	// before any request is sent; a new snapshot uses the current credential.
 	if err := setName("e2e-llm-snapshot-" + suffix); err != nil {
 		return err
 	}
@@ -417,7 +435,7 @@ func (d *driver) llmChatScenario() (result error) {
 	if err != nil {
 		return err
 	}
-	if err := setProvider("openai", d.provider+"/v1-changed", "new-e2e-key"); err != nil {
+	if err := setProvider("openai", d.provider+"/v1-changed", "old-e2e-key"); err != nil {
 		return err
 	}
 	_, snapshotErr := chat(request(oldCfg, "LLM_SNAPSHOT_OLD_ROUTE"))
@@ -441,8 +459,18 @@ func (d *driver) llmChatScenario() (result error) {
 		return err
 	}
 	apiKey = "rotated-e2e-key"
+	if _, callErr := chat(request(currentCfg, "LLM_KEY_STALE")); status.Code(callErr) != codes.InvalidArgument {
+		return fmt.Errorf("llm-chat stale credential snapshot: expected InvalidArgument, got %v", callErr)
+	}
+	if found, err := d.hasLLMChatObservation(modelName, "LLM_KEY_STALE"); err != nil || found {
+		return fmt.Errorf("llm-chat stale credential reached provider: found=%t err=%v", found, err)
+	}
+	currentCfg, err = resolve()
+	if err != nil {
+		return err
+	}
 	if _, err := chat(request(currentCfg, "LLM_KEY_CHANGED")); err != nil {
-		return fmt.Errorf("llm-chat key rotation: %w", err)
+		return fmt.Errorf("llm-chat current credential snapshot: %w", err)
 	}
 	if _, err := d.requireLLMChatObservation(modelName, "LLM_KEY_CHANGED", "completed", "/v1-changed/chat/completions", apiKey); err != nil {
 		return err

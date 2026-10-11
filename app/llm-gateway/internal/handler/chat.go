@@ -22,7 +22,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// ResolveExecutionModel freezes routing, not permission or credentials.
+// ResolveExecutionModel freezes routing and credential identity, never the secret or permission.
 func (h *LLMGatewayHandler) ResolveExecutionModel(ctx context.Context, req *pb.ResolveExecutionModelReq) (*pb.ModelExecutionConfig, error) {
 	info, err := h.resolveModel(ctx, req.ModelId, req.BotId, req.OwnerId, "chat")
 	if err != nil {
@@ -33,12 +33,12 @@ func (h *LLMGatewayHandler) ResolveExecutionModel(ctx context.Context, req *pb.R
 		return nil, errors.New(errors.CodeInvalidParam, "invalid model routing")
 	}
 	cfg := &pb.ModelExecutionConfig{ModelId: req.ModelId, ModelName: info.ModelEntry.ModelName, Provider: info.Provider, BaseUrl: baseURL}
-	cfg.Version = h.executionVersion(cfg, req.BotId, req.OwnerId)
+	cfg.Version = h.executionVersion(cfg, req.BotId, req.OwnerId, info.ModelEntry.APIKey)
 	return cfg, nil
 }
 
-func (h *LLMGatewayHandler) executionVersion(cfg *pb.ModelExecutionConfig, botID, ownerID *string) string {
-	encoded, _ := json.Marshal([]any{llm.AdapterVersion, cfg.ModelId, cfg.ModelName, cfg.Provider, cfg.BaseUrl, botID, ownerID})
+func (h *LLMGatewayHandler) executionVersion(cfg *pb.ModelExecutionConfig, botID, ownerID *string, apiKey string) string {
+	encoded, _ := json.Marshal([]any{llm.AdapterVersion, cfg.ModelId, cfg.ModelName, cfg.Provider, cfg.BaseUrl, botID, ownerID, apiKey})
 	mac := hmac.New(sha256.New, h.svcCtx.EncKey)
 	mac.Write(encoded)
 	return llm.AdapterVersion + ":" + hex.EncodeToString(mac.Sum(nil))
@@ -56,13 +56,15 @@ func (h *LLMGatewayHandler) resolveChat(ctx context.Context, req *pb.ChatReq) (*
 			return nil, nil, errors.New(errors.CodeInvalidParam, "invalid model routing")
 		}
 		cfg = &pb.ModelExecutionConfig{ModelId: req.ModelId, ModelName: info.ModelEntry.ModelName, Provider: info.Provider, BaseUrl: baseURL}
-		cfg.Version = h.executionVersion(cfg, req.BotId, req.OwnerId)
-	} else if cfg.ModelId != req.ModelId || cfg.ModelName == "" || !hmac.Equal([]byte(cfg.Version), []byte(h.executionVersion(cfg, req.BotId, req.OwnerId))) {
+		cfg.Version = h.executionVersion(cfg, req.BotId, req.OwnerId, info.ModelEntry.APIKey)
+	} else if cfg.ModelId != req.ModelId || cfg.ModelName == "" {
 		return nil, nil, errors.New(errors.CodeInvalidParam, "invalid execution model snapshot")
 	}
-	// Credentials belong to the currently authorized endpoint. A routing change
-	// invalidates this snapshot rather than sending a replacement endpoint's key
-	// to the old endpoint; ordinary model-name changes still keep the frozen name.
+	// Authenticate the frozen fields and current credential before interpreting
+	// route changes. Ordinary model-name changes keep the frozen name.
+	if !hmac.Equal([]byte(cfg.Version), []byte(h.executionVersion(cfg, req.BotId, req.OwnerId, info.ModelEntry.APIKey))) {
+		return nil, nil, errors.New(errors.CodeInvalidParam, "invalid execution model snapshot")
+	}
 	currentURL, err := llm.ChatBaseURL(info.Provider, info.ModelEntry.BaseURL)
 	if err != nil || info.Provider != cfg.Provider || currentURL != cfg.BaseUrl {
 		return nil, nil, errors.New(errors.CodeConflict, "model credential routing changed; start a new Run")

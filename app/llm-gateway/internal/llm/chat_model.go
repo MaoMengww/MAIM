@@ -22,7 +22,9 @@ import (
 )
 
 // AdapterVersion changes when the wire rendering or trajectory contract changes.
-const AdapterVersion = "eino-openai-chat-v3"
+const AdapterVersion = "eino-openai-chat-v4"
+
+const maxProviderResponseBytes = 16 * 1024 * 1024
 
 func ChatBaseURL(provider, baseURL string) (string, error) {
 	if baseURL == "" {
@@ -336,9 +338,12 @@ func DoRequest(ctx context.Context, endpoint, apiKey string, body map[string]any
 		return nil, err
 	}
 	defer response.Close()
-	result, err := io.ReadAll(response)
+	result, err := io.ReadAll(io.LimitReader(response, maxProviderResponseBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("provider response read failed: %w", err)
+		return nil, fmt.Errorf("provider response read failed")
+	}
+	if len(result) > maxProviderResponseBytes {
+		return nil, fmt.Errorf("provider response too large")
 	}
 	return result, nil
 }

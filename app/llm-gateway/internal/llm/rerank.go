@@ -20,9 +20,9 @@ type RerankResult struct {
 
 // Remote semantic reranking stays on the native Cohere/DashScope APIs. Eino's
 // document score sorter does not replace inference by these providers.
-func Rerank(ctx context.Context, apiKey, baseURL, model, query string, docs []string, topN int, returnDocs bool) (*RerankResult, error) {
-	switch {
-	case strings.Contains(baseURL, "cohere"):
+func Rerank(ctx context.Context, provider, apiKey, baseURL, model, query string, docs []string, topN int, returnDocs bool) (*RerankResult, error) {
+	switch provider {
+	case "cohere":
 		return cohereRerank(ctx, apiKey, baseURL, model, query, docs, topN, returnDocs)
 	default:
 		return dashscopeRerank(ctx, apiKey, baseURL, model, query, docs, topN, returnDocs)
@@ -48,12 +48,15 @@ func dashscopeRerank(ctx context.Context, apiKey, baseURL, model, query string, 
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(respBytes, &result); err != nil {
-		return nil, fmt.Errorf("decode rerank response: %w", err)
+		return nil, fmt.Errorf("rerank response invalid")
 	}
 	out := &RerankResult{Tokens: result.Usage.TotalTokens}
 	for _, r := range result.Output.Results {
+		if r.Index < 0 || r.Index >= len(docs) {
+			return nil, fmt.Errorf("rerank response index invalid")
+		}
 		doc := ""
-		if returnDocs && r.Index < len(docs) {
+		if returnDocs {
 			doc = docs[r.Index]
 		}
 		out.Items = append(out.Items, RerankItem{Index: r.Index, RelevanceScore: r.RelevanceScore, Document: doc})
@@ -63,11 +66,10 @@ func dashscopeRerank(ctx context.Context, apiKey, baseURL, model, query string, 
 
 func cohereRerank(ctx context.Context, apiKey, baseURL, model, query string, docs []string, topN int, returnDocs bool) (*RerankResult, error) {
 	body := map[string]any{
-		"model":            model,
-		"query":            query,
-		"documents":        docs,
-		"top_n":            topN,
-		"return_documents": returnDocs,
+		"model":     model,
+		"query":     query,
+		"documents": docs,
+		"top_n":     topN,
 	}
 	respBytes, err := DoRequest(ctx, strings.TrimRight(baseURL, "/")+"/v2/rerank", apiKey, body)
 	if err != nil {
@@ -77,9 +79,6 @@ func cohereRerank(ctx context.Context, apiKey, baseURL, model, query string, doc
 		Results []struct {
 			Index          int     `json:"index"`
 			RelevanceScore float64 `json:"relevance_score"`
-			Document       *struct {
-				Text string `json:"text"`
-			} `json:"document"`
 		} `json:"results"`
 		Meta struct {
 			BilledUnits struct {
@@ -88,13 +87,16 @@ func cohereRerank(ctx context.Context, apiKey, baseURL, model, query string, doc
 		} `json:"meta"`
 	}
 	if err := json.Unmarshal(respBytes, &result); err != nil {
-		return nil, fmt.Errorf("decode cohere rerank response: %w", err)
+		return nil, fmt.Errorf("cohere rerank response invalid")
 	}
 	out := &RerankResult{Tokens: result.Meta.BilledUnits.SearchUnits}
 	for _, r := range result.Results {
+		if r.Index < 0 || r.Index >= len(docs) {
+			return nil, fmt.Errorf("rerank response index invalid")
+		}
 		doc := ""
-		if r.Document != nil {
-			doc = r.Document.Text
+		if returnDocs {
+			doc = docs[r.Index]
 		}
 		out.Items = append(out.Items, RerankItem{Index: r.Index, RelevanceScore: r.RelevanceScore, Document: doc})
 	}

@@ -38,10 +38,12 @@ def llm_component(body, handler, path):
     if not model.startswith("e2e-component-"):
         return False
     vision = model.startswith("e2e-component-vlm-")
+    rerank = model.startswith("e2e-component-rerank-")
     messages = body.get("messages", [])
     parts = messages[-1].get("content", []) if messages else []
-    inputs = body.get("texts" if "cohere" in path else "input", [])
-    token = next((part.get("text", "") for part in parts if isinstance(part, dict)), "") if vision else (inputs[0] if inputs else "")
+    cohere = model.startswith("e2e-component-cohere-")
+    inputs = body.get("texts" if cohere else "input", [])
+    token = body.get("query", "") if rerank else (next((part.get("text", "") for part in parts if isinstance(part, dict)), "") if vision else (inputs[0] if inputs else ""))
     row = {"model": model, "token": token, "path": path, "body": body,
            "auth_digest": hashlib.sha256(handler.headers.get("Authorization", "").encode()).hexdigest(),
            "state": "received"}
@@ -52,6 +54,25 @@ def llm_component(body, handler, path):
         with LOCK:
             row["state"] = value
 
+    if rerank:
+        documents = body.get("documents", [])
+        if (path != "/native/v2/rerank" or len(documents) != 2
+                or body.get("top_n") != 1 or "return_documents" in body):
+            state("invalid_request")
+            handler._json(400, {"error": {"message": "native rerank protocol mismatch"}})
+            return True
+        if "HTTP_ERROR" in token:
+            state("http_error")
+            handler._json(503, {"error": {"message": "LLM_PROVIDER_PRIVATE_BODY|" + token + "|" + handler.headers.get("Authorization", "")}})
+            return True
+        index = next((i for i, document in enumerate(documents) if token in document), -1)
+        if "INVALID_INDEX" in token:
+            index = len(documents)
+        response = {"results": [{"index": index, "relevance_score": .95}],
+                    "meta": {"billed_units": {"search_units": 2}}}
+        state("completed")
+        handler._json(200, response)
+        return True
     if vision:
         expected = [{"role": "system", "content": "component system"},
                     {"role": "user", "content": [{"type": "text", "text": token},
@@ -59,8 +80,9 @@ def llm_component(body, handler, path):
         valid = (path == "/v1/chat/completions" and messages == expected
                  and body.get("stream", False) is False and body.get("max_tokens") == 37
                  and body.get("temperature") == .25)
-    elif "cohere" in path:
-        valid = (path == "/cohere/v2/embed" and body.get("input_type") == "search_document"
+    elif cohere:
+        valid = (path == "/native/v2/embed" and body.get("input_type") == "search_document"
+                 and body.get("embedding_types") == ["float"]
                  and isinstance(inputs, list) and len(inputs) == 2 and "input" not in body)
     else:
         valid = path == "/v1/embeddings" and isinstance(inputs, list) and len(inputs) == 2
@@ -97,6 +119,10 @@ def llm_component(body, handler, path):
         state("cancel_not_observed")
         handler._json(504, {"error": {"message": "cancellation not observed"}})
         return True
+    if "OVERSIZED" in token:
+        state("oversized")
+        handler._json(200, {"padding": "x" * (17 * 1024 * 1024)})
+        return True
     if vision:
         response = {"id": "component-vision", "object": "chat.completion", "created": 1, "model": model,
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": "component-vision:" + token}, "finish_reason": "stop"}]}
@@ -105,8 +131,12 @@ def llm_component(body, handler, path):
                                  else {"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12})
     else:
         vectors = [[.1000000001, -.2000000001, 1.00000006], [.333333333333, 2.00000013, -.123456789]]
-        if "cohere" in path:
-            response = {"embeddings": vectors}
+        if cohere:
+            if "MISSING_VECTOR" in token:
+                vectors.pop()
+            elif "WRONG_DIMENSION" in token:
+                vectors[0].pop()
+            response = {"embeddings": {"float": vectors}}
             if "NO_USAGE" not in token:
                 response["meta"] = {"billed_units": {"input_tokens": 0 if "ZERO" in token else 9}}
         else:
@@ -204,6 +234,21 @@ def llm_chat(body, handler, path):
     try:
         event({"role": "assistant"})
         time.sleep(.18)  # A role-only delta must not start TTFT.
+        if token in ("LLM_OVERSIZED_CONTENT", "LLM_OVERSIZED_TOOLS"):
+            state("oversized")
+            for index in range(272):
+                if token == "LLM_OVERSIZED_CONTENT":
+                    event({"content": "x" * 65536})
+                else:
+                    call = {"index": 0, "function": {"arguments": "x" * 65536}}
+                    if index == 0:
+                        call.update({"id": "large-call", "type": "function"})
+                        call["function"]["name"] = "fixture_echo_a"
+                    event({"tool_calls": [call]})
+            event(reason="tool_calls" if token.endswith("TOOLS") else "stop")
+            handler.wfile.write(b"data: [DONE]\n\n")
+            handler.wfile.flush()
+            return True
         if token.startswith("LLM_TOOLS"):
             # Deliberately arrive in reverse index order, and fragment arguments.
             event({"reasoning_content": "private-tool-reasoning"} if token.endswith("DEEPSEEK") else
@@ -573,7 +618,7 @@ class Handler(BaseHTTPRequestHandler):
                 COMPONENT_OBSERVATIONS.append({"model": body.get("model", ""), "token": "redirect-target", "state": "redirect_followed", "path": path})
             self._json(400, {"error": {"message": "redirect must not be followed"}})
             return
-        if path in ("/v1/chat/completions", "/v1/embeddings", "/cohere/v2/embed") and llm_component(body, self, path):
+        if path in ("/v1/chat/completions", "/v1/embeddings", "/native/v2/embed", "/native/v2/rerank") and llm_component(body, self, path):
             return
         if path == "/llm-chat/observe":
             with LOCK:

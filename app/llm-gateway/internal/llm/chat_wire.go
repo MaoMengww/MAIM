@@ -21,14 +21,15 @@ import (
 // State is written by the component's reader goroutine and read only after Recv
 // returns its terminal error (the stream pipe provides the synchronization).
 type chatWireBridge struct {
-	ctx        context.Context
-	provider   string
-	send       func(*pb.ChatStreamChunk) error
-	start      time.Time
-	firstToken *int64
-	finished   map[int32]bool
-	done       bool
-	err        error
+	ctx           context.Context
+	provider      string
+	send          func(*pb.ChatStreamChunk) error
+	start         time.Time
+	firstToken    *int64
+	finished      map[int32]bool
+	responseBytes int
+	done          bool
+	err           error
 }
 
 func (b *chatWireBridge) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -169,6 +170,11 @@ func (r *chatWireBody) Read(p []byte) (int, error) {
 			// SSE comments, separators and empty data lines are keepalives, not
 			// model output. Do not spend the SDK's empty-frame budget on them.
 			continue
+		}
+		r.bridge.responseBytes += len(line)
+		if r.bridge.responseBytes > maxProviderResponseBytes {
+			r.bridge.err = fmt.Errorf("provider response too large")
+			return 0, r.bridge.err
 		}
 		if err := r.bridge.observe(line); err != nil {
 			r.bridge.err = err

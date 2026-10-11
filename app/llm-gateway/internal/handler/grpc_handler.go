@@ -216,7 +216,7 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 	if d, ok := info.ModelEntry.Metadata["dimension"].(float64); ok {
 		dim = int(d)
 	}
-	embeddings, promptTokens, err := llm.CreateEmbeddings(ctx, apiKey, baseURL, modelName, req.Input, dim)
+	embeddings, promptTokens, err := llm.CreateEmbeddings(ctx, info.Provider, apiKey, baseURL, modelName, req.Input, dim)
 	if err != nil {
 		log.Errorf("method=Embed model=%s embeddings failed", modelName)
 		var invalid *llm.RequestError
@@ -290,11 +290,7 @@ func (h *LLMGatewayHandler) Rerank(ctx context.Context, req *pb.RerankReq) (*pb.
 	}
 
 	modelName := info.ModelEntry.ModelName
-	queryTrunc := req.Query
-	if len(queryTrunc) > 200 {
-		queryTrunc = queryTrunc[:200] + "..."
-	}
-	log.Infof("method=Rerank model=%s model_id=%s query=%s docs=%d", modelName, req.ModelId, queryTrunc, len(req.Documents))
+	log.Infof("method=Rerank model=%s model_id=%s docs=%d", modelName, req.ModelId, len(req.Documents))
 
 	if info.TrackBilling {
 		if err := h.checkBalance(ctx, req.OwnerId); err != nil {
@@ -310,7 +306,7 @@ func (h *LLMGatewayHandler) Rerank(ctx context.Context, req *pb.RerankReq) (*pb.
 	}
 	defer h.svcCtx.RateLimiter.DecrConcurrency(ctx, modelName)
 
-	result, err := llm.Rerank(ctx, info.ModelEntry.APIKey, info.ModelEntry.BaseURL, modelName,
+	result, err := llm.Rerank(ctx, info.Provider, info.ModelEntry.APIKey, info.ModelEntry.BaseURL, modelName,
 		req.Query, req.Documents, int(req.TopN), req.ReturnDocuments)
 	if err != nil {
 		log.Errorf("method=Rerank model=%s error=%v", modelName, err)

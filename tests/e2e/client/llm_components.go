@@ -63,10 +63,18 @@ func (d *driver) llmComponentsScenario() (result error) {
 		return err
 	}
 	models = append(models, cohereID)
-	// The retained implementation routes by the configured Cohere URL and uses
-	// texts/input_type and /v2/embed, not an OpenAI embeddings wrapper.
+	// Explicit provider selection must retain the native protocol even at a
+	// configured endpoint whose URL does not contain the provider name.
 	if err := d.request(http.MethodPut, "/models/"+cohereID.String(), owner.token,
-		map[string]string{"provider": "cohere", "base_url": d.provider + "/cohere"}, nil); err != nil {
+		map[string]string{"provider": "cohere", "base_url": d.provider + "/native"}, nil); err != nil {
+		return err
+	}
+	rerankID, rerankName, err := create("rerank")
+	if err != nil {
+		return err
+	}
+	if err := d.request(http.MethodPut, "/models/"+rerankID.String(), owner.token,
+		map[string]string{"provider": "cohere", "base_url": d.provider + "/native"}, nil); err != nil {
 		return err
 	}
 	conn, err := grpc.NewClient(d.llmRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -149,7 +157,7 @@ func (d *driver) llmComponentsScenario() (result error) {
 	if err := d.requireComponentBilling(owner, vlmID, vlmName, "vlm", 1, 7, 5); err != nil {
 		return err
 	}
-	for _, token := range []string{"COMPONENT_VLM_HTTP_ERROR", "COMPONENT_VLM_REDIRECT"} {
+	for _, token := range []string{"COMPONENT_VLM_HTTP_ERROR", "COMPONENT_VLM_REDIRECT", "COMPONENT_VLM_OVERSIZED"} {
 		_, err := vision(token)
 		if err := requireProviderErrorRedaction(err, token, componentKey); err != nil {
 			return err
@@ -157,6 +165,9 @@ func (d *driver) llmComponentsScenario() (result error) {
 		state := "http_error"
 		if token == "COMPONENT_VLM_REDIRECT" {
 			state = "redirected"
+		}
+		if token == "COMPONENT_VLM_OVERSIZED" {
+			state = "oversized"
 		}
 		if err := d.requireComponentObservation(vlmName, token, state, "/v1/chat/completions"); err != nil {
 			return err
@@ -188,7 +199,7 @@ func (d *driver) llmComponentsScenario() (result error) {
 			return err
 		}
 	}
-	for _, token := range []string{"COMPONENT_EMPTY", "COMPONENT_INVALID_INDEX", "COMPONENT_NEGATIVE_INDEX", "COMPONENT_DUPLICATE", "COMPONENT_MISSING_INDEX", "COMPONENT_MISSING_VECTOR", "COMPONENT_WRONG_DIMENSION", "COMPONENT_HTTP_ERROR", "COMPONENT_REDIRECT"} {
+	for _, token := range []string{"COMPONENT_EMPTY", "COMPONENT_INVALID_INDEX", "COMPONENT_NEGATIVE_INDEX", "COMPONENT_DUPLICATE", "COMPONENT_MISSING_INDEX", "COMPONENT_MISSING_VECTOR", "COMPONENT_WRONG_DIMENSION", "COMPONENT_HTTP_ERROR", "COMPONENT_REDIRECT", "COMPONENT_OVERSIZED"} {
 		resp, err := embed(embedID, token)
 		if err == nil || resp != nil {
 			return fmt.Errorf("components.embed: 接受畸形/失败响应 %s", token)
@@ -204,6 +215,9 @@ func (d *driver) llmComponentsScenario() (result error) {
 			state = "http_error"
 		} else if token == "COMPONENT_REDIRECT" {
 			state = "redirected"
+		}
+		if token == "COMPONENT_OVERSIZED" {
+			state = "oversized"
 		}
 		if err := d.requireComponentObservation(embedName, token, state, "/v1/embeddings"); err != nil {
 			return err
@@ -289,7 +303,51 @@ func (d *driver) llmComponentsScenario() (result error) {
 				return err
 			}
 		}
-		if err := d.requireComponentObservation(cohereName, token, "completed", "/cohere/v2/embed"); err != nil {
+		if err := d.requireComponentObservation(cohereName, token, "completed", "/native/v2/embed"); err != nil {
+			return err
+		}
+	}
+	for _, token := range []string{"COMPONENT_COHERE_MISSING_VECTOR", "COMPONENT_COHERE_WRONG_DIMENSION", "COMPONENT_COHERE_OVERSIZED"} {
+		response, callErr := embed(cohereID, token)
+		if callErr == nil || response != nil {
+			return fmt.Errorf("components.cohere: accepted malformed or unbounded native response %s", token)
+		}
+		if err := requireProviderErrorRedaction(callErr, token, componentKey); err != nil {
+			return err
+		}
+	}
+	query := "COMPONENT_RERANK_NATIVE_" + suffix
+	documents := []string{"unrelated weather", "relevant " + query}
+	ctx, cancel = contextFor(ownerID)
+	ranking, err := cli.Rerank(ctx, &llmpb.RerankReq{ModelId: rerankID.String(), OwnerId: &ownerID,
+		Query: query, Documents: documents, TopN: 1, ReturnDocuments: true})
+	cancel()
+	if err != nil {
+		return fmt.Errorf("components.rerank native configured endpoint: %w", err)
+	}
+	if ranking.Model != rerankName || len(ranking.Results) != 1 || ranking.Results[0].Index != 1 ||
+		ranking.Results[0].Document != documents[1] || math.Abs(float64(ranking.Results[0].RelevanceScore)-.95) > .00001 {
+		return errors.New("components.rerank: remote semantic rank/document was not preserved")
+	}
+	if err := d.requireComponentObservation(rerankName, query, "completed", "/native/v2/rerank"); err != nil {
+		return err
+	}
+	ctx, cancel = contextFor(ownerID)
+	ranking, err = cli.Rerank(ctx, &llmpb.RerankReq{ModelId: rerankID.String(), OwnerId: &ownerID,
+		Query: query, Documents: documents, TopN: 1, ReturnDocuments: false})
+	cancel()
+	if err != nil || ranking == nil || len(ranking.Results) != 1 || ranking.Results[0].Index != 1 || ranking.Results[0].Document != "" {
+		return fmt.Errorf("components.rerank: optional document disclosure not respected: %v", err)
+	}
+	for _, token := range []string{"COMPONENT_RERANK_INVALID_INDEX", "COMPONENT_RERANK_HTTP_ERROR"} {
+		ctx, cancel = contextFor(ownerID)
+		response, callErr := cli.Rerank(ctx, &llmpb.RerankReq{ModelId: rerankID.String(), OwnerId: &ownerID,
+			Query: token, Documents: []string{"unrelated", token}, TopN: 1, ReturnDocuments: true})
+		cancel()
+		if callErr == nil || response != nil {
+			return fmt.Errorf("components.rerank: accepted invalid native response %s", token)
+		}
+		if err := requireProviderErrorRedaction(callErr, token, componentKey); err != nil {
 			return err
 		}
 	}

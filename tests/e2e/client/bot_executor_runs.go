@@ -271,7 +271,7 @@ func (x *controlledExecutor) update(payload map[string]any, reject bool, compute
 			if reject {
 				return publicRun{}, nil
 			}
-			return publicRun{}, errors.New("executor: legitimate WS update rejected")
+			return publicRun{}, fmt.Errorf("executor: legitimate WS update rejected: type=%v run=%v generation=%v input_version=%v sequence=%v status=%v", payload["type"], payload["run_id"], payload["generation"], payload["input_version"], payload["sequence"], payload["status"])
 		}
 		if response.Type == "bot.run.receipt" {
 			if reject || response.Run.ID == "" {

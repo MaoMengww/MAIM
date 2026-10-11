@@ -67,8 +67,8 @@ func (f *recoveryFixture) checkpoint(name string, id entityID) error {
 				for time.Now().Before(readyUntil) {
 					_, err := f.d.readRun(f.requester, id)
 					if err != nil {
-						unavailable, ok := errors.AsType[*apiError](err)
-						if !ok || unavailable.status != http.StatusServiceUnavailable {
+						var unavailable *apiError
+						if !errors.As(err, &unavailable) || unavailable.status != http.StatusServiceUnavailable {
 							return err
 						}
 						stableSince = time.Time{}

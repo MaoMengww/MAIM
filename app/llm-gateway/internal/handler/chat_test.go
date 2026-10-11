@@ -249,7 +249,7 @@ func TestChatHandlersRejectStaleCredentialRoutes(t *testing.T) {
 					}
 				})
 				_, _, err := f.call(f.ctx, stream)
-				assertErrorCode(t, err, errors.CodeConflict)
+				assertErrorCode(t, err, errors.CodeInvalidParam)
 				require.Zero(t, f.calls.Load(), "old route must never receive replacement credentials")
 				require.Zero(t, replacementCalls.Load(), "snapshot must not silently reroute")
 				f.quota.assertReleased(t, 0)
@@ -258,7 +258,7 @@ func TestChatHandlersRejectStaleCredentialRoutes(t *testing.T) {
 	}
 }
 
-func TestChatHandlersUseCurrentCredentialWithSnapshot(t *testing.T) {
+func TestChatHandlersRejectRotatedCredentialUntilNewSnapshot(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			f := newChatHandlerFixture(t, func(w http.ResponseWriter, r *http.Request) {
@@ -271,6 +271,13 @@ func TestChatHandlersUseCurrentCredentialWithSnapshot(t *testing.T) {
 			f.freeze(t)
 			f.changeModel(func(entry *domain.ModelEntry) { entry.APIKey = "fixture-rotated-key" })
 			resp, chunks, err := f.call(f.ctx, stream)
+			assertErrorCode(t, err, errors.CodeInvalidParam)
+			require.Nil(t, resp)
+			require.Empty(t, chunks)
+			require.Zero(t, f.calls.Load(), "stale credential snapshot must not reach the provider")
+			f.quota.assertReleased(t, 0)
+			f.freeze(t)
+			resp, chunks, err = f.call(f.ctx, stream)
 			require.NoError(t, err)
 			assertChatAnswer(t, resp, chunks)
 			require.Equal(t, int64(1), f.calls.Load())

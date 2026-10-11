@@ -1,9 +1,11 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
@@ -109,5 +111,16 @@ func (t *vlmTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		t.err = &HTTPError{StatusCode: response.StatusCode}
 		return nil, t.err
 	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxProviderResponseBytes+1))
+	_ = response.Body.Close()
+	if err != nil {
+		t.err = fmt.Errorf("provider response read failed")
+		return nil, t.err
+	}
+	if len(data) > maxProviderResponseBytes {
+		t.err = fmt.Errorf("provider response too large")
+		return nil, t.err
+	}
+	response.Body = io.NopCloser(bytes.NewReader(data))
 	return response, nil
 }

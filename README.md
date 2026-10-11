@@ -42,7 +42,7 @@ realtime-service ◀── Kafka delivery.requested ◀── message / bot / kn
         ├── ES 搜索索引
         └── bot-runtime → Agent / MCP / Bot 回复（再次进入消息写入链路）
 
-推送 best-effort；断线、实例故障或推送缺口通过按会话 seq 增量补拉恢复。
+推送 best-effort；断线、实例故障或推送缺口通过用户级收件箱的增量补齐与重建恢复聊天变化；Run 另由 bot 的权威查询与独立版本恢复。
 ```
 
 ---
@@ -222,6 +222,16 @@ docker compose up -d --build
 - `bot-runtime` 与 `knowledge-ingest` **不再各自持有 values 文件**（原 `bot-runtime.yaml`、`knowledge-ingest.yaml` 已删除）：helmfile 用同域那份 values + 显式覆盖实例化——`aim-bot-runtime` 基于 `bot-service.yaml` 覆盖 `role=runtime`、`metricsPort=9119`、`config.name`；`aim-knowledge-ingest` 基于 `knowledge-base.yaml` 覆盖 `role=ingest`、`httpPort`/`metricsPort`/`probes`=`9118` 与 `secretEnv`。两者仍可独立设置 `replicaCount`，独立伸缩。
 - 后端 RPC Service 为 Headless（`clusterIP: None`），配合 `dns:///aim-<service>:<port>` 做发现；gateway 保持普通 ClusterIP。
 - 生产部署需创建 Helm 引用的 `aim-ingest-embedding` Secret（`token` key），并设置独立随机令牌。
+
+### Bot 最终切换的运维验收边界
+
+本节是验收步骤，不是本次已运行集群的证明。停止旧写入角色后，同仓发布前后端及 control/runtime；使用隔离 UUID 数据库分别验证空库顺序初始化、已有 UUID 库升级与重复启动，核对 `schema_migrations` 的版本/时间不被重写。旧整数库不支持就地映射，失败不能用清库掩盖。
+
+- `017` 要求先有 `016`，只退役旧消息级耦合表/列；保留输入来源、实际接受版本、真实授权及历史个人删除覆盖。仅从仍存在的同会话原消息补齐缺失的 seq，不重建已清除正文，不解除历史暂停或复活终态。`018` 增加规则/委派来源与预算；`019` 使旧第三方认领过期等待当前恢复；`020` 丢弃缺乏边界证据的框架 checkpoint，但平台轨迹与模型调用事实继续保留。
+- 在不启动 Neo4j、不创建长期记忆集合的环境分别启动 control/runtime，运行知识上传→ingest ready→检索→来源引用及受控网络工具；Milvus/MinIO 是共享知识依赖，不能作为退役记忆资源删除。
+- 至少两个 realtime 实例验证多人发起、补充、承接、显式停止与重连；分别核对聊天 `seq`、用户收件箱 `position`、Run `version`。组合检查规则/委派来源、父子实际停止结局、执行器换代、未知写停放及唯一最终消息，不使用付费、邮件或真实删除动作。
+- 新增组合旅程：`python3 tests/e2e/run.py --scenario bot-cutover --timeout 60s`；覆盖同 Bot 跨会话/并行/私人隔离、多人补充及断线补收、规则→行动确认→消息操作→失联换代→明确委派、父子不同停止结局及真实撤权。最终 `all` 同时运行该旅程、压缩重启、完整故障矩阵和知识库/模型保留场景。首次启动前须创建 `document.uploaded` topic，避免知识入库消费者在首次上传之前因队列不存在退出；Compose 和 Helm topic 声明均包含它。
+- 记录本轮环境目标、迁移/持久化、公开场景、浏览器和故障恢复证据；历史 issue 的通过不是本轮输出，部署清单通过不是 k3s 运行通过，受控 provider 的缓存 usage 不是远端命中或延迟收益。退役归档、图数据、集合、volume/PVC 的销毁必须另核实所有权并获得独立授权。
 
 ---
 
@@ -428,7 +438,7 @@ bot-service 的 runtime 角色使用锁定版本的 **CloudWeGo Eino `ChatModelA
 
 1. **固定执行配置**：冻结模型路由、系统指令、工具定义和累计预算，不复制供应商或工具凭据。
 2. **资源材料**：仅使用此次选定的有效资源许可；读取与向会话披露分别授权。个人材料进入个人 Run，不混入群共享请求、轨迹投影或结果。
-3. **显式历史来源**：Bot 使用自己的绑定与历史许可，同时尊重请求者的个人删除覆盖；引用来源不变成本 Bot 的旧 assistant 发言。
+3. **显式历史来源**：Bot 使用自己的绑定与限定历史许可读取新材料，不借用户调用身份；接受前尊重当前来源可见性，已接受工作快照独立于原消息。引用来源不变成本 Bot 的旧 assistant 发言，也不默认吸收最近群消息。
 
 #### 知识检索
 
@@ -468,12 +478,9 @@ llm-gateway 是所有 LLM 调用的统一入口，提供多 Provider 抽象、�
 
 #### 多 Provider 抽象
 
-**chatModel** 实现 Eino 的 `model.BaseChatModel` 接口：
+Chat 与 ChatStream 唯一经锁定的 Eino OpenAI ChatModel `Stream`；同步 Chat 收集同一供应商流并保留真实首 token 证据，不维护第二套 HTTP/SSE fallback。VLM 使用 ChatModel `Generate` 的多模态表示，OpenAI-compatible Embedding 使用 Eino Embedder；没有等价组件的 Cohere Embedding 与 Cohere/DashScope 远程 Rerank 保留真实窄 HTTP 实现。
 
-- **Generate**: 同步调用 `/chat/completions`
-- **Stream**: SSE 流式调用，支持增量 Tool Call 累积（按 index 聚合 delta）
-- 自动根据 provider 设置默认 BaseURL
-- Eino callback 集成
+模型注册、可见性、冻结路由、凭据、并发额度及实际 usage 计费仍由 llm 域持有。BaseURL 优先当前模型配置；provider、端点或密钥身份变更均拒绝旧冻结快照，须创建新 Run/快照；密钥不进入公开快照、日志或材料。完整 schema、工具配对、零温度、私有推理回放、usage 缺失/显式零和缓存读写语义保留；组件接入不证明真实供应商缓存命中。
 
 ---
 
@@ -636,7 +643,7 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 - Run 的 `input_sources` 按接受输入版本展示作者与来源；可选 `content:string` 是该版本实际接受的固定正文，仅当前授权后的 REST Get/List 与人类 Control 投影提供。省略表示仅有路由元数据，不是空正文；消息来源链接只定位当前可见的原消息，不能冒充接受快照，也不能用原消息正文补齐。共享卡片与个人工作面板直接展示已获授权的 `content`，保留换行，不回读消息代替；WS 通知、停止 receipt 与第三方内部路由不自动携带私有正文。重连、重建或当前授权失败时清除旧查看者投影，并通过 REST 重新读取。
 - `bot.run.updated` WS 事件携带 `{type,conv_id,bot_id,run}` 的生命周期通知，不携带结果正文、工具内容或材料来源正文；客户端通过当前查看者的 REST 读取重建，不从迟到事件恢复个人隐藏内容。卡片区分 `accepted/running/waiting_input/waiting_authorization/stopping/stopped/succeeded/failed` 与输出状态。缺信息通过 `ask_for_input` 等待补充；具体行动等待授权与负责人离群等待接手是不同阶段。
 - `004_single_run.sql` 持有交互、接受输入、追加轨迹、不可变模型调用快照和 Bot outbox；`005_bot_output_submission.sql` 在消息事务内保存最终输出 receipt。重复输入返回同一 Run，重复输出返回同一消息，同键不同内容冲突；重试仍校验当前绑定和权限。
-- 开始时固定模型路由、提示词、工具/schema 和预算；密钥仅在所属 domain 瞬时取得。读取、模型派发、工具与输出检查当前许可；外部写操作要求具体批准或匹配有效受限自动许可。端点变更使旧路由快照失效，不向旧端点发送新密钥。
+- 开始时固定模型路由、提示词、工具/schema 和预算；密钥仅在所属 domain 瞬时取得。读取、模型派发、工具与输出检查当前许可；外部写操作要求具体批准或匹配有效受限自动许可。provider、端点或密钥身份变更使旧路由快照失效，需新 Run/快照，不向旧端点发送新密钥。
 - 固定指令、真实 assistant/tool 往返只追加；模型调用保留输入上界、轨迹版本、实际请求/输出和 nullable usage/首 token 延迟。支持的官方 OpenAI 端点使用原生 `prompt_cache_key`；不支持缓存照常执行，缺失缓存字段不推断命中，不自建 KV 状态。
 - `007_interaction_input_continuity.sql` 分离已接受 `input_version` 和实际入轨 `applied_input_version`，每条输入保存作者与固定材料表示。本次模型调用冻结输入上界；调用中的补充进入下一轮，旧材料不重新读取正文、不前插或重排。
 - 新接受消息与历史输入时检查当前绑定、补充者可见性及消息版本；已接受输入固定正文、来源身份、顺序和版本，后续工作不再依赖原消息行存在、编辑或隐藏状态。历史授权持续校验接受时保存的消息 seq 与 grant 范围及有效性，不重新读取原消息。文件读取真实正文并验证群共享许可。当前支持不超过 1 MiB 的 UTF-8 文本、JSON/XML/YAML；未知二进制明确拒绝。过大历史范围要求缩小选择，不静默截断。
@@ -678,9 +685,15 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 - 工作投递和 Webhook 回报归 `bot-runtime`，控制面只管理配置/凭据并转发运行请求。`006_third_party_run.sql` 保存执行器事实、补充输入来源、报告重试 receipt 和凭据签发/撤销事实。
 - `run.delivery_ack` 只确认收到，`run.claim`（`status=accepted`）确认接受工作，`run.update` 报告 `running/waiting_input/failed/completed/stopped/stop_rejected`。三者均包含 `run_id,generation,input_version,sequence,update_key`；ACK 还须原样携带该投递的 `operation`，认领 sequence=0，更新从1严格连续。同键同内容返回原 receipt，异义冲突；重试重新鉴权，错误代次/版本、回退及终态后推进被拒绝。`stop_rejected` 明确无法取消，不伪称工作已停；之后真实停工仍可报告 `stopped`。
 - WS 回报返回 `bot.run.receipt`；Webhook 回报使用 `POST /api/v1/webhook`、`X-AIM-Signature`（原始 body HMAC-SHA256）与 `X-AIM-Timestamp`（Unix 秒），返回公开 Run。Webhook 2xx 只表示传输送达，WS 入 Kafka 不标为已送达；未认领工作持久重投同一代次。只有消息提交后 Run 才成功。
-- 用户 `POST /api/v1/runs/:id/control` 提交 `{operation:input|stop|resume|takeover|grant_control|revoke_control|close_interaction|clear_context,submission_key,message?,source_message_id?,message_ids?,file_ids?,history_grant_id?,target_user_id?}`。只有 grant/revoke 接收且要求目标为当前成员。请求者、当前负责人、明确获授控制权者及当前会话管理员可控制；普通成员可按输入合同补充，但不能停止或抢接。重复请求也重新检查当前资格。不支持的执行操作明确409且不改状态。第三方 `bot.run.request.inputs` 按版本保留作者、正文、材料和来源；停止则仅投递 root `run_id,bot_id,conv_id,binding_id,generation,input_version,operation=stop,reason`，不复制输入或材料。
-- 最低活动订阅通过管理员的会话绑定 `bot_settings.activity_types:["message.created"]` 显式启用，平台写入安全整数 `activity_start_seq`，不补授此前历史。当前绑定/来源可见性复核后独立投递 `bot.activity`，不带 Run、不创建工作、不授权输出；默认无订阅。更完整订阅/自动规则仍由后续票处理。
+- 用户 `POST /api/v1/runs/:id/control` 提交 `{operation:input|stop|resume|takeover|grant_control|revoke_control|close_interaction|clear_context,submission_key,message?,source_message_id?,message_ids?,file_ids?,history_grant_id?,target_user_id?}`。只有 grant/revoke 接收且要求目标为当前成员。请求者、当前负责人、明确获授控制权者及当前会话管理员可控制；普通成员可按输入合同补充，但不能停止或抢接。重复请求也重新检查当前资格。不支持的补充或恢复操作明确409且不改状态；不支持停止的执行器接受停止意图并记录 `stop_status=rejected`，不伪称已停工。第三方 `bot.run.request.inputs` 按版本保留作者、正文、材料和来源；停止则仅投递 root `run_id,bot_id,conv_id,binding_id,generation,input_version,operation=stop,reason`，不复制输入或材料。
+- 输入订阅与响应触发分别配置：管理员通过会话绑定 `bot_settings.activity_types` 选定 `message.created|member.joined|member.left|business.activity`，通过 `response_rules` 明确启用相应条件；规则包含 UUID `id`、`enabled`、`activity_type`，可选 `message_contains` 或 `business_type`。平台在会话事务内记录管理员/成员资格、规则版本与 `activity_start_seq`；不补授历史。当前绑定/可见性复核后的 `bot.activity` 只表示获准观察，不创建工作、不授权行动或输出。默认无订阅/规则；精确目标提及与明确操作独立有效。普通 Bot 发言、消息编辑撤回及工作进展不自动启动。
 - 公开卡片展示投递、执行器接受/完成、实际能力、输入来源、认领代次、结果和最终消息；断线后以权威查询恢复。验收 `python3 tests/e2e/run.py --scenario bot-executor-runs` 覆盖真实 WS/Webhook 计算、凭据隔离、顺序/幂等、补充/停止/恢复、获准活动、跨实例输出和历史。
+
+#### 显式规则、委派与关联停止
+
+- `018_explicit_collaboration.sql` 保存活动接受身份、规则/委派来源、独立子 Run 与协作预算。规则工作记录 `origin.kind=rule`、规则及活动快照；委派记录 `origin.kind=delegation`、来源 Run、委派 Bot 和真实授权来源，不填写假请求者。
+- 内置 `delegate_run` / `delegation_result` 和第三方 `POST /api/v1/bot-app/delegations` 共用当前认领及平台 Run 边界。仅传递任务所需、当前可分享的材料；目标须有有效绑定和资源许可，普通 Bot 消息不是委派。子 Run 独立身份、状态和结果，父工作须明确消费获准子结果。
+- 协作受深度 3、后代 8、累计输入 262144 字节与预留输出 16384 token 限制；不能重复祖先 Bot。停止父工作分别请求关联子工作停止，并显示各自确认、拒绝或未知，不承诺原子停止或副作用回滚。验收入口：`python3 tests/e2e/run.py --scenario bot-collaboration --timeout 100s`。
 
 #### 执行器故障与安全恢复
 
@@ -708,7 +721,7 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 1. **连接登记**：每设备独立 TTL；建立、心跳与断开维护，`generation` 条件更新防止旧连接删除新登记。在线状态查询直接复用登记。
 2. **在线投递**：Kafka 单消费组读取 `delivery.requested`；查询目标设备实例，发布到 `rt:node:{instance}`。同实例与跨实例使用同一路径，发送方自己的其它设备也收到回显。
 3. **负反馈**：节点无订阅、连接缺失或写失败时清理对应 generation 的登记，记录降级并触发配置启用的 FCM/APNs。没有 ACK、重投或未确认队列。
-4. **正确性**：WebSocket 是 best-effort；客户端按会话 `seq` 补拉恢复缺口，未读由消息域持有。
+4. **正确性**：WebSocket 是 best-effort；聊天变化通过用户级收件箱 `position` 增量补齐/重建，不能用 WS 最大 `seq` 推进同步位点；Run 通过当前授权的 REST 查询及自身版本恢复，临时 token、活动与 Run 进度不写用户收件箱。未读由消息域持有。
 5. **平滑退出**：SIGTERM 先使 readiness 失败、拒绝新接入，再等待摘流量窗口并分散关闭连接。Compose 与 Helm 预留退出宽限期。
 
 消息域负责新消息、Bot 回复、撤回、编辑、按用户删除、已读回执和未读同步的收件人解析；typing 也由消息域校验成员再产出投递意图。
@@ -727,8 +740,7 @@ Bot 使用稳定 UUID，通过 `messaging.conv_bots` 的独立绑定参与会话
 | 消息可靠性 | 不重复（幂等key+DB幂等+Kafka幂等）、不丢失（Transactional Outbox：DB+outbox_events状态机+指数退避重试+SyncMessages兜底）、不乱序（PostgreSQL UPSERT seq+有序存储+有序查询） |
 | 消息管理 | 发送/接收/撤回/编辑/引用回复，全文搜索 (ES + IK中文分词) |
 | 社交关系 | 好友增删/分组/备注/黑名单，群创建/邀请/踢出/转让/公告 |
-| AI Bot | @Bot 对话，ReAct Agent 推理，MCP 工具调用，多 Bot 会话协作，流式输出 |
-| 记忆系统 | LLM SPO 提取 + 谓词配置表路由 + Entity 间图谱边 + BFS 多跳遍历（距离衰减）+ 增量画像 |
+| AI Bot | 独立 Bot 身份、明确交互与持久 Run，Eino ChatModelAgent + Runner，MCP、获准规则与受限委派，流式输出及故障安全恢复 |
 | 知识库 | 多格式文档上传，RAG 向量检索问答，混合检索 + Reranker 重排序 |
 | MCP 集成 | MCP Server 管理 + 工具发现 + Bot 绑定 + 运行时工具调用 |
 | 多端同步 | 同账号多设备消息同步，已读状态一致，离线消息补推 |

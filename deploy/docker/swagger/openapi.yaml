@@ -26,7 +26,7 @@ components:
       properties:
         type:
           type: string
-          enum: [run.delivery_ack, run.claim, run.update]
+          enum: [run.delivery_ack, run.claim, run.update, run.heartbeat]
         run_id:
           type: string
           format: uuid
@@ -39,7 +39,7 @@ components:
         sequence:
           type: integer
           minimum: 0
-          description: ACK/claim为0，认领后的更新从1严格连续
+          description: ACK/claim/heartbeat为0，业务更新从1严格连续；heartbeat不推进业务sequence
         update_key:
           type: string
           minLength: 1
@@ -50,7 +50,7 @@ components:
           description: 仅delivery_ack使用，原样确认收到的投递operation
         status:
           type: string
-          enum: ['', accepted, running, waiting_input, stopped, failed, completed]
+          enum: ['', accepted, running, waiting_input, stopped, stop_rejected, failed, completed]
         stage:
           type: string
           maxLength: 128
@@ -845,21 +845,10 @@ components:
           type: integer
           format: int64
           description: 禁言截止时间戳，0 表示永久禁言
-        bot_id:
-          type: string
-          format: uuid
-          description: 缺失引用时省略；不得使用空字符串、"0" 或全零 UUID
         member_type:
           type: integer
-          enum:
-          - 0
-          - 1
-          - 2
-        bot_name:
-          type: string
-        bot_avatar:
-          type: string
-      description: member_type=1 (USER) 仅含 user_id；member_type=2 (BOT) 仅含 bot_id；另一引用缺失
+          enum: [0, 1]
+      description: 仅人类成员；Bot参与通过独立ConvBot绑定表达，不计入成员数或已读未读
 
     CreateConversationReq:
       type: object
@@ -1063,8 +1052,8 @@ components:
     # ========== Message ==========
     MessageType:
       type: integer
-      enum: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-      description: "0: unspecified, 1: text, 2: image, 3: file, 4: video, 5: audio, 6: location, 7: system, 8: custom, 9: bot"
+      enum: [0, 1, 2, 3, 4, 5, 6, 7, 8, 10]
+      description: "0: unspecified, 1: text, 2: image, 3: file, 4: video, 5: audio, 6: location, 7: system, 8: custom, 10: result；9已退役，发送身份独立于内容类型"
 
     MessageStatus:
       type: integer
@@ -1191,25 +1180,6 @@ components:
         payload:
           type: string
 
-    BotContent:
-      type: object
-      properties:
-        bot_id:
-          type: string
-          format: uuid
-        bot_name:
-          type: string
-        bot_avatar:
-          type: string
-        text:
-          type: string
-        is_streaming:
-          type: boolean
-        thinking_time_ms:
-          type: integer
-        raw_payload:
-          type: string
-
     CustomContent:
       type: object
       properties:
@@ -1233,10 +1203,28 @@ components:
           minimum: 0
           maximum: 9007199254740991
           description: JSON number；JavaScript 安全整数业务序号，不是实体身份
-        from_user_id:
+        sender_id:
           type: string
           format: uuid
-          description: 用户消息含用户 UUID；Bot/系统消息缺失，发送者由 bot/系统载荷表达
+          description: 用户或Bot稳定UUID；系统发送者无实体时省略
+        sender_type:
+          type: string
+          enum: [user, bot, system]
+        sender_name:
+          type: string
+        sender_avatar:
+          type: string
+        binding_id:
+          type: string
+          format: uuid
+          description: Bot发送时的有效会话绑定
+        requester_id:
+          type: string
+          format: uuid
+          description: 真实人类请求者；规则/委派等非人类来源不伪造请求者
+        raw_payload:
+          type: string
+          description: JSON公开输出metadata；不构成授权
         type:
           $ref: '#/components/schemas/MessageType'
         status:
@@ -1255,8 +1243,8 @@ components:
           $ref: '#/components/schemas/LocationContent'
         system:
           $ref: '#/components/schemas/SystemContent'
-        bot:
-          $ref: '#/components/schemas/BotContent'
+        result:
+          $ref: '#/components/schemas/CustomContent'
         custom:
           $ref: '#/components/schemas/CustomContent'
         reply_to_id:
@@ -2879,17 +2867,29 @@ components:
         bot_settings:
           type: string
           description: JSON 配置，嵌套实体引用仍使用 UUID 字符串
+          example: '{"activity_types":["message.created"],"response_rules":[]}'
 
     UpdateBotInConvReq:
       type: object
       properties:
         bot_settings:
           type: string
-          description: JSON 配置，嵌套实体引用仍使用 UUID 字符串
+          description: 管理员设置独立activity_types订阅与response_rules触发；规则含UUID id、enabled、activity_type及可选message_contains/business_type。平台盖章来源、版本与水位，不补授历史；观察不等于工作或行动许可。
 
     ConvBot:
       type: object
       properties:
+        binding_id:
+          type: string
+          format: uuid
+        owner_type:
+          type: string
+          enum: [platform, user]
+        owner_id:
+          type: string
+          format: uuid
+        status:
+          type: string
         bot_id:
           type: string
           format: uuid
@@ -6168,44 +6168,6 @@ paths:
                       data:
                         $ref: '#/components/schemas/IssueTokenResp'
 
-  # ==================== Bot Chat ====================
-  /bots/{id}/chat/stream:
-    get:
-      tags:
-        - Bot
-      summary: Bot 对话流式响应 (SSE)
-      description: 与指定 Bot 进行流式对话，返回 Server-Sent Events
-      operationId: botStreamChat
-      security:
-        - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-        description: Bot ID
-      - name: message
-        in: query
-        required: true
-        schema:
-          type: string
-        description: 用户消息
-      - name: conversation_id
-        in: query
-        schema:
-          type: string
-          format: uuid
-        description: 会话 ID（可选，用于上下文）
-      responses:
-        "200":
-          description: SSE 流式响应
-          content:
-            text/event-stream:
-              schema:
-                type: string
-
   # ==================== Global MCP Server Management ====================
   /mcp-servers:
     post:
@@ -6977,6 +6939,85 @@ paths:
         "404":
           description: Run不存在
 
+  /runs/{id}:
+    get:
+      tags: [Bot]
+      summary: 当前授权的独立Run查询与断线恢复
+      description: 已接受输入/结果独立于原消息；仅REST当前查看者投影可返回接受正文。Run版本不是会话seq或用户收件箱position；临时WS通知不携带材料正文。个人Run仅请求者可见，未知外部写等待人工核对，终态不复活。
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 权威Run，包括版本、执行代次、租约、停止/输出状态及当前授权的接受输入与结果；Cache-Control为no-store
+        '403':
+          description: 当前资格或资源许可不足
+        '404':
+          description: Run不存在
+
+  /conversations/{id}/runs:
+    get:
+      tags: [Bot]
+      summary: 当前会话共享Run列表
+      description: 不包含personal工作；按当前身份与授权投影，原消息隐藏不级联隐藏独立Run。
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: 当前授权的共享Run数组；Cache-Control为no-store
+        '403':
+          description: 当前会话或工作无权访问
+
+  /bot-app/delegations:
+    post:
+      tags: [Bot]
+      summary: 第三方当前认领执行器的明确委派或子结果读取
+      security:
+        - BearerAuth: []
+      description: Bot凭据不授予额外许可；验证父Run、代次、输入上界、目标绑定和可分享资源。子Run独立身份/结果，不伪造请求者；普通Bot消息不委派，父子停止非原子。深度3、后代8、累计输入262144字节、预留输出16384token。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [operation, run_id, generation, input_version]
+              properties:
+                operation: { type: string, enum: [delegate, result] }
+                run_id: { type: string, format: uuid }
+                generation: { type: integer, minimum: 1 }
+                input_version: { type: integer, minimum: 1 }
+                target_bot_id: { type: string, format: uuid }
+                submission_key: { type: string, minLength: 1, maxLength: 128 }
+                message: { type: string, minLength: 1, description: 最大65536字节 }
+                child_run_id: { type: string, format: uuid }
+                file_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                resource_grant_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 独立子Run或当前获准子结果，不表示父Run已完成或已发送消息
+        '403':
+          description: 认领、来源、目标绑定或共享许可不足
+        '409':
+          description: 状态、版本或提交键冲突
+
   /bots/{id}/runs:
     post:
       tags: [Bot]
@@ -6999,6 +7040,11 @@ paths:
                 conv_id: { type: string, format: uuid }
                 submission_key: { type: string, minLength: 1, maxLength: 256 }
                 message: { type: string, minLength: 1, description: 最大65536字节 }
+                visibility: { type: string, enum: [conversation, personal], default: conversation }
+                resource_grant_ids:
+                  type: array
+                  maxItems: 100
+                  items: { type: string, format: uuid }
                 reply_to_msg_id: { type: string, format: uuid }
                 history_grant_id: { type: string, format: uuid }
                 parent_run_id: { type: string, format: uuid, description: 同当前绑定中可见终态父Run；同交互创建独立快照分支 }
@@ -7039,7 +7085,7 @@ paths:
               type: object
               required: [operation, submission_key]
               properties:
-                operation: { type: string, enum: [input, stop, resume, close_interaction, clear_context] }
+                operation: { type: string, enum: [input, stop, resume, takeover, grant_control, revoke_control, close_interaction, clear_context] }
                 submission_key: { type: string, minLength: 1, maxLength: 256 }
                 message: { type: string, description: 仅input使用，最大65536字节 }
                 source_message_id: { type: string, format: uuid, description: 本补充者本人发送的文本消息 }
@@ -7052,13 +7098,14 @@ paths:
                   maxItems: 100
                   items: { type: string, format: uuid }
                 history_grant_id: { type: string, format: uuid }
+                target_user_id: { type: string, format: uuid, description: grant_control/revoke_control必需且必须为当前成员 }
       responses:
         "200":
-          description: 权威接受receipt；input接受版本与执行入轨分别记录。close/clear必须全交互终态且只关闭延续关系，不删历史。停止请求仅变stopping。
+          description: 当前授权的权威Run；input接受版本与执行入轨分别记录。close/clear须交互全终态，仅关闭延续关系。停止独立显示确认/拒绝/未知；不支持停止时接受意图并记录stop_status=rejected，不伪称停工。未知外部写不得由resume/input/takeover盲目重做。IM原消息操作不改变已接受工作。
         "403":
           description: 当前工作或材料不可见，旧绑定引用，或无控制/交互关闭权限
         "409":
-          description: 能力不支持、状态不允许或异义提交键；不改变权威状态
+          description: 补充/恢复能力不支持、状态不允许或异义提交键；不改变权威状态
         "404":
           description: Run不存在
 

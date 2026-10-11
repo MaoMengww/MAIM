@@ -618,7 +618,9 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 			return nil
 		case "executing", "unknown":
 			return status.Error(codes.FailedPrecondition, "action outcome unknown; external write will not be replayed")
-		case "denied", "revoked", "expired":
+		case "expired":
+			return status.Error(codes.PermissionDenied, "action authorization expired")
+		case "denied", "revoked":
 			replay = true
 			a.Result = `{"status":"` + a.Status + `"}`
 			return nil
