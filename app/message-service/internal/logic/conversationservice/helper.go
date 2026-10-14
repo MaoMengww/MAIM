@@ -3,7 +3,6 @@ package conversationservice
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
 	"github.com/maomeng/aim/app/message-service/internal/repo"
@@ -107,13 +106,6 @@ func emitSystemMessage(ctx context.Context, svcCtx *svc.ServiceContext, convID, 
 			svcCtx.Logger.WithContext(context.Background()).Errorf("emit system message failed: conv=%s action=%s err=%v", convID, action, err)
 		}
 	}()
-}
-
-// batchEmitSystemMessage 为多个相关用户各发送一条系统消息
-func batchEmitSystemMessage(ctx context.Context, svcCtx *svc.ServiceContext, convID, operatorID string, action, detailTemplate string, userIDs []string) {
-	for _, uid := range userIDs {
-		emitSystemMessage(ctx, svcCtx, convID, uid, action, fmt.Sprintf(detailTemplate, uid), []string{uid})
-	}
 }
 
 // withLockedConversation serializes aggregate writes with the message write path.

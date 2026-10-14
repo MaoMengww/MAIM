@@ -107,7 +107,7 @@ func (t *vlmTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, t.err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		response.Body.Close()
+		_ = response.Body.Close() // Preserve the provider status, not a cleanup error.
 		t.err = &HTTPError{StatusCode: response.StatusCode}
 		return nil, t.err
 	}

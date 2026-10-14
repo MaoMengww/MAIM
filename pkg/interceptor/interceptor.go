@@ -82,11 +82,13 @@ func StreamRequestIDClientInterceptor() grpc.StreamClientInterceptor {
 	}
 }
 
+type contextKey string
+
 // ContextKeyUserID is used to store the authenticated user ID in context.
-const ContextKeyUserID = "user_id"
+const ContextKeyUserID contextKey = "user_id"
 
 // ContextKeyRequestID is used to store the request ID in context.
-const ContextKeyRequestID = "request_id"
+const ContextKeyRequestID contextKey = "request_id"
 
 // UnaryUserIDInterceptor extracts user-id from gRPC metadata and injects it into context.
 func UnaryUserIDInterceptor() grpc.UnaryServerInterceptor {

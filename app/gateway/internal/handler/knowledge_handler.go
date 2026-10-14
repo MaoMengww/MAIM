@@ -138,7 +138,10 @@ func (h *KnowledgeHandler) UploadDocument(c *gin.Context) {
 		response.BadRequest(c, "missing file")
 		return
 	}
-	defer file.Close()
+	defer func() {
+		// Multipart files are read-only; read errors determine upload success.
+		_ = file.Close()
+	}()
 
 	fileBytes, err := io.ReadAll(file)
 	if err != nil {

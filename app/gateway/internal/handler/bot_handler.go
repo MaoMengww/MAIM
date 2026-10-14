@@ -88,7 +88,10 @@ func (h *BotHandler) UploadBotAvatar(c *gin.Context) {
 		response.BadRequest(c, "file required")
 		return
 	}
-	defer file.Close()
+	defer func() {
+		// Multipart files are read-only; read errors determine upload success.
+		_ = file.Close()
+	}()
 
 	data, err := io.ReadAll(file)
 	if err != nil {

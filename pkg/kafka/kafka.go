@@ -220,20 +220,22 @@ func (h *MessageHandler) Setup(sarama.ConsumerGroupSession) error   { return nil
 func (h *MessageHandler) Cleanup(sarama.ConsumerGroupSession) error { return nil }
 func (h *MessageHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for msg := range claim.Messages() {
-		ctx := ExtractTraceContext(sess.Context(), msg.Headers)
-		tr := otel.Tracer(tracerName)
-		topic := claim.Topic()
-		ctx, span := tr.Start(ctx, fmt.Sprintf("consume %s", topic),
-			trace.WithSpanKind(trace.SpanKindConsumer))
-		defer span.End()
-		if err := h.OnMessage(ctx, msg.Key, msg.Value); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			h.Logger.WithContext(ctx).Errorf("kafka message handler error: %v", err)
-		} else {
-			span.SetStatus(codes.Ok, "")
-		}
-		sess.MarkMessage(msg, "")
+		func() {
+			ctx := ExtractTraceContext(sess.Context(), msg.Headers)
+			tr := otel.Tracer(tracerName)
+			topic := claim.Topic()
+			ctx, span := tr.Start(ctx, fmt.Sprintf("consume %s", topic),
+				trace.WithSpanKind(trace.SpanKindConsumer))
+			defer span.End()
+			if err := h.OnMessage(ctx, msg.Key, msg.Value); err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+				h.Logger.WithContext(ctx).Errorf("kafka message handler error: %v", err)
+			} else {
+				span.SetStatus(codes.Ok, "")
+			}
+			sess.MarkMessage(msg, "")
+		}()
 	}
 	return nil
 }

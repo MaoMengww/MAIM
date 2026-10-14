@@ -93,12 +93,12 @@ func (b *embeddingWireBridge) RoundTrip(req *http.Request) (*http.Response, erro
 		return nil, b.err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		response.Body.Close()
+		_ = response.Body.Close() // Preserve the provider status, not a cleanup error.
 		b.err = &HTTPError{StatusCode: response.StatusCode}
 		return nil, b.err
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxProviderResponseBytes+1))
-	response.Body.Close()
+	_ = response.Body.Close() // Read errors above determine whether the body is usable.
 	if err != nil {
 		b.err = fmt.Errorf("embedding provider response read failed")
 		return nil, b.err

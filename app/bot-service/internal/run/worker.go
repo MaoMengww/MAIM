@@ -364,7 +364,7 @@ func (s *Service) messagesFor(ctx context.Context, id string) ([]*llm.Message, e
 	}
 	return messages, nil
 }
-func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64, config ExecutionConfig, messages []*llm.Message) error {
+func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64, config ExecutionConfig) error {
 	if err := s.refreshAuthorizations(ctx, r); err != nil {
 		return err
 	}

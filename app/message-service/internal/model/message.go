@@ -260,36 +260,47 @@ func (c LocationContent) ToJSONContent() JSONContent { return marshalFrom(c) }
 func (c SystemContent) ToJSONContent() JSONContent   { return marshalFrom(c) }
 func (c CustomContent) ToJSONContent() JSONContent   { return marshalFrom(c) }
 
-func ParseTextContent(jc JSONContent) TextContent { var c TextContent; unmarshalTo(jc, &c); return c }
-func ParseImageContent(jc JSONContent) ImageContent {
-	var c ImageContent
-	unmarshalTo(jc, &c)
+// Content projections are best-effort for older or partially populated rows.
+// Keep successfully decoded fields when an optional field has an incompatible
+// type; the remaining fields retain their zero values.
+func ParseTextContent(jc JSONContent) TextContent {
+	var c TextContent
+	_ = unmarshalTo(jc, &c)
 	return c
 }
-func ParseFileContent(jc JSONContent) FileContent { var c FileContent; unmarshalTo(jc, &c); return c }
+func ParseImageContent(jc JSONContent) ImageContent {
+	var c ImageContent
+	_ = unmarshalTo(jc, &c)
+	return c
+}
+func ParseFileContent(jc JSONContent) FileContent {
+	var c FileContent
+	_ = unmarshalTo(jc, &c)
+	return c
+}
 func ParseVideoContent(jc JSONContent) VideoContent {
 	var c VideoContent
-	unmarshalTo(jc, &c)
+	_ = unmarshalTo(jc, &c)
 	return c
 }
 func ParseAudioContent(jc JSONContent) AudioContent {
 	var c AudioContent
-	unmarshalTo(jc, &c)
+	_ = unmarshalTo(jc, &c)
 	return c
 }
 func ParseLocationContent(jc JSONContent) LocationContent {
 	var c LocationContent
-	unmarshalTo(jc, &c)
+	_ = unmarshalTo(jc, &c)
 	return c
 }
 func ParseSystemContent(jc JSONContent) SystemContent {
 	var c SystemContent
-	unmarshalTo(jc, &c)
+	_ = unmarshalTo(jc, &c)
 	return c
 }
 func ParseCustomContent(jc JSONContent) CustomContent {
 	var c CustomContent
-	unmarshalTo(jc, &c)
+	_ = unmarshalTo(jc, &c)
 	return c
 }
 

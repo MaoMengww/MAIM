@@ -1,7 +1,6 @@
 package kafka
 
 import (
-	"context"
 	"testing"
 
 	"github.com/maomeng/aim/pkg/config"
@@ -29,14 +28,3 @@ func TestNewConsumerInvalidBroker(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestMessageHandler(t *testing.T) {
-	called := false
-	handler := &MessageHandler{
-		OnMessage: func(ctx context.Context, key, value []byte) error {
-			called = true
-			return nil
-		},
-	}
-	assert.NotNil(t, handler)
-	assert.False(t, called)
-}

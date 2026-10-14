@@ -15,7 +15,8 @@ func (c *Client) MigrateBotContent(ctx context.Context, index string) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	// Status and decoding determine migration success; closing releases the body.
+	defer func() { _ = res.Body.Close() }()
 	if res.IsError() {
 		return fmt.Errorf("migrate bot search content: %s", res.String())
 	}

@@ -90,7 +90,8 @@ func (s *APNSSender) Send(ctx context.Context, token, topic, title, body string,
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	// APNS status determines push success; closing only releases the HTTP body.
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == 200 {
 		return nil

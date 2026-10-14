@@ -465,7 +465,9 @@ func TestChatHandlersCancellationReleasesLiveQuota(t *testing.T) {
 					return
 				}
 				chatFixtureSSE(w, chatFixtureDelta)
-				http.NewResponseController(w).Flush()
+				if err := http.NewResponseController(w).Flush(); err != nil {
+					t.Errorf("flush provider stream: %v", err)
+				}
 				close(started)
 				select {
 				case <-r.Context().Done():

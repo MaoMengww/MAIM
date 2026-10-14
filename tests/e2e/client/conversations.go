@@ -168,12 +168,18 @@ func (d *driver) conversations(address string, unread bool) error {
 	if err != nil {
 		return fmt.Errorf("conversations.ws.member: %w", err)
 	}
-	defer connB.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(connB.Close)
 	connC, err := d.connect(address, invitee)
 	if err != nil {
 		return fmt.Errorf("conversations.ws.invitee: %w", err)
 	}
-	defer connC.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(connC.Close)
 	for _, conn := range []*websocket.Conn{connB, connC} {
 		if err := d.ready(conn); err != nil {
 			return fmt.Errorf("conversations.ws.ready: %w", err)

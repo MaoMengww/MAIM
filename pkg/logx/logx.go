@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/maomeng/aim/pkg/interceptor"
 	"github.com/zeromicro/go-zero/core/logx"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -97,7 +98,7 @@ func WithContext(ctx context.Context, l Logger) Logger {
 			fields = append(fields, logx.Field("span_id", sc.SpanID().String()))
 		}
 	}
-	if v := ctx.Value("request_id"); v != nil {
+	if v := ctx.Value(interceptor.ContextKeyRequestID); v != nil {
 		if id, ok := v.(string); ok && id != "" {
 			fields = append(fields, logx.Field("request_id", id))
 		}

@@ -228,7 +228,8 @@ func CallRunTool(ctx context.Context, srv model.McpServer, frozen RunTool, argum
 	if err != nil {
 		return "", err
 	}
-	defer cli.Close()
+	// Transport cleanup must not replace the tool's result or trigger a retry.
+	defer func() { _ = cli.Close() }()
 	listed, err := cli.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		return "", err

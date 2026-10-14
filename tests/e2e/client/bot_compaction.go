@@ -267,12 +267,16 @@ func (d *driver) botCompaction(address, secondAddress string) error {
 	return nil
 }
 
-func (f *compactionFixture) vertical(address string) error {
+func (f *compactionFixture) vertical(address string) (retErr error) {
 	token := "CP_VERTICAL_" + f.suffix
 	if _, err := f.gate(token, "arm", "summary"); err != nil {
 		return err
 	}
-	defer f.gate(token, "release", "")
+	defer func() {
+		if _, err := f.gate(token, "release", ""); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("compaction release %s: %w", token, err))
+		}
+	}()
 	socket, err := f.d.p6Connect(address, f.member)
 	if err != nil {
 		return err
@@ -520,12 +524,16 @@ func (f *compactionFixture) acceptedSourceLifecycle() error {
 	return f.save("source_edit", done, token)
 }
 
-func (f *compactionFixture) summarySurvivesMessageMutation(label string, recall bool) error {
+func (f *compactionFixture) summarySurvivesMessageMutation(label string, recall bool) (retErr error) {
 	token := "CP_" + label + "_" + f.suffix
 	if _, err := f.gate(token, "arm", "summary"); err != nil {
 		return err
 	}
-	defer f.gate(token, "release", "")
+	defer func() {
+		if _, err := f.gate(token, "release", ""); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("compaction release %s: %w", token, err))
+		}
+	}()
 	canary := "CANARY_" + label + "_OLD"
 	source, err := f.d.sendMessage(f.owner, f.conv, canary+" VALUE=99", 0)
 	if err != nil {
@@ -1019,12 +1027,16 @@ func (f *compactionFixture) boundaries(parent interactionRun, oldToken string) e
 	return nil
 }
 
-func (f *compactionFixture) resourceRevocation() error {
+func (f *compactionFixture) resourceRevocation() (result error) {
 	token := "CP_RESOURCE_" + f.suffix
 	if _, err := f.gate(token, "arm", "summary"); err != nil {
 		return err
 	}
-	defer f.gate(token, "release", "")
+	defer func() {
+		if _, err := f.gate(token, "release", ""); err != nil {
+			result = errors.Join(result, fmt.Errorf("compaction release %s: %w", token, err))
+		}
+	}()
 	file, err := f.d.attachmentUpload(f.owner, "compaction-resource-"+f.suffix+".txt", "text/plain", []byte("CANARY_RESOURCE_REVOKED"), 3)
 	if err != nil {
 		return err
@@ -1294,12 +1306,16 @@ func (f *compactionFixture) historyAuthorization() error {
 	return nil
 }
 
-func (f *compactionFixture) summaryExplicitStop() error {
+func (f *compactionFixture) summaryExplicitStop() (result error) {
 	token := "CP_EXPLICITSTOP_" + f.suffix
 	if _, err := f.gate(token, "arm", "summary"); err != nil {
 		return err
 	}
-	defer f.gate(token, "release", "")
+	defer func() {
+		if _, err := f.gate(token, "release", ""); err != nil {
+			result = errors.Join(result, fmt.Errorf("compaction release %s: %w", token, err))
+		}
+	}()
 	run, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, token+compactionPadding(5), nil)
 	if err != nil {
 		return err

@@ -41,7 +41,7 @@ func NewClient(cfg config.ElasticsearchConfig) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("elasticsearch ping failed: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.IsError() {
 		return nil, fmt.Errorf("elasticsearch ping error: %s", res.String())
 	}
@@ -63,7 +63,7 @@ func (c *Client) Index(ctx context.Context, index string, id string, doc any) er
 	if err != nil {
 		return fmt.Errorf("index document failed: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.IsError() {
 		return fmt.Errorf("index document error: %s", res.String())
 	}
@@ -75,7 +75,7 @@ func (c *Client) Get(ctx context.Context, index string, id string) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("get document failed: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.IsError() {
 		if res.StatusCode == 404 {
 			return nil, nil
@@ -99,7 +99,7 @@ func (c *Client) Search(ctx context.Context, index string, query map[string]any)
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.IsError() {
 		return nil, fmt.Errorf("search error: %s", res.String())
 	}
@@ -111,7 +111,7 @@ func (c *Client) Delete(ctx context.Context, index string, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete document failed: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.IsError() && res.StatusCode != 404 {
 		return fmt.Errorf("delete document error: %s", res.String())
 	}
@@ -132,7 +132,7 @@ func (c *Client) DeleteByQuery(ctx context.Context, index string, query map[stri
 	if err != nil {
 		return fmt.Errorf("delete by query failed: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.IsError() {
 		return fmt.Errorf("delete by query error: %s", res.String())
 	}
@@ -188,7 +188,7 @@ func (c *Client) EnsureIndex(ctx context.Context, index string, mapping map[stri
 	if err != nil {
 		return fmt.Errorf("check index exists failed: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode == 200 {
 		return nil
@@ -207,7 +207,7 @@ func (c *Client) EnsureIndex(ctx context.Context, index string, mapping map[stri
 	if err != nil {
 		return fmt.Errorf("create index failed: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.IsError() {
 		return fmt.Errorf("create index error: %s", res.String())
 	}

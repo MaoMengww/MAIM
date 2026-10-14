@@ -19,6 +19,12 @@ linters:
   exclusions:
     generated: strict
     presets: []
+    rules:
+      # go-zero's config decoder extends JSON tags; keep SA5008 everywhere else.
+      - path: '(^|/)(internal/)?config/.*\.go$'
+        linters:
+          - staticcheck
+        text: "SA5008: invalid appearance of unknown `(default|optional|range|options|inherit)` tag option"
 
 issues:
   max-issues-per-linter: 0

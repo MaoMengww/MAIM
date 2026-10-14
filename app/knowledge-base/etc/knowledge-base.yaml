@@ -25,9 +25,13 @@ Telemetry:
   Sampler: 1.0
   Batcher: otlpgrpc
 
-Prometheus:
+DevServer:
+  Enabled: true
   Host: 0.0.0.0
   Port: 9108
+  EnableMetrics: true
+  MetricsPath: /metrics
+  EnablePprof: false
 
 Database:
   Driver: postgres

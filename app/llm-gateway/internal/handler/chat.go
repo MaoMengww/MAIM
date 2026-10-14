@@ -116,7 +116,13 @@ func (h *LLMGatewayHandler) Chat(ctx context.Context, req *pb.ChatReq) (resp *pb
 	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, modelName); err != nil {
 		return nil, err
 	}
-	defer h.svcCtx.RateLimiter.DecrConcurrency(context.WithoutCancel(ctx), modelName)
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := h.svcCtx.RateLimiter.DecrConcurrency(releaseCtx, modelName); err != nil {
+			h.svcCtx.Logger.WithContext(ctx).Errorf("chat concurrency release failed: model=%s error=%v", modelName, err)
+		}
+	}()
 	if err := h.authorizeRunRequest(ctx, req); err != nil {
 		return nil, err
 	}
@@ -173,7 +179,13 @@ func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_Cha
 	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, modelName); err != nil {
 		return err
 	}
-	defer h.svcCtx.RateLimiter.DecrConcurrency(context.WithoutCancel(ctx), modelName)
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := h.svcCtx.RateLimiter.DecrConcurrency(releaseCtx, modelName); err != nil {
+			h.svcCtx.Logger.WithContext(ctx).Errorf("chat stream concurrency release failed: model=%s error=%v", modelName, err)
+		}
+	}()
 	if err := h.authorizeRunRequest(ctx, req); err != nil {
 		return err
 	}

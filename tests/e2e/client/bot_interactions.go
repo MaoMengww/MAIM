@@ -186,7 +186,7 @@ func interactionDecodedResult(run interactionRun) (interactionResult, error) {
 	return result, nil
 }
 
-func (d *driver) botInteractions(address, secondAddress string) error {
+func (d *driver) botInteractions(address, secondAddress string) (result error) {
 	suffix, err := randomSuffix()
 	if err != nil {
 		return err
@@ -278,7 +278,11 @@ func (d *driver) botInteractions(address, secondAddress string) error {
 	if err = d.interactionGate(token, "arm"); err != nil {
 		return err
 	}
-	defer d.interactionGate(token, "release")
+	defer func() {
+		if err := d.interactionGate(token, "release"); err != nil {
+			result = errors.Join(result, fmt.Errorf("interaction release %s: %w", token, err))
+		}
+	}()
 	callers := []account{owner, member}
 	texts := []string{"FIRST_SUPPLEMENT_" + suffix + " VALUE=7", "SECOND_SUPPLEMENT_" + suffix + " VALUE=11"}
 	keys := []string{uuid.NewString(), uuid.NewString()}
@@ -508,7 +512,7 @@ func (d *driver) interactionContinuation(owner, member account, bot botView, con
 	return nil
 }
 
-func (d *driver) interactionMaterials(owner, member account, bot botView, conv entityID, suffix, address string) error {
+func (d *driver) interactionMaterials(owner, member account, bot botView, conv entityID, suffix, address string) (retErr error) {
 	binding, err := d.identityBinding(owner, conv, bot.ID)
 	if err != nil {
 		return err
@@ -549,7 +553,10 @@ func (d *driver) interactionMaterials(owner, member account, bot botView, conv e
 	if err != nil {
 		return err
 	}
-	defer x.conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(x.conn.Close)
 	otherRun, err := d.startRun(member, other.ID, conv, "produce attributed material", uuid.NewString(), nil)
 	if err != nil {
 		return err
@@ -575,15 +582,15 @@ func (d *driver) interactionMaterials(owner, member account, bot botView, conv e
 	if err != nil {
 		return err
 	}
-	result, err := interactionDecodedResult(materialRun)
+	computed, err := interactionDecodedResult(materialRun)
 	if err != nil {
 		return err
 	}
-	if result.Sum != 181 {
-		return fmt.Errorf("interaction.material: expected actual selected message/history/file/other Bot sum 181, got %d", result.Sum)
+	if computed.Sum != 181 {
+		return fmt.Errorf("interaction.material: expected actual selected message/history/file/other Bot sum 181, got %d", computed.Sum)
 	}
 	foundMessage, foundHistory, foundFile, foundOther := false, false, false, false
-	for _, source := range result.Materials {
+	for _, source := range computed.Materials {
 		if source.MessageID == selected.MessageID && source.SenderType == "user" && source.SenderID == owner.id && source.Content == selected.Content.Text {
 			foundMessage = true
 		}
@@ -678,7 +685,11 @@ func (d *driver) interactionMaterials(owner, member account, bot botView, conv e
 	if err = d.interactionGate(materialWaitToken, "arm"); err != nil {
 		return err
 	}
-	defer d.interactionGate(materialWaitToken, "release")
+	defer func() {
+		if err := d.interactionGate(materialWaitToken, "release"); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("interaction release %s: %w", materialWaitToken, err))
+		}
+	}()
 	supplement, err := d.interactionControl(member, waiting.ID, "input", history.Content.Text, uuid.NewString(), map[string]any{"source_message_id": history.MessageID, "message_ids": []entityID{selected.MessageID, *otherRun.MessageID}, "file_ids": []entityID{file.info.FileID}, "history_grant_id": grant})
 	if err != nil {
 		return err
@@ -798,7 +809,10 @@ func (d *driver) interactionExecutors(owner, member account, conv entityID, suff
 			return err
 		}
 		if x.conn != nil {
-			defer x.conn.Close()
+			defer func(close func() error) {
+				// Read-only transport cleanup does not affect the scenario verdict.
+				_ = close()
+			}(x.conn.Close)
 		}
 		started, err := d.startRun(owner, bot.ID, conv, "executor initial "+suffix, uuid.NewString(), nil)
 		if err != nil {

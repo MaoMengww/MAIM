@@ -325,7 +325,10 @@ func (d *driver) botIdentity(address, secondAddress string) (result error) {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(conn.Close)
 	if err := d.ready(conn); err != nil {
 		return err
 	}

@@ -337,7 +337,8 @@ func DoRequest(ctx context.Context, endpoint, apiKey string, body map[string]any
 	if err != nil {
 		return nil, err
 	}
-	defer response.Close()
+	// Read errors determine request success; closing only releases the HTTP body.
+	defer func() { _ = response.Close() }()
 	result, err := io.ReadAll(io.LimitReader(response, maxProviderResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("provider response read failed")
@@ -368,7 +369,7 @@ func doRequestStream(ctx context.Context, endpoint, apiKey string, body map[stri
 		return nil, fmt.Errorf("provider transport failed")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		response.Body.Close()
+		_ = response.Body.Close() // Preserve the provider status, not a cleanup error.
 		return nil, &HTTPError{StatusCode: response.StatusCode}
 	}
 	return response.Body, nil

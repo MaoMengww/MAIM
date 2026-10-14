@@ -46,7 +46,9 @@ func (t *cacheScopeTransport) RoundTrip(r *http.Request) (*http.Response, error)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return nil, err
 	}
-	r.Body.Close()
+	if err := r.Body.Close(); err != nil {
+		return nil, err
+	}
 	t.scopes = append(t.scopes, body.Scope)
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
 		Body: io.NopCloser(strings.NewReader("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))}, nil
@@ -87,10 +89,18 @@ func TestChatAcceptsKeepalivesWithoutInventingCompletion(t *testing.T) {
 		t.Run(fmt.Sprintf("complete=%t", complete), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "text/event-stream")
-				fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\n")
-				fmt.Fprint(w, strings.Repeat(": keepalive\n\ndata: \n\n", 400))
+				if _, err := fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\n"); err != nil {
+					t.Errorf("write provider delta: %v", err)
+					return
+				}
+				if _, err := fmt.Fprint(w, strings.Repeat(": keepalive\n\ndata: \n\n", 400)); err != nil {
+					t.Errorf("write provider keepalives: %v", err)
+					return
+				}
 				if complete {
-					fmt.Fprint(w, "data: [DONE]\n\n")
+					if _, err := fmt.Fprint(w, "data: [DONE]\n\n"); err != nil {
+						t.Errorf("write provider completion: %v", err)
+					}
 				}
 			}))
 			defer server.Close()

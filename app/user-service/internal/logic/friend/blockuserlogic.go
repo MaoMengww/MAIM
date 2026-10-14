@@ -41,16 +41,17 @@ func (l *BlockUserLogic) BlockUser(in *userpb.BlockUserReq) (*common.BaseRespons
 	}
 	if ok, err := l.svcCtx.BlockRepo.HasBlock(l.ctx, userID, targetID); err != nil {
 		return nil, grpcError(err)
-	} else if ok {
-		return &common.BaseResponse{Code: 0, Message: "ok"}, nil
+	} else if !ok {
+		if err := l.svcCtx.BlockRepo.Create(l.ctx, userID, targetID); err != nil {
+			return nil, grpcError(err)
+		}
 	}
 
-	if err := l.svcCtx.BlockRepo.Create(l.ctx, userID, targetID); err != nil {
+
+	// Remove the relationship even on retries after a failed deletion.
+	if err := l.svcCtx.FriendRepo.DeletePair(l.ctx, userID, targetID); err != nil {
 		return nil, grpcError(err)
 	}
-
-	// remove friend relationship if exists
-	l.svcCtx.FriendRepo.DeletePair(l.ctx, userID, targetID)
 
 	l.Infof("user blocked: user_id=%s blocked_id=%s", userID, targetID)
 	return &common.BaseResponse{Code: 0, Message: "ok"}, nil

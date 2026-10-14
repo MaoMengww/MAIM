@@ -39,7 +39,10 @@ func downloadImage(ctx context.Context, url string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// The response is read-only; body read errors are handled below.
+		_ = resp.Body.Close()
+	}()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, "", err
@@ -172,7 +175,10 @@ func (p *IngestPipeline) run(ctx context.Context, doc *domain.Document, kb *doma
 		if err != nil {
 			return errors.Wrap(errors.CodeIOError, "failed to get file from storage", err)
 		}
-		defer raw.Close()
+		defer func() {
+			// Closing a read-only storage stream does not change the parse result.
+			_ = raw.Close()
+		}()
 
 		buf := new(bytes.Buffer)
 		var reader io.Reader = raw

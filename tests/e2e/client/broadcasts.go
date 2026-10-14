@@ -91,7 +91,10 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 		if err != nil {
 			return err
 		}
-		defer connections[i].Close()
+		defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(connections[i].Close)
 		if err := d.ready(connections[i]); err != nil {
 			return err
 		}
@@ -166,7 +169,10 @@ func (d *driver) broadcasts(addressA, addressB string) error {
 	if err != nil {
 		return err
 	}
-	defer connD.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(connD.Close)
 	if err := d.ready(connD); err != nil {
 		return err
 	}

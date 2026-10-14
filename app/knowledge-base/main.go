@@ -52,10 +52,9 @@ func main() {
 		c.Name = "knowledge-ingest"
 		c.Telemetry.Name = c.Name
 		// The ingest role serves /health and /metrics from one listener on
-		// Ingest.MetricsPort, so it must not also start go-zero's standalone
-		// prometheus agent. Enable metric collection explicitly, since the
-		// agent is what normally flips the flag.
-		c.Prometheus.Host = ""
+		// Ingest.MetricsPort, so disable go-zero's separate development server.
+		// Keep metric collection enabled for the ingest listener.
+		c.DevServer.Enabled = false
 		prometheus.Enable()
 		c.ServiceConf.MustSetUp()
 	}
@@ -66,7 +65,11 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("init milvus failed: %v", err))
 	}
-	defer vecStore.Close(context.Background())
+	defer func() {
+		if err := vecStore.Close(context.Background()); err != nil {
+			logger.Errorf("close vector store: %v", err)
+		}
+	}()
 	embed := embedder.NewLLMGatewayEmbedder(resources.LLMGatewayClient)
 
 	if *role == "ingest" {
@@ -135,7 +138,11 @@ func runIngest(c config.Config, h *handler.DocumentUploadedHandler, logger logx.
 	if err != nil {
 		return fmt.Errorf("init ingest consumer: %w", err)
 	}
-	defer consumer.Close()
+	defer func() {
+		if err := consumer.Close(); err != nil {
+			logger.Errorf("close ingest consumer: %v", err)
+		}
+	}()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	mux := http.NewServeMux()

@@ -304,7 +304,13 @@ func (h *LLMGatewayHandler) Rerank(ctx context.Context, req *pb.RerankReq) (*pb.
 	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, modelName); err != nil {
 		return nil, err
 	}
-	defer h.svcCtx.RateLimiter.DecrConcurrency(ctx, modelName)
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := h.svcCtx.RateLimiter.DecrConcurrency(releaseCtx, modelName); err != nil {
+			log.Errorf("rerank concurrency release failed: model=%s error=%v", modelName, err)
+		}
+	}()
 
 	result, err := llm.Rerank(ctx, info.Provider, info.ModelEntry.APIKey, info.ModelEntry.BaseURL, modelName,
 		req.Query, req.Documents, int(req.TopN), req.ReturnDocuments)

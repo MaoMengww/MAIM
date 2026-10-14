@@ -98,7 +98,10 @@ func (d *driver) executorProvider(path string, body any, output any) error {
 	if err != nil {
 		return fmt.Errorf("executor provider: %s", transportFailure(err))
 	}
-	defer resp.Body.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(resp.Body.Close)
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("executor provider HTTP%d", resp.StatusCode)
 	}
@@ -674,12 +677,18 @@ func (d *driver) botExecutorRuns(address, secondAddress string) (result error) {
 			if err != nil {
 				return err
 			}
-			defer x.conn.Close()
+			defer func(close func() error) {
+				// Read-only transport cleanup does not affect the scenario verdict.
+				_ = close()
+			}(x.conn.Close)
 			wrong, err = d.websocketExecutor(owner, bots[1].ID, address, "wrong-executor-"+suffix)
 			if err != nil {
 				return err
 			}
-			defer wrong.conn.Close()
+			defer func(close func() error) {
+				// Read-only transport cleanup does not affect the scenario verdict.
+				_ = close()
+			}(wrong.conn.Close)
 		} else {
 			x, err = d.webhookExecutor(owner, bots[0].ID)
 			if err != nil {

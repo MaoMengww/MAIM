@@ -68,7 +68,11 @@ func main() {
 			logger.Errorf("redis ping failed (rate limiting disabled): %v", err)
 		}
 	}
-	defer rdb.Close()
+	defer func() {
+		if err := rdb.Close(); err != nil {
+			logger.Errorf("close redis: %v", err)
+		}
+	}()
 
 	r := router.New(&cfg, clients, jwtMgr, rdb, logger)
 

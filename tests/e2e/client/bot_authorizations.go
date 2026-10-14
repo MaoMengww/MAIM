@@ -489,7 +489,7 @@ func (f *authorizationFixture) inflightRevocation() error {
 	return nil
 }
 
-func (f *authorizationFixture) inflightResourceRevocation(kind string, id entityID, canary string) error {
+func (f *authorizationFixture) inflightResourceRevocation(kind string, id entityID, canary string) (result error) {
 	grant, err := f.d.resourceGrant(f.requester, f.bot.ID, f.conv, kind, id, "conversation", true)
 	if err != nil {
 		return err
@@ -498,7 +498,11 @@ func (f *authorizationFixture) inflightResourceRevocation(kind string, id entity
 	if err = f.arm(token, []map[string]any{{"name": "fixture_auth_read", "arguments": map[string]string{"target": "after-revocation", "text": token}}}, true); err != nil {
 		return err
 	}
-	defer f.release(token)
+	defer func() {
+		if err := f.release(token); err != nil {
+			result = errors.Join(result, fmt.Errorf("authorization release %s: %w", token, err))
+		}
+	}()
 	extra := map[string]any{"resource_grant_ids": []entityID{grant.ID}}
 	if kind == "file" {
 		extra["file_ids"] = []entityID{id}
@@ -621,7 +625,10 @@ func (f *authorizationFixture) externalResource(address string) error {
 	if err != nil {
 		return err
 	}
-	defer x.conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(x.conn.Close)
 	run, err := f.d.interactionStart(f.requester, f.external.ID, f.conv, "EXTERNAL_RESOURCE_"+f.suffix, map[string]any{"visibility": "personal", "resource_grant_ids": []entityID{grant.ID}})
 	if err != nil {
 		return err
@@ -873,7 +880,10 @@ func (f *authorizationFixture) externalActions(address string) error {
 	if err != nil {
 		return err
 	}
-	defer x.conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(x.conn.Close)
 	run, err := f.d.startRun(f.requester, f.external.ID, f.conv, "EXTERNAL_ACTIONS_"+f.suffix, uuid.NewString(), nil)
 	if err != nil {
 		return err
@@ -1622,7 +1632,7 @@ func (f *authorizationFixture) acceptedActionSources() error {
 	return nil
 }
 
-func (f *authorizationFixture) escapedCredentialAdmission(address string) error {
+func (f *authorizationFixture) escapedCredentialAdmission(address string) (retErr error) {
 	secret := "fixture&key\"value"
 	auth, err := json.Marshal(map[string]string{"token": secret})
 	if err != nil {
@@ -1632,12 +1642,19 @@ func (f *authorizationFixture) escapedCredentialAdmission(address string) error 
 	if err := f.d.request(http.MethodPut, serverPath, f.owner.token, map[string]string{"auth_config": string(auth)}, nil); err != nil {
 		return err
 	}
-	defer f.d.request(http.MethodPut, serverPath, f.owner.token, map[string]string{"auth_config": "{}"}, nil)
+	defer func() {
+		if err := f.d.request(http.MethodPut, serverPath, f.owner.token, map[string]string{"auth_config": "{}"}, nil); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("authorization credential fixture reset: %w", err))
+		}
+	}()
 	x, err := f.d.websocketExecutor(f.owner, f.external.ID, address, "escaped-credential-"+f.suffix)
 	if err != nil {
 		return err
 	}
-	defer x.conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(x.conn.Close)
 	run, err := f.d.startRun(f.owner, f.external.ID, f.conv, "AUTH_CREDENTIAL_ADMISSION_"+f.suffix, uuid.NewString(), nil)
 	if err != nil {
 		return err
@@ -1705,7 +1722,10 @@ func (f *authorizationFixture) exactNumericAction(address string) error {
 	if err != nil {
 		return err
 	}
-	defer x.conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(x.conn.Close)
 	run, err := f.d.startRun(f.owner, f.external.ID, f.conv, "AUTH_NUMERIC_ACTION_"+f.suffix, uuid.NewString(), nil)
 	if err != nil {
 		return err

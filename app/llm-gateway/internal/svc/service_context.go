@@ -73,10 +73,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 func (s *ServiceContext) Close() {
 	if s.DB != nil {
-		s.DB.Close()
-	}
-	if s.RateLimiter != nil {
-		// rate limiter manages its own redis connection lifecycle
+		if err := s.DB.Close(); err != nil {
+			s.Logger.Errorf("database close failed: %v", err)
+		}
 	}
 	if s.ModelRepo != nil {
 		s.ModelRepo.Close()

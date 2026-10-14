@@ -62,7 +62,10 @@ func (d *driver) uploadKnowledge(owner account, kbID entityID, filename, title, 
 	if err != nil {
 		return doc, fmt.Errorf("knowledge.upload: %s", transportFailure(err))
 	}
-	defer resp.Body.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(resp.Body.Close)
 	var envelope struct {
 		Code *int            `json:"code"`
 		Data json.RawMessage `json:"data"`

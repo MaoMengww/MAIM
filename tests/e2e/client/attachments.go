@@ -107,12 +107,18 @@ func (d *driver) attachments(addressA, addressB string) error {
 	if err != nil {
 		return err
 	}
-	defer connA.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(connA.Close)
 	connB, err := d.connect(addressB, b)
 	if err != nil {
 		return err
 	}
-	defer connB.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(connB.Close)
 	for _, socket := range []*websocket.Conn{connA, connB} {
 		if err := d.ready(socket); err != nil {
 			return err
@@ -315,7 +321,10 @@ func (d *driver) attachmentObject(method, address, mime string, data []byte) (in
 	if err != nil {
 		return 0, nil, fmt.Errorf("attachments.object: %s", transportFailure(err))
 	}
-	defer resp.Body.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(resp.Body.Close)
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return resp.StatusCode, nil, fmt.Errorf("attachments.object: %s", transportFailure(err))
@@ -747,7 +756,10 @@ func (d *driver) attachmentBatchDelete(owner, other account, files []uploadedAtt
 	if err != nil {
 		return errors.New("attachments.batch: 无法连接真实file RPC")
 	}
-	defer conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(conn.Close)
 	client := filepb.NewFileServiceClient(conn)
 	ids := make([]string, 0, len(files))
 	for _, file := range files {

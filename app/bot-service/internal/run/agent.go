@@ -30,7 +30,6 @@ type runAgentBridge struct {
 	generation int64
 	config     ExecutionConfig
 	replay     *llm.Message
-	messages   []*llm.Message
 	callMu     sync.Mutex
 }
 
@@ -116,7 +115,6 @@ func (b *runAgentBridge) BeforeModelRewriteState(ctx context.Context, state *adk
 		}
 	}
 	b.run = r
-	b.messages = messages
 	state.Messages = make([]*schema.Message, 0, len(messages))
 	for _, m := range messages {
 		state.Messages = append(state.Messages, agentMessage(m))
@@ -133,7 +131,7 @@ func (b *runAgentBridge) Generate(ctx context.Context, _ []*schema.Message, _ ..
 	if b.replay != nil {
 		return agentMessage(b.replay), nil
 	}
-	if err := b.service.modelRound(ctx, b.run, b.generation, b.config, b.messages); err != nil {
+	if err := b.service.modelRound(ctx, b.run, b.generation, b.config); err != nil {
 		if b.run.Status == "waiting_input" {
 			return nil, compose.Interrupt(ctx, "source changes require explicit work input")
 		}
@@ -328,9 +326,10 @@ func (s *Service) runAgent(ctx context.Context, r *model.Run, generation int64, 
 		// A closed event iterator is not proof that an RPC stopped. Wait for
 		// the actual bridge call to exit before execute can confirm stopping.
 		b.callMu.Lock()
+		contextErr := ctx.Err()
 		b.callMu.Unlock()
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if contextErr != nil {
+			return contextErr
 		}
 		if executionErr != nil {
 			if errors.Is(executionErr, adk.ErrExceedMaxIterations) {

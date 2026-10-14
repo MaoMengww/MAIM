@@ -70,7 +70,10 @@ func (o *activityObserver) snapshot() ([]executorActivity, error) {
 	if err != nil {
 		return nil, fmt.Errorf("activity observations: %s", transportFailure(err))
 	}
-	defer resp.Body.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(resp.Body.Close)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("activity observations HTTP%d", resp.StatusCode)
 	}
@@ -199,7 +202,10 @@ func (d *driver) executorActivities(owner, admin, caller account, bots [2]botVie
 			return err
 		}
 		if x.conn != nil {
-			defer x.conn.Close()
+			defer func(close func() error) {
+				// Read-only transport cleanup does not affect the scenario verdict.
+				_ = close()
+			}(x.conn.Close)
 		}
 		observers[i].x = x
 	}

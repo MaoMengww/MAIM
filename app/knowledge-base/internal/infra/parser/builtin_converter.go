@@ -86,7 +86,6 @@ func htmlToText(raw []byte) string {
 			}
 			if pendingSpace {
 				buf.WriteByte(' ')
-				pendingSpace = false
 			}
 			buf.WriteString(text)
 			pendingSpace = true

@@ -54,7 +54,11 @@ func main() {
 	c.Role = *role
 	ctx := svc.NewServiceContext(c)
 	logger := logx.DefaultLogger()
-	defer ctx.DeliveryPublisher.Close()
+	defer func() {
+		if err := ctx.DeliveryPublisher.Close(); err != nil {
+			logger.Errorf("delivery publisher close failed: %v", err)
+		}
+	}()
 
 	// gRPC server — also initializes OpenTelemetry tracing via go-zero's ServiceConf.SetUp()
 	s := zrpc.MustNewServer(c.RpcServerConf, func(grpcServer *grpc.Server) {
@@ -108,7 +112,9 @@ func main() {
 		logger.Info("shutting down...")
 		kafkaCancel()
 		if eventConsumer != nil {
-			eventConsumer.Close()
+			if err := eventConsumer.Close(); err != nil {
+				logger.Errorf("kafka consumer close failed: %v", err)
+			}
 		}
 		s.Stop()
 	}()

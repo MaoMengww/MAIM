@@ -90,7 +90,10 @@ func (d *driver) userIdentity(addressA, addressB string) error {
 	if err != nil {
 		return err
 	}
-	defer userConn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(userConn.Close)
 	users := userpb.NewUserServiceClient(userConn)
 	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
 	defer cancel()
@@ -194,7 +197,10 @@ func (d *driver) identityNotifications(a, b account, socket *p6Socket) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(conn.Close)
 	realtime := realtimepb.NewRealtimeServiceClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
 	defer cancel()

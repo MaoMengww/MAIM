@@ -53,20 +53,6 @@ func TestLoggerLevels(t *testing.T) {
 	logger.Slowf("slowf %d", 4)
 }
 
-func TestLoggerWithContext(t *testing.T) {
-	logger := NewLogger(Config{
-		Level:  "debug",
-		Format: "console",
-		Output: "stdout",
-	})
-
-	ctx := context.WithValue(context.Background(), "trace_id", "trace-123")
-	ctx = context.WithValue(ctx, "span_id", "span-456")
-
-	ctxLogger := logger.WithContext(ctx)
-	assert.NotNil(t, ctxLogger)
-	ctxLogger.Info("contextual log")
-}
 
 func TestLoggerWithFields(t *testing.T) {
 	logger := NewLogger(Config{

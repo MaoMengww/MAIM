@@ -382,7 +382,10 @@ func (h *KnowledgeBaseHandler) GetDocumentContent(ctx context.Context, req *pb.G
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeIOError, "failed to read file from storage", err)
 	}
-	defer reader.Close()
+	defer func() {
+		// Closing a read-only storage stream does not change the read result.
+		_ = reader.Close()
+	}()
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(reader); err != nil {
 		return nil, errors.Wrap(errors.CodeIOError, "failed to read file content", err)

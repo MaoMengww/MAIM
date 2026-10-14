@@ -520,7 +520,10 @@ func (d *driver) request(method, path, token string, input, output any) error {
 	if err != nil {
 		return fmt.Errorf("%s %s: %s", method, path, transportFailure(err))
 	}
-	defer resp.Body.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(resp.Body.Close)
 	var envelope struct {
 		Code *int            `json:"code"`
 		Data json.RawMessage `json:"data"`
@@ -622,12 +625,18 @@ func (d *driver) scenario(addressA, addressB string) error {
 	if err != nil {
 		return fmt.Errorf("realtime.connect 用户 A: %w", err)
 	}
-	defer connA.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(connA.Close)
 	connB, err := d.connect(addressB, b)
 	if err != nil {
 		return fmt.Errorf("realtime.connect 用户 B: %w", err)
 	}
-	defer connB.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(connB.Close)
 	// An application-level pong is emitted only after registration and OnConnect,
 	// so a successful HTTP upgrade alone cannot race message delivery.
 	for i, conn := range []*websocket.Conn{connA, connB} {
@@ -1151,7 +1160,10 @@ func probe(args []string) error {
 		if err != nil {
 			return fmt.Errorf("readiness.http: %s", transportFailure(err))
 		}
-		defer resp.Body.Close()
+		defer func(close func() error) {
+			// Read-only transport cleanup does not affect the scenario verdict.
+			_ = close()
+		}(resp.Body.Close)
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("readiness.http: HTTP %d，期望 200", resp.StatusCode)
 		}
@@ -1163,7 +1175,10 @@ func probe(args []string) error {
 		if err != nil {
 			return errors.New("readiness.grpc: 无法创建标准 health 客户端")
 		}
-		defer conn.Close()
+		defer func(close func() error) {
+			// Read-only transport cleanup does not affect the scenario verdict.
+			_ = close()
+		}(conn.Close)
 		resp, err := healthpb.NewHealthClient(conn).Check(ctx, &healthpb.HealthCheckRequest{})
 		if err != nil {
 			return fmt.Errorf("readiness.grpc: 标准 health Check 失败（RPC code=%s）", status.Code(err))

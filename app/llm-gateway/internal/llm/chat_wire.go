@@ -38,7 +38,7 @@ func (b *chatWireBridge) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("provider transport failed")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		resp.Body.Close()
+		_ = resp.Body.Close() // Preserve the provider status, not a cleanup error.
 		b.err = &HTTPError{StatusCode: resp.StatusCode}
 		return nil, b.err
 	}

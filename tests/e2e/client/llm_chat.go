@@ -61,7 +61,10 @@ func (d *driver) llmChatScenario() (result error) {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(conn.Close)
 	cli := llmpb.NewLLMGatewayClient(conn)
 	ownerID := owner.id.String()
 	contextFor := func(userID string, timeout time.Duration) (context.Context, context.CancelFunc) {

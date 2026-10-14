@@ -37,7 +37,10 @@ func (d *driver) executorControls(owner, admin, requester, member account, bot b
 		if err != nil {
 			return err
 		}
-		defer x.conn.Close()
+		defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(x.conn.Close)
 	}
 	request, err := x.request(started.ID)
 	if err != nil {

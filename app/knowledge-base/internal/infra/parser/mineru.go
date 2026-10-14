@@ -64,7 +64,10 @@ func (p *MinerUParser) parsePrecision(ctx context.Context, raw []byte) (*domain.
 	if err != nil {
 		return nil, fmt.Errorf("mineru precision request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// Read/decode errors, not response cleanup, determine request success.
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -102,10 +105,10 @@ func (p *MinerUParser) pollResult(ctx context.Context, taskID string) (*domain.P
 
 		var queryResult mineruQueryResponse
 		if err := json.NewDecoder(resp.Body).Decode(&queryResult); err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close() // Preserve the decode error over read-only cleanup.
 			return nil, fmt.Errorf("decode poll response: %w", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close() // The decoded response is complete; no writes to flush.
 
 		if queryResult.Code != 0 {
 			return nil, fmt.Errorf("mineru query error: %s", queryResult.Msg)
@@ -143,7 +146,10 @@ func (p *MinerUParser) downloadResult(ctx context.Context, zipURL string) ([]byt
 	if err != nil {
 		return nil, fmt.Errorf("download result failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// ReadAll reports download failures; the response has no writes to flush.
+		_ = resp.Body.Close()
+	}()
 
 	return io.ReadAll(resp.Body)
 }
@@ -236,7 +242,10 @@ func (p *MinerUCloudParser) requestBatchUpload(ctx context.Context, fileName str
 	if err != nil {
 		return "", "", fmt.Errorf("batch request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// Read/decode errors, not response cleanup, determine request success.
+		_ = resp.Body.Close()
+	}()
 
 	var result mineruBatchFileURLResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -264,7 +273,10 @@ func (p *MinerUCloudParser) uploadToSignedURL(ctx context.Context, url string, d
 	if err != nil {
 		return fmt.Errorf("upload request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// The upload result is its HTTP status; this closes only the response body.
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		respBody, _ := io.ReadAll(resp.Body)
@@ -298,7 +310,7 @@ func (p *MinerUCloudParser) pollBatchResult(ctx context.Context, batchID string)
 
 		var result mineruBatchResultResponse
 		decodeErr := json.NewDecoder(resp.Body).Decode(&result)
-		resp.Body.Close()
+		_ = resp.Body.Close() // Decode errors take precedence over response cleanup.
 		if decodeErr != nil {
 			return "", fmt.Errorf("decode poll response: %w", decodeErr)
 		}
@@ -342,7 +354,10 @@ func (p *MinerUCloudParser) downloadAndParseZip(ctx context.Context, zipURL stri
 	if err != nil {
 		return nil, fmt.Errorf("download zip failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// ReadAll reports download failures; the response has no writes to flush.
+		_ = resp.Body.Close()
+	}()
 
 	zipBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -379,8 +394,8 @@ func extractMarkdownFromZip(data []byte) (*domain.ParsedDocument, error) {
 				continue
 			}
 			content, err := io.ReadAll(rc)
-			rc.Close()
-			if err != nil {
+			closeErr := rc.Close()
+			if err != nil || closeErr != nil {
 				continue
 			}
 			mdContent = string(content)
@@ -399,8 +414,8 @@ func extractMarkdownFromZip(data []byte) (*domain.ParsedDocument, error) {
 				continue
 			}
 			imgData, err := io.ReadAll(rc)
-			rc.Close()
-			if err != nil || len(imgData) == 0 {
+			closeErr := rc.Close()
+			if err != nil || closeErr != nil || len(imgData) == 0 {
 				continue
 			}
 			if isIconImage(imgData) {

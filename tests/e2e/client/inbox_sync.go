@@ -380,7 +380,10 @@ func (d *driver) inboxLegacySyncAbsent(user account, convID entityID) error {
 	if err != nil {
 		return fmt.Errorf("personal-deletion.legacy-sync: %s", transportFailure(err))
 	}
-	defer resp.Body.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(resp.Body.Close)
 	if resp.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("personal-deletion.legacy-sync: 旧会话同步URL期望HTTP404，实际%d", resp.StatusCode)
 	}
@@ -808,7 +811,10 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 	if err != nil {
 		return err
 	}
-	defer connOwner.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(connOwner.Close)
 	connMember, err := d.connect(addressA, member)
 	if err != nil {
 		return err
@@ -845,7 +851,10 @@ func (d *driver) inboxChanges(addressA, addressB string) error {
 	if err != nil {
 		return err
 	}
-	defer connMember.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(connMember.Close)
 	if err := d.ready(connMember); err != nil {
 		return err
 	}

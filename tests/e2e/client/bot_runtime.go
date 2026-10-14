@@ -43,7 +43,10 @@ func (d *driver) observeProvider() (providerObservations, error) {
 	if err != nil {
 		return observed, fmt.Errorf("provider observations: %s", transportFailure(err))
 	}
-	defer resp.Body.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(resp.Body.Close)
 	if resp.StatusCode != http.StatusOK {
 		return observed, errors.New("provider observations HTTP 非200")
 	}
@@ -332,7 +335,10 @@ func (d *driver) botRuntime(address, secondAddress string) (result error) {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(conn.Close)
 	if err := d.ready(conn); err != nil {
 		return err
 	}
@@ -651,7 +657,10 @@ func (d *driver) runtimeCapabilities(owner, outsider account, embeddingID entity
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func(close func() error) {
+		// Read-only transport cleanup does not affect the scenario verdict.
+		_ = close()
+	}(conn.Close)
 	cli := llmpb.NewLLMGatewayClient(conn)
 	contextFor := func(user account) (context.Context, context.CancelFunc) {
 		ctx, cancel := context.WithTimeout(context.Background(), d.timeout)

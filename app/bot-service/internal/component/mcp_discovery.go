@@ -103,7 +103,8 @@ func (c *MCPClient) doJSON(ctx context.Context, body, result any) error {
 	if err != nil {
 		return fmt.Errorf("mcp request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	// Response reads report failures; closing this read-only body is cleanup.
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
