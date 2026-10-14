@@ -5,8 +5,10 @@ import (
 	"time"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
+	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
+	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/sequence"
@@ -126,6 +128,9 @@ func (l *GetMessagesLogic) getBotHistory(in *message.GetMessagesReq) (*message.G
 		more := len(msgs) > limit
 		if more {
 			msgs = msgs[:limit]
+		}
+		if err := repo.NewMessageRepo(&database.DB{DB: tx}).ForUser(grant.GrantedBy).ProjectKnowledgeResults(l.ctx, msgs); err != nil {
+			return err
 		}
 		result = &message.GetMessagesResp{Pagination: &message.MessagePaginationResp{HasMore: more}}
 		for i := range msgs {

@@ -326,6 +326,10 @@ export interface KnowledgeSource {
   chunk_id: string;
   title: string;
   content?: string;
+  role?: 'matched' | 'supplemental';
+  matched_chunk_id?: string;
+  chunk_index?: number;
+  location?: { page_num?: number; section_title?: string; start_line?: number; end_line?: number };
 }
 
 export interface CustomContent {
@@ -419,6 +423,7 @@ export interface Bot {
   temperature: number;
   max_context_messages: number;
   max_context_tokens: number;
+  max_step: number;
   streaming_enabled: boolean;
   conn_mode: string;
   callback_url: string;

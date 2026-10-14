@@ -191,6 +191,7 @@ type Bot struct {
 	MaxContextMessages int32   `protobuf:"varint,17,opt,name=max_context_messages,json=maxContextMessages,proto3" json:"max_context_messages,omitempty"`
 	StreamingEnabled   bool    `protobuf:"varint,18,opt,name=streaming_enabled,json=streamingEnabled,proto3" json:"streaming_enabled,omitempty"`
 	MaxContextTokens   int32   `protobuf:"varint,19,opt,name=max_context_tokens,json=maxContextTokens,proto3" json:"max_context_tokens,omitempty"`
+	MaxStep            int32   `protobuf:"varint,26,opt,name=max_step,json=maxStep,proto3" json:"max_step,omitempty"` // Builtin model rounds, including final delivery; 1..16.
 	// Connection config (third_party)
 	ConnMode         string `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
 	CallbackUrl      string `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
@@ -354,6 +355,13 @@ func (x *Bot) GetMaxContextTokens() int32 {
 	return 0
 }
 
+func (x *Bot) GetMaxStep() int32 {
+	if x != nil {
+		return x.MaxStep
+	}
+	return 0
+}
+
 func (x *Bot) GetConnMode() string {
 	if x != nil {
 		return x.ConnMode
@@ -470,6 +478,7 @@ type CreateBotReq struct {
 	MaxContextMessages int32   `protobuf:"varint,18,opt,name=max_context_messages,json=maxContextMessages,proto3" json:"max_context_messages,omitempty"`
 	StreamingEnabled   bool    `protobuf:"varint,19,opt,name=streaming_enabled,json=streamingEnabled,proto3" json:"streaming_enabled,omitempty"`
 	MaxContextTokens   int32   `protobuf:"varint,25,opt,name=max_context_tokens,json=maxContextTokens,proto3" json:"max_context_tokens,omitempty"`
+	MaxStep            *int32  `protobuf:"varint,28,opt,name=max_step,json=maxStep,proto3,oneof" json:"max_step,omitempty"` // Omitted uses existing default 5; otherwise 1..16.
 	// Connection config (third_party)
 	ConnMode         string   `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
 	CallbackUrl      string   `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
@@ -620,6 +629,13 @@ func (x *CreateBotReq) GetMaxContextTokens() int32 {
 	return 0
 }
 
+func (x *CreateBotReq) GetMaxStep() int32 {
+	if x != nil && x.MaxStep != nil {
+		return *x.MaxStep
+	}
+	return 0
+}
+
 func (x *CreateBotReq) GetConnMode() string {
 	if x != nil {
 		return x.ConnMode
@@ -708,6 +724,7 @@ type UpdateBotReq struct {
 	MaxContextMessages int32                  `protobuf:"varint,18,opt,name=max_context_messages,json=maxContextMessages,proto3" json:"max_context_messages,omitempty"`
 	StreamingEnabled   bool                   `protobuf:"varint,19,opt,name=streaming_enabled,json=streamingEnabled,proto3" json:"streaming_enabled,omitempty"`
 	MaxContextTokens   int32                  `protobuf:"varint,25,opt,name=max_context_tokens,json=maxContextTokens,proto3" json:"max_context_tokens,omitempty"`
+	MaxStep            *int32                 `protobuf:"varint,28,opt,name=max_step,json=maxStep,proto3,oneof" json:"max_step,omitempty"` // Omitted preserves the current budget; otherwise 1..16.
 	ConnMode           string                 `protobuf:"bytes,30,opt,name=conn_mode,json=connMode,proto3" json:"conn_mode,omitempty"`
 	CallbackUrl        string                 `protobuf:"bytes,31,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
 	BotTags            []string               `protobuf:"bytes,40,rep,name=bot_tags,json=botTags,proto3" json:"bot_tags,omitempty"`
@@ -861,6 +878,13 @@ func (x *UpdateBotReq) GetStreamingEnabled() bool {
 func (x *UpdateBotReq) GetMaxContextTokens() int32 {
 	if x != nil {
 		return x.MaxContextTokens
+	}
+	return 0
+}
+
+func (x *UpdateBotReq) GetMaxStep() int32 {
+	if x != nil && x.MaxStep != nil {
+		return *x.MaxStep
 	}
 	return 0
 }
@@ -3612,11 +3636,13 @@ func (x *ControlRunReq) GetTargetUserId() string {
 }
 
 type AuthorizationReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
-	Body          []byte                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
-	ExecutorBotId string                 `protobuf:"bytes,3,opt,name=executor_bot_id,json=executorBotId,proto3" json:"executor_bot_id,omitempty"`
-	Token         string                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// resource | action | delegation; delegation is executor-only and carries
+	// operation delegate/result with run_id, generation and input_version.
+	Kind          string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Body          []byte `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
+	ExecutorBotId string `protobuf:"bytes,3,opt,name=executor_bot_id,json=executorBotId,proto3" json:"executor_bot_id,omitempty"`
+	Token         string `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3727,7 +3753,7 @@ var File_bot_bot_proto protoreflect.FileDescriptor
 
 const file_bot_bot_proto_rawDesc = "" +
 	"\n" +
-	"\rbot/bot.proto\x12\x03bot\x1a\x13common/common.proto\"\xa0\t\n" +
+	"\rbot/bot.proto\x12\x03bot\x1a\x13common/common.proto\"\xbb\t\n" +
 	"\x03Bot\x12\x16\n" +
 	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12&\n" +
 	"\bowner_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\x12\n" +
@@ -3746,7 +3772,8 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\vtemperature\x18\x10 \x01(\x01R\vtemperature\x120\n" +
 	"\x14max_context_messages\x18\x11 \x01(\x05R\x12maxContextMessages\x12+\n" +
 	"\x11streaming_enabled\x18\x12 \x01(\bR\x10streamingEnabled\x12,\n" +
-	"\x12max_context_tokens\x18\x13 \x01(\x05R\x10maxContextTokens\x12\x1b\n" +
+	"\x12max_context_tokens\x18\x13 \x01(\x05R\x10maxContextTokens\x12\x19\n" +
+	"\bmax_step\x18\x1a \x01(\x05R\amaxStep\x12\x1b\n" +
 	"\tconn_mode\x18\x1e \x01(\tR\bconnMode\x12!\n" +
 	"\fcallback_url\x18\x1f \x01(\tR\vcallbackUrl\x12,\n" +
 	"\x12has_webhook_secret\x18  \x01(\bR\x10hasWebhookSecret\x12$\n" +
@@ -3766,7 +3793,7 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x183 \x01(\x03R\tupdatedAtB\v\n" +
 	"\t_owner_idB\v\n" +
-	"\t_model_idJ\x04\b\x14\x10\x1aR\x11memory_model_nameR\x19memory_use_platform_modelR\x0fmemory_model_idR\fmemory_limitR\x1bmemory_embedding_model_nameR\x19memory_embedding_model_id\"\x9c\b\n" +
+	"\t_model_idJ\x04\b\x14\x10\x1aR\x11memory_model_nameR\x19memory_use_platform_modelR\x0fmemory_model_idR\fmemory_limitR\x1bmemory_embedding_model_nameR\x19memory_embedding_model_id\"\xc9\b\n" +
 	"\fCreateBotReq\x12&\n" +
 	"\bowner_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -3784,13 +3811,14 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\vtemperature\x18\x11 \x01(\x01R\vtemperature\x120\n" +
 	"\x14max_context_messages\x18\x12 \x01(\x05R\x12maxContextMessages\x12+\n" +
 	"\x11streaming_enabled\x18\x13 \x01(\bR\x10streamingEnabled\x12,\n" +
-	"\x12max_context_tokens\x18\x19 \x01(\x05R\x10maxContextTokens\x12\x1b\n" +
+	"\x12max_context_tokens\x18\x19 \x01(\x05R\x10maxContextTokens\x12\x1e\n" +
+	"\bmax_step\x18\x1c \x01(\x05H\x01R\amaxStep\x88\x01\x01\x12\x1b\n" +
 	"\tconn_mode\x18\x1e \x01(\tR\bconnMode\x12!\n" +
 	"\fcallback_url\x18\x1f \x01(\tR\vcallbackUrl\x12\x19\n" +
 	"\bbot_tags\x18( \x03(\tR\abotTags\x12\"\n" +
 	"\fcapabilities\x18) \x01(\tR\fcapabilities\x12\x1a\n" +
 	"\bsettings\x18* \x01(\tR\bsettings\x12&\n" +
-	"\bmodel_id\x18+ \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\amodelId\x88\x01\x01\x12\x1f\n" +
+	"\bmodel_id\x18+ \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x02R\amodelId\x88\x01\x01\x12\x1f\n" +
 	"\vtemplate_id\x18, \x01(\tR\n" +
 	"templateId\x12\x19\n" +
 	"\bsub_type\x18- \x01(\tR\asubType\x12+\n" +
@@ -3798,7 +3826,8 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\n" +
 	"owner_type\x18/ \x01(\tR\townerTypeB\v\n" +
 	"\t_owner_idB\v\n" +
-	"\t_model_idJ\x04\b\x14\x10\x19J\x04\b\x1a\x10\x1bJ\x04\b\x1b\x10\x1cR\x11memory_model_nameR\x19memory_use_platform_modelR\x0fmemory_model_idR\x0ememory_api_keyR\fmemory_limitR\x1bmemory_embedding_model_nameR\x19memory_embedding_model_id\"\xf6\b\n" +
+	"\t_max_stepB\v\n" +
+	"\t_model_idJ\x04\b\x14\x10\x19J\x04\b\x1a\x10\x1bJ\x04\b\x1b\x10\x1cR\x11memory_model_nameR\x19memory_use_platform_modelR\x0fmemory_model_idR\x0ememory_api_keyR\fmemory_limitR\x1bmemory_embedding_model_nameR\x19memory_embedding_model_id\"\xa3\t\n" +
 	"\fUpdateBotReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +
 	"\auser_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x06userId\x12\x12\n" +
@@ -3817,18 +3846,20 @@ const file_bot_bot_proto_rawDesc = "" +
 	"\vtemperature\x18\x11 \x01(\x01R\vtemperature\x120\n" +
 	"\x14max_context_messages\x18\x12 \x01(\x05R\x12maxContextMessages\x12+\n" +
 	"\x11streaming_enabled\x18\x13 \x01(\bR\x10streamingEnabled\x12,\n" +
-	"\x12max_context_tokens\x18\x19 \x01(\x05R\x10maxContextTokens\x12\x1b\n" +
+	"\x12max_context_tokens\x18\x19 \x01(\x05R\x10maxContextTokens\x12\x1e\n" +
+	"\bmax_step\x18\x1c \x01(\x05H\x00R\amaxStep\x88\x01\x01\x12\x1b\n" +
 	"\tconn_mode\x18\x1e \x01(\tR\bconnMode\x12!\n" +
 	"\fcallback_url\x18\x1f \x01(\tR\vcallbackUrl\x12\x19\n" +
 	"\bbot_tags\x18( \x03(\tR\abotTags\x12\"\n" +
 	"\fcapabilities\x18) \x01(\tR\fcapabilities\x12\x1a\n" +
 	"\bsettings\x18* \x01(\tR\bsettings\x12&\n" +
-	"\bmodel_id\x18+ \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\amodelId\x88\x01\x01\x12\x1f\n" +
+	"\bmodel_id\x18+ \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\amodelId\x88\x01\x01\x12\x1f\n" +
 	"\vtemplate_id\x18, \x01(\tR\n" +
 	"templateId\x12\x19\n" +
 	"\bsub_type\x18- \x01(\tR\asubType\x12+\n" +
 	"\x11response_triggers\x18. \x03(\tR\x10responseTriggers\x12$\n" +
 	"\x0eclear_model_id\x18/ \x01(\bR\fclearModelIdB\v\n" +
+	"\t_max_stepB\v\n" +
 	"\t_model_idJ\x04\b\x14\x10\x19J\x04\b\x1a\x10\x1bJ\x04\b\x1b\x10\x1cJ\x04\b0\x101J\x04\b1\x102R\x11memory_model_nameR\x19memory_use_platform_modelR\x0fmemory_model_idR\x0ememory_api_keyR\fmemory_limitR\x1bmemory_embedding_model_nameR\x19memory_embedding_model_idR\x15clear_memory_model_idR\x1fclear_memory_embedding_model_id\"N\n" +
 	"\fDeleteBotReq\x12\x1d\n" +
 	"\x06bot_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05botId\x12\x1f\n" +

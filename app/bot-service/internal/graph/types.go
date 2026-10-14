@@ -1,22 +1,27 @@
 package graph
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // KbDocument is a knowledge-domain result, not an assistant trajectory block.
 type KbDocument struct {
-	ChunkID        string
-	DocID          string
-	Title          string
-	Content        string
-	MatchedContent string
-	Score          float64
-	KbID           string
-	KbName         string
-}
-type BoundKB struct {
-	KBID string
-	Mode string
-	Name string
+	ChunkID           string
+	DocID             string
+	Title             string
+	Content           string
+	MatchedContent    string
+	Score             float64
+	KbID              string
+	KbName            string
+	ChunkIndex        int
+	Metadata          json.RawMessage
+	ContextChunkID    string
+	ContextChunkIndex *int
+	ContextMetadata   json.RawMessage
+	Provenance        json.RawMessage
+	Sources           []map[string]any
 }
 
 func FormatKnowledge(docs []KbDocument) string {

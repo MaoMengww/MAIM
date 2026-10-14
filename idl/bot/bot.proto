@@ -95,6 +95,7 @@ message Bot {
   int32 max_context_messages = 17;
   bool streaming_enabled = 18;
   int32 max_context_tokens = 19;
+  int32 max_step = 26; // Builtin model rounds, including final delivery; 1..16.
 
   reserved 20 to 25;
   reserved "memory_model_name", "memory_use_platform_model", "memory_model_id", "memory_limit", "memory_embedding_model_name", "memory_embedding_model_id";
@@ -143,6 +144,7 @@ message CreateBotReq {
   int32 max_context_messages = 18;
   bool streaming_enabled = 19;
   int32 max_context_tokens = 25;
+  optional int32 max_step = 28; // Omitted uses existing default 5; otherwise 1..16.
 
   reserved 20 to 24, 26, 27;
   reserved "memory_model_name", "memory_use_platform_model", "memory_model_id", "memory_api_key", "memory_limit", "memory_embedding_model_name", "memory_embedding_model_id";
@@ -183,6 +185,7 @@ message UpdateBotReq {
   int32 max_context_messages = 18;
   bool streaming_enabled = 19;
   int32 max_context_tokens = 25;
+  optional int32 max_step = 28; // Omitted preserves the current budget; otherwise 1..16.
 
   reserved 20 to 24, 26, 27, 48, 49;
   reserved "memory_model_name", "memory_use_platform_model", "memory_model_id", "memory_api_key", "memory_limit", "memory_embedding_model_name", "memory_embedding_model_id", "clear_memory_model_id", "clear_memory_embedding_model_id";

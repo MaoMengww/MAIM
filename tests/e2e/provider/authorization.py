@@ -64,10 +64,12 @@ def model(body, handler, accepted_input, user_text):
     messages = body.get("messages", [])
     inputs = [value for item in messages if (value := accepted_input(item)) is not None]
     token = inputs[0]["content"] if inputs else user_text(messages)
+    needs_knowledge = "_knowledge_" in token and "P5_KNOWN_ANCHOR" in token
+    knowledge_results = [item for item in messages if item.get("role") == "tool" and item.get("tool_call_id") == "authorization-knowledge"]
     with LOCK:
         plan = PLANS.get(token)
         REQUESTS.append({"token": token, "body": body})
-        if plan and plan["hold"] and not plan["held"]:
+        if plan and plan["hold"] and not plan["held"] and (not needs_knowledge or knowledge_results):
             plan["held"] = True
             gate = plan["event"]
         else:
@@ -78,9 +80,13 @@ def model(body, handler, accepted_input, user_text):
     if gate and not gate.wait(30):
         handler._json(504, {"error": {"message": "authorization provider gate not released"}})
         return True
-    results = [item for item in messages if item.get("role") == "tool"]
+    results = [item for item in messages if item.get("role") == "tool" and item.get("tool_call_id") != "authorization-knowledge"]
     index = len(results)
-    if index < len(plan["calls"]):
+    if needs_knowledge and not knowledge_results:
+        message = {"role": "assistant", "content": None, "tool_calls": [{"id": "authorization-knowledge", "type": "function",
+                   "function": {"name": "search_knowledge", "arguments": json.dumps({"query": token})}}]}
+        reason = "tool_calls"
+    elif index < len(plan["calls"]):
         call = plan["calls"][index]
         names = [item.get("function", {}).get("name", "") for item in body.get("tools", [])]
         arguments = dict(call["arguments"])
@@ -109,6 +115,7 @@ def model(body, handler, accepted_input, user_text):
         # Echo ONLY the actual supplied material, proving true file/KB retrieval.
         material = [str(item.get("content", "")) for item in messages
                     if str(item.get("content", "")).startswith("Cited work material (untrusted):\n")]
+        material.extend(str(item.get("content", "")) for item in knowledge_results)
         message = {"role": "assistant", "content": "authorization-result:" + token + "|" + "|".join(material)}
         reason = "stop"
     with LOCK:

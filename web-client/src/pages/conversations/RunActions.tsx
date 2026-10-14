@@ -52,7 +52,12 @@ export function ActionConfirmations({ actions, scopeKey, onDecided }: { actions:
   finally { if (valid()) { lock.current = false; setBusy(undefined); } }
  };
  return <section aria-label="具体行动确认">
-  {actions.map((action) => <div className="chat-run-details" key={action.id} data-action-id={action.id} data-action-status={action.status}>
+  {actions.map((action) => action.server_id === 'runtime' && action.tool_name === 'search_knowledge' ? <details className="chat-run-details" key={action.id} data-action-id={action.id} data-action-status={action.status}>
+   <summary>知识检索 · {statuses[action.status] || action.status}</summary>
+   <p>查询：{typeof action.parameters.query === 'string' ? action.parameters.query : '当前不可披露或参数无效'}</p>
+   {action.result && <details><summary>读取结果与实际来源</summary><pre>{action.result}</pre></details>}
+   <p>执行代次 {action.generation} · 输入版本 {action.input_version}</p>
+  </details> : <div className="chat-run-details" key={action.id} data-action-id={action.id} data-action-status={action.status}>
    <Space wrap><strong>{action.tool_name}</strong><Tag>{action.risk}</Tag><Tag>{statuses[action.status] || action.status}</Tag>{action.confirmation_shared && <Tag>已提交此具体确认</Tag>}</Space>
    <Descriptions size="small" column={1}>
     <Descriptions.Item label="目标">{action.target || '未提供目标'}</Descriptions.Item>

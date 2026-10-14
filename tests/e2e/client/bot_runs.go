@@ -371,9 +371,9 @@ func (d *driver) botRuns(address, secondAddress string) error {
 	if err != nil {
 		return err
 	}
-	// The platform's existing five-call budget must survive five distinct
-	// input interrupts and Runner resumes, not restart with each Runner.
-	for round := range 5 {
+	// The five-call cumulative budget survives four input interrupts and reserves
+	// its final call for delivery, without resetting on Runner resume.
+	for round := range 4 {
 		if _, err = d.interactionWait(member, budget.ID, "waiting_input"); err != nil {
 			return err
 		}
@@ -385,8 +385,11 @@ func (d *driver) botRuns(address, secondAddress string) error {
 	if err != nil {
 		return err
 	}
-	if budget.Status != "failed" || budget.Error == "" || budget.MessageID != nil {
-		return errors.New("bot-runs.budget: 恢复重置预算或发布伪成功")
+	var boundedAnswer struct {
+		Unfinished bool `json:"unfinished"`
+	}
+	if budget.Status != "succeeded" || budget.MessageID == nil || json.Unmarshal([]byte(budget.ResultText), &boundedAnswer) != nil || !boundedAnswer.Unfinished {
+		return errors.New("bot-runs.budget: 恢复未按累计预算交付明确未完成范围")
 	}
 	budgetObservation, err := d.observeProvider()
 	if err != nil {

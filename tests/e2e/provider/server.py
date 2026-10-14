@@ -18,6 +18,7 @@ import authorization
 import compaction
 import collaboration
 import recovery
+import knowledge_tools
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8099"))
@@ -360,18 +361,11 @@ def composition_reply(model, messages, text):
     # Never recall from provider state, history or a query token: only the actual
     # knowledge context assembled by AIM can determine these answers.
     knowledge = []
-    for item in messages:
-        content = str(item.get("content", ""))
-        if item.get("role") != "user" or not content.startswith("Cited work material (untrusted):\n"):
-            continue
-        try:
-            material = json.loads(content.split("\n", 1)[1])
-        except (ValueError, IndexError):
-            continue
-        if material.get("kind") == "knowledge":
-            knowledge.append(str(material.get("content", "")))
+    for value in knowledge_tools.results(messages):
+        knowledge.extend(str(item.get("content", "")) for item in value.get("items", []))
     if text.startswith("P7_KNOWLEDGE_QUERY"):
-        value = "cobalt-47" if any("P5_KNOWN_ANCHOR: the launch code is cobalt-47" in item for item in knowledge) else "none"
+        value = next((match.group(1) for item in knowledge
+                      if (match := re.search(r"P5_KNOWN_ANCHOR: the launch code is ([A-Za-z0-9-]+)", item))), "none")
         return "fixture-reply:" + text + "|knowledge:" + value
     return "fixture-reply:" + text
 
@@ -599,6 +593,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path.startswith("/knowledge-tools/"):
+            self._json(200, knowledge_tools.command(path, body))
+            return
         if path.startswith("/recovery/") and path != "/recovery/mcp":
             self._json(200, recovery.command(path, body))
             return
@@ -689,6 +686,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if recovery.model(body, self, accepted_input, user_text):
                 return
+            if knowledge_tools.model(body, self, accepted_input):
+                return
             if "RUN_FAIL_PROVIDER" in text:
                 self._json(503, {"error": {"message": "fixture unavailable"}})
                 return
@@ -725,10 +724,22 @@ class Handler(BaseHTTPRequestHandler):
                     return
             elif any((accepted_input(item) or {}).get("content", "").startswith("RUN_BUDGET_WAIT_") for item in messages):
                 inputs = [value for item in messages if (value := accepted_input(item)) is not None]
-                message = {"role": "assistant", "content": None, "tool_calls": [{
-                    "id": "budget-ask-" + str(len(inputs)), "type": "function", "function": {
-                        "name": "ask_for_input", "arguments": json.dumps({"reason": "Supply the next budget input"})}}]}
-                reason = "tool_calls"
+                if body.get("tools"):
+                    message = {"role": "assistant", "content": None, "tool_calls": [{
+                        "id": "budget-ask-" + str(len(inputs)), "type": "function", "function": {
+                            "name": "ask_for_input", "arguments": json.dumps({"reason": "Supply the next budget input"})}}]}
+                    reason = "tool_calls"
+                else:
+                    message, reason = {"role": "assistant", "content": json.dumps({"unfinished": True, "accepted_inputs": [value["content"] for value in inputs]})}, "stop"
+            elif model.startswith("fixture-composition-") and any(item.get("tool_call_id") == "fixture-call" for item in tool_messages):
+                with LOCK:
+                    OBSERVATIONS["tool_call_ids"].extend(item.get("tool_call_id") for item in tool_messages)
+                if not any(item.get("tool_call_id") == "composition-search" for item in tool_messages):
+                    message = {"role": "assistant", "content": None, "tool_calls": [{"id": "composition-search", "type": "function",
+                               "function": {"name": "search_knowledge", "arguments": json.dumps({"query": text})}}]}
+                    reason = "tool_calls"
+                else:
+                    message, reason = {"role": "assistant", "content": composition_reply(model, messages, text)}, "stop"
             elif not tool_messages:
                 tools = body.get("tools") or []
                 echo = next((item["function"]["name"] for item in tools if "fixture_echo" in item.get("function", {}).get("name", "")), "")
@@ -790,6 +801,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"output": {"results": [{"index": index, "relevance_score": 0.95}]},
                              "usage": {"total_tokens": 2}})
         elif path == "/v1/embeddings":
+            if knowledge_tools.embedding(body, self):
+                return
             inputs = body.get("input", [])
             if isinstance(inputs, str):
                 inputs = [inputs]

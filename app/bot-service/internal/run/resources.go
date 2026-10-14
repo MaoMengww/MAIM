@@ -57,7 +57,47 @@ func (s *Service) retrieveResources(ctx context.Context, input Input, query stri
 	}
 	docs := make([]graph.KbDocument, 0, len(result.Items))
 	for _, d := range result.Items {
-		docs = append(docs, graph.KbDocument{ChunkID: d.ChunkId, DocID: d.DocId, Title: d.DocTitle, Content: d.Content, MatchedContent: d.MatchedContent, Score: float64(d.Score), KbID: d.KbId, KbName: d.KbName})
+		if !slices.Contains(ids, d.KbId) {
+			return nil, nil, status.Error(codes.PermissionDenied, "knowledge result outside Run authorization")
+		}
+		chunk, err := resourcegrant.CurrentKnowledgeChunk(s.svc.DB.WithContext(ctx), d.ChunkId, false)
+		if err != nil {
+			if status.Code(err) == codes.PermissionDenied {
+				continue
+			}
+			return nil, nil, err
+		}
+		if chunk.KBID != d.KbId || chunk.DocID != d.DocId || chunk.Content != d.MatchedContent {
+			continue
+		}
+		doc := graph.KbDocument{ChunkID: chunk.ID, DocID: chunk.DocID, Title: chunk.DocTitle, Content: chunk.Content, MatchedContent: chunk.Content, Score: float64(d.Score), KbID: chunk.KBID, KbName: chunk.KBName, ChunkIndex: chunk.ChunkIndex, Metadata: chunk.Metadata}
+		versions := []model.SourceVersion{model.KnowledgeSourceVersion(chunk.SourceVersion())}
+		doc.Sources = []map[string]any{knowledgeSource(chunk, "matched", chunk.ID)}
+		if chunk.ParentChunkID != nil {
+			parent, err := resourcegrant.CurrentKnowledgeChunk(s.svc.DB.WithContext(ctx), *chunk.ParentChunkID, false)
+			if err != nil {
+				if status.Code(err) == codes.PermissionDenied {
+					continue
+				}
+				return nil, nil, err
+			}
+			if parent.KBID != chunk.KBID || parent.DocID != chunk.DocID || parent.ParentChunkID != nil || parent.Content != d.Content {
+				continue
+			}
+			doc.Content, doc.ContextChunkID, doc.ContextChunkIndex, doc.ContextMetadata = parent.Content, parent.ID, &parent.ChunkIndex, parent.Metadata
+			versions = append(versions, model.KnowledgeSourceVersion(parent.SourceVersion()))
+			doc.Sources = append(doc.Sources, knowledgeSource(parent, "parent_context", chunk.ID))
+			for _, source := range doc.Sources {
+				source["context_chunk_id"] = parent.ID
+			}
+		} else if d.Content != chunk.Content {
+			continue
+		}
+		doc.Provenance, err = json.Marshal(versions)
+		if err != nil {
+			return nil, nil, err
+		}
+		docs = append(docs, doc)
 	}
 	return docs, ids, nil
 }

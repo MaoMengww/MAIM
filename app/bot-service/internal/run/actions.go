@@ -169,7 +169,7 @@ func canonicalActionArguments(raw []byte, server model.McpServer) (json.RawMessa
 }
 
 func (s *Service) actionOwner(ctx context.Context, serverID, user string) bool {
-	if identity.Validate(user) != nil {
+	if identity.Validate(user) != nil || identity.Validate(serverID) != nil {
 		return false
 	}
 	var server model.McpServer
@@ -193,12 +193,13 @@ func (s *Service) publicAction(ctx context.Context, a *model.RunAction, user str
 	r, err := s.repo.Get(ctx, a.RunID)
 	owner := s.actionOwner(ctx, a.ServerID, user)
 	sourceValid := err == nil && s.actionSourcesCurrent(s.svc.DB.WithContext(ctx), r, a) == nil
+	runtimeReader := sourceValid && a.ServerID == "runtime" && a.ToolName == "search_knowledge" && s.visible(ctx, user, r) == nil && s.authorize(ctx, r, r.Visibility != "personal") == nil
 	personalRequester := sourceValid && r.Visibility == "personal" && r.PersonalUserID != nil && *r.PersonalUserID == user && s.visible(ctx, user, r) == nil
 	valid := err == nil && s.actionDisclosure(ctx, r, a, user) == nil
 	can := owner && valid && state == "pending" && !repo.TerminalRun(r) && r.Status != "stopping"
 	parameters := json.RawMessage(`{"redacted":true}`)
 	target := "[redacted]"
-	if personalRequester || owner && valid {
+	if personalRequester || owner && valid || runtimeReader {
 		var value any
 		dec := json.NewDecoder(bytes.NewReader(a.Arguments))
 		dec.UseNumber()
@@ -208,32 +209,34 @@ func (s *Service) publicAction(ctx context.Context, a *model.RunAction, user str
 		target = a.Target
 	}
 	result := ""
-	if (personalRequester || owner && valid && r.Visibility != "personal") && slices.Contains([]string{"succeeded", "failed", "unknown", "denied", "revoked"}, state) {
+	if (personalRequester || owner && valid && r.Visibility != "personal" || runtimeReader) && slices.Contains([]string{"succeeded", "failed", "unknown", "denied", "revoked"}, state) {
 		result = a.Result
-		var value any
-		var server model.McpServer
-		_ = s.svc.DB.WithContext(ctx).Where("id = ?", a.ServerID).First(&server).Error
-		dec := json.NewDecoder(strings.NewReader(result))
-		dec.UseNumber()
-		if dec.Decode(&value) == nil {
-			value = redactActionValue(value)
-			if server.AuthConfig != nil {
-				for _, secret := range []string{server.AuthConfig.APIKey, server.AuthConfig.Token} {
-					if secret != "" {
-						value = redactActionSecret(value, secret)
+		if !runtimeReader {
+			var value any
+			var server model.McpServer
+			_ = s.svc.DB.WithContext(ctx).Where("id = ?", a.ServerID).First(&server).Error
+			dec := json.NewDecoder(strings.NewReader(result))
+			dec.UseNumber()
+			if dec.Decode(&value) == nil {
+				value = redactActionValue(value)
+				if server.AuthConfig != nil {
+					for _, secret := range []string{server.AuthConfig.APIKey, server.AuthConfig.Token} {
+						if secret != "" {
+							value = redactActionSecret(value, secret)
+						}
 					}
 				}
-			}
-			redacted, marshalErr := json.Marshal(value)
-			if marshalErr == nil {
-				result = string(redacted)
-			} else {
-				result = ""
-			}
-		} else if server.AuthConfig != nil {
-			for _, secret := range []string{server.AuthConfig.APIKey, server.AuthConfig.Token} {
-				if secret != "" {
-					result = strings.ReplaceAll(result, secret, "[redacted]")
+				redacted, marshalErr := json.Marshal(value)
+				if marshalErr == nil {
+					result = string(redacted)
+				} else {
+					result = ""
+				}
+			} else if server.AuthConfig != nil {
+				for _, secret := range []string{server.AuthConfig.APIKey, server.AuthConfig.Token} {
+					if secret != "" {
+						result = strings.ReplaceAll(result, secret, "[redacted]")
+					}
 				}
 			}
 		}
@@ -306,7 +309,7 @@ func actionDefinitionCurrent(tx *gorm.DB, r *model.Run, a *model.RunAction) erro
 	if err != nil {
 		return err
 	}
-	_, digest, err := canonicalActionArguments(a.Arguments, server)
+	_, digest, err := canonicalToolActionArguments(a.Arguments, server, frozen)
 	if err != nil || digest != a.ParametersHash {
 		return status.Error(codes.PermissionDenied, "action parameters changed")
 	}
@@ -458,6 +461,20 @@ func actionGrantPrincipal(tx *gorm.DB, grant *model.ActionGrant, r *model.Run) b
 }
 func currentActionTool(tx *gorm.DB, r *model.Run, frozen component.RunTool) (model.McpServer, error) {
 	var server model.McpServer
+	if frozen.ServerID == "runtime" {
+		if frozen.Name != "search_knowledge" || frozen.Risk != "read" || !frozen.CanShare {
+			return server, status.Error(codes.PermissionDenied, "unknown runtime action")
+		}
+		var bot model.Bot
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND status = 'active' AND enable_knowledge = true", r.BotID).Take(&bot).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return server, err
+			}
+			return server, status.Error(codes.PermissionDenied, "knowledge capability revoked")
+		}
+		ref := resourcegrant.ToolRef{ServerID: frozen.ServerID, Name: frozen.Name, DefinitionHash: frozen.DefinitionHash, Risk: frozen.Risk, CanShare: frozen.CanShare}
+		return server, resourcegrant.CheckToolPermissions(tx, resourceAccess(r), []resourcegrant.ToolRef{ref}, true)
+	}
 	if frozen.ServerID == "builtin" {
 		if frozen.Name != "web_search" || frozen.Risk != "read" {
 			return server, status.Error(codes.PermissionDenied, "unknown builtin risk")
@@ -516,7 +533,7 @@ func (s *Service) prepareAction(ctx context.Context, r *model.Run, frozen compon
 		if err != nil {
 			return err
 		}
-		canonical, digest, err := canonicalActionArguments([]byte(arguments), server)
+		canonical, digest, err := canonicalToolActionArguments([]byte(arguments), server, frozen)
 		if err != nil {
 			return err
 		}
@@ -652,6 +669,7 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 	defer cancel()
 	var result string
 	var callErr error
+	var knowledge *knowledgeSearchOutcome
 	beforeCall := func(callCtx context.Context) error {
 		if _, err := s.executionBoundary(callCtx, r, a.Generation); err != nil {
 			return err
@@ -683,7 +701,15 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 		})
 		return err
 	}
-	if frozen.ServerID == "builtin" {
+	if frozen.ServerID == "runtime" && frozen.Name == "search_knowledge" {
+		callErr = beforeCall(toolCtx)
+		if callErr == nil {
+			knowledge, callErr = s.executeKnowledgeSearch(toolCtx, r, string(a.Arguments))
+			if knowledge != nil {
+				result = knowledge.Result
+			}
+		}
+	} else if frozen.ServerID == "builtin" {
 		callErr = beforeCall(toolCtx)
 		if callErr == nil {
 			result, callErr = component.CallBuiltinRunTool(toolCtx, frozen, string(a.Arguments))
@@ -692,6 +718,9 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 		result, callErr = component.CallRunTool(toolCtx, server, frozen, string(a.Arguments), beforeCall)
 	}
 	state := "succeeded"
+	if knowledge != nil && knowledge.Failed {
+		state = "failed"
+	}
 	if callErr != nil {
 		state = "unknown"
 		if a.Risk == "read" || a.Risk == "draft" {
@@ -703,7 +732,7 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 		result = `{"status":"` + state + `","result":"omitted: tool result exceeded work budget"}`
 	}
 	var decoded any
-	if json.Unmarshal([]byte(result), &decoded) == nil {
+	if knowledge == nil && json.Unmarshal([]byte(result), &decoded) == nil {
 		raw, _ := json.Marshal(redactActionValue(decoded))
 		result = string(raw)
 	}
@@ -726,6 +755,9 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 		now := time.Now()
 		live.Status, live.CompletedAt = state, &now
 		if !live.SourceInvalidated {
+			if err := s.acceptKnowledgeOutcome(tx, current, &live, knowledge); err != nil {
+				return err
+			}
 			live.Result = result
 		}
 		if err := tx.Save(&live).Error; err != nil {
@@ -754,6 +786,9 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 		return result, status.Error(codes.FailedPrecondition, "action outcome unknown; human reconciliation required")
 	}
 	if callErr != nil {
+		if frozen.ServerID == "runtime" && frozen.Name == "search_knowledge" {
+			return "", callErr
+		}
 		return result, status.Error(codes.Unavailable, "tool invocation failed")
 	}
 	return result, nil

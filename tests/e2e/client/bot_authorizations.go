@@ -17,22 +17,23 @@ import (
 
 // These views are decoded exclusively from the authenticated public contract.
 type resourceAuthorization struct {
-	ID           entityID  `json:"id"`
-	BotID        entityID  `json:"bot_id"`
-	ConvID       entityID  `json:"conv_id"`
-	ResourceType string    `json:"resource_type"`
-	ResourceID   entityID  `json:"resource_id"`
-	Scope        string    `json:"scope"`
-	CanRead      bool      `json:"can_read"`
-	CanShare     bool      `json:"can_share"`
-	ExpiresAt    time.Time `json:"expires_at"`
+	ID           entityID   `json:"id"`
+	BotID        entityID   `json:"bot_id"`
+	ConvID       entityID   `json:"conv_id"`
+	ResourceType string     `json:"resource_type"`
+	ResourceID   entityID   `json:"resource_id"`
+	Scope        string     `json:"scope"`
+	CanRead      bool       `json:"can_read"`
+	CanShare     bool       `json:"can_share"`
+	ExpiresAt    time.Time  `json:"expires_at"`
+	RevokedAt    *time.Time `json:"revoked_at"`
 }
 
 type authorizationAction struct {
 	ID             entityID        `json:"id"`
 	RunID          entityID        `json:"run_id"`
 	ToolName       string          `json:"tool_name"`
-	ServerID       entityID        `json:"server_id"`
+	ServerID       string          `json:"server_id"`
 	Risk           string          `json:"risk"`
 	Target         string          `json:"target"`
 	Parameters     json.RawMessage `json:"parameters"`
@@ -179,7 +180,7 @@ func (f *authorizationFixture) newAction(token, risk, target string) (publicRun,
 		}
 		if len(actions) == 1 {
 			action := actions[0]
-			if action.Status != "pending" || action.Risk != risk || action.Target != target || action.ServerID != f.server || action.RunID != run.ID {
+			if action.Status != "pending" || action.Risk != risk || action.Target != target || action.ServerID != f.server.String() || action.RunID != run.ID {
 				return run, action, errors.New("authorization pending action is not the exact trusted risk/target")
 			}
 			var requesterActions []authorizationAction
@@ -514,6 +515,10 @@ func (f *authorizationFixture) inflightResourceRevocation(kind string, id entity
 	if err = f.d.broadcastPoll("authorization provider inflight", func(*driver) (bool, error) { row, err := f.observe(token); return row.Held, err }); err != nil {
 		return err
 	}
+	beforeRevoke, err := f.observe(token)
+	if err != nil {
+		return err
+	}
 	if err = f.d.request(http.MethodPost, "/bot-authorizations/resources", f.requester.token, map[string]any{"op": "revoke", "grant_id": grant.ID}, nil); err != nil {
 		return err
 	}
@@ -554,7 +559,7 @@ func (f *authorizationFixture) inflightResourceRevocation(kind string, id entity
 	if len(row.Requests) == 0 {
 		return errors.New("inflight model boundary was not actually exercised")
 	}
-	for _, request := range row.Requests[1:] {
+	for _, request := range row.Requests[len(beforeRevoke.Requests):] {
 		if strings.Contains(string(request.Body), canary) {
 			return errors.New("revoked source reused in later actual model input")
 		}

@@ -112,7 +112,17 @@ func (s *Service) rebindAction(tx *gorm.DB, r *model.Run, a *model.RunAction, fr
 		return status.Error(codes.PermissionDenied, "action input or principal changed")
 	}
 	var provenance, current []model.SourceVersion
-	if json.Unmarshal(a.Provenance, &provenance) != nil || json.Unmarshal(r.Provenance, &current) != nil || !slices.Equal(provenance, current) {
+	if json.Unmarshal(a.Provenance, &provenance) != nil || json.Unmarshal(r.Provenance, &current) != nil {
+		return status.Error(codes.PermissionDenied, "action provenance changed")
+	}
+	completedKnowledgeRead := frozen.ServerID == "runtime" && frozen.Name == "search_knowledge" && a.Risk == "read" && slices.Contains([]string{"succeeded", "failed"}, a.Status)
+	if completedKnowledgeRead {
+		for _, source := range provenance {
+			if !slices.Contains(current, source) {
+				return status.Error(codes.PermissionDenied, "completed knowledge source is outside current work")
+			}
+		}
+	} else if !slices.Equal(provenance, current) {
 		return status.Error(codes.PermissionDenied, "action provenance changed")
 	}
 	var definition component.RunTool
@@ -133,7 +143,7 @@ func (s *Service) rebindAction(tx *gorm.DB, r *model.Run, a *model.RunAction, fr
 			a.Status = "revoked"
 		}
 	}
-	_, storedDigest, err := canonicalActionArguments(a.Arguments, server)
+	_, storedDigest, err := canonicalToolActionArguments(a.Arguments, server, frozen)
 	if err != nil || storedDigest != digest {
 		return status.Error(codes.PermissionDenied, "durable action parameters changed")
 	}

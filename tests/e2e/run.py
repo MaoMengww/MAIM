@@ -36,7 +36,7 @@ USER_IDENTITY_APPLICATIONS = {"user-service", "realtime-service", "gateway"}
 MESSAGING_APPLICATIONS = USER_IDENTITY_APPLICATIONS | {"message-service"}
 ATTACHMENT_APPLICATIONS = MESSAGING_APPLICATIONS | {"file-service"}
 BOT_RUNTIME_APPLICATIONS = MESSAGING_APPLICATIONS | {"llm-gateway", "bot-service", "bot-runtime", "knowledge-base", "knowledge-ingest", "file-service"}
-BOT_RUNTIME_SCENARIOS = {"bot-runtime", "bot-runtime-cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover"}
+BOT_RUNTIME_SCENARIOS = {"bot-runtime", "bot-runtime-cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools"}
 LLM_CHAT_SCENARIOS = {"llm-chat", "llm-components"}
 MESSAGING_SCENARIOS = {"messaging", "conversations", "conversation-unread", "broadcasts",
                        "user-sync", "same-instance-a", "same-instance-b", "cross-instance"}
@@ -288,7 +288,7 @@ class Runner:
             for name, port in (("gateway", 8080), ("realtime-service", 8081), ("realtime-b", 8081)):
                 services[name]["ports"] = [{"target": port, "published": "0",
                                             "host_ip": "127.0.0.1", "protocol": "tcp"}]
-            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover"}:
+            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools"}:
                 services["e2e-provider"]["ports"] = [{"target": 8099, "published": "0",
                                                      "host_ip": "127.0.0.1", "protocol": "tcp"}]
             if "minio" in services:
@@ -376,9 +376,11 @@ class Runner:
                     "-timeout", f"{self.args.timeout:g}s",
                     "-provider", "http://e2e-provider:8099",
                     "-ingest-timeout", "10m", "-query-deadline", "5s"]
-        if self.args.scenario in ("all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover"):
+        if self.args.scenario in ("all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools"):
             scenario.extend(["-control-dir", "/control"])
         scenario.extend(["-scenario", self.args.scenario])
+        if self.args.scenario == "all":
+            scenario.append("-fail-fast")
         if self.args.cross_instance:
             scenario.append("-cross-instance")
         # The client's timeout is per interaction, not an overall scene budget.
@@ -388,6 +390,8 @@ class Runner:
             self.compaction_acceptance(scenario)
         elif self.args.scenario == "bot-recovery":
             self.recovery_acceptance(scenario)
+        elif self.args.scenario == "bot-knowledge-tools":
+            self.knowledge_acceptance(scenario)
         else:
             self.compose("acceptance", "run", "--rm", "--no-deps", "e2e-client", *scenario,
                          timeout=max(180, self.args.timeout * 100))
@@ -427,7 +431,7 @@ class Runner:
                 if not address.startswith("127.0.0.1:") or "\n" in address:
                     raise LayerFailure("browser-access: minio did not publish a single loopback address")
                 access["minio"] = "http://" + address
-            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover"}:
+            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools"}:
                 address = self.compose("browser-port-provider", "port", "e2e-provider", "8099", capture=True).strip()
                 if not address.startswith("127.0.0.1:") or "\n" in address:
                     raise LayerFailure("browser-access: provider did not publish a single loopback address")
@@ -466,6 +470,7 @@ class Runner:
         (self.control / "compaction-restart.done").write_text("done\n")
         if self.args.scenario == "all":
             self.recovery_checkpoints()
+            self.knowledge_checkpoints()
         self.await_exit("e2e-client", max(180, self.args.timeout * 100), require_success=True)
         self.compose("compaction-client-evidence", "logs", "--no-color", "--timestamps", "e2e-client")
 
@@ -479,6 +484,25 @@ class Runner:
         self.recovery_checkpoints()
         self.await_exit("e2e-client", max(180, self.args.timeout * 100), require_success=True)
         self.compose("recovery-client-evidence", "logs", "--no-color", "--timestamps", "e2e-client")
+
+    def knowledge_acceptance(self, scenario):
+        self.model["services"]["e2e-client"]["command"] = scenario
+        self.composefile.write_text(json.dumps(self.model, indent=2) + "\n")
+        if self.artifacts:
+            shutil.copyfile(self.composefile, self.artifacts / "compose.json")
+        self.compose("knowledge-client-start", "up", "--detach", "--no-build", "--no-deps", "e2e-client")
+        self.knowledge_checkpoints()
+        self.await_exit("e2e-client", max(180, self.args.timeout * 100), require_success=True)
+        self.compose("knowledge-client-evidence", "logs", "--no-color", "--timestamps", "e2e-client")
+
+    def knowledge_checkpoints(self):
+        for action in ("knowledge-completed-kill", "knowledge-completed-start"):
+            self.await_checkpoint("recovery-" + action)
+            if action.endswith("-kill"):
+                self.compose(action, "kill", "--signal", "SIGKILL", "bot-runtime")
+            else:
+                self.wait_for(action + "-ready", ["bot-runtime"])
+            (self.control / ("recovery-" + action + ".done")).write_text("done\n")
 
     def recovery_checkpoints(self):
         actions = ("external-persistence-restart", "waiting-input-restart", "input-persistence-restart", "waiting-auth-restart",
@@ -619,7 +643,7 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery")
-    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-runtime", "bot-runtime-cross-instance", "llm-chat", "llm-components", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
+    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-runtime", "bot-runtime-cross-instance", "llm-chat", "llm-components", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")

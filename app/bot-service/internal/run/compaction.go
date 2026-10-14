@@ -208,6 +208,22 @@ func (s *Service) workingModelView(ctx context.Context, r *model.Run, generation
 	if cost+workHeadroom(config) <= config.MaxContextTokens {
 		return messages, nil
 	}
+	// Compression cannot shrink fixed instructions, legal tools or the current
+	// accepted goal. Reserve bounded delivery before spending a summary call.
+	mandatory := make([]*llm.Message, 0, 2)
+	for _, message := range messages {
+		version, accepted := acceptedMessage(message)
+		if message.Role == "system" || accepted && version == r.AppliedInputVersion {
+			mandatory = append(mandatory, message)
+		}
+	}
+	mandatoryCost, err := modelInputCost(mandatory, config)
+	if err != nil {
+		return nil, err
+	}
+	if mandatoryCost+workHeadroom(config) > config.MaxContextTokens {
+		return nil, status.Error(codes.ResourceExhausted, "fixed instructions, legal tools and current request exceed context budget; deliver without tools")
+	}
 	checkpoint, err = s.compactWork(ctx, r, generation, config, blocks, checkpoint)
 	if err != nil {
 		if status.Code(err) == codes.Aborted {

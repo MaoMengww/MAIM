@@ -627,6 +627,25 @@ func CheckRunSources(tx *gorm.DB, run *model.Run) error {
 	slices.SortFunc(versions, func(a, b model.SourceVersion) int {
 		return cmp.Compare(a.ParentRunID, b.ParentRunID)
 	})
+	access := resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}
+	for _, version := range versions {
+		if version.KnowledgeID == "" {
+			continue
+		}
+		var bot model.Bot
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND enable_knowledge = true", run.BotID).Take(&bot).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			return status.Error(codes.PermissionDenied, "knowledge capability revoked")
+		}
+		if _, err := resourcegrant.Check(tx, access, "knowledge", version.KnowledgeID, run.Visibility != "personal", true); err != nil {
+			return err
+		}
+		if err := resourcegrant.CheckKnowledgeSource(tx, version.KnowledgeSource(), true); err != nil {
+			return err
+		}
+	}
 	for _, version := range versions {
 		if version.ParentRunID == "" {
 			continue

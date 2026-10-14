@@ -470,10 +470,10 @@ func checkOutputRunSources(tx *gorm.DB, run *outputSourceRun, visiting, checked 
 	visiting[run.ID] = true
 	defer delete(visiting, run.ID)
 	var versions []struct {
+		resourcegrant.KnowledgeSource
 		ParentRunID    string `json:"parent_run_id"`
 		SourceRevision int64  `json:"source_revision"`
 		FileID         string `json:"file_id"`
-		KnowledgeID    string `json:"knowledge_id"`
 	}
 	if err := json.Unmarshal(run.Provenance, &versions); err != nil {
 		return err
@@ -499,6 +499,9 @@ func checkOutputRunSources(tx *gorm.DB, run *outputSourceRun, visiting, checked 
 					return errors.New(errors.CodeForbidden, "Run material sharing authorization revoked")
 				}
 			}
+		}
+		if err := resourcegrant.CheckKnowledgeSource(tx, version.KnowledgeSource, true); err != nil {
+			return errors.New(errors.CodeForbidden, "Run knowledge evidence is no longer current")
 		}
 		if version.ParentRunID == "" {
 			continue

@@ -47,6 +47,9 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 			return nil, ErrBotInvalid
 		}
 	}
+	if in.MaxStep != nil && (in.GetMaxStep() < 1 || in.GetMaxStep() > 16) {
+		return nil, ErrBotInvalid
+	}
 
 	// capture normalized subType for third-party bot construction below
 	var subType string
@@ -112,6 +115,7 @@ func (l *CreateBotLogic) CreateBot(in *botpb.CreateBotReq) (*botpb.Bot, error) {
 		Temperature:        in.Temperature,
 		MaxContextMessages: int(in.MaxContextMessages),
 		MaxContextTokens:   int(in.MaxContextTokens),
+		MaxStep:            int(in.GetMaxStep()),
 		StreamingEnabled:   in.StreamingEnabled,
 		ConnMode:           NormalizeConnMode(in.ConnMode),
 		CallbackURL:        in.CallbackUrl,

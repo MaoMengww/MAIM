@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/maomeng/aim/pkg/resourcegrant"
 )
 
 // Run owns work facts. Private snapshots and trajectory are never serialized publicly.
@@ -138,12 +140,24 @@ type InputSource struct {
 
 // SourceVersion is private provenance, not material or authorization.
 type SourceVersion struct {
-	MessageID         string `json:"message_id,omitempty"`
-	AcceptedEditCount int32  `json:"accepted_edit_count"`
-	FileID            string `json:"file_id,omitempty"`
-	KnowledgeID       string `json:"knowledge_id,omitempty"`
-	ParentRunID       string `json:"parent_run_id,omitempty"`
-	SourceRevision    int64  `json:"source_revision,omitzero"`
+	MessageID             string `json:"message_id,omitempty"`
+	AcceptedEditCount     int32  `json:"accepted_edit_count"`
+	FileID                string `json:"file_id,omitempty"`
+	KnowledgeID           string `json:"knowledge_id,omitempty"`
+	KnowledgeDocID        string `json:"knowledge_doc_id,omitempty"`
+	KnowledgeChunkID      string `json:"knowledge_chunk_id,omitempty"`
+	KnowledgeContentHash  string `json:"knowledge_content_hash,omitempty"`
+	KnowledgeDocumentHash string `json:"knowledge_document_hash,omitempty"`
+	ParentRunID           string `json:"parent_run_id,omitempty"`
+	SourceRevision        int64  `json:"source_revision,omitzero"`
+}
+
+func (version SourceVersion) KnowledgeSource() resourcegrant.KnowledgeSource {
+	return resourcegrant.KnowledgeSource{KnowledgeID: version.KnowledgeID, KnowledgeDocID: version.KnowledgeDocID, KnowledgeChunkID: version.KnowledgeChunkID, KnowledgeContentHash: version.KnowledgeContentHash, KnowledgeDocumentHash: version.KnowledgeDocumentHash}
+}
+
+func KnowledgeSourceVersion(source resourcegrant.KnowledgeSource) SourceVersion {
+	return SourceVersion{KnowledgeID: source.KnowledgeID, KnowledgeDocID: source.KnowledgeDocID, KnowledgeChunkID: source.KnowledgeChunkID, KnowledgeContentHash: source.KnowledgeContentHash, KnowledgeDocumentHash: source.KnowledgeDocumentHash}
 }
 
 type RunReceipt struct {
@@ -219,7 +233,7 @@ func (r *Run) Public() PublicRun {
 	_ = json.Unmarshal(r.Sources, &private)
 	for _, source := range private {
 		public := make(map[string]string)
-		for _, key := range []string{"type", "kind", "kb_name", "kb_id", "doc_id", "chunk_id", "title", "message_id", "file_id", "parent_run_id", "requester_id", "history_grant_id", "sender_type", "sender_id", "tool_name", "activity_id"} {
+		for _, key := range []string{"type", "kind", "role", "matched_chunk_id", "chunk_index", "metadata_json", "kb_name", "kb_id", "doc_id", "chunk_id", "title", "message_id", "file_id", "parent_run_id", "requester_id", "history_grant_id", "sender_type", "sender_id", "tool_name", "activity_id"} {
 			if value, ok := source[key].(string); ok {
 				public[key] = value
 			}

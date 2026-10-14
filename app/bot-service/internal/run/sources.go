@@ -24,14 +24,16 @@ func materialProvenance(materials []Material) (json.RawMessage, error) {
 		if material.FileID != "" {
 			versions = append(versions, model.SourceVersion{FileID: material.FileID})
 		}
-		if material.KnowledgeID != "" {
-			versions = append(versions, model.SourceVersion{KnowledgeID: material.KnowledgeID})
-		}
 		var inherited []model.SourceVersion
 		if len(material.Provenance) > 0 {
 			if err := json.Unmarshal(material.Provenance, &inherited); err != nil {
 				return nil, err
 			}
+		}
+		if material.KnowledgeID != "" && !slices.ContainsFunc(inherited, func(source model.SourceVersion) bool {
+			return source.KnowledgeID == material.KnowledgeID && source.KnowledgeChunkID != ""
+		}) {
+			versions = append(versions, model.SourceVersion{KnowledgeID: material.KnowledgeID})
 		}
 		versions = append(versions, inherited...)
 	}
@@ -73,15 +75,15 @@ func dependent(raw json.RawMessage, invalid map[string]bool, parents map[string]
 		return true
 	}
 	for _, version := range versions {
-		if invalid[version.MessageID] || invalid["file:"+version.FileID] || invalid["knowledge:"+version.KnowledgeID] || parents[version.ParentRunID] {
+		if invalid[version.MessageID] || invalid["file:"+version.FileID] || invalid["knowledge:"+version.KnowledgeID] || invalid["knowledge_chunk:"+version.KnowledgeChunkID] || parents[version.ParentRunID] {
 			return true
 		}
 	}
 	return false
 }
 
-// Revalidate only live authorizations. Accepted message bodies and versions are
-// durable work facts; their original IM rows never participate in this boundary.
+// Accepted messages remain durable facts; knowledge evidence must still name
+// the current ready document/chunk version as well as a live sharing grant.
 func (s *Service) refreshAuthorizations(ctx context.Context, r *model.Run) error {
 	return s.refreshAuthorizationSources(ctx, r, make(map[string]bool))
 }
@@ -126,6 +128,24 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 		versions = append(versions, sources...)
 	}
 	invalid, parents := map[string]bool{}, map[string]bool{}
+	// A legacy knowledge copy without the accepted chunk version cannot prove
+	// that its evidence survived replacement. Never mint a new version for it.
+	for _, material := range materials {
+		if material.Kind != "knowledge" || material.KnowledgeID == "" {
+			continue
+		}
+		var accepted []model.SourceVersion
+		if len(material.Provenance) > 0 {
+			if err := json.Unmarshal(material.Provenance, &accepted); err != nil {
+				return err
+			}
+		}
+		if !slices.ContainsFunc(accepted, func(source model.SourceVersion) bool {
+			return source.KnowledgeID == material.KnowledgeID && source.KnowledgeChunkID != "" && source.KnowledgeContentHash != "" && source.KnowledgeDocumentHash != ""
+		}) {
+			invalid["knowledge:"+material.KnowledgeID] = true
+		}
+	}
 	seen := map[model.SourceVersion]bool{}
 	for _, version := range versions {
 		if seen[version] {
@@ -173,6 +193,21 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 				}
 				invalid[kind+":"+id] = true
 			}
+			if version.KnowledgeID != "" {
+				var bot model.Bot
+				if err := s.svc.DB.WithContext(ctx).Where("id = ? AND enable_knowledge = true", r.BotID).Take(&bot).Error; err != nil {
+					if !errors.Is(err, gorm.ErrRecordNotFound) {
+						return err
+					}
+					invalid["knowledge:"+version.KnowledgeID] = true
+				}
+				if err := resourcegrant.CheckKnowledgeSource(s.svc.DB.WithContext(ctx), version.KnowledgeSource(), false); err != nil {
+					if status.Code(err) != codes.PermissionDenied {
+						return err
+					}
+					invalid["knowledge_chunk:"+version.KnowledgeChunkID] = true
+				}
+			}
 			continue
 		}
 	}
@@ -188,7 +223,7 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 			invalid[material.MessageID] = true
 		}
 	}
-	needsScrub := false
+	needsScrub := dependent(r.Provenance, invalid, parents)
 	removeMaterial := func(m Material) bool {
 		return invalid[m.MessageID] || invalid["file:"+m.FileID] || invalid["knowledge:"+m.KnowledgeID] || parents[m.ParentRunID] || dependent(m.Provenance, invalid, parents)
 	}
@@ -218,6 +253,8 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 		current.SourceRevision++
 		current.AccessRevoked, current.StopReason = true, "source_authorization_revoked"
 		current.ResultInvalidated = true
+		current.ResultText, current.ResultType, current.ResultContent = "", "", nil
+		current.Error = ""
 		var actions []model.RunAction
 		if err := tx.Where("run_id = ? AND source_invalidated = false", current.ID).Find(&actions).Error; err != nil {
 			return err
@@ -241,7 +278,9 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 		if err != nil {
 			return err
 		}
-		retainedVersions := slices.DeleteFunc(slices.Clone(runVersions), func(v model.SourceVersion) bool { return parents[v.ParentRunID] })
+		retainedVersions := slices.DeleteFunc(slices.Clone(runVersions), func(v model.SourceVersion) bool {
+			return invalid[v.MessageID] || invalid["file:"+v.FileID] || invalid["knowledge:"+v.KnowledgeID] || invalid["knowledge_chunk:"+v.KnowledgeChunkID] || parents[v.ParentRunID]
+		})
 		current.Provenance, err = json.Marshal(retainedVersions)
 		if err != nil {
 			return err
@@ -250,13 +289,17 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 		if err := json.Unmarshal(current.Sources, &sources); err != nil {
 			return err
 		}
-		sources = slices.DeleteFunc(sources, func(source map[string]any) bool {
+		removeSource := func(source map[string]any) bool {
 			id, _ := source["message_id"].(string)
 			parent, _ := source["parent_run_id"].(string)
 			file, _ := source["file_id"].(string)
 			kb, _ := source["kb_id"].(string)
-			return invalid[id] || parents[parent] || invalid["file:"+file] || invalid["knowledge:"+kb]
-		})
+			chunk, _ := source["chunk_id"].(string)
+			matched, _ := source["matched_chunk_id"].(string)
+			context, _ := source["context_chunk_id"].(string)
+			return invalid[id] || parents[parent] || invalid["file:"+file] || invalid["knowledge:"+kb] || invalid["knowledge_chunk:"+chunk] || invalid["knowledge_chunk:"+matched] || invalid["knowledge_chunk:"+context]
+		}
+		sources = slices.DeleteFunc(sources, removeSource)
 		current.Sources, err = json.Marshal(sources)
 		if err != nil {
 			return err
@@ -279,18 +322,26 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 			if err := json.Unmarshal(input.Sources, &ownSources); err != nil {
 				return err
 			}
-			ownSources = slices.DeleteFunc(ownSources, func(source map[string]any) bool {
-				id, _ := source["message_id"].(string)
-				parent, _ := source["parent_run_id"].(string)
-				file, _ := source["file_id"].(string)
-				kb, _ := source["kb_id"].(string)
-				return invalid[id] || parents[parent] || invalid["file:"+file] || invalid["knowledge:"+kb]
-			})
+			ownSources = slices.DeleteFunc(ownSources, removeSource)
 			sourceRaw, err := json.Marshal(ownSources)
 			if err != nil {
 				return err
 			}
 			updates := map[string]any{"materials": raw, "sources": sourceRaw}
+			var ownVersions []model.SourceVersion
+			if len(input.Provenance) > 0 {
+				if err := json.Unmarshal(input.Provenance, &ownVersions); err != nil {
+					return err
+				}
+			}
+			ownVersions = slices.DeleteFunc(ownVersions, func(source model.SourceVersion) bool {
+				return invalid[source.MessageID] || invalid["file:"+source.FileID] || invalid["knowledge:"+source.KnowledgeID] || invalid["knowledge_chunk:"+source.KnowledgeChunkID] || parents[source.ParentRunID]
+			})
+			provenanceRaw, err := json.Marshal(ownVersions)
+			if err != nil {
+				return err
+			}
+			updates["provenance"] = provenanceRaw
 			if input.SourceMessageID != nil && invalid[*input.SourceMessageID] {
 				updates["content"], updates["invalidated"] = "", true
 			}

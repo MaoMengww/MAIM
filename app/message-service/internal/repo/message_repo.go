@@ -103,6 +103,25 @@ func (r *MessageRepo) ProjectConversationPreviews(ctx context.Context, userID st
 			}
 		}
 	}
+	currentIDs := make([]string, 0, len(convs))
+	for _, conv := range convs {
+		if conv.LastMessageID != nil {
+			currentIDs = append(currentIDs, *conv.LastMessageID)
+		}
+	}
+	var botResults []model.Message
+	scoped := r.ForUser(userID)
+	if err := scoped.readQuery(ctx).Where("id IN ? AND sender_type = 'bot' AND raw_payload <> ''", currentIDs).Find(&botResults).Error; err != nil {
+		return err
+	}
+	if err := scoped.ProjectKnowledgeResults(ctx, botResults); err != nil {
+		return err
+	}
+	for _, result := range botResults {
+		if result.RawPayload == "" {
+			convs[byConv[result.ConvID]].LastMessagePreview = model.MessagePreview(result.MsgType, result.Content)
+		}
+	}
 	return nil
 }
 
@@ -112,7 +131,11 @@ func (r *MessageRepo) GetByID(ctx context.Context, id string) (*model.Message, e
 	if err != nil {
 		return nil, err
 	}
-	return &msg, nil
+	projected := []model.Message{msg}
+	if err := r.ProjectKnowledgeResults(ctx, projected); err != nil {
+		return nil, err
+	}
+	return &projected[0], nil
 }
 
 func (r *MessageRepo) GetByIDs(ctx context.Context, ids []string) ([]model.Message, error) {
@@ -124,7 +147,7 @@ func (r *MessageRepo) GetByIDs(ctx context.Context, ids []string) ([]model.Messa
 	if err != nil {
 		return nil, err
 	}
-	return msgs, nil
+	return msgs, r.ProjectKnowledgeResults(ctx, msgs)
 }
 
 func (r *MessageRepo) GetByConvID(ctx context.Context, convID string, limit int, cursor int64, beforeTime, afterTime int64, filterTypes []int32) ([]model.Message, error) {
@@ -148,7 +171,7 @@ func (r *MessageRepo) GetByConvID(ctx context.Context, convID string, limit int,
 	if err != nil {
 		return nil, err
 	}
-	return msgs, nil
+	return msgs, r.ProjectKnowledgeResults(ctx, msgs)
 }
 
 func (r *MessageRepo) GetAroundSeq(ctx context.Context, convID string, seq int64, limit int32) ([]model.Message, error) {
@@ -161,7 +184,7 @@ func (r *MessageRepo) GetAroundSeq(ctx context.Context, convID string, seq int64
 	if err != nil {
 		return nil, err
 	}
-	return msgs, nil
+	return msgs, r.ProjectKnowledgeResults(ctx, msgs)
 }
 
 func (r *MessageRepo) UpdateContentWithTx(ctx context.Context, tx *gorm.DB, id string, content model.JSONContent, editHistory model.JSONArray, editCount int32) error {

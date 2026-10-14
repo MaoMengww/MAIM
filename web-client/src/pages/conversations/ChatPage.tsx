@@ -328,6 +328,7 @@ function ToolUsage({ tools }: { tools: string[] }) {
   if (!tools?.length) return null;
   const toolLabels: Record<string, string> = {
     web_search: '网络搜索',
+    search_knowledge: '知识检索',
   };
   return (
     <div style={{ marginTop: 8, borderTop: '1px solid var(--aim-border)', paddingTop: 6 }}>
@@ -368,13 +369,19 @@ function SourceItem({ source, expandedMap, setExpandedMap, itemKey }: {
         >
           {source.title || '未命名文档'}
         </Button> : <span className="chat-source-title">{source.title || '未命名文档'}</span>}
+        {source.role && <Tag>{source.role === 'matched' ? '命中片段' : '补充上下文'}</Tag>}
         <Link to={`/knowledge/${source.kb_id}/documents/${source.doc_id}?chunk=${source.chunk_id}`} aria-label={`查看来源文档：${source.title || source.doc_id}`}>
           查看文档
         </Link>
+        {source.location?.page_num !== undefined && <span>第 {source.location.page_num} 页</span>}
+        {source.location?.section_title && <span>{source.location.section_title}</span>}
       </div>
       {expanded && (
         <div className="chat-source-content">
           <div className="chat-source-identity">文档：{source.doc_id}<br />切片：{source.chunk_id}</div>
+          {source.chunk_index !== undefined && <div>片段序号：{source.chunk_index}</div>}
+          {source.role === 'supplemental' && source.matched_chunk_id && <div>对应命中片段：{source.matched_chunk_id}</div>}
+          {source.location?.start_line !== undefined && <div>行：{source.location.start_line}{source.location.end_line !== undefined ? `–${source.location.end_line}` : ''}</div>}
           {source.content}
         </div>
       )}

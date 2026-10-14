@@ -33,6 +33,15 @@ export function knowledgeSources(value: unknown): KnowledgeSource[] {
     if (!source || source.type !== 'rag' || typeof source.kb_name !== 'string' || typeof source.title !== 'string' || (source.content !== undefined && typeof source.content !== 'string')) {
       throw new Error('知识来源格式无效');
     }
+    if (source.role !== undefined && source.role !== 'matched' && source.role !== 'supplemental') throw new Error('知识来源角色无效');
+    const metadata = source.metadata_json === undefined ? undefined : JSON.parse(source.metadata_json);
+    if (metadata !== undefined && (!metadata || typeof metadata !== 'object' || Array.isArray(metadata))) throw new Error('知识来源定位无效');
+    const location = metadata === undefined ? undefined : {
+      ...(typeof metadata.page_num === 'number' && Number.isSafeInteger(metadata.page_num) && metadata.page_num > 0 ? { page_num: metadata.page_num } : {}),
+      ...(typeof metadata.section_title === 'string' && metadata.section_title ? { section_title: metadata.section_title } : {}),
+      ...(typeof metadata.start_line === 'number' && Number.isSafeInteger(metadata.start_line) && metadata.start_line > 0 ? { start_line: metadata.start_line } : {}),
+      ...(typeof metadata.end_line === 'number' && Number.isSafeInteger(metadata.end_line) && metadata.end_line > 0 ? { end_line: metadata.end_line } : {}),
+    };
     return {
       type: 'rag',
       kb_id: entityId(source.kb_id, 'source.kb_id'),
@@ -41,6 +50,10 @@ export function knowledgeSources(value: unknown): KnowledgeSource[] {
       kb_name: source.kb_name,
       title: source.title,
       ...(source.content === undefined ? {} : { content: source.content }),
+      ...(source.role === undefined ? {} : { role: source.role }),
+      ...(source.matched_chunk_id === undefined ? {} : { matched_chunk_id: entityId(source.matched_chunk_id, 'source.matched_chunk_id') }),
+      ...(source.chunk_index === undefined ? {} : { chunk_index: quantity(source.chunk_index, 'source.chunk_index') }),
+      ...(location === undefined ? {} : { location }),
     };
   });
 }

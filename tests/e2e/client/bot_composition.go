@@ -29,10 +29,21 @@ func runtimeSourcePayload(raw string, expected []runtimeKnowledgeSource) error {
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		return fmt.Errorf("p7.sources.raw: %w", err)
 	}
-	if !slices.Equal(payload.Sources, expected) || !slices.Contains(payload.Tools, "fixture_echo") {
+	if !sameKnowledgeSources(payload.Sources, expected, true) || !slices.Contains(payload.Tools, "fixture_echo") {
 		return errors.New("p7.sources.raw: 持久来源不是 Retrieve/WS 同一 UUID 对象，或缺少网络工具")
 	}
 	return nil
+}
+
+func sameKnowledgeSources(actual, expected []runtimeKnowledgeSource, includeContent bool) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	return !slices.ContainsFunc(expected, func(want runtimeKnowledgeSource) bool {
+		return !slices.ContainsFunc(actual, func(got runtimeKnowledgeSource) bool {
+			return got.Type == want.Type && got.KBID == want.KBID && got.DocID == want.DocID && got.ChunkID == want.ChunkID && (!includeContent || got.Content == want.Content)
+		})
+	})
 }
 
 // A fresh WS connection per exchange ensures no earlier event satisfies a probe.
@@ -316,7 +327,7 @@ func (d *driver) runtimeCompositionStream(caller account, botID, convID entityID
 	if len(publicSources) == 0 {
 		publicSources = []runtimeKnowledgeSource{}
 	}
-	if run.Status != "succeeded" || run.OutputStatus != "committed" || run.MessageID == nil || run.ResultText != "fixture-reply:"+text+"|knowledge:cobalt-47" || !slices.Equal(knowledgeSources, publicSources) {
+	if run.Status != "succeeded" || run.OutputStatus != "committed" || run.MessageID == nil || run.ResultText != "fixture-reply:"+text+"|knowledge:cobalt-47" || !sameKnowledgeSources(knowledgeSources, publicSources, false) {
 		return errors.New("p7.run: 增强正文或来源未还原真实知识身份")
 	}
 	msg, err := d.identityMessage(caller, *run.MessageID)

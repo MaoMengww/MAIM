@@ -1,7 +1,7 @@
 import client, { unwrap } from './client';
 import type { CreateBotReq, UpdateBotReq, StartRunReq, ControlRunReq } from '@/types/api';
 import type { APIResponse, Bot, BotInConv, BotRun, RunOrigin, RunActivity } from '@/types/model';
-import { entityId, optionalEntityId, quantity, sequence } from '@/utils/json';
+import { entityId, optionalEntityId, quantity, sequence, knowledgeSources } from '@/utils/json';
 
 export const botApi = {
   create: (data: CreateBotReq) =>
@@ -234,8 +234,7 @@ export function normalizeRun(value: unknown): BotRun {
         history_grant_id: optionalEntityId(source.history_grant_id, 'source.history_grant_id'),
       };
       if (source.type === 'rag') {
-        return { ...identity, type: 'rag' as const, kb_id: entityId(source.kb_id, 'source.kb_id'), doc_id: entityId(source.doc_id, 'source.doc_id'),
-          chunk_id: entityId(source.chunk_id, 'source.chunk_id'), kb_name: text(source.kb_name, 'source.kb_name'), title: text(source.title, 'source.title') };
+        return { ...identity, ...knowledgeSources([source])[0] };
       }
       if (source.type === 'tool') return { ...identity, type: 'tool' as const, tool_name: text(source.tool_name, 'source.tool_name') };
       const kind = source.type;

@@ -10,26 +10,27 @@ import (
 )
 
 type Message struct {
-	ID                string      `gorm:"primaryKey;type:uuid;column:id" json:"id"`
-	ConvID            string      `gorm:"type:uuid;column:conv_id;index:idx_conv_seq" json:"conv_id"`
-	SenderID          *string     `gorm:"type:uuid;column:sender_id" json:"sender_id"`
-	SenderType        string      `gorm:"column:sender_type;default:user" json:"sender_type"`
-	SenderName        string      `gorm:"column:sender_name" json:"sender_name"`
-	SenderAvatar      string      `gorm:"column:sender_avatar" json:"sender_avatar"`
-	BindingID         *string     `gorm:"type:uuid;column:binding_id" json:"binding_id,omitempty"`
-	RequesterID       *string     `gorm:"type:uuid;column:requester_id" json:"requester_id,omitempty"`
-	RawPayload        string      `gorm:"column:raw_payload" json:"raw_payload,omitempty"`
-	ClientMsgID       *string     `gorm:"type:uuid;column:client_msg_id" json:"client_msg_id"`
-	Seq               int64       `gorm:"column:seq" json:"seq"`
-	MsgType           int32       `gorm:"column:msg_type" json:"msg_type"`
-	Content           JSONContent `gorm:"column:content;type:jsonb" json:"content"`
-	SubmissionContent JSONContent `gorm:"column:submission_content;type:jsonb" json:"-"`
-	ReplyToMsgID      *string     `gorm:"type:uuid;column:reply_to_msg_id" json:"reply_to_msg_id"`
-	Status            int32       `gorm:"column:status;default:1" json:"status"`
-	EditHistory       JSONArray   `gorm:"column:edit_history;type:jsonb" json:"edit_history"`
-	EditCount         int32       `gorm:"column:edit_count" json:"edit_count"`
-	CreatedAt         time.Time   `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt         time.Time   `gorm:"column:updated_at" json:"updated_at"`
+	ID                    string      `gorm:"primaryKey;type:uuid;column:id" json:"id"`
+	ConvID                string      `gorm:"type:uuid;column:conv_id;index:idx_conv_seq" json:"conv_id"`
+	SenderID              *string     `gorm:"type:uuid;column:sender_id" json:"sender_id"`
+	SenderType            string      `gorm:"column:sender_type;default:user" json:"sender_type"`
+	SenderName            string      `gorm:"column:sender_name" json:"sender_name"`
+	SenderAvatar          string      `gorm:"column:sender_avatar" json:"sender_avatar"`
+	BindingID             *string     `gorm:"type:uuid;column:binding_id" json:"binding_id,omitempty"`
+	RequesterID           *string     `gorm:"type:uuid;column:requester_id" json:"requester_id,omitempty"`
+	RawPayload            string      `gorm:"column:raw_payload" json:"raw_payload,omitempty"`
+	ClientMsgID           *string     `gorm:"type:uuid;column:client_msg_id" json:"client_msg_id"`
+	Seq                   int64       `gorm:"column:seq" json:"seq"`
+	MsgType               int32       `gorm:"column:msg_type" json:"msg_type"`
+	Content               JSONContent `gorm:"column:content;type:jsonb" json:"content"`
+	SubmissionContent     JSONContent `gorm:"column:submission_content;type:jsonb" json:"-"`
+	ReplyToMsgID          *string     `gorm:"type:uuid;column:reply_to_msg_id" json:"reply_to_msg_id"`
+	Status                int32       `gorm:"column:status;default:1" json:"status"`
+	EditHistory           JSONArray   `gorm:"column:edit_history;type:jsonb" json:"edit_history"`
+	EditCount             int32       `gorm:"column:edit_count" json:"edit_count"`
+	CreatedAt             time.Time   `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt             time.Time   `gorm:"column:updated_at" json:"updated_at"`
+	DisclosureInvalidated bool        `gorm:"-" json:"-"`
 }
 
 func (Message) TableName() string {

@@ -391,24 +391,33 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		if calls >= int64(config.MaxSteps) {
 			return status.Error(codes.ResourceExhausted, "model round limit exceeded")
 		}
-		messages, err = s.workingModelView(ctx, r, generation, config)
-		if err != nil {
-			return err
+		finalDelivery := calls >= int64(config.MaxSteps-1)
+		var messages []*llm.Message
+		maxTokens := config.MaxOutputTokens
+		if !finalDelivery {
+			messages, err = s.workingModelView(ctx, r, generation, config)
+			if err != nil && status.Code(err) != codes.ResourceExhausted {
+				return err
+			}
+			if err != nil {
+				finalDelivery = true
+			}
 		}
-		request = &llm.ChatReq{ModelId: config.Model.ModelId, ExecutionModel: config.Model, OwnerId: config.OwnerID, BotId: &r.BotID, RunId: &r.ID, ExecutionGeneration: generation, InputVersion: r.AppliedInputVersion, Messages: messages, Temperature: config.Temperature, MaxTokens: config.MaxOutputTokens, CacheScope: config.CacheScope}
-		for _, tool := range config.Tools {
-			request.Tools = append(request.Tools, &llm.ToolDef{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
+		if finalDelivery {
+			messages, maxTokens, err = s.deliveryModelView(ctx, r, config)
+			if err != nil {
+				return err
+			}
+		}
+		request = &llm.ChatReq{ModelId: config.Model.ModelId, ExecutionModel: config.Model, OwnerId: config.OwnerID, BotId: &r.BotID, RunId: &r.ID, ExecutionGeneration: generation, InputVersion: r.AppliedInputVersion, Messages: messages, Temperature: config.Temperature, MaxTokens: maxTokens, CacheScope: config.CacheScope}
+		if !finalDelivery {
+			for _, tool := range config.Tools {
+				request.Tools = append(request.Tools, &llm.ToolDef{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
+			}
 		}
 		raw, err := requestJSON.Marshal(request)
 		if err != nil {
 			return err
-		}
-		cost, err := modelInputCost(messages, config)
-		if err != nil {
-			return err
-		}
-		if cost+workHeadroom(config) > config.MaxContextTokens {
-			return status.Error(codes.ResourceExhausted, "compacted work view exceeds context budget")
 		}
 		checkpoint, err := s.currentCompaction(ctx, r, config)
 		if err != nil {
@@ -438,7 +447,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 			if current.TrajectoryVersion != call.TrajectoryVersion || current.AppliedInputVersion != call.InputUpperBound || current.BranchVersion != call.BranchVersion || current.SourceRevision != call.SourceRevision {
 				return status.Error(codes.Aborted, "model trajectory changed before snapshot")
 			}
-			if err := repo.ReserveDelegationOutput(tx, current, int64(config.MaxOutputTokens), true); err != nil {
+			if err := repo.ReserveDelegationOutput(tx, current, int64(request.MaxTokens), true); err != nil {
 				return err
 			}
 			current.Stage = "model"
@@ -472,6 +481,9 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		return status.Error(codes.ResourceExhausted, "too many tool calls in one model round")
 	}
 	output := response.Choices[0].Message
+	if len(request.Tools) == 0 && len(output.ToolCalls) != 0 {
+		return status.Error(codes.ResourceExhausted, "final delivery round cannot start tools")
+	}
 	if output.Role != "assistant" {
 		return status.Error(codes.FailedPrecondition, "model response is not an assistant block")
 	}
@@ -492,7 +504,10 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 				return err
 			}
 		}
-		if _, _, err := canonicalActionArguments([]byte(tool.Function.Arguments), server); err != nil {
+		if frozen.ServerID == "runtime" && frozen.Name == "search_knowledge" {
+			continue // The knowledge adapter records bounded, safe parameter errors.
+		}
+		if _, _, err := canonicalToolActionArguments([]byte(tool.Function.Arguments), server, frozen); err != nil {
 			return err
 		}
 	}
@@ -662,6 +677,9 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 	}
 	if frozen.ServerID == "runtime" && slices.Contains([]string{"delegate_run", "delegation_result"}, frozen.Name) {
 		return s.performDelegationTool(ctx, r, generation, call)
+	}
+	if frozen.ServerID == "runtime" && frozen.Name == "search_knowledge" {
+		return s.performKnowledgeTool(ctx, r, generation, call)
 	}
 	action, err := s.actionInterrupt(ctx, r, frozen, call.Function.Arguments, call.Id)
 	if err != nil {

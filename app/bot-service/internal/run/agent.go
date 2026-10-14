@@ -58,7 +58,7 @@ func (b *runAgentBridge) BeforeModelRewriteState(ctx context.Context, state *adk
 		return ctx, state, status.Error(codes.FailedPrecondition, "missing work trajectory")
 	}
 	var failedTools int64
-	if err := b.service.svc.DB.WithContext(ctx).Model(&model.RunTrajectory{}).Where("run_id = ? AND invalidated = false AND kind = 'tool_roundtrip' AND block->>'failed' = 'true'", r.ID).Count(&failedTools).Error; err != nil {
+	if err := b.service.svc.DB.WithContext(ctx).Model(&model.RunTrajectory{}).Where("run_id = ? AND invalidated = false AND kind = 'tool_roundtrip' AND block->>'failed' = 'true' AND COALESCE(block->>'recoverable','false') <> 'true'", r.ID).Count(&failedTools).Error; err != nil {
 		return ctx, state, err
 	}
 	if failedTools != 0 {
@@ -115,16 +115,6 @@ func (b *runAgentBridge) BeforeModelRewriteState(ctx context.Context, state *adk
 			b.replay = last
 		}
 	}
-	if b.replay == nil {
-		messages, err = b.service.workingModelView(ctx, r, b.generation, b.config)
-		if err != nil {
-			if r.Status == "waiting_input" {
-				b.run = r
-				return ctx, state, compose.Interrupt(ctx, "source changes require explicit work input")
-			}
-			return ctx, state, err
-		}
-	}
 	b.run = r
 	b.messages = messages
 	state.Messages = make([]*schema.Message, 0, len(messages))
@@ -144,6 +134,9 @@ func (b *runAgentBridge) Generate(ctx context.Context, _ []*schema.Message, _ ..
 		return agentMessage(b.replay), nil
 	}
 	if err := b.service.modelRound(ctx, b.run, b.generation, b.config, b.messages); err != nil {
+		if b.run.Status == "waiting_input" {
+			return nil, compose.Interrupt(ctx, "source changes require explicit work input")
+		}
 		return nil, err
 	}
 	messages, err := b.service.messagesFor(ctx, b.run.ID)

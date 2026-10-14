@@ -192,6 +192,7 @@ func run(args []string) error {
 	realtimeA := flags.String("realtime-a", "ws://realtime-service:8081/ws", "realtime A WebSocket 地址")
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
+	failFast := flags.Bool("fail-fast", false, "首个场景失败立即返回，不继续等待后续生命周期检查点")
 	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
@@ -237,6 +238,7 @@ func run(args []string) error {
 			{"bot-compaction", *realtimeA, *realtimeB},
 			{"bot-recovery", *realtimeA, *realtimeB},
 			{"bot-cutover", *realtimeA, *realtimeB},
+			{"bot-knowledge-tools", *realtimeA, *realtimeB},
 			{"knowledge-ingest", "", ""},
 			{"llm-chat", "", ""},
 			{"llm-components", "", ""},
@@ -278,6 +280,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"bot-run-controls", *realtimeA, *realtimeB}}
 	case "bot-authorizations":
 		scenarios = []scenarioSpec{{"bot-authorizations", *realtimeA, *realtimeB}}
+	case "bot-knowledge-tools":
+		scenarios = []scenarioSpec{{"bot-knowledge-tools", *realtimeA, *realtimeB}}
 	case "bot-collaboration":
 		scenarios = []scenarioSpec{{"bot-collaboration", *realtimeA, *realtimeB}}
 	case "bot-recovery":
@@ -373,6 +377,8 @@ func run(args []string) error {
 			err = d.botRunControls(scenario.a, scenario.b)
 		case "bot-authorizations":
 			err = d.botAuthorizations(scenario.a, scenario.b)
+		case "bot-knowledge-tools":
+			err = d.botKnowledgeTools(scenario.a, scenario.b)
 		case "bot-collaboration":
 			err = d.botCollaboration(scenario.a, scenario.b)
 		case "bot-recovery":
@@ -396,6 +402,9 @@ func run(args []string) error {
 			failure := fmt.Errorf("场景 %s: %w", scenario.name, err)
 			fmt.Fprintln(os.Stderr, failure)
 			failures = append(failures, failure)
+			if *failFast {
+				return errors.Join(failures...)
+			}
 		} else if scenario.name == "relationships" {
 			fmt.Println("E2E PASS: relationships 请求 → 接受/拒绝/取消 → 双向好友 → 备注/分组 → 删除 → 拉黑/解除")
 		} else if scenario.name == "user-identity" {

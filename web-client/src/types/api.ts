@@ -129,6 +129,7 @@ export interface CreateBotReq {
   temperature?: number;
   max_context_messages?: number;
   max_context_tokens?: number;
+  max_step?: number;
   streaming_enabled?: boolean;
   conn_mode?: string;
   callback_url?: string;
@@ -156,6 +157,7 @@ export interface UpdateBotReq {
   temperature?: number;
   max_context_messages?: number;
   max_context_tokens?: number;
+  max_step?: number;
   streaming_enabled?: boolean;
   conn_mode?: string;
   callback_url?: string;

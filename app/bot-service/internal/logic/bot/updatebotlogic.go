@@ -32,6 +32,9 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 	if err := validateReferenceUpdate(in.ModelId, in.ClearModelId, in.ModelName); err != nil {
 		return nil, err
 	}
+	if in.MaxStep != nil && (in.GetMaxStep() < 1 || in.GetMaxStep() > 16) {
+		return nil, ErrBotInvalid
+	}
 	for _, data := range []string{in.Capabilities, in.Settings} {
 		if data != "" && model.ValidateEntityJSON([]byte(data)) != nil {
 			return nil, ErrBotInvalid
@@ -68,6 +71,9 @@ func (l *UpdateBotLogic) UpdateBot(in *pb.UpdateBotReq) (*pb.Bot, error) {
 		}
 		updates["max_context_messages"] = in.MaxContextMessages
 		updates["max_context_tokens"] = in.MaxContextTokens
+		if in.MaxStep != nil {
+			updates["max_step"] = in.GetMaxStep()
+		}
 		updates["streaming_enabled"] = in.StreamingEnabled
 		if bot.Type == consts.BotTypeSelfDeployed {
 			if in.BaseUrl != "" {

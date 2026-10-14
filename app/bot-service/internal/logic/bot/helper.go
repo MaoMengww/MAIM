@@ -87,6 +87,7 @@ func modelBotToProto(b *model.Bot) *pb.Bot {
 		Temperature:        b.Temperature,
 		MaxContextMessages: int32(b.MaxContextMessages),
 		MaxContextTokens:   int32(b.MaxContextTokens),
+		MaxStep:            int32(b.MaxStep),
 		StreamingEnabled:   b.StreamingEnabled,
 		ConnMode:           b.ConnMode,
 		CallbackUrl:        b.CallbackURL,

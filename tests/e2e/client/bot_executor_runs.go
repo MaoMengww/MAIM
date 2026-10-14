@@ -102,6 +102,10 @@ func (d *driver) executorProvider(path string, body any, output any) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("executor provider HTTP%d", resp.StatusCode)
 	}
+	if output == nil {
+		var discarded json.RawMessage
+		output = &discarded
+	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(output)
 }
 
