@@ -142,7 +142,7 @@ func (d *driver) runtimeKnowledgeComposition(owner, outsider account, address st
 	}
 	if err := d.request(http.MethodPost, "/knowledge/bases", owner.token, map[string]any{
 		"name": "p7-composition-" + suffix, "mode": "rag", "embedding_model_id": embeddingID, "embedding_model": "fixture-embed-" + suffix,
-		"pipeline_config": map[string]any{"parsing": map[string]any{"engines": []string{"builtin"}}, "chunking": map[string]any{"chunk_size": 1024, "overlap": 0}, "retrieval": map[string]any{"mode": "vector", "top_k": 5, "candidate_top_k": 10, "score_threshold": 0.7}},
+		"pipeline_config": map[string]any{"parsing": map[string]any{"engines": []string{"builtin"}}, "chunking": map[string]any{"chunk_size": 1024, "overlap": 0}, "retrieval": map[string]any{"mode": "vector", "candidate_top_k": 10, "score_threshold": 0.7}},
 	}, &kb); err != nil {
 		return err
 	}

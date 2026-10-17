@@ -160,7 +160,7 @@ func (d *driver) botKnowledgeTools(address, secondAddress string) error {
 	var kb struct {
 		ID entityID `json:"id"`
 	}
-	if err = d.request(http.MethodPost, "/knowledge/bases", f.requester.token, map[string]any{"name": "knowledge-tools-" + suffix, "mode": "rag", "embedding_model_id": f.embedding, "pipeline_config": map[string]any{"parsing": map[string]any{"engines": []string{"builtin"}}, "chunking": map[string]any{"chunk_size": 1024, "overlap": 0}, "retrieval": map[string]any{"mode": "vector", "top_k": 5, "score_threshold": 0.7}}}, &kb); err != nil {
+	if err = d.request(http.MethodPost, "/knowledge/bases", f.requester.token, map[string]any{"name": "knowledge-tools-" + suffix, "mode": "rag", "embedding_model_id": f.embedding, "pipeline_config": map[string]any{"parsing": map[string]any{"engines": []string{"builtin"}}, "chunking": map[string]any{"chunk_size": 1024, "overlap": 0}, "retrieval": map[string]any{"mode": "vector", "score_threshold": 0.7}}}, &kb); err != nil {
 		return err
 	}
 	f.kb = kb.ID
@@ -220,6 +220,7 @@ func (d *driver) botKnowledgeTools(address, secondAddress string) error {
 		name string
 		run  func() error
 	}{
+		{"knowledge discovery and joint search contract", f.searchContract},
 		{"demand, rewrite and recoverable errors", f.autonomousCases},
 		{"accepted background", f.acceptedBackground},
 		{"context boundary", f.contextBoundary},

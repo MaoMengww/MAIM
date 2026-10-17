@@ -26,7 +26,6 @@ interface CreateKBFormValues {
   parent_size?: number;
   child_size?: number;
   retrieval_mode?: string;
-  top_k?: number;
   candidate_top_k?: number;
   score_threshold?: number;
   dense_weight?: number;
@@ -56,7 +55,7 @@ const PRESET_VALUES: Record<string, Partial<CreateKBFormValues>> = {
         chunk_size: 512, overlap: 50,
         separators: ['\n\n', '\n', '。'],
         parent_child_enabled: false,
-        retrieval_mode: 'hybrid', top_k: 5, candidate_top_k: 20,
+        retrieval_mode: 'hybrid', candidate_top_k: 20,
         score_threshold: 0.7, rerank_enabled: false,
         dense_weight: 0.7, sparse_weight: 0.3,
     },
@@ -65,7 +64,7 @@ const PRESET_VALUES: Record<string, Partial<CreateKBFormValues>> = {
         chunk_size: 512, overlap: 50,
         separators: ['\n\n', '\n', '。'],
         parent_child_enabled: true, parent_size: 4096, child_size: 384,
-        retrieval_mode: 'hybrid', top_k: 5, candidate_top_k: 30,
+        retrieval_mode: 'hybrid', candidate_top_k: 30,
         score_threshold: 0.65, rerank_enabled: false,
         dense_weight: 0.8, sparse_weight: 0.2,
     },
@@ -74,7 +73,7 @@ const PRESET_VALUES: Record<string, Partial<CreateKBFormValues>> = {
         chunk_size: 1024, overlap: 100,
         separators: ['\n\n', '\n', '。'],
         parent_child_enabled: false,
-        retrieval_mode: 'hybrid', top_k: 3, candidate_top_k: 15,
+        retrieval_mode: 'hybrid', candidate_top_k: 15,
         score_threshold: 0.75, rerank_enabled: false,
         dense_weight: 0.7, sparse_weight: 0.3,
     },
@@ -83,7 +82,7 @@ const PRESET_VALUES: Record<string, Partial<CreateKBFormValues>> = {
         chunk_size: 512, overlap: 50,
         separators: ['\n\n', '\n', '。'],
         parent_child_enabled: true, parent_size: 4096, child_size: 384,
-        retrieval_mode: 'hybrid', top_k: 5, candidate_top_k: 30,
+        retrieval_mode: 'hybrid', candidate_top_k: 30,
         score_threshold: 0.65, rerank_enabled: false,
         dense_weight: 0.6, sparse_weight: 0.4,
     },
@@ -92,7 +91,7 @@ const PRESET_VALUES: Record<string, Partial<CreateKBFormValues>> = {
         chunk_size: 256, overlap: 30,
         separators: ['\n', '。'],
         parent_child_enabled: false,
-        retrieval_mode: 'vector', top_k: 3, candidate_top_k: 10,
+        retrieval_mode: 'vector', candidate_top_k: 10,
         score_threshold: 0.6, rerank_enabled: false,
         dense_weight: 0.7, sparse_weight: 0.3,
     },
@@ -172,7 +171,6 @@ export function KBListPage() {
       }
       pipelineConfig.retrieval = {};
       if (vals.retrieval_mode) pipelineConfig.retrieval.mode = vals.retrieval_mode;
-      if (vals.top_k) pipelineConfig.retrieval.top_k = Number(vals.top_k);
       if (vals.candidate_top_k) pipelineConfig.retrieval.candidate_top_k = Number(vals.candidate_top_k);
       if (vals.score_threshold != null) pipelineConfig.retrieval.score_threshold = Number(vals.score_threshold);
       if (vals.dense_weight != null) pipelineConfig.retrieval.dense_weight = Number(vals.dense_weight);
@@ -421,9 +419,9 @@ function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModel
             <Select options={RETRIEVAL_MODES} placeholder="默认混合检索" allowClear />
           </Form.Item>
           <div style={{ display: 'flex', gap: 16 }}>
-            <Form.Item name="top_k" label="返回结果数" style={{ flex: 1, marginBottom: 12 }}>
-              <InputNumber min={1} max={50} placeholder="默认 5" style={{ width: '100%' }} />
-            </Form.Item>
+            <div style={{ flex: 1, marginBottom: 12, fontSize: 12, color: 'var(--aim-text-secondary)' }}>
+              返回数量由每次搜索的 limit 控制（默认 5，最多 50）
+            </div>
             <Form.Item name="candidate_top_k" label="候选结果数" style={{ flex: 1, marginBottom: 12 }}>
               <InputNumber min={1} max={100} placeholder="默认 20" style={{ width: '100%' }} />
             </Form.Item>

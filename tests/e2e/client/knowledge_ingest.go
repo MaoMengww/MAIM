@@ -187,7 +187,7 @@ func (d *driver) knowledgeIngest() (result error) {
 		"pipeline_config": map[string]any{
 			"parsing":   map[string]any{"engines": []string{"builtin"}},
 			"chunking":  map[string]any{"chunk_size": 1024, "overlap": 0},
-			"retrieval": map[string]any{"mode": "vector", "top_k": 5, "candidate_top_k": 10, "score_threshold": 0.7},
+			"retrieval": map[string]any{"mode": "vector", "candidate_top_k": 10, "score_threshold": 0.7},
 		},
 	}, &kb); err != nil {
 		return err
@@ -495,7 +495,7 @@ func (d *driver) knowledgeParentLifecycle(owner account, modelID entityID, suffi
 		"name": "parent-child-" + suffix, "embedding_model_id": modelID,
 		"pipeline_config": map[string]any{
 			"chunking":  map[string]any{"overlap": 0, "separators": []string{" "}, "parent_child": map[string]any{"enabled": true, "parent_size": 512, "child_size": 64}},
-			"retrieval": map[string]any{"mode": "vector", "top_k": 5, "score_threshold": 0.7},
+			"retrieval": map[string]any{"mode": "vector", "score_threshold": 0.7},
 		},
 	}, &kb); err != nil {
 		return err
@@ -590,7 +590,7 @@ func (d *driver) knowledgeModelPipeline(owner account, embeddingID entityID, suf
 		"pipeline_config": map[string]any{
 			"parsing":   map[string]any{"engines": []string{"builtin"}, "vlm": map[string]any{"enabled": true, "model_id": vlmID}},
 			"chunking":  map[string]any{"chunk_size": 1024, "overlap": 0},
-			"retrieval": map[string]any{"mode": "vector", "top_k": 1, "candidate_top_k": 10, "score_threshold": 0.7, "rerank": map[string]any{"enabled": true, "model_id": rerankID, "top_n": 1}},
+			"retrieval": map[string]any{"mode": "vector", "candidate_top_k": 10, "score_threshold": 0.7, "rerank": map[string]any{"enabled": true, "model_id": rerankID, "top_n": 1}},
 		},
 	}, &kb); err != nil {
 		return err
@@ -632,7 +632,7 @@ func (d *driver) knowledgeModelPipeline(owner account, embeddingID entityID, suf
 			Content string   `json:"content"`
 		} `json:"items"`
 	}
-	if err := d.request(http.MethodPost, path+"/search", owner.token, map[string]string{"query": knownKnowledge}, &sources); err != nil {
+	if err := d.request(http.MethodPost, path+"/search", owner.token, map[string]any{"query": knownKnowledge, "limit": 1}, &sources); err != nil {
 		return err
 	}
 	if len(sources.Items) != 1 || sources.Items[0].DocID != known.ID || sources.Items[0].Content != knownKnowledge {

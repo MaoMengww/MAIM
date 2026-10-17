@@ -1,6 +1,6 @@
 import client, { unwrap } from './client';
-import type { CreateKBReq, UpdateKBReq } from '@/types/api';
-import type { APIResponse, KBRsp, DocumentRsp, ChunkInfo, KnowledgeBinding, KnowledgeBoundTarget, KnowledgeRetrieveItem } from '@/types/model';
+import type { CreateKBReq, UpdateKBReq, KnowledgeSearchReq } from '@/types/api';
+import type { APIResponse, KBRsp, DocumentRsp, ChunkInfo, KnowledgeBinding, KnowledgeBoundTarget, KnowledgeSearchRsp } from '@/types/model';
 
 export const kbApi = {
   create: (data: CreateKBReq) =>
@@ -53,8 +53,11 @@ export const kbApi = {
     client.get<APIResponse<{ chunks: ChunkInfo[]; total: number }>>(`/knowledge/documents/${docId}/chunks`, { params })
       .then((r) => ({ list: r.data.data.chunks ?? [], total: r.data.data.total ?? 0 })),
 
-  search: (kbId: string, query: string) =>
-    client.post<APIResponse<{ items: KnowledgeRetrieveItem[] }>>(`/knowledge/bases/${kbId}/search`, { query }).then(unwrap),
+  search: (kbId: string, query: string, options?: Pick<KnowledgeSearchReq, 'doc_ids' | 'limit'>) =>
+    client.post<APIResponse<KnowledgeSearchRsp>>(`/knowledge/bases/${kbId}/search`, { query, ...options }).then(unwrap),
+
+  searchScope: (data: KnowledgeSearchReq) =>
+    client.post<APIResponse<KnowledgeSearchRsp>>('/knowledge/search', data).then(unwrap),
 
   // ─── Bindings ───
   listKBBindings: (kbId: string) =>

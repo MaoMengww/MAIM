@@ -390,10 +390,21 @@ func validateVector(vector []float32) error {
 }
 
 func buildFilterExpr(filter domain.SearchFilter) (string, error) {
-	if len(filter.KBIDs) == 0 {
-		return "", nil
+	parts := make([]string, 0, 2)
+	for _, scope := range []struct {
+		field string
+		ids   []string
+	}{{"kb_id", filter.KBIDs}, {"doc_id", filter.DocIDs}} {
+		if len(scope.ids) == 0 {
+			continue
+		}
+		expr, err := uuidListExpr(scope.field, scope.ids)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, expr)
 	}
-	return uuidListExpr("kb_id", filter.KBIDs)
+	return strings.Join(parts, " and "), nil
 }
 
 func uuidListExpr(field string, ids []string) (string, error) {

@@ -73,8 +73,9 @@ message DeleteKBReq { string kb_id = 1 [(common.entity_id) = true]; }
 message GetKBReq { string kb_id = 1 [(common.entity_id) = true]; }
 
 message ListKBsReq {
-    int32 offset = 1;
-    int32 limit = 2;
+    // 普通用户列出自有知识库；可信 Bot Run 仅发现当前获准的 active rag，且不返回配置或凭据。
+    int32 offset = 1; // default: 0; must be non-negative
+    int32 limit = 2;  // omitted/0: 20; explicit positive values must be <= 100
 }
 
 message KBRsp {
@@ -160,10 +161,10 @@ message ParentChildConfig {
 }
 
 message RetrievalConfig {
-    string mode = 1;                  // "vector" | "hybrid" | "fulltext"
-    int32 top_k = 2;                  // default: 5
-    int32 candidate_top_k = 3;        // default: 20
-    float score_threshold = 4;        // default: 0.7
+    string mode = 1;                  // "vector" | "hybrid" | "fulltext"; omitted: hybrid
+    reserved 2;
+    int32 candidate_top_k = 3;        // omitted: 20; effective budget is at least request limit
+    float score_threshold = 4;        // omitted: 0 (no additional score threshold)
     float dense_weight = 5;           // dense weight for hybrid, default: 0.7
     float sparse_weight = 6;          // BM25 weight for hybrid, default: 0.3
     RerankConfig rerank = 7;
@@ -244,16 +245,23 @@ message ListDocumentsRsp {
 // Retrieve
 // ============================================================
 
+// 可信 Run 无过滤时搜索本次授权的全部 active rag；普通身份提供 bot_id/conv_id
+// 时自动解析绑定并逐项检查读取许可。绑定目标必须属于调用身份可访问的范围。
+// 无绑定目标的普通身份可显式选择有读取许可的资源；无过滤返回空，不回退平台全库。
+// kb_ids/doc_ids 仅缩小 Run/绑定默认范围，任何显式越权资源均拒绝。
 message RetrieveReq {
     string query = 1;
     optional string bot_id = 2 [(common.entity_id) = true];
     optional string conv_id = 3 [(common.entity_id) = true];
     repeated string kb_ids = 4 [(common.entity_id) = true];
-    // knowledge-base resolves bindings internally, caller does not pass kb_ids
+    repeated string doc_ids = 5 [(common.entity_id) = true];
+    optional int32 limit = 6; // omitted: 5; explicit values: 1..50
 }
 
 message RetrieveRsp {
     repeated RetrieveItem items = 1;
+    int32 limit = 2; // 本次结果数量上界，不保证返回满额
+    bool exhaustive = 3; // 始终 false：搜索不承诺穷尽相关知识
 }
 
 message RetrieveItem {
@@ -265,17 +273,14 @@ message RetrieveItem {
     string kb_id = 6 [(common.entity_id) = true];
     string kb_name = 7;
     string matched_content = 8;       // matched child block text (parent-child mode)
-    ChunkMeta metadata = 9;
+    reserved 9; // replaced by lossless metadata_json; missing locations remain absent
+    int32 chunk_index = 10;           // relational index of the directly matched chunk
+    string metadata_json = 11;        // actual matched chunk metadata, no inferred locations
+    optional string context_chunk_id = 12 [(common.entity_id) = true]; // supplemental parent only
+    optional int32 context_chunk_index = 13;
+    string context_metadata_json = 14; // actual supplemental parent metadata
 }
 
-message ChunkMeta {
-    int32 page_num = 1;
-    string section_title = 2;
-    int32 section_level = 3;
-    int32 start_line = 4;
-    int32 end_line = 5;
-    string doc_title = 6;
-}
 
 // ============================================================
 // Binding

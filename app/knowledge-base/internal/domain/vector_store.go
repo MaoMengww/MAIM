@@ -22,6 +22,7 @@ type SearchResult struct {
 
 type SearchFilter struct {
 	KBIDs          []string
+	DocIDs         []string
 	ScoreThreshold float32
 }
 

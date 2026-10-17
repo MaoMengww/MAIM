@@ -50,6 +50,7 @@ def results(messages):
         except (ValueError, TypeError):
             continue
         if isinstance(value, dict) and value.get("status") in ("ok", "error"):
+            value["_tool"] = item.get("name", "search_knowledge")
             output.append(value)
     return output
 
@@ -106,7 +107,8 @@ def model(body, handler, accepted_input):
         name, arguments = "ask_for_input", {"reason": "Provide the deployment plan and constraints"}
     elif index < len(plan["calls"]) and names:
         call = plan["calls"][index]
-        name, arguments = "search_knowledge", dict(call)
+        arguments = dict(call)
+        name = arguments.pop("tool", "search_knowledge")
         if arguments.pop("from_input", False):
             arguments["query"] = inputs[-1]["content"]
         if arguments.pop("from_context", False):
@@ -119,8 +121,11 @@ def model(body, handler, accepted_input):
     else:
         # No answer facts are kept in the plan. Only real tool payloads can
         # produce evidence; no tools means bounded delivery, not another call.
-        items = [item for value in found if value.get("status") == "ok" for item in value.get("items", [])]
-        answer = {"evidence": items, "errors": [value["error"] for value in found if value.get("status") == "error"],
+        items = [item for value in found if value.get("status") == "ok" and value["_tool"] == "search_knowledge"
+                 for item in value.get("items", [])]
+        discoveries = [value for value in found if value.get("status") == "ok" and value["_tool"] == "list_knowledge_bases"]
+        answer = {"evidence": items, "discoveries": discoveries,
+                  "errors": [value["error"] for value in found if value.get("status") == "error"],
                   "gap": not bool(items), "bounded": index < len(plan["calls"]),
                   "accepted_inputs": [value["content"] for value in inputs]}
         send(body, handler, {"role": "assistant", "content": json.dumps(answer, ensure_ascii=False)}, "stop")

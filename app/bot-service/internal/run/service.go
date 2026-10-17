@@ -25,6 +25,7 @@ import (
 	llm "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	msg "github.com/maomeng/aim/app/message-service/pb/message"
 	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/knowledgecontract"
 	"github.com/maomeng/aim/pkg/pb/common"
 	"github.com/maomeng/aim/pkg/protocol"
 	"github.com/maomeng/aim/pkg/resourcegrant"
@@ -489,15 +490,16 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 			tools = append(tools, definition)
 		}
 		if bot.EnableKnowledge {
-			definition := knowledgeSearchTool()
-			if slices.ContainsFunc(tools, func(t component.RunTool) bool { return t.Name == definition.Name }) {
-				return nil, status.Error(codes.FailedPrecondition, "reserved runtime tool name")
+			for _, definition := range []component.RunTool{knowledgeSearchTool(), knowledgeListTool()} {
+				if slices.ContainsFunc(tools, func(t component.RunTool) bool { return t.Name == definition.Name }) {
+					return nil, status.Error(codes.FailedPrecondition, "reserved runtime tool name")
+				}
+				definition.DefinitionHash, err = hash(definition)
+				if err != nil {
+					return nil, err
+				}
+				tools = append(tools, definition)
 			}
-			definition.DefinitionHash, err = hash(definition)
-			if err != nil {
-				return nil, err
-			}
-			tools = append(tools, definition)
 		}
 		slices.SortFunc(tools, func(a, b component.RunTool) int { return strings.Compare(a.Name, b.Name) })
 		prompt := bot.SystemPrompt
@@ -526,7 +528,7 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 		materials = append(materials, Material{Kind: "request_locale", RequesterID: input.RequesterID, Content: locale})
 	}
 	if bot.Type == "third_party" && bot.EnableKnowledge {
-		docs, _, err := s.retrieveResources(ctx, input, input.Message)
+		docs, err := s.retrieveResources(ctx, input, knowledgeSearchArguments{Query: input.Message, Limit: knowledgecontract.DefaultSearchLimit})
 		if err != nil {
 			return nil, err
 		}
@@ -690,7 +692,7 @@ func (s *Service) authorizeRun(ctx context.Context, r *model.Run, sharing bool, 
 		}
 		for _, tool := range config.Tools {
 			if tool.ServerID == "runtime" {
-				if !slices.Contains([]string{"ask_for_input", "delegate_run", "delegation_result", "search_knowledge"}, tool.Name) {
+				if !slices.Contains([]string{"ask_for_input", "delegate_run", "delegation_result", "search_knowledge", "list_knowledge_bases"}, tool.Name) {
 					return status.Error(codes.PermissionDenied, "unknown runtime tool")
 				}
 				continue

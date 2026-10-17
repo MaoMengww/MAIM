@@ -31,7 +31,7 @@ func materialProvenance(materials []Material) (json.RawMessage, error) {
 			}
 		}
 		if material.KnowledgeID != "" && !slices.ContainsFunc(inherited, func(source model.SourceVersion) bool {
-			return source.KnowledgeID == material.KnowledgeID && source.KnowledgeChunkID != ""
+			return source.KnowledgeID == material.KnowledgeID && (source.KnowledgeChunkID != "" || source.KnowledgeMetadataHash != "")
 		}) {
 			versions = append(versions, model.SourceVersion{KnowledgeID: material.KnowledgeID})
 		}
@@ -205,7 +205,11 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 					if status.Code(err) != codes.PermissionDenied {
 						return err
 					}
-					invalid["knowledge_chunk:"+version.KnowledgeChunkID] = true
+					if version.KnowledgeMetadataHash != "" {
+						invalid["knowledge:"+version.KnowledgeID] = true
+					} else {
+						invalid["knowledge_chunk:"+version.KnowledgeChunkID] = true
+					}
 				}
 			}
 			continue

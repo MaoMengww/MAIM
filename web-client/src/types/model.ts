@@ -545,7 +545,6 @@ export interface ParentChildConfig {
 
 export interface RetrievalConfig {
   mode: string;
-  top_k: number;
   candidate_top_k: number;
   score_threshold: number;
   dense_weight: number;
@@ -619,7 +618,17 @@ export interface KnowledgeRetrieveItem {
   score: number;
   doc_title: string;
   kb_name: string;
-  metadata?: Record<string, unknown>;
+  chunk_index: number;
+  metadata_json?: string;
+  context_chunk_id?: string;
+  context_chunk_index?: number;
+  context_metadata_json?: string;
+}
+
+export interface KnowledgeSearchRsp {
+  items: KnowledgeRetrieveItem[];
+  limit: number;
+  exhaustive: false;
 }
 
 // ─── Model (LLM) ───

@@ -227,6 +227,7 @@ func New(
 
 	// Knowledge Base
 	kb := protected.Group("/knowledge")
+	kb.POST("/search", kbH.Search)
 	kb.POST("/bases", kbH.CreateKB)
 	kb.GET("/bases", kbH.ListKBs)
 	kb.GET("/bases/:id", kbH.GetKB)

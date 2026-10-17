@@ -19,6 +19,7 @@ import (
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/kafka"
+	"github.com/maomeng/aim/pkg/knowledgecontract"
 	"github.com/maomeng/aim/pkg/logx"
 	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/metadata"
@@ -208,13 +209,34 @@ func (h *KnowledgeBaseHandler) GetKB(ctx context.Context, req *pb.GetKBReq) (*pb
 }
 
 func (h *KnowledgeBaseHandler) ListKBs(ctx context.Context, req *pb.ListKBsReq) (*pb.ListKBsRsp, error) {
+	offset, limit := int(req.Offset), int(req.Limit)
+	if offset < 0 || limit < 0 || limit > knowledgecontract.MaxListLimit {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid knowledge list pagination")
+	}
+	if limit == 0 {
+		limit = knowledgecontract.DefaultListLimit
+	}
+	if _, run := resourcegrant.Incoming(ctx); run {
+		kbs, err := h.runKnowledgeBases(ctx)
+		if err != nil {
+			return nil, err
+		}
+		start := min(offset, len(kbs))
+		end := start + min(limit, len(kbs)-start)
+		items := make([]*pb.KBRsp, 0, end-start)
+		for _, kb := range kbs[start:end] {
+			// Discovery is not a management configuration API. In particular no
+			// parsing/VLM provider credentials or model offerings reach the Run.
+			items = append(items, &pb.KBRsp{Id: kb.ID, Name: kb.Name, Description: kb.Description, Mode: kb.Mode, Status: kb.Status})
+		}
+		if _, err := h.checkRunKnowledgeAccess(ctx); err != nil {
+			return nil, err
+		}
+		return &pb.ListKBsRsp{Items: items, Total: int64(len(kbs))}, nil
+	}
 	ownerID := getCallerID(ctx)
 	if ownerID == "" {
 		return nil, errors.ErrUnauthorized
-	}
-	offset, limit := int(req.Offset), int(req.Limit)
-	if limit <= 0 || limit > 100 {
-		limit = 20
 	}
 	kbs, total, err := h.KBRepo.ListByOwner(ctx, ownerID, offset, limit)
 	if err != nil {
@@ -508,86 +530,65 @@ func (h *KnowledgeBaseHandler) RetryDocument(ctx context.Context, req *pb.RetryD
 }
 
 func (h *KnowledgeBaseHandler) Retrieve(ctx context.Context, req *pb.RetrieveReq) (*pb.RetrieveRsp, error) {
-	if _, bot := resourcegrant.Incoming(ctx); !bot && getCallerID(ctx) == "" {
-		return nil, errors.ErrUnauthorized
-	}
-	for _, targetID := range []*string{req.BotId, req.ConvId} {
-		if targetID != nil {
-			if err := identity.Validate(*targetID); err != nil {
-				return nil, errors.Wrap(errors.CodeInvalidParam, "invalid retrieval target_id", err)
-			}
+	limit := knowledgecontract.DefaultSearchLimit
+	if req.Limit != nil {
+		limit = int(*req.Limit)
+		if limit < 1 || limit > knowledgecontract.MaxSearchLimit {
+			return nil, errors.New(errors.CodeInvalidParam, "knowledge search limit must be between 1 and 50")
 		}
 	}
-	kbIDs := req.KbIds
-	if len(kbIDs) == 0 {
-		for _, target := range []struct {
-			kind string
-			id   *string
-		}{{"bot", req.BotId}, {"conv", req.ConvId}} {
-			if target.id == nil {
-				continue
-			}
-			bindings, err := h.KBRepo.ListBindingsByTarget(ctx, target.kind, *target.id)
-			if err != nil {
-				return nil, errors.Wrap(errors.CodeDBError, "list retrieval bindings failed", err)
-			}
-			for _, binding := range bindings {
-				kb, err := h.loadKnowledgeBase(ctx, binding.KBID, false)
-				if err != nil {
-					return nil, err
-				}
-				if kb.Mode == "rag" {
-					kbIDs = append(kbIDs, kb.ID)
-				}
-			}
-		}
+	if strings.TrimSpace(req.Query) == "" {
+		return nil, errors.New(errors.CodeInvalidParam, "knowledge search query is required")
 	}
-	var firstKB *domain.KnowledgeBase
-	names := make(map[string]string, len(kbIDs))
-	for _, kbID := range kbIDs {
-		kb, err := h.loadKnowledgeBase(ctx, kbID, false)
-		if err != nil {
-			return nil, err
-		}
-		if kb.Status != "active" {
-			return nil, domain.ErrKBNotFound
-		}
-		names[kb.ID] = kb.Name
-		if firstKB == nil {
-			firstKB = kb
-		}
-	}
-	if firstKB == nil {
-		return &pb.RetrieveRsp{}, nil
-	}
-	if h.RetrievePipe == nil {
-		return nil, errors.New(errors.CodeInternal, "retrieval pipeline unavailable")
-	}
-	embeddingModelID, err := firstKB.ResolveEmbeddingModelID(ctx, h.KBRepo)
+	kbs, docIDs, err := h.resolveSearchScope(ctx, req)
 	if err != nil {
-		return nil, errors.Wrap(errors.CodeInvalidParam, "embedding model unavailable", err)
+		return nil, err
+	}
+	if len(kbs) == 0 {
+		return &pb.RetrieveRsp{Limit: int32(limit)}, nil
+	}
+	cfg, embeddingModelID, ownerID, err := h.resolveSearchConfiguration(ctx, kbs, limit)
+	if err != nil {
+		return nil, err
+	}
+	if h.RetrievePipe == nil || h.RetrievePipe.Embedder == nil || h.RetrievePipe.VectorStore == nil {
+		return nil, errors.New(errors.CodeServiceDown, "knowledge retrieval unavailable")
+	}
+	kbIDs := make([]string, len(kbs))
+	names := make(map[string]string, len(kbs))
+	for i, kb := range kbs {
+		kbIDs[i], names[kb.ID] = kb.ID, kb.Name
 	}
 	metrics.KbSearchTotal.Inc("rag")
 	pipe := *h.RetrievePipe
-	if access, bot := resourcegrant.Incoming(ctx); bot {
-		pipe.Authorize = func(ctx context.Context) error {
-			return resourcegrant.CheckIDs(h.DB.WithContext(ctx), access, access.Visibility != "personal", false)
-		}
+	pipe.Authorize = func(ctx context.Context) error {
+		return h.authorizeSearchScope(ctx, req, kbs)
 	}
-	items, err := pipe.Retrieve(ctx, kbIDs, req.Query, firstKB.PipelineConfig.Retrieval, embeddingModelID, firstKB.OwnerID)
+	items, err := pipe.Retrieve(ctx, kbIDs, docIDs, req.Query, limit, cfg, embeddingModelID, ownerID)
 	if err != nil {
 		return nil, err
 	}
 	pbItems := make([]*pb.RetrieveItem, len(items))
 	for i, item := range items {
+		matchedMeta, err := sourceMetadataJSON(item.Metadata)
+		if err != nil {
+			return nil, err
+		}
+		contextMeta, err := sourceMetadataJSON(item.ContextMetadata)
+		if err != nil {
+			return nil, err
+		}
 		pbItems[i] = &pb.RetrieveItem{
 			ChunkId: item.ChunkID, Content: item.Content, Score: item.Score,
 			DocId: item.DocID, DocTitle: item.DocTitle, KbId: item.KBID,
 			KbName: names[item.KBID], MatchedContent: item.MatchedContent,
+			ChunkIndex: int32(item.ChunkIndex), MetadataJson: matchedMeta,
+			ContextChunkId: item.ContextChunkID, ContextChunkIndex: item.ContextChunkIndex,
+			ContextMetadataJson: contextMeta,
 		}
 	}
-	h.Logger.WithContext(ctx).Infof("retrieve: kb_id=%s query_len=%d doc_count=%d", firstKB.ID, len(req.Query), len(pbItems))
-	return &pb.RetrieveRsp{Items: pbItems}, nil
+	h.Logger.WithContext(ctx).Infof("retrieve: kb_count=%d query_len=%d result_count=%d", len(kbIDs), len(req.Query), len(pbItems))
+	return &pb.RetrieveRsp{Items: pbItems, Limit: int32(limit)}, nil
 }
 
 func (h *KnowledgeBaseHandler) Bind(ctx context.Context, req *pb.BindReq) (*emptypb.Empty, error) {
@@ -1000,7 +1001,6 @@ func mergePipelineConfig(pbCfg *pb.PipelineConfig, cfg domain.PipelineConfig, up
 		}
 		cfg.Retrieval = domain.RetrievalConfig{
 			Mode:           pbCfg.Retrieval.Mode,
-			TopK:           int(pbCfg.Retrieval.TopK),
 			CandidateTopK:  int(pbCfg.Retrieval.CandidateTopK),
 			ScoreThreshold: pbCfg.Retrieval.ScoreThreshold,
 			DenseWeight:    pbCfg.Retrieval.DenseWeight,
@@ -1067,7 +1067,6 @@ func pipelineConfigToProto(cfg domain.PipelineConfig) *pb.PipelineConfig {
 	if cfg.Retrieval.Mode != "" || cfg.Retrieval.Rerank.ModelID != nil || cfg.Retrieval.Rerank.Enabled {
 		retPB := &pb.RetrievalConfig{
 			Mode:           cfg.Retrieval.Mode,
-			TopK:           int32(cfg.Retrieval.TopK),
 			CandidateTopK:  int32(cfg.Retrieval.CandidateTopK),
 			ScoreThreshold: cfg.Retrieval.ScoreThreshold,
 			DenseWeight:    cfg.Retrieval.DenseWeight,

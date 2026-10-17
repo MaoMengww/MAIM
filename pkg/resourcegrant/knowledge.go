@@ -13,16 +13,48 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// KnowledgeSource identifies the exact accepted document/chunk generation.
-// A source is evidence, not an authorization grant; callers also check access.
-// Knowledge evidence without the accepted chunk generation fails closed; current
-// metadata cannot be substituted for the version that was actually consumed.
+// KnowledgeSource identifies the exact accepted catalog metadata or document/chunk
+// generation. It is provenance, not a grant: callers separately check access.
+// Chunk evidence without an accepted generation fails closed; a catalog version
+// cannot stand in for a document or be mixed with chunk evidence.
 type KnowledgeSource struct {
 	KnowledgeID           string `json:"knowledge_id,omitempty"`
 	KnowledgeDocID        string `json:"knowledge_doc_id,omitempty"`
 	KnowledgeChunkID      string `json:"knowledge_chunk_id,omitempty"`
 	KnowledgeContentHash  string `json:"knowledge_content_hash,omitempty"`
 	KnowledgeDocumentHash string `json:"knowledge_document_hash,omitempty"`
+	KnowledgeMetadataHash string `json:"knowledge_metadata_hash,omitempty"`
+}
+
+// KnowledgeMetadata contains only the catalog content consumed by a Run, never
+// provider credentials, embedding models or retrieval configuration.
+type KnowledgeMetadata struct {
+	ID          string `gorm:"column:id" json:"kb_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Mode        string `json:"mode"`
+}
+
+func (metadata KnowledgeMetadata) SourceVersion() KnowledgeSource {
+	return KnowledgeSource{KnowledgeID: metadata.ID, KnowledgeMetadataHash: knowledgeFingerprint(metadata)}
+}
+
+func CurrentKnowledgeMetadata(tx *gorm.DB, id string, lock bool) (*KnowledgeMetadata, error) {
+	if identity.Validate(id) != nil {
+		return nil, status.Error(codes.PermissionDenied, "knowledge metadata unavailable")
+	}
+	query := tx.Table("knowledge.knowledge_bases").Select("id,name,description,mode").Where("id = ? AND status = 'active' AND mode = 'rag'", id)
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "SHARE"})
+	}
+	var metadata KnowledgeMetadata
+	if err := query.Take(&metadata).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Error(codes.PermissionDenied, "knowledge metadata unavailable")
+		}
+		return nil, err
+	}
+	return &metadata, nil
 }
 
 // KnowledgeChunk verifies returned evidence against the existing knowledge store.
@@ -84,6 +116,19 @@ func (chunk *KnowledgeChunk) SourceVersion() KnowledgeSource {
 }
 
 func CheckKnowledgeSource(tx *gorm.DB, version KnowledgeSource, lock bool) error {
+	if version.KnowledgeMetadataHash != "" {
+		if version.KnowledgeDocID != "" || version.KnowledgeChunkID != "" || version.KnowledgeContentHash != "" || version.KnowledgeDocumentHash != "" {
+			return status.Error(codes.PermissionDenied, "mixed knowledge source kinds")
+		}
+		metadata, err := CurrentKnowledgeMetadata(tx, version.KnowledgeID, lock)
+		if err != nil {
+			return err
+		}
+		if metadata.SourceVersion() != version {
+			return status.Error(codes.PermissionDenied, "knowledge metadata replaced")
+		}
+		return nil
+	}
 	if version.KnowledgeID == "" && version.KnowledgeDocID == "" && version.KnowledgeChunkID == "" {
 		return nil
 	}

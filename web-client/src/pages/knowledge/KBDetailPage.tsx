@@ -26,7 +26,6 @@ interface EditKBFormValues {
   parent_size?: number;
   child_size?: number;
   retrieval_mode?: string;
-  top_k?: number;
   candidate_top_k?: number;
   score_threshold?: number;
   dense_weight?: number;
@@ -367,7 +366,6 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: {
               parent_size: cc.parent_child?.parent_size,
               child_size: cc.parent_child?.child_size,
               retrieval_mode: rc.mode,
-              top_k: rc.top_k,
               candidate_top_k: rc.candidate_top_k,
               score_threshold: rc.score_threshold,
               dense_weight: rc.dense_weight,
@@ -511,7 +509,6 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: {
           };
           pipelineConfig.retrieval = {
             mode: vals.retrieval_mode,
-            top_k: vals.top_k != null ? Number(vals.top_k) : undefined,
             candidate_top_k: vals.candidate_top_k != null ? Number(vals.candidate_top_k) : undefined,
             score_threshold: vals.score_threshold != null ? Number(vals.score_threshold) : undefined,
             dense_weight: vals.dense_weight != null ? Number(vals.dense_weight) : undefined,
@@ -613,9 +610,9 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: {
             ]} />
           </Form.Item>
           <div style={{ display: 'flex', gap: 16 }}>
-            <Form.Item name="top_k" label="返回结果数" style={{ flex: 1, marginBottom: 12 }}>
-              <InputNumber min={1} max={50} style={{ width: '100%' }} />
-            </Form.Item>
+            <div style={{ flex: 1, marginBottom: 12, fontSize: 12, color: 'var(--aim-text-secondary)' }}>
+              返回数量由每次搜索的 limit 控制（默认 5，最多 50）
+            </div>
             <Form.Item name="candidate_top_k" label="候选集大小" style={{ flex: 1, marginBottom: 12 }}>
               <InputNumber min={1} max={200} style={{ width: '100%' }} />
             </Form.Item>

@@ -5,6 +5,7 @@ import (
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	"github.com/maomeng/aim/pkg/errors"
+	"github.com/maomeng/aim/pkg/knowledgecontract"
 	"github.com/maomeng/aim/pkg/logx"
 )
 
@@ -18,7 +19,7 @@ type RetrievePipeline struct {
 	Authorize   func(context.Context) error
 }
 
-func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []string, query string, retrievalCfg domain.RetrievalConfig, embeddingModelID string, ownerID *string) ([]domain.RetrieveItem, error) {
+func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs, docIDs []string, query string, limit int, retrievalCfg domain.RetrievalConfig, embeddingModelID string, ownerID *string) ([]domain.RetrieveItem, error) {
 	if p.Authorize != nil {
 		if err := p.Authorize(ctx); err != nil {
 			return nil, err
@@ -28,11 +29,12 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []string, query s
 	if len(kbIDs) == 0 {
 		return nil, nil
 	}
-	if retrievalCfg.TopK <= 0 {
-		retrievalCfg.TopK = 5
+	if limit <= 0 {
+		limit = knowledgecontract.DefaultSearchLimit
 	}
-	if retrievalCfg.CandidateTopK <= 0 {
-		retrievalCfg.CandidateTopK = max(20, retrievalCfg.TopK)
+	retrievalCfg, err := domain.EffectiveRetrievalConfig(retrievalCfg, limit)
+	if err != nil {
+		return nil, errors.Wrap(errors.CodeInvalidParam, "invalid retrieval configuration", err)
 	}
 	vectors, err := p.Embedder.Embed(ctx, []string{query}, embeddingModelID, ownerID)
 	if err != nil {
@@ -43,7 +45,7 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []string, query s
 	}
 
 	var results []domain.SearchResult
-	filter := domain.SearchFilter{KBIDs: kbIDs, ScoreThreshold: retrievalCfg.ScoreThreshold}
+	filter := domain.SearchFilter{KBIDs: kbIDs, DocIDs: docIDs, ScoreThreshold: retrievalCfg.ScoreThreshold}
 	switch retrievalCfg.Mode {
 	case "vector":
 		results, err = p.VectorStore.Search(ctx, vectors[0], retrievalCfg.CandidateTopK, filter)
@@ -71,7 +73,7 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []string, query s
 
 	// The relationship store is authoritative: stale vectors from replacement,
 	// failure or deletion must not occupy result slots or reach the reranker.
-	results, chunks, err := p.currentChunks(ctx, kbIDs, results)
+	results, chunks, err := p.currentChunks(ctx, kbIDs, docIDs, results)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +82,7 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []string, query s
 			return nil, err
 		}
 	}
-	if retrievalCfg.Rerank.Enabled && p.Reranker != nil && len(results) > retrievalCfg.TopK {
+	if retrievalCfg.Rerank.Enabled && p.Reranker != nil && len(results) > limit {
 		if retrievalCfg.Rerank.ModelID == nil {
 			return nil, errors.New(errors.CodeInvalidParam, "rerank model is not configured")
 		}
@@ -119,13 +121,13 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs []string, query s
 			return nil, err
 		}
 	}
-	if len(items) > retrievalCfg.TopK {
-		items = items[:retrievalCfg.TopK]
+	if len(items) > limit {
+		items = items[:limit]
 	}
 	return items, nil
 }
 
-func (p *RetrievePipeline) currentChunks(ctx context.Context, kbIDs []string, results []domain.SearchResult) ([]domain.SearchResult, map[string]domain.ChunkRecord, error) {
+func (p *RetrievePipeline) currentChunks(ctx context.Context, kbIDs, docIDs []string, results []domain.SearchResult) ([]domain.SearchResult, map[string]domain.ChunkRecord, error) {
 	if len(results) == 0 {
 		return nil, nil, nil
 	}
@@ -145,6 +147,10 @@ func (p *RetrievePipeline) currentChunks(ctx context.Context, kbIDs []string, re
 	for _, id := range kbIDs {
 		allowed[id] = struct{}{}
 	}
+	allowedDocs := make(map[string]struct{}, len(docIDs))
+	for _, id := range docIDs {
+		allowedDocs[id] = struct{}{}
+	}
 	valid := make([]domain.SearchResult, 0, len(results))
 	seen := make(map[string]struct{}, len(results))
 	for _, result := range results {
@@ -154,6 +160,11 @@ func (p *RetrievePipeline) currentChunks(ctx context.Context, kbIDs []string, re
 		}
 		if _, exists := allowed[chunk.KBID]; !exists {
 			continue
+		}
+		if len(allowedDocs) > 0 {
+			if _, exists := allowedDocs[chunk.DocID]; !exists {
+				continue
+			}
 		}
 		if _, exists := seen[chunk.ID]; exists {
 			continue
@@ -196,12 +207,17 @@ func (p *RetrievePipeline) expandParentChunks(ctx context.Context, results []dom
 	for _, result := range results {
 		chunk := chunks[result.ChunkID]
 		content, contextID := chunk.Content, chunk.ID
+		var parentID *string
+		var parentIndex *int32
+		var parentMetadata map[string]any
 		if chunk.ParentChunkID != nil {
 			parent, exists := parents[*chunk.ParentChunkID]
 			if !exists || parent.DocID != chunk.DocID || parent.KBID != chunk.KBID || parent.ParentChunkID != nil {
 				continue
 			}
 			content, contextID = parent.Content, parent.ID
+			index := int32(parent.ChunkIndex)
+			parentID, parentIndex, parentMetadata = &parent.ID, &index, parent.Metadata
 		}
 		if _, exists := seen[contextID]; exists {
 			continue
@@ -212,6 +228,8 @@ func (p *RetrievePipeline) expandParentChunks(ctx context.Context, results []dom
 			ChunkID: chunk.ID, DocID: chunk.DocID, KBID: chunk.KBID,
 			Content: content, MatchedContent: chunk.Content, Score: result.Score,
 			DocTitle: docTitle, Metadata: chunk.Metadata,
+			ChunkIndex: chunk.ChunkIndex, ContextChunkID: parentID,
+			ContextChunkIndex: parentIndex, ContextMetadata: parentMetadata,
 		})
 	}
 	return items, nil

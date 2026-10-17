@@ -294,7 +294,6 @@ export interface ParentChildConfigReq {
 
 export interface RetrievalConfigReq {
   mode?: string;
-  top_k?: number;
   candidate_top_k?: number;
   score_threshold?: number;
   dense_weight?: number;
@@ -307,6 +306,17 @@ export interface RerankConfigReq {
   model_id?: string;
   clear_model_id?: boolean;
   top_n?: number;
+}
+
+// Search defaults to the current authorized scope; filters only narrow it.
+export interface KnowledgeSearchReq {
+  query: string;
+  bot_id?: string;
+  conv_id?: string;
+  kb_ids?: string[];
+  doc_ids?: string[];
+  /** Omit for 5 results; explicit values must be integers in [1, 50]. */
+  limit?: number;
 }
 
 // ─── File ───

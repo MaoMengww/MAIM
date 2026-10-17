@@ -11,25 +11,26 @@ import (
 )
 
 const (
-	CodeUnknown         = 1000
-	CodeInvalidParam    = 1001
-	CodeUnauthorized    = 1002
-	CodeForbidden       = 1003
-	CodeNotFound        = 1004
-	CodeConflict        = 1005
-	CodeInternal        = 1006
-	CodeTimeout         = 1007
-	CodeTooManyRequests = 1008
-	CodeServiceDown     = 1009
-	CodeDBError         = 1010
-	CodeCacheError      = 1011
-	CodeMQError         = 1012
-	CodeRPCError        = 1013
-	CodeIOError         = 1014
-	CodeBotNotFound     = 1015
-	CodeBotForbidden    = 1016
-	CodeWebhookInvalid  = 1017
-	CodeWebhookTimeout  = 1018
+	CodeUnknown           = 1000
+	CodeInvalidParam      = 1001
+	CodeUnauthorized      = 1002
+	CodeForbidden         = 1003
+	CodeNotFound          = 1004
+	CodeConflict          = 1005
+	CodeInternal          = 1006
+	CodeTimeout           = 1007
+	CodeTooManyRequests   = 1008
+	CodeServiceDown       = 1009
+	CodeDBError           = 1010
+	CodeCacheError        = 1011
+	CodeMQError           = 1012
+	CodeRPCError          = 1013
+	CodeIOError           = 1014
+	CodeBotNotFound       = 1015
+	CodeBotForbidden      = 1016
+	CodeWebhookInvalid    = 1017
+	CodeWebhookTimeout    = 1018
+	CodeIncompatibleScope = 1019
 )
 
 type BizError struct {
@@ -67,6 +68,8 @@ func GRPCCodeFromCode(code int) codes.Code {
 		return codes.NotFound
 	case CodeConflict:
 		return codes.AlreadyExists
+	case CodeIncompatibleScope:
+		return codes.FailedPrecondition
 	case CodeTimeout:
 		return codes.DeadlineExceeded
 	case CodeTooManyRequests:
@@ -97,7 +100,7 @@ func HTTPStatusFromCode(code int) int {
 		return 403
 	case CodeNotFound, CodeBotNotFound:
 		return 404
-	case CodeConflict:
+	case CodeConflict, CodeIncompatibleScope:
 		return 409
 	case CodeTimeout, CodeWebhookTimeout:
 		return 408
@@ -129,9 +132,8 @@ func IsBizError(err error) (*BizError, bool) {
 	return nil, false
 }
 
-// ToGRPCError converts an error to a gRPC status error.
-// If the error is a BizError, it maps the code to a gRPC status code.
-// Otherwise, it returns a gRPC Internal error without leaking internals.
+// ToGRPCError preserves explicit gRPC contracts, converts business errors with
+// their stable code, and hides unexpected internal errors.
 func ToGRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -148,6 +150,9 @@ func ToGRPCError(err error) error {
 			return stWithDetails.Err()
 		}
 		return st.Err()
+	}
+	if _, ok := status.FromError(err); ok {
+		return err
 	}
 	return status.Error(codes.Internal, "internal server error")
 }

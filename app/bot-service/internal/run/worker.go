@@ -504,7 +504,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 				return err
 			}
 		}
-		if frozen.ServerID == "runtime" && frozen.Name == "search_knowledge" {
+		if frozen.ServerID == "runtime" && isKnowledgeTool(frozen.Name) {
 			continue // The knowledge adapter records bounded, safe parameter errors.
 		}
 		if _, _, err := canonicalToolActionArguments([]byte(tool.Function.Arguments), server, frozen); err != nil {
@@ -678,7 +678,7 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 	if frozen.ServerID == "runtime" && slices.Contains([]string{"delegate_run", "delegation_result"}, frozen.Name) {
 		return s.performDelegationTool(ctx, r, generation, call)
 	}
-	if frozen.ServerID == "runtime" && frozen.Name == "search_knowledge" {
+	if frozen.ServerID == "runtime" && isKnowledgeTool(frozen.Name) {
 		return s.performKnowledgeTool(ctx, r, generation, call)
 	}
 	action, err := s.actionInterrupt(ctx, r, frozen, call.Function.Arguments, call.Id)

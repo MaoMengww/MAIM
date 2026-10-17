@@ -10,6 +10,7 @@ import (
 	filepb "github.com/maomeng/aim/app/file-service/pb/file"
 	kb "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase"
 	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/knowledgecontract"
 	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -23,49 +24,38 @@ func inputAccess(i Input) resourcegrant.Access {
 func resourceAccess(r *model.Run) resourcegrant.Access {
 	return resourcegrant.Access{BotID: r.BotID, ConvID: r.ConvID, BindingID: r.BindingID, RequesterID: r.RequesterID, Visibility: r.Visibility, GrantIDs: r.ResourceGrantIDs}
 }
-func (s *Service) retrieveResources(ctx context.Context, input Input, query string) ([]graph.KbDocument, []string, error) {
-	ids := []string{}
+
+// Knowledge resolves default scope once from trusted Run access. Local checks
+// only fence returned evidence; they never synthesize an implicit search scope.
+func (s *Service) retrieveResources(ctx context.Context, input Input, args knowledgeSearchArguments) ([]graph.KbDocument, error) {
 	access := inputAccess(input)
-	for _, id := range input.ResourceGrantIDs {
-		var g resourcegrant.Grant
-		err := s.svc.DB.WithContext(ctx).Table(resourcegrant.Table("knowledge")).Where("id = ?", id).Take(&g).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, nil, err
-		}
-		if _, err := resourcegrant.Check(s.svc.DB.WithContext(ctx), access, "knowledge", g.ResourceID, input.Visibility != "personal", false); err != nil {
-			return nil, nil, err
-		}
-		ids = append(ids, g.ResourceID)
-	}
-	slices.Sort(ids)
-	ids = slices.Compact(ids)
-	if len(ids) == 0 {
-		return []graph.KbDocument{}, ids, nil
-	}
 	if s.kb == nil {
-		return nil, nil, status.Error(codes.Unavailable, "knowledge service unavailable")
+		return nil, status.Error(codes.Unavailable, "knowledge service unavailable")
 	}
-	result, err := s.kb.Retrieve(resourcegrant.Context(ctx, access), &kb.RetrieveReq{Query: query, BotId: &input.BotID, ConvId: &input.ConvID, KbIds: ids})
+	result, err := s.kb.Retrieve(resourcegrant.Context(ctx, access), &kb.RetrieveReq{Query: args.Query, BotId: &input.BotID, ConvId: &input.ConvID, KbIds: args.KBIDs, DocIds: args.DocIDs, Limit: &args.Limit})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := resourcegrant.CheckIDs(s.svc.DB.WithContext(ctx), access, input.Visibility != "personal", false); err != nil {
-		return nil, nil, err
+		return nil, err
+	}
+	if result == nil || len(result.Items) > int(args.Limit) || result.Limit != args.Limit || result.Exhaustive {
+		return nil, status.Error(codes.Unavailable, "invalid knowledge result boundary")
 	}
 	docs := make([]graph.KbDocument, 0, len(result.Items))
 	for _, d := range result.Items {
-		if !slices.Contains(ids, d.KbId) {
-			return nil, nil, status.Error(codes.PermissionDenied, "knowledge result outside Run authorization")
+		if d == nil || len(args.KBIDs) > 0 && !slices.Contains(args.KBIDs, d.KbId) || len(args.DocIDs) > 0 && !slices.Contains(args.DocIDs, d.DocId) {
+			return nil, status.Error(codes.PermissionDenied, "knowledge result outside Run authorization")
+		}
+		if _, err := resourcegrant.Check(s.svc.DB.WithContext(ctx), access, "knowledge", d.KbId, input.Visibility != "personal", false); err != nil {
+			return nil, err
 		}
 		chunk, err := resourcegrant.CurrentKnowledgeChunk(s.svc.DB.WithContext(ctx), d.ChunkId, false)
 		if err != nil {
 			if status.Code(err) == codes.PermissionDenied {
 				continue
 			}
-			return nil, nil, err
+			return nil, err
 		}
 		if chunk.KBID != d.KbId || chunk.DocID != d.DocId || chunk.Content != d.MatchedContent {
 			continue
@@ -79,7 +69,7 @@ func (s *Service) retrieveResources(ctx context.Context, input Input, query stri
 				if status.Code(err) == codes.PermissionDenied {
 					continue
 				}
-				return nil, nil, err
+				return nil, err
 			}
 			if parent.KBID != chunk.KBID || parent.DocID != chunk.DocID || parent.ParentChunkID != nil || parent.Content != d.Content {
 				continue
@@ -95,11 +85,11 @@ func (s *Service) retrieveResources(ctx context.Context, input Input, query stri
 		}
 		doc.Provenance, err = json.Marshal(versions)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		docs = append(docs, doc)
 	}
-	return docs, ids, nil
+	return docs, nil
 }
 func (s *Service) ResourceAuthorization(ctx context.Context, user, executorBot string, body []byte) ([]byte, error) {
 	var req resourcegrant.Request
@@ -189,7 +179,7 @@ func (s *Service) ResourceAuthorization(ctx context.Context, user, executorBot s
 				query = inputs[len(inputs)-1].Content
 			}
 		}
-		docs, _, err := s.retrieveResources(ctx, input, query)
+		docs, err := s.retrieveResources(ctx, input, knowledgeSearchArguments{Query: query, Limit: knowledgecontract.DefaultSearchLimit})
 		if err != nil {
 			return nil, err
 		}

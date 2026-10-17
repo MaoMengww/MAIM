@@ -148,16 +148,17 @@ type SourceVersion struct {
 	KnowledgeChunkID      string `json:"knowledge_chunk_id,omitempty"`
 	KnowledgeContentHash  string `json:"knowledge_content_hash,omitempty"`
 	KnowledgeDocumentHash string `json:"knowledge_document_hash,omitempty"`
+	KnowledgeMetadataHash string `json:"knowledge_metadata_hash,omitempty"`
 	ParentRunID           string `json:"parent_run_id,omitempty"`
 	SourceRevision        int64  `json:"source_revision,omitzero"`
 }
 
 func (version SourceVersion) KnowledgeSource() resourcegrant.KnowledgeSource {
-	return resourcegrant.KnowledgeSource{KnowledgeID: version.KnowledgeID, KnowledgeDocID: version.KnowledgeDocID, KnowledgeChunkID: version.KnowledgeChunkID, KnowledgeContentHash: version.KnowledgeContentHash, KnowledgeDocumentHash: version.KnowledgeDocumentHash}
+	return resourcegrant.KnowledgeSource{KnowledgeID: version.KnowledgeID, KnowledgeDocID: version.KnowledgeDocID, KnowledgeChunkID: version.KnowledgeChunkID, KnowledgeContentHash: version.KnowledgeContentHash, KnowledgeDocumentHash: version.KnowledgeDocumentHash, KnowledgeMetadataHash: version.KnowledgeMetadataHash}
 }
 
 func KnowledgeSourceVersion(source resourcegrant.KnowledgeSource) SourceVersion {
-	return SourceVersion{KnowledgeID: source.KnowledgeID, KnowledgeDocID: source.KnowledgeDocID, KnowledgeChunkID: source.KnowledgeChunkID, KnowledgeContentHash: source.KnowledgeContentHash, KnowledgeDocumentHash: source.KnowledgeDocumentHash}
+	return SourceVersion{KnowledgeID: source.KnowledgeID, KnowledgeDocID: source.KnowledgeDocID, KnowledgeChunkID: source.KnowledgeChunkID, KnowledgeContentHash: source.KnowledgeContentHash, KnowledgeDocumentHash: source.KnowledgeDocumentHash, KnowledgeMetadataHash: source.KnowledgeMetadataHash}
 }
 
 type RunReceipt struct {

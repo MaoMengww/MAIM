@@ -193,7 +193,7 @@ func (s *Service) publicAction(ctx context.Context, a *model.RunAction, user str
 	r, err := s.repo.Get(ctx, a.RunID)
 	owner := s.actionOwner(ctx, a.ServerID, user)
 	sourceValid := err == nil && s.actionSourcesCurrent(s.svc.DB.WithContext(ctx), r, a) == nil
-	runtimeReader := sourceValid && a.ServerID == "runtime" && a.ToolName == "search_knowledge" && s.visible(ctx, user, r) == nil && s.authorize(ctx, r, r.Visibility != "personal") == nil
+	runtimeReader := sourceValid && a.ServerID == "runtime" && isKnowledgeTool(a.ToolName) && s.visible(ctx, user, r) == nil && s.authorize(ctx, r, r.Visibility != "personal") == nil
 	personalRequester := sourceValid && r.Visibility == "personal" && r.PersonalUserID != nil && *r.PersonalUserID == user && s.visible(ctx, user, r) == nil
 	valid := err == nil && s.actionDisclosure(ctx, r, a, user) == nil
 	can := owner && valid && state == "pending" && !repo.TerminalRun(r) && r.Status != "stopping"
@@ -462,7 +462,7 @@ func actionGrantPrincipal(tx *gorm.DB, grant *model.ActionGrant, r *model.Run) b
 func currentActionTool(tx *gorm.DB, r *model.Run, frozen component.RunTool) (model.McpServer, error) {
 	var server model.McpServer
 	if frozen.ServerID == "runtime" {
-		if frozen.Name != "search_knowledge" || frozen.Risk != "read" || !frozen.CanShare {
+		if !isKnowledgeTool(frozen.Name) || frozen.Risk != "read" || !frozen.CanShare {
 			return server, status.Error(codes.PermissionDenied, "unknown runtime action")
 		}
 		var bot model.Bot
@@ -701,10 +701,14 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 		})
 		return err
 	}
-	if frozen.ServerID == "runtime" && frozen.Name == "search_knowledge" {
+	if frozen.ServerID == "runtime" && isKnowledgeTool(frozen.Name) {
 		callErr = beforeCall(toolCtx)
 		if callErr == nil {
-			knowledge, callErr = s.executeKnowledgeSearch(toolCtx, r, string(a.Arguments))
+			if frozen.Name == "list_knowledge_bases" {
+				knowledge, callErr = s.executeKnowledgeList(toolCtx, r, string(a.Arguments))
+			} else {
+				knowledge, callErr = s.executeKnowledgeSearch(toolCtx, r, string(a.Arguments))
+			}
 			if knowledge != nil {
 				result = knowledge.Result
 			}
@@ -786,7 +790,7 @@ func (s *Service) invokeAction(ctx context.Context, r *model.Run, a *model.RunAc
 		return result, status.Error(codes.FailedPrecondition, "action outcome unknown; human reconciliation required")
 	}
 	if callErr != nil {
-		if frozen.ServerID == "runtime" && frozen.Name == "search_knowledge" {
+		if frozen.ServerID == "runtime" && isKnowledgeTool(frozen.Name) {
 			return "", callErr
 		}
 		return result, status.Error(codes.Unavailable, "tool invocation failed")

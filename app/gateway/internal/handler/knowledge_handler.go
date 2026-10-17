@@ -444,7 +444,7 @@ func (h *KnowledgeHandler) ListKBBindings(c *gin.Context) {
 // ========== Search ==========
 
 func (h *KnowledgeHandler) Search(c *gin.Context) {
-	if !requirePathIdentities(c, "id") {
+	if c.Param("id") != "" && !requirePathIdentities(c, "id") {
 		return
 	}
 	var req kbpb.RetrieveReq
@@ -452,10 +452,19 @@ func (h *KnowledgeHandler) Search(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	req.KbIds = []string{c.Param("id")}
-	// The direct KB route must not resolve a different scope through target bindings.
-	req.BotId = nil
-	req.ConvId = nil
+	if id := c.Param("id"); id != "" {
+		for _, filter := range req.KbIds {
+			if filter != id {
+				response.BadRequest(c, "kb_ids must match the knowledge base in the route")
+				return
+			}
+		}
+		if req.BotId != nil || req.ConvId != nil {
+			response.BadRequest(c, "binding targets are only supported by /knowledge/search")
+			return
+		}
+		req.KbIds = []string{id}
+	}
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, &req) {
 		return

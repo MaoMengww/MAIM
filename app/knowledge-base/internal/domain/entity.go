@@ -176,7 +176,6 @@ type ParentChildConfig struct {
 
 type RetrievalConfig struct {
 	Mode           string       `json:"mode"`
-	TopK           int          `json:"top_k"`
 	CandidateTopK  int          `json:"candidate_top_k"`
 	ScoreThreshold float32      `json:"score_threshold"`
 	DenseWeight    float32      `json:"dense_weight"`
@@ -237,13 +236,17 @@ type Stage struct {
 }
 
 type RetrieveItem struct {
-	ChunkID        string         `json:"chunk_id"`
-	Content        string         `json:"content"`
-	Score          float32        `json:"score"`
-	DocID          string         `json:"doc_id"`
-	DocTitle       string         `json:"doc_title"`
-	KBID           string         `json:"kb_id"`
-	KBName         string         `json:"kb_name"`
-	MatchedContent string         `json:"matched_content"`
-	Metadata       map[string]any `json:"metadata"`
+	ChunkID           string         `json:"chunk_id"`
+	Content           string         `json:"content"`
+	Score             float32        `json:"score"`
+	DocID             string         `json:"doc_id"`
+	DocTitle          string         `json:"doc_title"`
+	KBID              string         `json:"kb_id"`
+	KBName            string         `json:"kb_name"`
+	MatchedContent    string         `json:"matched_content"`
+	Metadata          map[string]any `json:"metadata"`
+	ChunkIndex        int            `json:"chunk_index"`
+	ContextChunkID    *string        `json:"context_chunk_id,omitempty"`
+	ContextChunkIndex *int32         `json:"context_chunk_index,omitempty"`
+	ContextMetadata   map[string]any `json:"context_metadata,omitempty"`
 }
