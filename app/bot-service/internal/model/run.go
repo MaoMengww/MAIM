@@ -1,10 +1,12 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 
 	"github.com/maomeng/aim/pkg/resourcegrant"
+	"github.com/maomeng/aim/pkg/sequence"
 )
 
 // Run owns work facts. Private snapshots and trajectory are never serialized publicly.
@@ -138,10 +140,14 @@ type InputSource struct {
 	Origin          *RunOrigin `json:"origin,omitempty"`
 }
 
-// SourceVersion is private provenance, not material or authorization.
+// SourceVersion is private provenance, not material or a permission grant.
+// History fields mark on-demand reads requiring ongoing messaging visibility;
+// original explicit accepted-input versions intentionally leave them empty.
 type SourceVersion struct {
 	MessageID             string `json:"message_id,omitempty"`
 	AcceptedEditCount     int32  `json:"accepted_edit_count"`
+	HistoryGrantID        string `json:"history_grant_id,omitempty"`
+	HistorySeq            int64  `json:"history_seq,omitzero"`
 	FileID                string `json:"file_id,omitempty"`
 	KnowledgeID           string `json:"knowledge_id,omitempty"`
 	KnowledgeDocID        string `json:"knowledge_doc_id,omitempty"`
@@ -155,6 +161,10 @@ type SourceVersion struct {
 
 func (version SourceVersion) KnowledgeSource() resourcegrant.KnowledgeSource {
 	return resourcegrant.KnowledgeSource{KnowledgeID: version.KnowledgeID, KnowledgeDocID: version.KnowledgeDocID, KnowledgeChunkID: version.KnowledgeChunkID, KnowledgeContentHash: version.KnowledgeContentHash, KnowledgeDocumentHash: version.KnowledgeDocumentHash, KnowledgeMetadataHash: version.KnowledgeMetadataHash}
+}
+
+func (version SourceVersion) HistorySource() resourcegrant.HistorySource {
+	return resourcegrant.HistorySource{MessageID: version.MessageID, AcceptedEditCount: version.AcceptedEditCount, HistoryGrantID: version.HistoryGrantID, HistorySeq: version.HistorySeq}
 }
 
 func KnowledgeSourceVersion(source resourcegrant.KnowledgeSource) SourceVersion {
@@ -217,7 +227,7 @@ type PublicRun struct {
 	OutputStatus          string               `json:"output_status"`
 	MessageID             *string              `json:"message_id,omitempty"`
 	Error                 string               `json:"error,omitempty"`
-	Sources               []map[string]string  `json:"sources"`
+	Sources               []map[string]any     `json:"sources"`
 	Steps                 []RunStep            `json:"steps"`
 	CreatedAt             int64                `json:"created_at"`
 	UpdatedAt             int64                `json:"updated_at"`
@@ -229,14 +239,21 @@ func (r *Run) Public() PublicRun {
 	}
 	// Explicit field allowlisting prevents private tool contents and credentials
 	// from leaking as the stored execution schema grows.
-	sources := make([]map[string]string, 0)
+	sources := make([]map[string]any, 0)
 	var private []map[string]any
-	_ = json.Unmarshal(r.Sources, &private)
+	decoder := json.NewDecoder(bytes.NewReader(r.Sources))
+	decoder.UseNumber()
+	_ = decoder.Decode(&private)
 	for _, source := range private {
-		public := make(map[string]string)
+		public := make(map[string]any)
 		for _, key := range []string{"type", "kind", "role", "matched_chunk_id", "chunk_index", "metadata_json", "kb_name", "kb_id", "doc_id", "chunk_id", "title", "message_id", "file_id", "parent_run_id", "requester_id", "history_grant_id", "sender_type", "sender_id", "tool_name", "activity_id"} {
 			if value, ok := source[key].(string); ok {
 				public[key] = value
+			}
+		}
+		if number, ok := source["seq"].(json.Number); ok {
+			if seq, err := number.Int64(); err == nil && seq > 0 && sequence.Validate(seq) == nil {
+				public["seq"] = seq
 			}
 		}
 		sources = append(sources, public)

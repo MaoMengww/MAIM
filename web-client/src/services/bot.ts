@@ -236,16 +236,19 @@ export function normalizeRun(value: unknown): BotRun {
       if (source.type === 'rag') {
         return { ...identity, ...knowledgeSources([source])[0] };
       }
+      if (source.type === 'knowledge_base') return { ...identity, type: 'knowledge_base' as const, kb_id: entityId(source.kb_id, 'source.kb_id'), kb_name: text(source.kb_name, 'source.kb_name') };
+      if (source.type === 'knowledge_document') return { ...identity, type: 'knowledge_document' as const, kb_id: entityId(source.kb_id, 'source.kb_id'), doc_id: entityId(source.doc_id, 'source.doc_id'), title: text(source.title, 'source.title') };
       if (source.type === 'tool') return { ...identity, type: 'tool' as const, tool_name: text(source.tool_name, 'source.tool_name') };
       const kind = source.type;
       const sender = source.sender_type;
-      if (kind !== 'request_source' && kind !== 'reference' && kind !== 'history' && kind !== 'file' && kind !== 'parent_run' && kind !== 'activity' && kind !== 'delegation_result') throw new Error('执行来源类型无效');
+      if (kind !== 'request_source' && kind !== 'reference' && kind !== 'history' && kind !== 'conversation_history' && kind !== 'file' && kind !== 'parent_run' && kind !== 'activity' && kind !== 'delegation_result') throw new Error('执行来源类型无效');
       if (sender !== 'user' && sender !== 'bot' && sender !== 'system' && sender !== 'activity' && sender !== 'rule') throw new Error('执行来源发送者类型无效');
       const senderId = sender === 'system' || sender === 'activity' || sender === 'rule'
         ? optionalEntityId(source.sender_id === '' ? undefined : source.sender_id, 'source.sender_id') : entityId(source.sender_id, 'source.sender_id');
       if (kind === 'file') return { ...identity, type: kind, file_id: entityId(source.file_id, 'source.file_id'), sender_type: sender, sender_id: senderId };
       if (kind === 'parent_run' || kind === 'delegation_result') return { ...identity, type: kind, parent_run_id: entityId(source.parent_run_id, 'source.parent_run_id'), sender_type: sender, sender_id: senderId };
       if (kind === 'activity') return { ...identity, type: kind, activity_id: entityId(source.activity_id, 'source.activity_id'), sender_type: sender, sender_id: senderId };
+      if (kind === 'conversation_history') return { ...identity, type: kind, message_id: entityId(source.message_id, 'source.message_id'), seq: sequence(source.seq, 'source.seq', true), sender_type: sender, sender_id: senderId };
       return { ...identity, type: kind, message_id: entityId(source.message_id, 'source.message_id'), sender_type: sender, sender_id: senderId };
     }), steps: run.steps.map((value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('执行阶段格式无效');

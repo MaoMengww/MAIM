@@ -165,7 +165,7 @@ func queueRun(tx *gorm.DB, run *model.Run, kind string) error {
 	if kind == "updated" {
 		public := run.Public()
 		public.ResultText, public.ResultType, public.ResultContent, public.WaitingReason, public.Error = "", "", nil, "", ""
-		public.Sources, public.Actions = []map[string]string{}, []model.PublicAction{}
+		public.Sources, public.Actions = []map[string]any{}, []model.PublicAction{}
 		public.Activity = nil
 		raw, err = json.Marshal(map[string]any{"type": "bot.run.updated", "conv_id": run.ConvID, "bot_id": run.BotID, "run": public})
 		if err != nil {
@@ -596,8 +596,8 @@ func CheckAcceptedMessages(tx *gorm.DB, run *model.Run, raw json.RawMessage) err
 	return nil
 }
 
-// CheckRunSources fences live authorization of accepted work. Message identity
-// and accepted versions are provenance only, never ongoing IM visibility checks.
+// CheckRunSources fences live authorization of accepted work. Original explicit
+// inputs remain facts; on-demand history versions also require current messages.
 func CheckRunSources(tx *gorm.DB, run *model.Run) error {
 	var materials []acceptedMessage
 	if err := json.Unmarshal(run.Materials, &materials); err != nil {
@@ -610,6 +610,16 @@ func CheckRunSources(tx *gorm.DB, run *model.Run) error {
 				return status.Error(codes.PermissionDenied, "delegated result has no source")
 			}
 			delegated[material.ParentRunID] = true
+		}
+		if material.Kind == "conversation_history" {
+			if material.HistoryGrantID == "" || material.Seq <= 0 {
+				return status.Error(codes.PermissionDenied, "history material has no authorization provenance")
+			}
+			access := resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID}
+			if err := resourcegrant.CheckHistorySource(tx, access, resourcegrant.HistorySource{MessageID: material.MessageID, AcceptedEditCount: material.EditCount, HistoryGrantID: material.HistoryGrantID, HistorySeq: material.Seq}, true); err != nil {
+				return err
+			}
+			continue
 		}
 		if material.HistoryGrantID != "" {
 			if err := CheckMaterialHistory(tx, run, material.HistoryGrantID, material.Seq); err != nil {
@@ -629,6 +639,9 @@ func CheckRunSources(tx *gorm.DB, run *model.Run) error {
 	})
 	access := resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}
 	for _, version := range versions {
+		if err := resourcegrant.CheckHistorySource(tx, access, version.HistorySource(), true); err != nil {
+			return err
+		}
 		if version.KnowledgeID == "" {
 			continue
 		}

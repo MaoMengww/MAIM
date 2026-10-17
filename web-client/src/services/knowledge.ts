@@ -1,6 +1,6 @@
 import client, { unwrap } from './client';
 import type { CreateKBReq, UpdateKBReq, KnowledgeSearchReq } from '@/types/api';
-import type { APIResponse, KBRsp, DocumentRsp, ChunkInfo, KnowledgeBinding, KnowledgeBoundTarget, KnowledgeSearchRsp } from '@/types/model';
+import type { APIResponse, KBRsp, DocumentRsp, DocumentListRsp, ChunkListRsp, KnowledgeBinding, KnowledgeBoundTarget, KnowledgeSearchRsp } from '@/types/model';
 
 export const kbApi = {
   create: (data: CreateKBReq) =>
@@ -31,9 +31,13 @@ export const kbApi = {
     }).then(unwrap);
   },
 
-  listDocuments: (kbId: string, params?: { offset?: number; limit?: number; status?: string }) =>
-    client.get<APIResponse<{ items: DocumentRsp[]; total: number }>>(`/knowledge/bases/${kbId}/documents`, { params })
-      .then((r) => ({ list: r.data.data.items ?? [], total: r.data.data.total ?? 0 })),
+  listDocuments: (kbId: string, params?: { offset?: number; limit?: number; status?: string; title?: string }) =>
+    client.get<APIResponse<DocumentListRsp>>(`/knowledge/bases/${kbId}/documents`, { params })
+      .then((r) => ({
+        list: r.data.data.items ?? [], total: r.data.data.total ?? 0,
+        next_offset: r.data.data.next_offset ?? params?.offset ?? 0,
+        has_more: r.data.data.has_more ?? false, truncated: r.data.data.truncated ?? false,
+      })),
 
   getDocument: (docId: string) =>
     client.get<APIResponse<DocumentRsp>>(`/knowledge/documents/${docId}`).then(unwrap),
@@ -49,9 +53,15 @@ export const kbApi = {
       `/knowledge/documents/${docId}/content`,
     ).then(unwrap),
 
-  listChunks: (docId: string, params?: { offset?: number; limit?: number }) =>
-    client.get<APIResponse<{ chunks: ChunkInfo[]; total: number }>>(`/knowledge/documents/${docId}/chunks`, { params })
-      .then((r) => ({ list: r.data.data.chunks ?? [], total: r.data.data.total ?? 0 })),
+  listChunks: (docId: string, params?: { offset?: number; limit?: number; start_index?: number; end_index?: number }) =>
+    client.get<APIResponse<ChunkListRsp>>(`/knowledge/documents/${docId}/chunks`, { params })
+      .then((r) => ({
+        list: r.data.data.chunks ?? [], total: r.data.data.total ?? 0,
+        next_offset: r.data.data.next_offset ?? params?.offset ?? 0,
+        has_more: r.data.data.has_more ?? false, truncated: r.data.data.truncated ?? false,
+        actual_start_index: r.data.data.actual_start_index,
+        actual_end_index: r.data.data.actual_end_index,
+      })),
 
   search: (kbId: string, query: string, options?: Pick<KnowledgeSearchReq, 'doc_ids' | 'limit'>) =>
     client.post<APIResponse<KnowledgeSearchRsp>>(`/knowledge/bases/${kbId}/search`, { query, ...options }).then(unwrap),

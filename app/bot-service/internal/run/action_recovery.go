@@ -115,7 +115,7 @@ func (s *Service) rebindAction(tx *gorm.DB, r *model.Run, a *model.RunAction, fr
 	if json.Unmarshal(a.Provenance, &provenance) != nil || json.Unmarshal(r.Provenance, &current) != nil {
 		return status.Error(codes.PermissionDenied, "action provenance changed")
 	}
-	completedKnowledgeRead := frozen.ServerID == "runtime" && isKnowledgeTool(frozen.Name) && a.Risk == "read" && slices.Contains([]string{"succeeded", "failed"}, a.Status)
+	completedKnowledgeRead := frozen.ServerID == "runtime" && isRuntimeReadTool(frozen.Name) && a.Risk == "read" && slices.Contains([]string{"succeeded", "failed"}, a.Status)
 	if completedKnowledgeRead {
 		for _, source := range provenance {
 			if !slices.Contains(current, source) {

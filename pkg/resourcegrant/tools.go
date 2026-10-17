@@ -50,10 +50,10 @@ func TrustedToolPolicy(ownerType string, policies map[string]ToolPolicy, name st
 func CheckToolPermissions(tx *gorm.DB, a Access, refs []ToolRef, lock bool) error {
 	for _, ref := range refs {
 		if ref.ServerID == "runtime" {
-			if !slices.Contains([]string{"ask_for_input", "delegate_run", "delegation_result", "search_knowledge", "list_knowledge_bases"}, ref.Name) {
+			if !slices.Contains([]string{"ask_for_input", "delegate_run", "delegation_result", "search_knowledge", "list_knowledge_bases", "list_knowledge_documents", "read_knowledge_document", "read_conversation_history"}, ref.Name) {
 				return toolDenial()
 			}
-			if ref.Name == "search_knowledge" || ref.Name == "list_knowledge_bases" {
+			if slices.Contains([]string{"search_knowledge", "list_knowledge_bases", "list_knowledge_documents", "read_knowledge_document"}, ref.Name) {
 				var bot struct{ EnableKnowledge bool }
 				q := tx.Table("bot.bots").Select("enable_knowledge").Where("id = ? AND status = 'active'", a.BotID)
 				if lock {
@@ -65,6 +65,9 @@ func CheckToolPermissions(tx *gorm.DB, a Access, refs []ToolRef, lock bool) erro
 				if !bot.EnableKnowledge || ref.Risk != "read" {
 					return toolDenial()
 				}
+			}
+			if ref.Name == "read_conversation_history" && (ref.Risk != "read" || !ref.CanShare) {
+				return toolDenial()
 			}
 			continue
 		}

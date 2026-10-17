@@ -454,6 +454,20 @@ bot-service 的 runtime 角色使用锁定版本的 **CloudWeGo Eino `ChatModelA
 
 搜索资料、行动查询与结果沿用 Run 材料、来源、轨迹及恢复事实；命中片段与父块补充上下文分别标记 `matched`、`supplemental`，只公开实际文档／片段 ID 及已有定位元数据。每次消费与披露复核当前许可和文档／片段版本；失效来源及派生内容从 Run、摘要与新消息读取投影中移除，不声称能收回已经披露给外部系统的内容。第三方执行器保留原有获准资源读取路径，不新增工具协议。
 
+内置执行器另提供三个按需补读工具；可信身份、会话、绑定和授权由运行面提供，模型不能提交这些字段：
+
+| 工具 | 业务参数 | 读取边界 |
+| --- | --- | --- |
+| `list_knowledge_documents` | `kb_id`、可选 `title`、`offset`、`limit` | 标题按大小写敏感的字面子串筛选；仅列当前获准目录及真实文档状态 |
+| `read_knowledge_document` | `doc_id`、可选 `start_index`／`end_index`、`offset`、`limit` | 读取现有解析片段，不读取原始文件字节；索引从 0 开始，范围包含两端，稳定按片段索引及 ID 排序 |
+| `read_conversation_history` | `cursor`、`limit` | 只读当前 Run 显式历史授权内的当前会话消息，按 seq 倒序；`cursor=0` 开始，后续使用 `next_cursor` |
+
+文档目录与解析片段公开入口仍为 `GET /api/v1/knowledge/bases/:id/documents` 和 `GET /api/v1/knowledge/documents/:id/chunks`；查询字段与上述工具一致。两者默认 `limit=20`、最大 100，负偏移、超数量上限、非法片段范围拒绝。`offset` 是筛选范围内的行偏移，不是片段索引。响应提供 `next_offset`、`has_more`、`truncated`；片段页另含实际 `actual_start_index`／`actual_end_index`，空页缺省。公开文档页最多 65536 字节，只在完整记录之间截断；客户端必须沿真实续读偏移读取，不能按固定页大小跳过内容。历史默认 30、最大 100，工具结果最多 131072 字节，按完整消息分页。单条记录过大时明确拒绝，不返回无法推进的续读游标。
+
+未就绪、不可用／解析失败、无可读解析正文、单条记录过大分别返回业务码 `1020`／`1021`／`1022`／`1023`（HTTP 409／503／409／413）；工具分别呈现 `document_not_ready`／`document_unavailable`／`no_readable_content`／`reading_too_large`，不冒充搜索空命中。`GetDocumentContent`／`GET .../content` 保留原始文件读取语义，不能用 PDF 等原始字节替代模型可读正文。局部解析页不声明已读全文，只返回真实元数据，不推断页码或章节。
+
+内置 Run 接收 `history_grant_id` 或补充输入中的显式历史授权时只持有许可，不预读整段历史；第三方既有读取合同保留。缺授权以 `missing_history_authorization` 请求 `ask_for_input` 补充明确资料或报告缺口；不自动签发许可、不读取全部群历史。模型越界游标拒绝，获准一页不构成永久许可。历史工具来源保留消息 ID、数字 seq、授权与接受的编辑版本，经过压缩和恢复仍复核当前绑定、成员、授权范围、消息可见性及派生结果来源；编辑、撤回、隐藏或授权失效后不继续消费和披露。它不同于用户原先显式提交的独立已接受输入快照，后者仍不随原消息编辑或删除撤销。目录元数据、正文和历史消息均是不可信资料，不能改变任务或授权。
+
 `python3 tests/e2e/run.py --scenario bot-knowledge-tools --timeout 60s` 经现有 gateway 验收真实入库、索引、授权、按需搜索、空命中、可恢复失败、停止、预算与恢复。可控供应响应只用于确定性边界测试，最终答案依赖实际返回资料；它不能证明自然模型指代能力或命中率提升。
 
 KB、文档和 chunk UUID 保留在获准 sources 与共享消息 metadata 中。私人正文与派生结果仅对个人请求者可见；撤权阻止后续模型请求和输出，不声称已经发给外部系统的材料被收回。

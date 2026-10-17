@@ -1355,9 +1355,10 @@ func (x *GetDocumentReq) GetDocId() string {
 type ListDocumentsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	KbId          string                 `protobuf:"bytes,1,opt,name=kb_id,json=kbId,proto3" json:"kb_id,omitempty"`
-	Offset        int32                  `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
-	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
-	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"` // optional filter by status
+	Offset        int32                  `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"` // default: 0; non-negative row offset in the filtered result
+	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`   // omitted/0: 20; explicit positive values: 1..100
+	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`  // optional filter by status
+	Title         string                 `protobuf:"bytes,5,opt,name=title,proto3" json:"title,omitempty"`    // literal, case-sensitive substring; not a LIKE pattern
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1416,6 +1417,13 @@ func (x *ListDocumentsReq) GetLimit() int32 {
 func (x *ListDocumentsReq) GetStatus() string {
 	if x != nil {
 		return x.Status
+	}
+	return ""
+}
+
+func (x *ListDocumentsReq) GetTitle() string {
+	if x != nil {
+		return x.Title
 	}
 	return ""
 }
@@ -1736,6 +1744,9 @@ type ListDocumentsRsp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Items         []*DocumentRsp         `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
 	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	NextOffset    int32                  `protobuf:"varint,3,opt,name=next_offset,json=nextOffset,proto3" json:"next_offset,omitempty"` // offset + number of returned items
+	HasMore       bool                   `protobuf:"varint,4,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	Truncated     bool                   `protobuf:"varint,5,opt,name=truncated,proto3" json:"truncated,omitempty"` // a count or serialized-output boundary left further items
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1782,6 +1793,27 @@ func (x *ListDocumentsRsp) GetTotal() int64 {
 		return x.Total
 	}
 	return 0
+}
+
+func (x *ListDocumentsRsp) GetNextOffset() int32 {
+	if x != nil {
+		return x.NextOffset
+	}
+	return 0
+}
+
+func (x *ListDocumentsRsp) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
+func (x *ListDocumentsRsp) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
 }
 
 // 可信 Run 无过滤时搜索本次授权的全部 active rag；普通身份提供 bot_id/conv_id
@@ -2528,6 +2560,7 @@ func (x *BoundTargetItem) GetCreatedAt() int64 {
 	return 0
 }
 
+// Original stored file bytes, not parsed/model-readable document text.
 type GetDocumentContentReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	DocId         string                 `protobuf:"bytes,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
@@ -2643,8 +2676,10 @@ func (x *GetDocumentContentResp) GetFileSize() int64 {
 type ListChunksReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	DocId         string                 `protobuf:"bytes,1,opt,name=doc_id,json=docId,proto3" json:"doc_id,omitempty"`
-	Offset        int32                  `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
-	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	Offset        int32                  `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`                                 // non-negative row offset within the selected chunk-index range
+	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`                                   // omitted/0: 20; explicit positive values: 1..100
+	StartIndex    *int32                 `protobuf:"varint,4,opt,name=start_index,json=startIndex,proto3,oneof" json:"start_index,omitempty"` // inclusive, zero-based; omitted means first chunk
+	EndIndex      *int32                 `protobuf:"varint,5,opt,name=end_index,json=endIndex,proto3,oneof" json:"end_index,omitempty"`       // inclusive; omitted means last chunk
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2700,6 +2735,20 @@ func (x *ListChunksReq) GetLimit() int32 {
 	return 0
 }
 
+func (x *ListChunksReq) GetStartIndex() int32 {
+	if x != nil && x.StartIndex != nil {
+		return *x.StartIndex
+	}
+	return 0
+}
+
+func (x *ListChunksReq) GetEndIndex() int32 {
+	if x != nil && x.EndIndex != nil {
+		return *x.EndIndex
+	}
+	return 0
+}
+
 type ChunkInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -2707,7 +2756,7 @@ type ChunkInfo struct {
 	ChunkIndex    int32                  `protobuf:"varint,3,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
 	Content       string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
 	TokenCount    int32                  `protobuf:"varint,5,opt,name=token_count,json=tokenCount,proto3" json:"token_count,omitempty"`
-	Metadata      string                 `protobuf:"bytes,6,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	Metadata      string                 `protobuf:"bytes,6,opt,name=metadata,proto3" json:"metadata,omitempty"` // actual parser metadata JSON; absent locations are not inferred
 	CreatedAt     int64                  `protobuf:"varint,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2793,11 +2842,16 @@ func (x *ChunkInfo) GetCreatedAt() int64 {
 }
 
 type ListChunksResp struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Chunks        []*ChunkInfo           `protobuf:"bytes,1,rep,name=chunks,proto3" json:"chunks,omitempty"`
-	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Chunks           []*ChunkInfo           `protobuf:"bytes,1,rep,name=chunks,proto3" json:"chunks,omitempty"`
+	Total            int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`                             // readable non-parent chunks in the selected inclusive range
+	NextOffset       int32                  `protobuf:"varint,3,opt,name=next_offset,json=nextOffset,proto3" json:"next_offset,omitempty"` // offset + returned whole chunks; reuse the same range
+	HasMore          bool                   `protobuf:"varint,4,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	Truncated        bool                   `protobuf:"varint,5,opt,name=truncated,proto3" json:"truncated,omitempty"`                                               // count or 65536-byte serialized response boundary
+	ActualStartIndex *int32                 `protobuf:"varint,6,opt,name=actual_start_index,json=actualStartIndex,proto3,oneof" json:"actual_start_index,omitempty"` // absent when this page is empty
+	ActualEndIndex   *int32                 `protobuf:"varint,7,opt,name=actual_end_index,json=actualEndIndex,proto3,oneof" json:"actual_end_index,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ListChunksResp) Reset() {
@@ -2840,6 +2894,41 @@ func (x *ListChunksResp) GetChunks() []*ChunkInfo {
 func (x *ListChunksResp) GetTotal() int64 {
 	if x != nil {
 		return x.Total
+	}
+	return 0
+}
+
+func (x *ListChunksResp) GetNextOffset() int32 {
+	if x != nil {
+		return x.NextOffset
+	}
+	return 0
+}
+
+func (x *ListChunksResp) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
+func (x *ListChunksResp) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+func (x *ListChunksResp) GetActualStartIndex() int32 {
+	if x != nil && x.ActualStartIndex != nil {
+		return *x.ActualStartIndex
+	}
+	return 0
+}
+
+func (x *ListChunksResp) GetActualEndIndex() int32 {
+	if x != nil && x.ActualEndIndex != nil {
+		return *x.ActualEndIndex
 	}
 	return 0
 }
@@ -3062,12 +3151,13 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\x11pipeline_override\x18\a \x01(\v2\x1d.knowledgebase.PipelineConfigR\x10pipelineOverrideB\x06\n" +
 	"\x04data\"/\n" +
 	"\x0eGetDocumentReq\x12\x1d\n" +
-	"\x06doc_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\"u\n" +
+	"\x06doc_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\"\x8b\x01\n" +
 	"\x10ListDocumentsReq\x12\x1b\n" +
 	"\x05kb_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x04kbId\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x05R\x06offset\x12\x14\n" +
 	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x16\n" +
-	"\x06status\x18\x04 \x01(\tR\x06status\"2\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x12\x14\n" +
+	"\x05title\x18\x05 \x01(\tR\x05title\"2\n" +
 	"\x11DeleteDocumentReq\x12\x1d\n" +
 	"\x06doc_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\"1\n" +
 	"\x10RetryDocumentReq\x12\x1d\n" +
@@ -3097,10 +3187,14 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\x05error\x18\x04 \x01(\tR\x05error\x12\x1d\n" +
 	"\n" +
 	"started_at\x18\x05 \x01(\x03R\tstartedAt\x12\x19\n" +
-	"\bended_at\x18\x06 \x01(\x03R\aendedAt\"Z\n" +
+	"\bended_at\x18\x06 \x01(\x03R\aendedAt\"\xb4\x01\n" +
 	"\x10ListDocumentsRsp\x120\n" +
 	"\x05items\x18\x01 \x03(\v2\x1a.knowledgebase.DocumentRspR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\xe9\x01\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\x12\x1f\n" +
+	"\vnext_offset\x18\x03 \x01(\x05R\n" +
+	"nextOffset\x12\x19\n" +
+	"\bhas_more\x18\x04 \x01(\bR\ahasMore\x12\x1c\n" +
+	"\ttruncated\x18\x05 \x01(\bR\ttruncated\"\xe9\x01\n" +
 	"\vRetrieveReq\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\"\n" +
 	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12$\n" +
@@ -3179,11 +3273,17 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\acontent\x18\x01 \x01(\tR\acontent\x12!\n" +
 	"\fdownload_url\x18\x02 \x01(\tR\vdownloadUrl\x12\x1b\n" +
 	"\tmime_type\x18\x03 \x01(\tR\bmimeType\x12\x1b\n" +
-	"\tfile_size\x18\x04 \x01(\x03R\bfileSize\"\\\n" +
+	"\tfile_size\x18\x04 \x01(\x03R\bfileSize\"\xc2\x01\n" +
 	"\rListChunksReq\x12\x1d\n" +
 	"\x06doc_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x05R\x06offset\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\xd9\x01\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12$\n" +
+	"\vstart_index\x18\x04 \x01(\x05H\x00R\n" +
+	"startIndex\x88\x01\x01\x12 \n" +
+	"\tend_index\x18\x05 \x01(\x05H\x01R\bendIndex\x88\x01\x01B\x0e\n" +
+	"\f_start_indexB\f\n" +
+	"\n" +
+	"_end_index\"\xd9\x01\n" +
 	"\tChunkInfo\x12\x16\n" +
 	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\x1d\n" +
 	"\x06doc_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x05docId\x12\x1f\n" +
@@ -3194,10 +3294,18 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"tokenCount\x12\x1a\n" +
 	"\bmetadata\x18\x06 \x01(\tR\bmetadata\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\a \x01(\x03R\tcreatedAt\"X\n" +
+	"created_at\x18\a \x01(\x03R\tcreatedAt\"\xc0\x02\n" +
 	"\x0eListChunksResp\x120\n" +
 	"\x06chunks\x18\x01 \x03(\v2\x18.knowledgebase.ChunkInfoR\x06chunks\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total2\xcb\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\x12\x1f\n" +
+	"\vnext_offset\x18\x03 \x01(\x05R\n" +
+	"nextOffset\x12\x19\n" +
+	"\bhas_more\x18\x04 \x01(\bR\ahasMore\x12\x1c\n" +
+	"\ttruncated\x18\x05 \x01(\bR\ttruncated\x121\n" +
+	"\x12actual_start_index\x18\x06 \x01(\x05H\x00R\x10actualStartIndex\x88\x01\x01\x12-\n" +
+	"\x10actual_end_index\x18\a \x01(\x05H\x01R\x0eactualEndIndex\x88\x01\x01B\x15\n" +
+	"\x13_actual_start_indexB\x13\n" +
+	"\x11_actual_end_index2\xcb\n" +
 	"\n" +
 	"\rKnowledgeBase\x12<\n" +
 	"\bCreateKB\x12\x1a.knowledgebase.CreateKBReq\x1a\x14.knowledgebase.KBRsp\x12<\n" +
@@ -3358,6 +3466,8 @@ func file_knowledge_base_knowledge_base_proto_init() {
 	}
 	file_knowledge_base_knowledge_base_proto_msgTypes[25].OneofWrappers = []any{}
 	file_knowledge_base_knowledge_base_proto_msgTypes[27].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[38].OneofWrappers = []any{}
+	file_knowledge_base_knowledge_base_proto_msgTypes[40].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

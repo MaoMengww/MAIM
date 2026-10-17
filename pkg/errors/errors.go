@@ -11,26 +11,30 @@ import (
 )
 
 const (
-	CodeUnknown           = 1000
-	CodeInvalidParam      = 1001
-	CodeUnauthorized      = 1002
-	CodeForbidden         = 1003
-	CodeNotFound          = 1004
-	CodeConflict          = 1005
-	CodeInternal          = 1006
-	CodeTimeout           = 1007
-	CodeTooManyRequests   = 1008
-	CodeServiceDown       = 1009
-	CodeDBError           = 1010
-	CodeCacheError        = 1011
-	CodeMQError           = 1012
-	CodeRPCError          = 1013
-	CodeIOError           = 1014
-	CodeBotNotFound       = 1015
-	CodeBotForbidden      = 1016
-	CodeWebhookInvalid    = 1017
-	CodeWebhookTimeout    = 1018
-	CodeIncompatibleScope = 1019
+	CodeUnknown             = 1000
+	CodeInvalidParam        = 1001
+	CodeUnauthorized        = 1002
+	CodeForbidden           = 1003
+	CodeNotFound            = 1004
+	CodeConflict            = 1005
+	CodeInternal            = 1006
+	CodeTimeout             = 1007
+	CodeTooManyRequests     = 1008
+	CodeServiceDown         = 1009
+	CodeDBError             = 1010
+	CodeCacheError          = 1011
+	CodeMQError             = 1012
+	CodeRPCError            = 1013
+	CodeIOError             = 1014
+	CodeBotNotFound         = 1015
+	CodeBotForbidden        = 1016
+	CodeWebhookInvalid      = 1017
+	CodeWebhookTimeout      = 1018
+	CodeIncompatibleScope   = 1019
+	CodeDocumentNotReady    = 1020
+	CodeDocumentUnavailable = 1021
+	CodeNoReadableContent   = 1022
+	CodeReadingTooLarge     = 1023
 )
 
 type BizError struct {
@@ -68,13 +72,13 @@ func GRPCCodeFromCode(code int) codes.Code {
 		return codes.NotFound
 	case CodeConflict:
 		return codes.AlreadyExists
-	case CodeIncompatibleScope:
+	case CodeIncompatibleScope, CodeDocumentNotReady, CodeNoReadableContent:
 		return codes.FailedPrecondition
 	case CodeTimeout:
 		return codes.DeadlineExceeded
-	case CodeTooManyRequests:
+	case CodeTooManyRequests, CodeReadingTooLarge:
 		return codes.ResourceExhausted
-	case CodeServiceDown, CodeRPCError:
+	case CodeServiceDown, CodeRPCError, CodeDocumentUnavailable:
 		return codes.Unavailable
 	case CodeBotNotFound:
 		return codes.NotFound
@@ -100,13 +104,15 @@ func HTTPStatusFromCode(code int) int {
 		return 403
 	case CodeNotFound, CodeBotNotFound:
 		return 404
-	case CodeConflict, CodeIncompatibleScope:
+	case CodeConflict, CodeIncompatibleScope, CodeDocumentNotReady, CodeNoReadableContent:
 		return 409
 	case CodeTimeout, CodeWebhookTimeout:
 		return 408
 	case CodeTooManyRequests:
 		return 429
-	case CodeServiceDown, CodeRPCError:
+	case CodeReadingTooLarge:
+		return 413
+	case CodeServiceDown, CodeRPCError, CodeDocumentUnavailable:
 		return 503
 	default:
 		return 500

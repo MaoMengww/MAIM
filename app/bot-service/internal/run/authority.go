@@ -356,7 +356,7 @@ func (s *Service) confirmBuiltinStop(ctx context.Context, r *model.Run, generati
 func stopReceipt(r *model.PublicRun) *model.PublicRun {
 	r.ResultText, r.ResultType, r.ResultContent, r.Error = "", "", nil, ""
 	r.WaitingReason, r.ContextNotice, r.Activity = "", "", nil
-	r.Sources, r.InputSources = []map[string]string{}, []model.InputSource{}
+	r.Sources, r.InputSources = []map[string]any{}, []model.InputSource{}
 	return r
 }
 

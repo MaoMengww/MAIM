@@ -68,7 +68,7 @@ func (m *mockDocRepo) Get(ctx context.Context, docID string) (*domain.Document, 
 func (m *mockDocRepo) GetByHash(ctx context.Context, kbID string, contentHash string) (*domain.Document, error) {
 	return nil, gorm.ErrRecordNotFound
 }
-func (m *mockDocRepo) ListByKB(ctx context.Context, kbID string, offset, limit int, status string) ([]domain.Document, int64, error) {
+func (m *mockDocRepo) ListByKB(ctx context.Context, kbID string, offset, limit int, status, title string) ([]domain.Document, int64, error) {
 	return nil, 0, m.err
 }
 func (m *mockDocRepo) UpdateStatus(ctx context.Context, docID string, status domain.DocStatus, errMsg string) error {
@@ -97,7 +97,7 @@ func (m *mockDocRepo) DeleteChunksByDoc(ctx context.Context, docID string) error
 	}
 	return m.err
 }
-func (m *mockDocRepo) GetChunksByDocID(ctx context.Context, docID string, offset, limit int) ([]domain.ChunkRecord, error) {
+func (m *mockDocRepo) GetChunksByDocID(ctx context.Context, docID string, offset, limit int, startIndex, endIndex *int32) ([]domain.ChunkRecord, error) {
 	return nil, m.err
 }
 func (m *mockDocRepo) GetParentChunksByDocID(ctx context.Context, docID string) ([]domain.ChunkRecord, error) {
@@ -122,7 +122,7 @@ func (m *mockDocRepo) UpdateStages(ctx context.Context, docID string, stages []d
 	}
 	return m.err
 }
-func (m *mockDocRepo) CountChunksByDocID(ctx context.Context, docID string) (int64, error) {
+func (m *mockDocRepo) CountChunksByDocID(ctx context.Context, docID string, startIndex, endIndex *int32) (int64, error) {
 	return 0, m.err
 }
 

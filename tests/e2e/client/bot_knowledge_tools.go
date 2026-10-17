@@ -220,6 +220,14 @@ func (d *driver) botKnowledgeTools(address, secondAddress string) error {
 		name string
 		run  func() error
 	}{
+		{"document title filtering and pagination", f.documentCatalog},
+		{"parsed document range and neighboring chunks", f.documentReading},
+		{"non-text parsed content and bounded reading", f.documentFormats},
+		{"explicit bounded conversation history", f.conversationReading},
+		{"original file authority across Bot history", f.historyOriginalFileRevocation},
+		{"current document and directory authority", f.documentAuthority},
+		{"bounded document and history delivery", f.readingBudget},
+		{"compressed document and history sources", f.readingCompaction},
 		{"knowledge discovery and joint search contract", f.searchContract},
 		{"demand, rewrite and recoverable errors", f.autonomousCases},
 		{"accepted background", f.acceptedBackground},
@@ -228,11 +236,13 @@ func (d *driver) botKnowledgeTools(address, secondAddress string) error {
 		{"current capability and authority", f.authorityBoundaries},
 		{"empty authority and private read", f.privateKnowledge},
 		{"durable completed search", f.restoreSearch},
+		{"durable document and history reading", f.restoreReading},
 		{"result review and replaced evidence", f.reviewAndReplacement},
 	} {
 		if err = step.run(); err != nil {
 			return fmt.Errorf("knowledge tools %s: %w", step.name, err)
 		}
+		fmt.Printf("Knowledge tools step PASS: %s\n", step.name)
 	}
 	return nil
 }

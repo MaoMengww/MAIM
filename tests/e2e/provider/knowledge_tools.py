@@ -109,6 +109,24 @@ def model(body, handler, accepted_input):
         call = plan["calls"][index]
         arguments = dict(call)
         name = arguments.pop("tool", "search_knowledge")
+        if arguments.pop("continue_catalog", False):
+            previous = next((value for value in reversed(found) if value["_tool"] == "list_knowledge_documents" and value.get("status") == "ok"), None)
+            if previous is None or not previous.get("has_more"):
+                handler._json(400, {"error": {"message": "catalog continuation requires a real preceding page"}})
+                return True
+            arguments["offset"] = previous["next_offset"]
+        if arguments.pop("continue_document", False):
+            previous = next((value for value in reversed(found) if value["_tool"] == "read_knowledge_document" and value.get("status") == "ok"), None)
+            if previous is None or not previous.get("has_more"):
+                handler._json(400, {"error": {"message": "document continuation requires a real preceding page"}})
+                return True
+            arguments["offset"] = previous["next_offset"]
+        if arguments.pop("continue_history", False):
+            previous = next((value for value in reversed(found) if value["_tool"] == "read_conversation_history" and value.get("status") == "ok"), None)
+            if previous is None or not previous.get("has_more"):
+                handler._json(400, {"error": {"message": "history continuation requires a real preceding page"}})
+                return True
+            arguments["cursor"] = previous["next_cursor"]
         if arguments.pop("from_input", False):
             arguments["query"] = inputs[-1]["content"]
         if arguments.pop("from_context", False):
@@ -124,9 +142,13 @@ def model(body, handler, accepted_input):
         items = [item for value in found if value.get("status") == "ok" and value["_tool"] == "search_knowledge"
                  for item in value.get("items", [])]
         discoveries = [value for value in found if value.get("status") == "ok" and value["_tool"] == "list_knowledge_bases"]
+        document_pages = [value for value in found if value.get("status") == "ok" and value["_tool"] == "list_knowledge_documents"]
+        document_reads = [value for value in found if value.get("status") == "ok" and value["_tool"] == "read_knowledge_document"]
+        history_reads = [value for value in found if value.get("status") == "ok" and value["_tool"] == "read_conversation_history"]
         answer = {"evidence": items, "discoveries": discoveries,
+                  "document_pages": document_pages, "document_reads": document_reads, "history_reads": history_reads,
                   "errors": [value["error"] for value in found if value.get("status") == "error"],
-                  "gap": not bool(items), "bounded": index < len(plan["calls"]),
+                  "gap": not bool(items or document_pages or document_reads or history_reads), "bounded": index < len(plan["calls"]),
                   "accepted_inputs": [value["content"] for value in inputs]}
         send(body, handler, {"role": "assistant", "content": json.dumps(answer, ensure_ascii=False)}, "stop")
         return True

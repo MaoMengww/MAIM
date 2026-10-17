@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -113,7 +114,7 @@ func (r *DocumentRepo) GetByHash(ctx context.Context, kbID string, contentHash s
 	return &doc, nil
 }
 
-func (r *DocumentRepo) ListByKB(ctx context.Context, kbID string, offset, limit int, status string) ([]domain.Document, int64, error) {
+func (r *DocumentRepo) ListByKB(ctx context.Context, kbID string, offset, limit int, status, title string) ([]domain.Document, int64, error) {
 	if err := identity.Validate(kbID); err != nil {
 		return nil, 0, err
 	}
@@ -123,10 +124,14 @@ func (r *DocumentRepo) ListByKB(ctx context.Context, kbID string, offset, limit 
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
+	if title != "" {
+		literal := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(title)
+		query = query.Where("title LIKE ? ESCAPE '!'", "%"+literal+"%")
+	}
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&docs).Error
+	err := query.Order("created_at DESC, id DESC").Offset(offset).Limit(limit).Find(&docs).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -213,12 +218,12 @@ func (r *DocumentRepo) DeleteChunksByDoc(ctx context.Context, docID string) erro
 	return r.db.WithContext(ctx).Where("doc_id = ?", docID).Delete(&domain.ChunkRecord{}).Error
 }
 
-func (r *DocumentRepo) GetChunksByDocID(ctx context.Context, docID string, offset, limit int) ([]domain.ChunkRecord, error) {
+func (r *DocumentRepo) GetChunksByDocID(ctx context.Context, docID string, offset, limit int, startIndex, endIndex *int32) ([]domain.ChunkRecord, error) {
 	if err := identity.Validate(docID); err != nil {
 		return nil, err
 	}
 	var chunks []domain.ChunkRecord
-	query := r.db.WithContext(ctx).Where("doc_id = ? AND (metadata IS NULL OR NOT (metadata @> ?))", docID, `{"block_type": "parent"}`).Order("chunk_index")
+	query := r.readableChunks(ctx, docID, startIndex, endIndex).Order("chunk_index, id")
 	if limit > 0 {
 		query = query.Offset(offset).Limit(limit)
 	}
@@ -229,18 +234,29 @@ func (r *DocumentRepo) GetChunksByDocID(ctx context.Context, docID string, offse
 	return chunks, nil
 }
 
-func (r *DocumentRepo) CountChunksByDocID(ctx context.Context, docID string) (int64, error) {
+func (r *DocumentRepo) CountChunksByDocID(ctx context.Context, docID string, startIndex, endIndex *int32) (int64, error) {
 	if err := identity.Validate(docID); err != nil {
 		return 0, err
 	}
 	var total int64
-	err := r.db.WithContext(ctx).Model(&domain.ChunkRecord{}).
-		Where("doc_id = ? AND (metadata IS NULL OR NOT (metadata @> ?))", docID, `{"block_type": "parent"}`).
-		Count(&total).Error
+	err := r.readableChunks(ctx, docID, startIndex, endIndex).Count(&total).Error
 	if err != nil {
 		return 0, err
 	}
 	return total, nil
+}
+
+func (r *DocumentRepo) readableChunks(ctx context.Context, docID string, startIndex, endIndex *int32) *gorm.DB {
+	query := r.db.WithContext(ctx).Model(&domain.ChunkRecord{}).
+		Where("doc_id = ? AND (metadata IS NULL OR NOT (metadata @> ?))", docID, `{"block_type": "parent"}`).
+		Where("content ~ '[^[:space:]]'")
+	if startIndex != nil {
+		query = query.Where("chunk_index >= ?", *startIndex)
+	}
+	if endIndex != nil {
+		query = query.Where("chunk_index <= ?", *endIndex)
+	}
+	return query
 }
 
 func (r *DocumentRepo) GetChunksByIDs(ctx context.Context, ids []string) ([]domain.ChunkRecord, error) {

@@ -16,8 +16,12 @@ export function DocDetailPage() {
   const [contentOpen, setContentOpen] = useState(false);
   const [contentData, setContentData] = useState<{ content: string; download_url: string } | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [chunkOffsets, setChunkOffsets] = useState([0]);
+  const chunkOffset = chunkOffsets[chunkOffsets.length - 1] ?? 0;
+
+  useEffect(() => {
+    setChunkOffsets([0]);
+  }, [docId]);
 
   const queryClient = useQueryClient();
 
@@ -38,26 +42,24 @@ export function DocDetailPage() {
     enabled: !!docId,
   });
 
-  const { data: chunksData, isLoading: chunksLoading } = useQuery({
-    queryKey: ['kb-doc-chunks', docId, page, pageSize],
-    queryFn: () => kbApi.listChunks(docId!, { offset: (page - 1) * pageSize, limit: pageSize }),
-    enabled: !!docId && doc?.kb_id === kbId,
+  const { data: chunksData, isLoading: chunksLoading, isError: chunksError } = useQuery({
+    queryKey: ['kb-doc-chunks', docId, chunkOffset],
+    queryFn: () => kbApi.listChunks(docId!, { offset: chunkOffset, limit: 20 }),
+    enabled: !!docId && doc?.kb_id === kbId && doc?.status === 'ready',
   });
 
   const { data: sourceChunk, isLoading: sourceChunkLoading, isError: sourceChunkError } = useQuery({
     queryKey: ['kb-source-chunk', docId, sourceChunkID],
-    enabled: !!sourceChunkID && !!docId && doc?.kb_id === kbId,
+    enabled: !!sourceChunkID && !!docId && doc?.kb_id === kbId && doc?.status === 'ready',
     queryFn: async () => {
       const chunkID = entityId(sourceChunkID, 'chunk');
       let offset = 0;
-      let total = Infinity;
-      while (offset < total) {
+      while (true) {
         const result = await kbApi.listChunks(docId!, { offset, limit: 100 });
         const chunk = result.list.find((item) => item.id === chunkID && item.doc_id === docId);
         if (chunk) return chunk;
-        if (result.list.length === 0) break;
-        offset += result.list.length;
-        total = result.total;
+        if (!result.has_more || result.next_offset <= offset) break;
+        offset = result.next_offset;
       }
       return null;
     },
@@ -156,7 +158,9 @@ export function DocDetailPage() {
         <section aria-label="引用切片" style={{ marginBottom: 24 }}>
           <h3 style={{ color: 'var(--aim-text)', marginBottom: 8, fontSize: 16 }}>引用切片</h3>
           <div style={{ overflowWrap: 'anywhere', color: 'var(--aim-text-secondary)', marginBottom: 8 }}>{sourceChunkID}</div>
-          {sourceChunkLoading ? <Spin /> : sourceChunkError ? (
+          {doc.status !== 'ready' ? (
+            <Alert type="info" showIcon message="文档解析内容尚不可用，暂时无法读取引用切片。" />
+          ) : sourceChunkLoading ? <Spin /> : sourceChunkError ? (
             <Alert type="error" showIcon message="无法读取引用切片" />
           ) : sourceChunk ? (
             <MarkdownContent content={sourceChunk.content} />
@@ -167,12 +171,17 @@ export function DocDetailPage() {
       )}
 
       <h3 style={{ color: 'var(--aim-text)', marginBottom: 12, fontSize: 16 }}>切片列表</h3>
+      {doc.status !== 'ready' ? (
+        <Alert type={doc.status === 'failed' ? 'error' : 'info'} showIcon message={doc.status === 'failed' ? '文档解析失败，暂无可读解析内容。' : '文档正在处理，解析内容就绪后会自动更新。'} />
+      ) : chunksError ? (
+        <Alert type="error" showIcon message="无法读取解析切片：文档可能没有可读正文，或读取服务暂不可用。" />
+      ) : <>
       <Table
         dataSource={chunksData?.list ?? []}
         columns={chunkColumns}
         rowKey="id"
         loading={chunksLoading}
-        pagination={{ current: page, pageSize, total: chunksData?.total ?? 0, showSizeChanger: false, onChange: (p, ps) => { setPage(p); setPageSize(ps); } }}
+        pagination={false}
         size="small"
         expandable={{
           expandedRowRender: (record: ChunkInfo) => (
@@ -183,6 +192,16 @@ export function DocDetailPage() {
           rowExpandable: () => true,
         }}
       />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
+        <Button disabled={chunkOffsets.length === 1 || chunksLoading} onClick={() => setChunkOffsets((offsets) => offsets.slice(0, -1))}>上一页</Button>
+        <span>第 {chunkOffsets.length} 页，共 {chunksData?.total ?? 0} 个切片</span>
+        <Button disabled={!chunksData?.has_more || chunksLoading} onClick={() => {
+          if (chunksData && chunksData.next_offset > chunkOffset) {
+            setChunkOffsets((offsets) => [...offsets, chunksData.next_offset]);
+          }
+        }}>下一页</Button>
+      </div>
+      </>}
 
       <Modal
         title="原文内容"

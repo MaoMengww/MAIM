@@ -8,15 +8,15 @@ type DocumentRepo interface {
 	Delete(ctx context.Context, docID string) error
 	Get(ctx context.Context, docID string) (*Document, error)
 	GetByHash(ctx context.Context, kbID string, contentHash string) (*Document, error)
-	ListByKB(ctx context.Context, kbID string, offset, limit int, status string) ([]Document, int64, error)
+	ListByKB(ctx context.Context, kbID string, offset, limit int, status, title string) ([]Document, int64, error)
 	UpdateStatus(ctx context.Context, docID string, status DocStatus, errMsg string) error
 	UpdateStages(ctx context.Context, docID string, stages []Stage) error
 	CreateChunks(ctx context.Context, chunks []ChunkRecord) error
 	CreateParentChunk(ctx context.Context, chunk *ChunkRecord) error
 	DeleteChunksByDoc(ctx context.Context, docID string) error
-	GetChunksByDocID(ctx context.Context, docID string, offset, limit int) ([]ChunkRecord, error)
+	GetChunksByDocID(ctx context.Context, docID string, offset, limit int, startIndex, endIndex *int32) ([]ChunkRecord, error)
 	GetParentChunksByDocID(ctx context.Context, docID string) ([]ChunkRecord, error)
-	CountChunksByDocID(ctx context.Context, docID string) (int64, error)
+	CountChunksByDocID(ctx context.Context, docID string, startIndex, endIndex *int32) (int64, error)
 	// GetChunksByIDs returns only chunks whose document is currently ready.
 	GetChunksByIDs(ctx context.Context, ids []string) ([]ChunkRecord, error)
 	// WithDocumentLock serializes a document lifecycle without keeping a transaction open.

@@ -471,6 +471,7 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 				return err
 			}
 			input := Input{BotID: r.BotID, ConvID: r.ConvID, BindingID: r.BindingID, RequesterID: user, Message: command.Message, SourceMessageID: command.SourceMessageID, MessageIDs: command.MessageIDs, FileIDs: command.FileIDs, HistoryGrantID: command.HistoryGrantID, ReplyInput: true, Visibility: r.Visibility, ResourceGrantIDs: r.ResourceGrantIDs}
+			input.DeferHistory = r.ExecutorType != "third_party"
 			if command.SourceMessageID != nil {
 				m, err := s.source(ctx, input, *command.SourceMessageID, true)
 				if err != nil {

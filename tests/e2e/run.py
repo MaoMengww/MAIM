@@ -496,7 +496,12 @@ class Runner:
         self.compose("knowledge-client-evidence", "logs", "--no-color", "--timestamps", "e2e-client")
 
     def knowledge_checkpoints(self):
-        for action in ("knowledge-completed-kill", "knowledge-completed-start"):
+        actions = ("knowledge-completed-kill", "knowledge-completed-start",
+                   "reading-document-kill", "reading-document-start",
+                   "reading-history-kill", "reading-history-start",
+                   "reading-document-revoked-kill", "reading-document-revoked-start",
+                   "reading-history-revoked-kill", "reading-history-revoked-start")
+        for action in actions:
             self.await_checkpoint("recovery-" + action)
             if action.endswith("-kill"):
                 self.compose(action, "kill", "--signal", "SIGKILL", "bot-runtime")

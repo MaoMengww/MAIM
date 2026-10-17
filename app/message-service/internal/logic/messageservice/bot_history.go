@@ -11,6 +11,7 @@ import (
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
+	"github.com/maomeng/aim/pkg/resourcegrant"
 	"github.com/maomeng/aim/pkg/sequence"
 	"gorm.io/gorm"
 )
@@ -101,16 +102,9 @@ func (l *GetMessagesLogic) getBotHistory(in *message.GetMessagesReq) (*message.G
 		if _, err := lockBotBinding(l.ctx, tx, in.ConversationId, in.GetBotId(), in.GetBindingId()); err != nil {
 			return err
 		}
-		var grant botHistoryGrant
-		if err := tx.Where("id = ? AND binding_id = ?", in.GetHistoryGrantId(), in.GetBindingId()).Take(&grant).Error; err != nil {
-			return errors.New(errors.CodeForbidden, "history grant unavailable")
-		}
-		var count int64
-		if err := tx.Model(&model.ConversationMember{}).Where("conv_id = ? AND user_id = ?", in.ConversationId, grant.GrantedBy).Count(&count).Error; err != nil {
+		grant, err := resourcegrant.CheckHistoryGrant(tx, resourcegrant.Access{BotID: in.GetBotId(), ConvID: in.ConversationId, BindingID: in.GetBindingId()}, in.GetHistoryGrantId(), true)
+		if err != nil {
 			return err
-		}
-		if count == 0 {
-			return errors.New(errors.CodeForbidden, "history grant author is no longer a participant")
 		}
 		if cursor != 0 && (cursor < grant.StartSeq || cursor > grant.EndSeq) {
 			return errors.New(errors.CodeForbidden, "history cursor is outside the grant")

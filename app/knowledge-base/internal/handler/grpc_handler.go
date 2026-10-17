@@ -21,8 +21,10 @@ import (
 	"github.com/maomeng/aim/pkg/kafka"
 	"github.com/maomeng/aim/pkg/knowledgecontract"
 	"github.com/maomeng/aim/pkg/logx"
+	"github.com/maomeng/aim/pkg/protocol"
 	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"gorm.io/gorm"
 )
@@ -169,7 +171,7 @@ func (h *KnowledgeBaseHandler) DeleteKB(ctx context.Context, req *pb.DeleteKBReq
 	}
 	for {
 		// Removing a page shifts the remaining documents to offset zero.
-		docs, _, err := h.DocRepo.ListByKB(ctx, kb.ID, 0, 100, "")
+		docs, _, err := h.DocRepo.ListByKB(ctx, kb.ID, 0, 100, "", "")
 		if err != nil {
 			return nil, errors.Wrap(errors.CodeDBError, "list kb documents failed", err)
 		}
@@ -371,22 +373,44 @@ func (h *KnowledgeBaseHandler) GetDocument(ctx context.Context, req *pb.GetDocum
 }
 
 func (h *KnowledgeBaseHandler) ListDocuments(ctx context.Context, req *pb.ListDocumentsReq) (*pb.ListDocumentsRsp, error) {
-	if _, err := h.loadKnowledgeBase(ctx, req.KbId, false); err != nil {
+	kb, err := h.loadKnowledgeBase(ctx, req.KbId, false)
+	if err != nil {
 		return nil, err
 	}
-	offset, limit := int(req.Offset), int(req.Limit)
-	if limit <= 0 || limit > 100 {
-		limit = 20
+	if _, bot := resourcegrant.Incoming(ctx); bot && kb.Status != "active" {
+		return nil, domain.ErrDocumentUnavailable
 	}
-	docs, total, err := h.DocRepo.ListByKB(ctx, req.KbId, offset, limit, req.Status)
+	offset, limit, err := readingPage(req.Offset, req.Limit, knowledgecontract.DefaultDocumentListLimit, knowledgecontract.MaxDocumentListLimit)
+	if err != nil {
+		return nil, err
+	}
+	docs, total, err := h.DocRepo.ListByKB(ctx, req.KbId, offset, limit, req.Status, req.Title)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "list documents failed", err)
 	}
-	items := make([]*pb.DocumentRsp, len(docs))
-	for i, doc := range docs {
-		items[i] = toDocumentRsp(&doc)
+	resp := &pb.ListDocumentsRsp{Items: make([]*pb.DocumentRsp, 0, len(docs)), Total: total}
+	used := readingPageEnvelopeBytes
+	for i := range docs {
+		item := documentReadingInfo(ctx, &docs[i])
+		fits, err := readingRecordFits(item, &used)
+		if err != nil {
+			return nil, err
+		}
+		if !fits {
+			if len(resp.Items) == 0 {
+				return nil, domain.ErrReadingTooLarge
+			}
+			break
+		}
+		resp.Items = append(resp.Items, item)
 	}
-	return &pb.ListDocumentsRsp{Items: items, Total: total}, nil
+	resp.NextOffset = req.Offset + int32(len(resp.Items))
+	resp.HasMore = len(resp.Items) > 0 && int64(resp.NextOffset) < total
+	resp.Truncated = resp.HasMore
+	if _, err := h.loadKnowledgeBase(ctx, req.KbId, false); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (h *KnowledgeBaseHandler) GetDocumentContent(ctx context.Context, req *pb.GetDocumentContentReq) (*pb.GetDocumentContentResp, error) {
@@ -420,40 +444,136 @@ func (h *KnowledgeBaseHandler) GetDocumentContent(ctx context.Context, req *pb.G
 }
 
 func (h *KnowledgeBaseHandler) ListChunks(ctx context.Context, req *pb.ListChunksReq) (*pb.ListChunksResp, error) {
-	doc, err := h.loadDocument(ctx, req.DocId, false)
+	if _, err := h.loadDocument(ctx, req.DocId, false); err != nil {
+		return nil, err
+	}
+	offset, limit, err := readingPage(req.Offset, req.Limit, knowledgecontract.DefaultChunkReadLimit, knowledgecontract.MaxChunkReadLimit)
 	if err != nil {
 		return nil, err
 	}
-	offset, limit := int(req.Offset), int(req.Limit)
-	if limit <= 0 || limit > 100 {
-		limit = 50
+	if (req.StartIndex != nil && *req.StartIndex < 0) || (req.EndIndex != nil && *req.EndIndex < 0) ||
+		(req.StartIndex != nil && req.EndIndex != nil && *req.StartIndex > *req.EndIndex) {
+		return nil, errors.New(errors.CodeInvalidParam, "invalid inclusive chunk index range")
 	}
-	total, err := h.DocRepo.CountChunksByDocID(ctx, doc.ID)
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "failed to count chunks", err)
-	}
-	chunks, err := h.DocRepo.GetChunksByDocID(ctx, doc.ID, offset, limit)
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "failed to list chunks", err)
-	}
-	pbChunks := make([]*pb.ChunkInfo, len(chunks))
-	for i, ch := range chunks {
-		var metadata string
-		if len(ch.Metadata) > 0 {
-			metaBytes, _ := json.Marshal(ch.Metadata)
-			metadata = string(metaBytes)
+	var resp *pb.ListChunksResp
+	err = h.DocRepo.WithDocumentLock(ctx, req.DocId, func(ctx context.Context) error {
+		doc, err := h.loadDocument(ctx, req.DocId, false)
+		if err != nil {
+			return err
 		}
-		pbChunks[i] = &pb.ChunkInfo{
-			Id:         ch.ID,
-			DocId:      ch.DocID,
-			ChunkIndex: int32(ch.ChunkIndex),
-			Content:    ch.Content,
-			TokenCount: int32(ch.TokenCount),
-			Metadata:   metadata,
-			CreatedAt:  ch.CreatedAt.Unix(),
+		switch doc.Status {
+		case domain.DocStatusReady:
+		case domain.DocStatusPending, domain.DocStatusParsing, domain.DocStatusChunking, domain.DocStatusEmbedding:
+			return domain.ErrDocumentNotReady
+		default:
+			return domain.ErrDocumentUnavailable
 		}
+		kb, err := h.loadKnowledgeBase(ctx, doc.KBID, false)
+		if err != nil {
+			return err
+		}
+		if kb.Status != "active" {
+			return domain.ErrDocumentUnavailable
+		}
+		total, err := h.DocRepo.CountChunksByDocID(ctx, doc.ID, req.StartIndex, req.EndIndex)
+		if err != nil {
+			return errors.Wrap(errors.CodeDBError, "failed to count chunks", err)
+		}
+		if total == 0 {
+			readable := total
+			if req.StartIndex != nil || req.EndIndex != nil {
+				readable, err = h.DocRepo.CountChunksByDocID(ctx, doc.ID, nil, nil)
+				if err != nil {
+					return errors.Wrap(errors.CodeDBError, "failed to count readable chunks", err)
+				}
+			}
+			if readable == 0 {
+				return domain.ErrNoReadableContent
+			}
+		}
+		chunks, err := h.DocRepo.GetChunksByDocID(ctx, doc.ID, offset, limit, req.StartIndex, req.EndIndex)
+		if err != nil {
+			return errors.Wrap(errors.CodeDBError, "failed to list chunks", err)
+		}
+		resp = &pb.ListChunksResp{Chunks: make([]*pb.ChunkInfo, 0, len(chunks)), Total: total}
+		used := readingPageEnvelopeBytes
+		for _, ch := range chunks {
+			metadata, err := sourceMetadataJSON(ch.Metadata)
+			if err != nil {
+				return err
+			}
+			item := &pb.ChunkInfo{
+				Id: ch.ID, DocId: ch.DocID, ChunkIndex: int32(ch.ChunkIndex),
+				Content: ch.Content, TokenCount: int32(ch.TokenCount),
+				Metadata: metadata, CreatedAt: ch.CreatedAt.Unix(),
+			}
+			fits, err := readingRecordFits(item, &used)
+			if err != nil {
+				return err
+			}
+			if !fits {
+				if len(resp.Chunks) == 0 {
+					return domain.ErrReadingTooLarge
+				}
+				break
+			}
+			resp.Chunks = append(resp.Chunks, item)
+		}
+		resp.NextOffset = req.Offset + int32(len(resp.Chunks))
+		resp.HasMore = len(resp.Chunks) > 0 && int64(resp.NextOffset) < total
+		resp.Truncated = resp.HasMore
+		if len(resp.Chunks) > 0 {
+			start, end := resp.Chunks[0].ChunkIndex, resp.Chunks[len(resp.Chunks)-1].ChunkIndex
+			resp.ActualStartIndex, resp.ActualEndIndex = &start, &end
+		}
+		_, err = h.loadDocument(ctx, req.DocId, false)
+		return err
+	})
+	if err != nil {
+		return nil, err
 	}
-	return &pb.ListChunksResp{Chunks: pbChunks, Total: total}, nil
+	return resp, nil
+}
+
+// This covers both page envelopes, scalar fields, and JSON array separators.
+const readingPageEnvelopeBytes = 512
+
+func readingPage(offset, limit int32, defaultLimit, maxLimit int) (int, int, error) {
+	if offset < 0 || limit < 0 || int(limit) > maxLimit {
+		return 0, 0, errors.New(errors.CodeInvalidParam, "invalid reading pagination")
+	}
+	if limit == 0 {
+		limit = int32(defaultLimit)
+	}
+	if int64(offset)+int64(limit) > 1<<31-1 {
+		return 0, 0, errors.New(errors.CodeInvalidParam, "reading offset exceeds supported range")
+	}
+	return int(offset), int(limit), nil
+}
+
+func readingRecordFits(record proto.Message, used *int) (bool, error) {
+	raw, err := protocol.Marshal(record)
+	if err != nil {
+		return false, errors.Wrap(errors.CodeInternal, "encode reading record failed", err)
+	}
+	size := len(raw) + 1
+	if size > knowledgecontract.MaxReadingResponseBytes-*used {
+		return false, nil
+	}
+	*used += size
+	return true, nil
+}
+
+func documentReadingInfo(ctx context.Context, doc *domain.Document) *pb.DocumentRsp {
+	if _, bot := resourcegrant.Incoming(ctx); !bot {
+		return toDocumentRsp(doc)
+	}
+	// Execution discovery is not a management view: do not expose parser errors,
+	// user metadata, filenames, or storage-owned references to the model.
+	return &pb.DocumentRsp{
+		Id: doc.ID, KbId: doc.KBID, Title: doc.Title, FileType: doc.FileType,
+		Status: string(doc.Status), ChunkCount: int32(doc.ChunkCount),
+	}
 }
 
 func (h *KnowledgeBaseHandler) DeleteDocument(ctx context.Context, req *pb.DeleteDocumentReq) (*emptypb.Empty, error) {

@@ -426,7 +426,7 @@ const RUN_STOP_REASON: Record<string, string> = {
   source_authorization_revoked: '工作依赖的来源授权已撤销', resource_authorization_revoked: '工作依赖的读取或分享许可已撤销',
   tool_authorization_revoked: '工作依赖的工具许可已撤销',
 };
-const RUN_SOURCE_LABEL: Record<string, string> = { request_source: '发起请求', reference: '明确引用', history: '获准历史', file: '文件', parent_run: '承接结果', activity: '获准活动', delegation_result: '委派返回结果' };
+const RUN_SOURCE_LABEL: Record<string, string> = { request_source: '发起请求', reference: '明确引用', history: '获准历史', conversation_history: '按需补读历史', file: '文件', parent_run: '承接结果', activity: '获准活动', delegation_result: '委派返回结果' };
 const SOURCE_SENDER_LABEL: Record<string, string> = { user: '用户', bot: 'Bot', system: '系统', activity: '活动主体', rule: '显式规则' };
 
 function isTerminalRun(run: BotRun): boolean {
@@ -576,7 +576,8 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
   const stop = RUN_STOP[run.stop_status];
   const targetHasGrant = !!controlTarget && run.control_user_ids.includes(controlTarget);
   const controllerPresent = members.some((member) => member.user_id === run.controller_id);
-  const materialSources = run.sources.filter((source): source is Extract<RunSource, { sender_type: string }> => source.type !== 'rag' && source.type !== 'tool');
+  const materialSources = run.sources.filter((source): source is Extract<RunSource, { sender_type: string }> => 'sender_type' in source);
+  const catalogSources = run.sources.filter((source) => source.type === 'knowledge_base' || source.type === 'knowledge_document');
   return <article id={`run-${run.id}`} className="chat-run-card" data-run-id={run.id} data-run-version={run.version} data-run-status={run.status}
     data-stop-status={run.stop_status} data-stream-status={run.stream_status} data-origin-kind={run.origin?.kind ?? 'human'}
     data-output-status={run.output_status} data-interaction-status={run.interaction_status} aria-label={`${botName} 执行：${state.label}`}>
@@ -734,6 +735,14 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
         {'activity_id' in source && <span>活动 ID：{source.activity_id} · </span>}
         <span title={source.sender_id}>{SOURCE_SENDER_LABEL[source.sender_type]}{source.sender_id ? ` · ${nameForUser(source.sender_id)}` : ''}</span>
         {source.history_grant_id && <span title={source.history_grant_id}> · 限定历史授权</span>}
+        {'seq' in source && source.seq !== undefined && <span> · 消息序号 #{source.seq}</span>}
+      </li>)}</ul>
+    </details>}
+    {catalogSources.length > 0 && <details className="chat-run-details">
+      <summary>浏览过的知识目录</summary>
+      <ul className="chat-run-steps">{catalogSources.map((source, index) => <li key={index}>
+        <a href={source.type === 'knowledge_document' ? `/knowledge/${source.kb_id}/documents/${source.doc_id}` : `/knowledge/${source.kb_id}`}>{source.type === 'knowledge_document' ? source.title || source.doc_id : source.kb_name}</a>
+        <span> · 目录元数据，不代表已读取正文；打开时重新检查权限。</span>
       </li>)}</ul>
     </details>}
     {run.output_status === 'committed' && run.message_id && <Button type="link" size="small" onClick={() => void onLocate(run.message_id!).catch(() => message.error('最终消息无法读取'))}>查看最终消息</Button>}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -184,10 +185,10 @@ func (h *KnowledgeHandler) ListDocuments(c *gin.Context) {
 		return
 	}
 	req := &kbpb.ListDocumentsReq{
-		KbId:   c.Param("id"),
-		Offset: int32(parseInt64(c.DefaultQuery("offset", "0"))),
-		Limit:  int32(parseInt64(c.DefaultQuery("limit", "20"))),
-		Status: c.Query("status"),
+		KbId: c.Param("id"), Status: c.Query("status"), Title: c.Query("title"),
+	}
+	if !knowledgeReadingQueryInt32(c, "offset", &req.Offset) || !knowledgeReadingQueryInt32(c, "limit", &req.Limit) {
+		return
 	}
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, req) {
@@ -273,10 +274,23 @@ func (h *KnowledgeHandler) ListChunks(c *gin.Context) {
 	if !requirePathIdentities(c, "id") {
 		return
 	}
-	req := &kbpb.ListChunksReq{
-		DocId:  c.Param("id"),
-		Offset: int32(parseInt64(c.DefaultQuery("offset", "0"))),
-		Limit:  int32(parseInt64(c.DefaultQuery("limit", "20"))),
+	req := &kbpb.ListChunksReq{DocId: c.Param("id")}
+	if !knowledgeReadingQueryInt32(c, "offset", &req.Offset) || !knowledgeReadingQueryInt32(c, "limit", &req.Limit) {
+		return
+	}
+	if c.Request.URL.Query().Has("start_index") {
+		var start int32
+		if !knowledgeReadingQueryInt32(c, "start_index", &start) {
+			return
+		}
+		req.StartIndex = &start
+	}
+	if c.Request.URL.Query().Has("end_index") {
+		var end int32
+		if !knowledgeReadingQueryInt32(c, "end_index", &end) {
+			return
+		}
+		req.EndIndex = &end
 	}
 	ctx := middleware.WithGRPCMetadata(c)
 	if !requireRequestIdentities(c, req) {
@@ -288,6 +302,19 @@ func (h *KnowledgeHandler) ListChunks(c *gin.Context) {
 		return
 	}
 	response.Success(c, resp)
+}
+
+func knowledgeReadingQueryInt32(c *gin.Context, name string, dest *int32) bool {
+	if c.Request.URL.Query().Has(name) {
+		raw := c.Query(name)
+		value, err := strconv.ParseInt(raw, 10, 32)
+		if err != nil || value < 0 {
+			response.BadRequest(c, "invalid "+name)
+			return false
+		}
+		*dest = int32(value)
+	}
+	return true
 }
 
 // ========== Binding (Bot) ==========

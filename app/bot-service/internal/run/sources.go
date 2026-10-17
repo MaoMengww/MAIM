@@ -69,21 +69,25 @@ func mergeProvenance(a, b json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(append(left, right...))
 }
 
+func sourceInvalid(version model.SourceVersion, invalid map[string]bool, parents map[string]bool) bool {
+	return invalid[version.MessageID] || ((version.HistoryGrantID != "" || version.HistorySeq != 0) && invalid["history:"+version.HistoryGrantID+":"+version.MessageID]) || invalid["file:"+version.FileID] || invalid["knowledge:"+version.KnowledgeID] || invalid["knowledge_doc:"+version.KnowledgeDocID] || invalid["knowledge_chunk:"+version.KnowledgeChunkID] || parents[version.ParentRunID]
+}
+
 func dependent(raw json.RawMessage, invalid map[string]bool, parents map[string]bool) bool {
 	var versions []model.SourceVersion
 	if len(raw) > 0 && json.Unmarshal(raw, &versions) != nil {
 		return true
 	}
 	for _, version := range versions {
-		if invalid[version.MessageID] || invalid["file:"+version.FileID] || invalid["knowledge:"+version.KnowledgeID] || invalid["knowledge_chunk:"+version.KnowledgeChunkID] || parents[version.ParentRunID] {
+		if sourceInvalid(version, invalid, parents) {
 			return true
 		}
 	}
 	return false
 }
 
-// Accepted messages remain durable facts; knowledge evidence must still name
-// the current ready document/chunk version as well as a live sharing grant.
+// Explicit accepted messages remain durable facts. On-demand history and
+// knowledge evidence also retain live source and sharing authorization fences.
 func (s *Service) refreshAuthorizations(ctx context.Context, r *model.Run) error {
 	return s.refreshAuthorizationSources(ctx, r, make(map[string]bool))
 }
@@ -131,6 +135,13 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 	// A legacy knowledge copy without the accepted chunk version cannot prove
 	// that its evidence survived replacement. Never mint a new version for it.
 	for _, material := range materials {
+		if material.Kind == "conversation_history" {
+			if material.HistoryGrantID == "" || material.Seq <= 0 || material.MessageID == "" {
+				invalid["history:"+material.HistoryGrantID+":"+material.MessageID] = true
+				invalid["history_message:"+material.MessageID] = true
+			}
+			versions = append(versions, model.SourceVersion{MessageID: material.MessageID, AcceptedEditCount: material.EditCount, HistoryGrantID: material.HistoryGrantID, HistorySeq: material.Seq})
+		}
 		if material.Kind != "knowledge" || material.KnowledgeID == "" {
 			continue
 		}
@@ -152,6 +163,15 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 			continue
 		}
 		seen[version] = true
+		if version.HistoryGrantID != "" || version.HistorySeq != 0 {
+			if err := resourcegrant.CheckHistorySource(s.svc.DB.WithContext(ctx), resourceAccess(r), version.HistorySource(), false); err != nil {
+				if status.Code(err) != codes.PermissionDenied {
+					return err
+				}
+				invalid["history:"+version.HistoryGrantID+":"+version.MessageID] = true
+				invalid["history_message:"+version.MessageID] = true
+			}
+		}
 		if version.ParentRunID != "" {
 			parent, err := s.repo.Get(ctx, version.ParentRunID)
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -207,6 +227,8 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 					}
 					if version.KnowledgeMetadataHash != "" {
 						invalid["knowledge:"+version.KnowledgeID] = true
+					} else if version.KnowledgeChunkID == "" && version.KnowledgeDocID != "" {
+						invalid["knowledge_doc:"+version.KnowledgeDocID] = true
 					} else {
 						invalid["knowledge_chunk:"+version.KnowledgeChunkID] = true
 					}
@@ -215,9 +237,9 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 			continue
 		}
 	}
-	// A frozen sequence proves the accepted material remains inside its live grant.
+	// Original accepted history snapshots retain their frozen-message semantics.
 	for _, material := range materials {
-		if material.HistoryGrantID == "" {
+		if material.HistoryGrantID == "" || material.Kind == "conversation_history" {
 			continue
 		}
 		if err := repo.CheckMaterialHistory(s.svc.DB.WithContext(ctx), r, material.HistoryGrantID, material.Seq); err != nil {
@@ -229,7 +251,7 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 	}
 	needsScrub := dependent(r.Provenance, invalid, parents)
 	removeMaterial := func(m Material) bool {
-		return invalid[m.MessageID] || invalid["file:"+m.FileID] || invalid["knowledge:"+m.KnowledgeID] || parents[m.ParentRunID] || dependent(m.Provenance, invalid, parents)
+		return invalid[m.MessageID] || (m.Kind == "conversation_history" && invalid["history:"+m.HistoryGrantID+":"+m.MessageID]) || invalid["file:"+m.FileID] || invalid["knowledge:"+m.KnowledgeID] || parents[m.ParentRunID] || dependent(m.Provenance, invalid, parents)
 	}
 	for _, material := range materials {
 		if removeMaterial(material) {
@@ -283,7 +305,7 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 			return err
 		}
 		retainedVersions := slices.DeleteFunc(slices.Clone(runVersions), func(v model.SourceVersion) bool {
-			return invalid[v.MessageID] || invalid["file:"+v.FileID] || invalid["knowledge:"+v.KnowledgeID] || invalid["knowledge_chunk:"+v.KnowledgeChunkID] || parents[v.ParentRunID]
+			return sourceInvalid(v, invalid, parents)
 		})
 		current.Provenance, err = json.Marshal(retainedVersions)
 		if err != nil {
@@ -299,9 +321,10 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 			file, _ := source["file_id"].(string)
 			kb, _ := source["kb_id"].(string)
 			chunk, _ := source["chunk_id"].(string)
+			doc, _ := source["doc_id"].(string)
 			matched, _ := source["matched_chunk_id"].(string)
 			context, _ := source["context_chunk_id"].(string)
-			return invalid[id] || parents[parent] || invalid["file:"+file] || invalid["knowledge:"+kb] || invalid["knowledge_chunk:"+chunk] || invalid["knowledge_chunk:"+matched] || invalid["knowledge_chunk:"+context]
+			return invalid[id] || invalid["history_message:"+id] || parents[parent] || invalid["file:"+file] || invalid["knowledge:"+kb] || invalid["knowledge_doc:"+doc] || invalid["knowledge_chunk:"+chunk] || invalid["knowledge_chunk:"+matched] || invalid["knowledge_chunk:"+context]
 		}
 		sources = slices.DeleteFunc(sources, removeSource)
 		current.Sources, err = json.Marshal(sources)
@@ -339,7 +362,7 @@ func (s *Service) refreshAuthorizationSources(ctx context.Context, r *model.Run,
 				}
 			}
 			ownVersions = slices.DeleteFunc(ownVersions, func(source model.SourceVersion) bool {
-				return invalid[source.MessageID] || invalid["file:"+source.FileID] || invalid["knowledge:"+source.KnowledgeID] || invalid["knowledge_chunk:"+source.KnowledgeChunkID] || parents[source.ParentRunID]
+				return sourceInvalid(source, invalid, parents)
 			})
 			provenanceRaw, err := json.Marshal(ownVersions)
 			if err != nil {

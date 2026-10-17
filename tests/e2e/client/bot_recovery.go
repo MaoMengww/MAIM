@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -49,7 +50,7 @@ func (f *recoveryFixture) held(token, phase string) error {
 	return fmt.Errorf("recovery: external provider never held %s", phase)
 }
 
-func (f *recoveryFixture) checkpoint(name string, id entityID) error {
+func (f *recoveryFixture) checkpoint(name string, id entityID, expectedStatus ...int) error {
 	if f.d.controlDir == "" {
 		return errors.New("bot-recovery requires runner -control-dir")
 	}
@@ -66,9 +67,13 @@ func (f *recoveryFixture) checkpoint(name string, id entityID) error {
 				var stableSince time.Time
 				for time.Now().Before(readyUntil) {
 					_, err := f.d.readRun(f.requester, id)
+					var unavailable *apiError
+					if errors.As(err, &unavailable) && slices.Contains(expectedStatus, unavailable.status) {
+						// A declared denial boundary proves forwarding is live as well.
+						err = nil
+					}
 					if err != nil {
-						var unavailable *apiError
-						if !errors.As(err, &unavailable) || unavailable.status != http.StatusServiceUnavailable {
+						if unavailable == nil || unavailable.status != http.StatusServiceUnavailable {
 							return err
 						}
 						stableSince = time.Time{}

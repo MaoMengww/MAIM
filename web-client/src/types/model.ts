@@ -135,11 +135,14 @@ export interface BotInConv {
 }
 
 export type RunSource = (Omit<KnowledgeSource, 'content'> | {
-  type: 'request_source' | 'reference' | 'history';
+  type: 'request_source' | 'reference' | 'history' | 'conversation_history';
   message_id: string;
+  seq?: number;
   sender_type: 'user' | 'bot' | 'system' | 'activity' | 'rule';
   sender_id?: string;
 } | { type: 'tool'; tool_name: string }
+  | { type: 'knowledge_base'; kb_id: string; kb_name: string }
+  | { type: 'knowledge_document'; kb_id: string; doc_id: string; title: string }
   | { type: 'file'; file_id: string; sender_type: 'user' | 'bot' | 'system' | 'activity' | 'rule'; sender_id?: string }
   | { type: 'parent_run' | 'delegation_result'; parent_run_id: string; sender_type: 'user' | 'bot' | 'system' | 'activity' | 'rule'; sender_id?: string }
   | { type: 'activity'; activity_id: string; sender_type: 'user' | 'bot' | 'system' | 'activity' | 'rule'; sender_id?: string }) & {
@@ -591,6 +594,24 @@ export interface ChunkInfo {
   token_count: number;
   metadata: string;
   created_at: number;
+}
+
+export interface KnowledgeReadingPagination {
+  next_offset: number;
+  has_more: boolean;
+  truncated: boolean;
+}
+
+export interface DocumentListRsp extends KnowledgeReadingPagination {
+  items: DocumentRsp[];
+  total: number;
+}
+
+export interface ChunkListRsp extends KnowledgeReadingPagination {
+  chunks: ChunkInfo[];
+  total: number;
+  actual_start_index?: number;
+  actual_end_index?: number;
 }
 
 export interface KnowledgeBinding {

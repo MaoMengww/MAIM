@@ -38,8 +38,8 @@ func knowledgeListTool() component.RunTool {
 		Parameters:  json.RawMessage(fmt.Appendf(nil, `{"type":"object","properties":{"offset":{"type":"integer","minimum":0,"maximum":2147483647,"default":0},"limit":{"type":"integer","minimum":1,"maximum":%d,"default":%d}},"additionalProperties":false}`, knowledgecontract.MaxListLimit, knowledgecontract.DefaultListLimit))}
 }
 
-func isKnowledgeTool(name string) bool {
-	return name == "search_knowledge" || name == "list_knowledge_bases"
+func isRuntimeReadTool(name string) bool {
+	return slices.Contains([]string{"search_knowledge", "list_knowledge_bases", "list_knowledge_documents", "read_knowledge_document", "read_conversation_history"}, name)
 }
 
 type knowledgeSearchArguments struct {
@@ -101,6 +101,16 @@ func knowledgeFailure(category string) *knowledgeSearchOutcome {
 		message = "The selected knowledge bases have incompatible vector spaces or retrieval settings. Narrow the authorized knowledge-base or document filters before searching again."
 	case "configuration":
 		message = "Knowledge reading cannot use the current configuration. Report the evidence gap."
+	case "missing_history_authorization":
+		message = "This Run has no explicit history authorization. Use ask_for_input to request the specific background or explicit materials, or report the gap. Never issue a history grant or read the whole conversation."
+	case "document_not_ready":
+		message = "The document has not finished parsing and is not ready for reading. This is not an empty search result."
+	case "document_unavailable":
+		message = "The document is unavailable or parsing failed. No readable body has been supplied."
+	case "no_readable_content":
+		message = "The document has no readable parsed fragments. Raw file bytes are not a substitute for parsed text."
+	case "reading_too_large":
+		message = "A source record exceeds the bounded reading output. Request smaller explicit material or report the unread scope; no partial record has been returned."
 	}
 	raw, _ := json.Marshal(knowledgeSearchResult{Status: "error", Error: &knowledgeSearchError{Category: category, Message: message}})
 	return &knowledgeSearchOutcome{Result: string(raw), Failed: true}
@@ -191,6 +201,26 @@ func decodeKnowledgeList(arguments string) (knowledgeListArguments, error) {
 }
 
 func normalizedKnowledgeArguments(name, arguments string) (json.RawMessage, error) {
+	switch name {
+	case "list_knowledge_documents":
+		args, err := decodeDocumentList(arguments)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(args)
+	case "read_knowledge_document":
+		args, err := decodeDocumentRead(arguments)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(args)
+	case "read_conversation_history":
+		args, err := decodeHistoryRead(arguments)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(args)
+	}
 	if name == "list_knowledge_bases" {
 		args, err := decodeKnowledgeList(arguments)
 		if err != nil {
@@ -215,10 +245,7 @@ func (s *Service) performKnowledgeTool(ctx context.Context, r *model.Run, genera
 	if err != nil {
 		return err
 	}
-	arguments := `{}` // Durable, safe invalid-argument marker for search.
-	if frozen.Name == "list_knowledge_bases" {
-		arguments = `{"limit":0}` // {} is a valid default listing request.
-	}
+	arguments := `{"limit":0}` // Invalid for every runtime read, including default listings.
 	if raw, err := normalizedKnowledgeArguments(frozen.Name, call.Function.Arguments); err == nil {
 		arguments = string(raw)
 	}
@@ -288,6 +315,17 @@ func (s *Service) performKnowledgeTool(ctx context.Context, r *model.Run, genera
 func knowledgeReadError(ctx context.Context, err error) (*knowledgeSearchOutcome, error) {
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return nil, ctx.Err()
+	}
+	code, _ := bizerrors.FromGRPCStatus(err)
+	switch code {
+	case bizerrors.CodeDocumentNotReady:
+		return knowledgeFailure("document_not_ready"), nil
+	case bizerrors.CodeDocumentUnavailable:
+		return knowledgeFailure("document_unavailable"), nil
+	case bizerrors.CodeNoReadableContent:
+		return knowledgeFailure("no_readable_content"), nil
+	case bizerrors.CodeReadingTooLarge:
+		return knowledgeFailure("reading_too_large"), nil
 	}
 	switch status.Code(err) {
 	case codes.PermissionDenied, codes.Unauthenticated, codes.Aborted, codes.Canceled:
@@ -375,14 +413,6 @@ func (s *Service) acceptKnowledgeOutcome(tx *gorm.DB, current *model.Run, action
 	if _, err := currentActionTool(tx, current, frozen); err != nil {
 		return err
 	}
-	for _, version := range outcome.Versions {
-		if _, err := resourcegrant.Check(tx, resourceAccess(current), "knowledge", version.KnowledgeID, current.Visibility != "personal", true); err != nil {
-			return err
-		}
-		if err := resourcegrant.CheckKnowledgeSource(tx, version.KnowledgeSource(), true); err != nil {
-			return err
-		}
-	}
 	var materials []Material
 	if err := json.Unmarshal(current.Materials, &materials); err != nil {
 		return err
@@ -408,13 +438,16 @@ func (s *Service) acceptKnowledgeOutcome(tx *gorm.DB, current *model.Run, action
 	if err != nil {
 		return err
 	}
+	if err := repo.CheckRunSources(tx, current); err != nil {
+		return err
+	}
 	action.Provenance = bytes.Clone(current.Provenance)
 	return nil
 }
 
 // Queries and business filters are reference data, not transient MCP credentials.
 func canonicalToolActionArguments(raw []byte, server model.McpServer, frozen component.RunTool) (json.RawMessage, string, error) {
-	if frozen.ServerID != "runtime" || !isKnowledgeTool(frozen.Name) {
+	if frozen.ServerID != "runtime" || !isRuntimeReadTool(frozen.Name) {
 		return canonicalActionArguments(raw, server)
 	}
 	canonical, err := normalizedKnowledgeArguments(frozen.Name, string(raw))
@@ -427,7 +460,7 @@ func canonicalToolActionArguments(raw []byte, server model.McpServer, frozen com
 			return nil, "", err
 		}
 		marker, markerErr := json.Marshal(fields)
-		invalidMarker := frozen.Name == "search_knowledge" && string(marker) == "{}" || frozen.Name == "list_knowledge_bases" && string(marker) == `{"limit":0}`
+		invalidMarker := string(marker) == `{"limit":0}` || frozen.Name == "search_knowledge" && string(marker) == "{}"
 		if markerErr != nil || !invalidMarker {
 			return nil, "", err
 		}

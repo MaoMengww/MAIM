@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
-import { Button, Spin, Tag, Upload, message, Modal, Input, Select, Form, InputNumber, Switch } from 'antd';
+import { Alert, Button, Spin, Tag, Upload, message, Modal, Input, Select, Form, InputNumber, Switch } from 'antd';
 import { UploadOutlined, ReloadOutlined, RobotOutlined, TeamOutlined } from '@ant-design/icons';
 import { kbApi } from '@/services/knowledge';
 import { botApi } from '@/services/bot';
@@ -240,14 +240,6 @@ export function KBDetailPage() {
     enabled: !!id,
   });
 
-  const { data: docsData, isLoading: docsLoading } = useQuery({
-    queryKey: ['kb-docs', id],
-    queryFn: () => kbApi.listDocuments(id!),
-    enabled: !!id,
-  });
-
-  const docs = docsData?.list ?? [];
-
   const deleteKBMutation = useMutation({
     mutationFn: () => kbApi.delete(id!),
     onSuccess: () => { message.success('知识库已删除'); navigate('/knowledge'); },
@@ -278,20 +270,26 @@ export function KBDetailPage() {
     );
   }
 
-  return <RagView kb={kb} docs={docs} docsLoading={docsLoading} uploadMutation={uploadMutation} deleteKBMutation={deleteKBMutation} />;
+  return <RagView key={kb.id} kb={kb} uploadMutation={uploadMutation} deleteKBMutation={deleteKBMutation} />;
 }
 
 /* ─── RAG View ─── */
 
-function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: {
+function RagView({ kb, uploadMutation, deleteKBMutation }: {
   kb: KBRsp;
-  docs: DocumentRsp[];
-  docsLoading: boolean;
   uploadMutation: UseMutationResult<DocumentRsp, Error, File>;
   deleteKBMutation: UseMutationResult<null, Error, void>;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [docOffsets, setDocOffsets] = useState([0]);
+  const docOffset = docOffsets[docOffsets.length - 1] ?? 0;
+  const { data: docsData, isLoading: docsLoading, isFetching: docsFetching, isError: docsError, refetch: refetchDocs } = useQuery({
+    queryKey: ['kb-docs', kb.id, docOffset],
+    queryFn: () => kbApi.listDocuments(kb.id, { offset: docOffset, limit: 20 }),
+  });
+  const docs = docsData?.list ?? [];
+
   const { data: modelsData } = useQuery({
     queryKey: ['models'],
     queryFn: () => modelApi.list(),
@@ -427,13 +425,16 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>文档</h3>
             <span style={{ fontSize: 12, color: 'var(--aim-text-tertiary)' }}>
-              {docs.length} 个文件
+              {docsData && `${docsData.total} 个文件`}
             </span>
           </div>
 
           {/* Document grid */}
           {docsLoading ? (
             <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>
+          ) : docsError ? (
+            <Alert type="error" showIcon message="文档列表加载失败，请重试。"
+              action={<Button size="small" loading={docsFetching} onClick={() => void refetchDocs()}>重试</Button>} />
           ) : docs.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 60, color: 'var(--aim-text-tertiary)', background: 'var(--aim-surface)', borderRadius: 8, border: '1px dashed var(--aim-border)' }}>
               暂无文档，点击右上角「上传文档」添加
@@ -481,6 +482,15 @@ function RagView({ kb, docs, docsLoading, uploadMutation, deleteKBMutation }: {
               ))}
             </div>
           )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
+            <Button disabled={docOffsets.length === 1 || docsFetching} onClick={() => setDocOffsets((offsets) => offsets.slice(0, -1))}>上一页</Button>
+            <span>第 {docOffsets.length} 页</span>
+            <Button disabled={docsError || !docsData?.has_more || docsData.next_offset <= docOffset || docsFetching} onClick={() => {
+              if (docsData && docsData.next_offset > docOffset) {
+                setDocOffsets((offsets) => [...offsets, docsData.next_offset]);
+              }
+            }}>下一页</Button>
+          </div>
         </div>
       </div>
 

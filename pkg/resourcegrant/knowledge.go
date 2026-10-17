@@ -57,6 +57,42 @@ func CurrentKnowledgeMetadata(tx *gorm.DB, id string, lock bool) (*KnowledgeMeta
 	return &metadata, nil
 }
 
+// KnowledgeDocumentMetadata is the non-sensitive document catalog consumed by a
+// Run. A pending or failed document may be listed without granting body access.
+type KnowledgeDocumentMetadata struct {
+	ID         string `json:"doc_id"`
+	KBID       string `json:"kb_id"`
+	Title      string `json:"title"`
+	FileType   string `json:"file_type"`
+	Status     string `json:"status"`
+	ChunkCount int    `json:"chunk_count"`
+}
+
+func (document KnowledgeDocumentMetadata) SourceVersion() KnowledgeSource {
+	return KnowledgeSource{KnowledgeID: document.KBID, KnowledgeDocID: document.ID, KnowledgeDocumentHash: knowledgeFingerprint(document)}
+}
+
+func CurrentKnowledgeDocumentMetadata(tx *gorm.DB, id string, lock bool) (*KnowledgeDocumentMetadata, error) {
+	if identity.Validate(id) != nil {
+		return nil, status.Error(codes.PermissionDenied, "knowledge document metadata unavailable")
+	}
+	query := tx.Table("knowledge.documents d").
+		Select("d.id,d.kb_id,d.title,d.file_type,d.status,d.chunk_count").
+		Joins("JOIN knowledge.knowledge_bases k ON k.id = d.kb_id").
+		Where("d.id = ? AND k.status = 'active' AND k.mode = 'rag'", id)
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "SHARE", Table: clause.Table{Name: "d, k", Raw: true}})
+	}
+	var document KnowledgeDocumentMetadata
+	if err := query.Take(&document).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Error(codes.PermissionDenied, "knowledge document metadata unavailable")
+		}
+		return nil, err
+	}
+	return &document, nil
+}
+
 // KnowledgeChunk verifies returned evidence against the existing knowledge store.
 // It is not a retrieval API and does not bypass resource or sharing authorization.
 type KnowledgeChunk struct {
@@ -126,6 +162,16 @@ func CheckKnowledgeSource(tx *gorm.DB, version KnowledgeSource, lock bool) error
 		}
 		if metadata.SourceVersion() != version {
 			return status.Error(codes.PermissionDenied, "knowledge metadata replaced")
+		}
+		return nil
+	}
+	if version.KnowledgeDocID != "" && version.KnowledgeChunkID == "" && version.KnowledgeContentHash == "" && version.KnowledgeDocumentHash != "" {
+		document, err := CurrentKnowledgeDocumentMetadata(tx, version.KnowledgeDocID, lock)
+		if err != nil {
+			return err
+		}
+		if document.SourceVersion() != version {
+			return status.Error(codes.PermissionDenied, "knowledge document metadata replaced")
 		}
 		return nil
 	}
