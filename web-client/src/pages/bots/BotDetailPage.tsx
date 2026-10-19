@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Descriptions, Tag, Button, Space, Input, Switch, InputNumber, Modal, Form, Select, Upload, message, Spin, Divider } from 'antd';
 import { EditOutlined, UploadOutlined, BookOutlined, ApiOutlined, PoweroffOutlined, ToolOutlined, DeleteOutlined } from '@ant-design/icons';
 import { botApi } from '@/services/bot';
+import { BotSkillSection } from './SkillSection';
 import { mcpApi } from '@/services/mcp';
 import { kbApi } from '@/services/knowledge';
 import { modelApi } from '@/services/model';
@@ -309,6 +310,7 @@ export function BotDetailPage() {
 
       {/* ── MCP Tool Bindings ── */}
       <BotMcpSection botId={bot.id} canManage={canManage} />
+      <BotSkillSection botId={bot.id} canManage={canManage} />
 
       {bot.system_prompt && (
         <>

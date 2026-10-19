@@ -47,6 +47,7 @@ func New(
 	botClient := botpb.NewBotServiceClient(clients.BotService.Conn())
 	botH := handler.NewBotHandler(botClient, clients.Message.Conn(), clients.File.Conn())
 	botHistoryH := handler.NewBotHistoryHandler(botClient, messagepb.NewMessageServiceClient(clients.Message.Conn()))
+	botSkillH := handler.NewBotSkillHandler(botClient)
 	kbH := handler.NewKnowledgeHandler(clients.KnowledgeBase.Conn())
 	var modelH *handler.ModelHandler
 	if clients.LLMGateway != nil {
@@ -194,6 +195,16 @@ func New(
 	bots.POST("/:id/secret/rotate", botH.RotateSecret)
 	bots.POST("/:id/token", botH.IssueToken)
 	bots.POST("/token/validate", botH.ValidateToken)
+
+	// Instruction-skill governance and the enabled catalog available to Runs.
+	bots.GET("/:id/skills", botSkillH.List)
+	bots.POST("/:id/skills", botSkillH.Import)
+	bots.GET("/:id/skill-catalog", botSkillH.Available)
+	bots.GET("/:id/skills/:candidate", botSkillH.Get)
+	bots.POST("/:id/skills/:candidate/evaluate", botSkillH.Evaluate)
+	bots.POST("/:id/skills/:candidate/approve", botSkillH.Approve)
+	bots.POST("/:id/skills/:candidate/publish", botSkillH.Publish)
+	bots.POST("/:id/skill-versions/:version/enable", botSkillH.Enable)
 
 	// Single-run work and authoritative readback.
 	bots.POST("/:id/runs", botH.StartRun)

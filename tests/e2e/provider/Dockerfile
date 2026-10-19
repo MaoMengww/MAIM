@@ -7,5 +7,6 @@ COPY tests/e2e/provider/compaction.py /provider/compaction.py
 COPY tests/e2e/provider/collaboration.py /provider/collaboration.py
 COPY tests/e2e/provider/recovery.py /provider/recovery.py
 COPY tests/e2e/provider/knowledge_tools.py /provider/knowledge_tools.py
+COPY tests/e2e/provider/instruction_skills.py /provider/instruction_skills.py
 EXPOSE 8099
 ENTRYPOINT ["python", "/provider/server.py"]

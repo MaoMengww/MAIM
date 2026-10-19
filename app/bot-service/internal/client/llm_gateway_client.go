@@ -11,11 +11,20 @@ import (
 
 // LlmGatewayClient keeps the exact request/response trajectory owned by runtime.
 type LlmGatewayClient struct {
-	cli llmgateway.LLMGatewayClient
+	cli  llmgateway.LLMGatewayClient
+	conn zrpc.Client
 }
 
 func NewLlmGatewayClient(c zrpc.Client) *LlmGatewayClient {
-	return &LlmGatewayClient{cli: llmgateway.NewLLMGatewayClient(c.Conn())}
+	return &LlmGatewayClient{cli: llmgateway.NewLLMGatewayClient(c.Conn()), conn: c}
+}
+
+// ResetConnectBackoff forces a new transport attempt after a cold-start or
+// restart failure instead of inheriting an exponential retry delay.
+func (c *LlmGatewayClient) ResetConnectBackoff() {
+	if c.conn != nil {
+		c.conn.Conn().ResetConnectBackoff()
+	}
 }
 
 func (c *LlmGatewayClient) SnapshotModel(ctx context.Context, modelID string, ownerID *string, botID string) (*llmgateway.ModelExecutionConfig, error) {

@@ -368,6 +368,9 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 	if err := s.refreshAuthorizations(ctx, r); err != nil {
 		return err
 	}
+	if err := s.checkSkills(ctx, r, config); err != nil {
+		return err
+	}
 	var call model.RunModelCall
 	err := s.svc.DB.WithContext(ctx).Where("run_id = ? AND status = 'requested'", r.ID).Order("created_at DESC").First(&call).Error
 	var request *llm.ChatReq
@@ -677,6 +680,9 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 	}
 	if frozen.ServerID == "runtime" && slices.Contains([]string{"delegate_run", "delegation_result"}, frozen.Name) {
 		return s.performDelegationTool(ctx, r, generation, call)
+	}
+	if frozen.ServerID == "runtime" && slices.Contains([]string{"load_skill", "read_skill_resource"}, frozen.Name) {
+		return s.performSkillTool(ctx, r, generation, config, call)
 	}
 	if frozen.ServerID == "runtime" && isRuntimeReadTool(frozen.Name) {
 		return s.performKnowledgeTool(ctx, r, generation, call)

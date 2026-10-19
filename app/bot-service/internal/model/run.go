@@ -82,6 +82,7 @@ type Run struct {
 	MessageID            *string `gorm:"type:uuid"`
 	Error                string
 	Config               json.RawMessage `gorm:"type:jsonb"`
+	SkillLoads           []SkillLoad     `gorm:"type:jsonb;serializer:json"`
 	Sources              json.RawMessage `gorm:"type:jsonb"`
 	Materials            json.RawMessage `gorm:"type:jsonb"`
 	Steps                []RunStep       `gorm:"type:jsonb;serializer:json"`
@@ -113,6 +114,27 @@ type ActivityEnvelope struct {
 	Text      string          `json:"text,omitempty"`
 	Seq       int64           `json:"seq"`
 	Data      json.RawMessage `json:"data,omitempty"`
+}
+
+// SkillLoad is progressive disclosure persisted as platform work fact. A
+// framework checkpoint never owns whether a skill was loaded.
+type SkillLoad struct {
+	VersionID string `json:"version_id"`
+	Resource  string `json:"resource"`
+	Digest    string `json:"digest"`
+	Bytes     int    `json:"bytes"`
+	LoadedAt  int64  `json:"loaded_at"`
+}
+
+// PublicSkill is the authorized Run projection of a frozen skill version.
+type PublicSkill struct {
+	VersionID   string `json:"version_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Digest      string `json:"digest"`
+	Version     int    `json:"version"`
+	Explicit    bool   `json:"explicit"`
+	Loaded      bool   `json:"loaded"`
 }
 
 type RunStep struct {
@@ -228,6 +250,7 @@ type PublicRun struct {
 	MessageID             *string              `json:"message_id,omitempty"`
 	Error                 string               `json:"error,omitempty"`
 	Sources               []map[string]any     `json:"sources"`
+	FrozenSkills          []PublicSkill        `json:"frozen_skills"`
 	Steps                 []RunStep            `json:"steps"`
 	CreatedAt             int64                `json:"created_at"`
 	UpdatedAt             int64                `json:"updated_at"`
@@ -278,7 +301,7 @@ func (r *Run) Public() PublicRun {
 		ContextNotice: r.ContextNotice,
 		ExecutorType:  r.ExecutorType, ExecutorCapabilities: r.ExecutorCapabilities, DeliveryStatus: r.DeliveryStatus, ExecutorStatus: r.ExecutorStatus, Generation: r.ExecutionGeneration, TriggerKind: r.TriggerKind, ResultType: r.ResultType, ResultContent: r.ResultContent,
 		ResultText: r.ResultText, OutputStatus: r.OutputStatus, MessageID: r.MessageID, Error: r.Error,
-		Sources: sources, Steps: steps, CreatedAt: r.CreatedAt.Unix(), UpdatedAt: r.UpdatedAt.Unix()}
+		Sources: sources, FrozenSkills: publicSkills(r), Steps: steps, CreatedAt: r.CreatedAt.Unix(), UpdatedAt: r.UpdatedAt.Unix()}
 	if r.ExecutorLeaseUntil != nil {
 		public.ExecutorLeaseUntil = r.ExecutorLeaseUntil.Unix()
 	}
@@ -389,3 +412,33 @@ type RunOutbox struct {
 }
 
 func (RunOutbox) TableName() string { return "bot.run_outbox" }
+
+// publicSkills derives the frozen catalog and progressive-load state from the
+// durable Run configuration and load log. Private instructions are never
+// projected, and unloaded skills are not claimed to be in the prompt.
+func publicSkills(r *Run) []PublicSkill {
+	result := make([]PublicSkill, 0)
+	var config struct {
+		Skills []struct {
+			VersionID   string `json:"version_id"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Digest      string `json:"digest"`
+			Version     int    `json:"version"`
+			Explicit    bool   `json:"explicit"`
+		} `json:"skills"`
+	}
+	if json.Unmarshal(r.Config, &config) != nil {
+		return result
+	}
+	loaded := make(map[string]bool, len(r.SkillLoads))
+	for _, load := range r.SkillLoads {
+		if load.Resource == "SKILL.md" {
+			loaded[load.VersionID] = true
+		}
+	}
+	for _, frozen := range config.Skills {
+		result = append(result, PublicSkill{VersionID: frozen.VersionID, Name: frozen.Name, Description: frozen.Description, Digest: frozen.Digest, Version: frozen.Version, Explicit: frozen.Explicit, Loaded: loaded[frozen.VersionID]})
+	}
+	return result
+}

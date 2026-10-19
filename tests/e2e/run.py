@@ -36,7 +36,7 @@ USER_IDENTITY_APPLICATIONS = {"user-service", "realtime-service", "gateway"}
 MESSAGING_APPLICATIONS = USER_IDENTITY_APPLICATIONS | {"message-service"}
 ATTACHMENT_APPLICATIONS = MESSAGING_APPLICATIONS | {"file-service"}
 BOT_RUNTIME_APPLICATIONS = MESSAGING_APPLICATIONS | {"llm-gateway", "bot-service", "bot-runtime", "knowledge-base", "knowledge-ingest", "file-service"}
-BOT_RUNTIME_SCENARIOS = {"bot-runtime", "bot-runtime-cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools"}
+BOT_RUNTIME_SCENARIOS = {"bot-runtime", "bot-runtime-cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-skills"}
 LLM_CHAT_SCENARIOS = {"llm-chat", "llm-components"}
 MESSAGING_SCENARIOS = {"messaging", "conversations", "conversation-unread", "broadcasts",
                        "user-sync", "same-instance-a", "same-instance-b", "cross-instance"}
@@ -288,7 +288,7 @@ class Runner:
             for name, port in (("gateway", 8080), ("realtime-service", 8081), ("realtime-b", 8081)):
                 services[name]["ports"] = [{"target": port, "published": "0",
                                             "host_ip": "127.0.0.1", "protocol": "tcp"}]
-            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools"}:
+            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-skills"}:
                 services["e2e-provider"]["ports"] = [{"target": 8099, "published": "0",
                                                      "host_ip": "127.0.0.1", "protocol": "tcp"}]
             if "minio" in services:
@@ -304,6 +304,7 @@ class Runner:
                 raise LayerFailure(f"configuration: middleware {name} has no real readiness check")
         dependencies = {
             "llm-gateway": ["user-service"],
+            "bot-service": ["llm-gateway", "user-service"],
             "message-service": ["user-service", "bot-service"],
             "knowledge-base": ["llm-gateway"],
             "realtime-service": ["message-service", "bot-service"],
@@ -431,7 +432,7 @@ class Runner:
                 if not address.startswith("127.0.0.1:") or "\n" in address:
                     raise LayerFailure("browser-access: minio did not publish a single loopback address")
                 access["minio"] = "http://" + address
-            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools"}:
+            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-skills"}:
                 address = self.compose("browser-port-provider", "port", "e2e-provider", "8099", capture=True).strip()
                 if not address.startswith("127.0.0.1:") or "\n" in address:
                     raise LayerFailure("browser-access: provider did not publish a single loopback address")
@@ -648,7 +649,7 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery")
-    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-runtime", "bot-runtime-cross-instance", "llm-chat", "llm-components", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
+    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-skills", "bot-runtime", "bot-runtime-cross-instance", "llm-chat", "llm-components", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")

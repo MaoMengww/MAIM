@@ -255,6 +255,17 @@ export function normalizeRun(value: unknown): BotRun {
       const step = value as Record<string, unknown>;
       return { version: sequence(step.version, 'step.version', true), stage: text(step.stage, 'step.stage'), created_at: sequence(step.created_at, 'step.created_at') };
     }),
+    frozen_skills: (() => {
+      if (!Array.isArray(run.frozen_skills)) throw new Error('执行冻结技能必须是数组');
+      return run.frozen_skills.map((value) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('冻结技能格式无效');
+        const skill = value as Record<string, unknown>;
+        if (typeof skill.name !== 'string' || typeof skill.description !== 'string' || typeof skill.digest !== 'string'
+          || typeof skill.explicit !== 'boolean' || typeof skill.loaded !== 'boolean') throw new Error('冻结技能字段无效');
+        return { version_id: entityId(skill.version_id, 'skill.version_id'), name: skill.name, description: skill.description,
+          digest: skill.digest, version: sequence(skill.version, 'skill.version', true), explicit: skill.explicit, loaded: skill.loaded };
+      });
+    })(),
     created_at: sequence(run.created_at, 'run.created_at'), updated_at: sequence(run.updated_at, 'run.updated_at'),
   };
 }

@@ -54,11 +54,12 @@ type publicRun struct {
 		ID        string   `json:"id"`
 		Type      string   `json:"type"`
 	} `json:"activity"`
-	ContextNotice        string `json:"context_notice"`
-	ExecutorType         string `json:"executor_type"`
-	DeliveryStatus       string `json:"delivery_status"`
-	ExecutorStatus       string `json:"executor_status"`
-	ExecutorLeaseUntil   *int64 `json:"executor_lease_until"`
+	ContextNotice        string            `json:"context_notice"`
+	FrozenSkills         []frozenSkillView `json:"frozen_skills"`
+	ExecutorType         string            `json:"executor_type"`
+	DeliveryStatus       string            `json:"delivery_status"`
+	ExecutorStatus       string            `json:"executor_status"`
+	ExecutorLeaseUntil   *int64            `json:"executor_lease_until"`
 	ExecutorCapabilities struct {
 		InputTypes     []string `json:"input_types"`
 		SupportsInput  bool     `json:"supports_input"`

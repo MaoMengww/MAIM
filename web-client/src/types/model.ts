@@ -231,9 +231,76 @@ export interface BotRun {
   message_id?: string;
   error?: string;
   sources: RunSource[];
+  frozen_skills: FrozenSkill[];
   steps: { version: number; stage: string; created_at: number }[];
   created_at: number;
   updated_at: number;
+}
+
+export interface FrozenSkill {
+  version_id: string;
+  name: string;
+  description: string;
+  digest: string;
+  version: number;
+  explicit: boolean;
+  loaded: boolean;
+}
+
+export interface SkillVersion {
+  version_id: string;
+  version: number;
+  name: string;
+  description: string;
+  digest: string;
+  status: 'published' | 'disabled' | string;
+  enabled: boolean;
+  created_at: number;
+}
+
+export interface SkillEvaluation {
+  status: 'passed' | 'failed' | 'insufficient' | 'error';
+  passed: boolean;
+  reason: string;
+  digest: string;
+  task_digest: string;
+  expected_digest: string;
+  output_digest: string;
+  model_version: string;
+  created_at: number;
+}
+
+export interface SkillCandidate {
+  id: string;
+  skill_id: string;
+  name: string;
+  description: string;
+  digest: string;
+  license: string;
+  status: 'pending_validation' | 'evaluated' | 'validation_failed' | 'approved' | 'rejected' | 'published' | 'expired' | string;
+  failure?: string;
+  baseline_version_id?: string;
+  published_version_id?: string;
+  approved_digest?: string;
+  evaluation?: SkillEvaluation;
+  created_at: number;
+}
+
+export interface SkillPackage {
+  skill_id: string;
+  name: string;
+  license: string;
+  publisher_id: string;
+  enabled_version?: SkillVersion;
+  versions: SkillVersion[];
+  candidates: SkillCandidate[];
+}
+
+export interface AvailableSkill {
+  version_id: string;
+  name: string;
+  description: string;
+  version: number;
 }
 
 export interface PublicAction {

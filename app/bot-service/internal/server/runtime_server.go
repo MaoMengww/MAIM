@@ -3,12 +3,15 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/logic/bot"
 	"github.com/maomeng/aim/app/bot-service/internal/run"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-service/pb/bot"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -23,7 +26,9 @@ func NewRuntimeServer(svcCtx *svc.ServiceContext) *RuntimeServer {
 }
 func (s *RuntimeServer) StartRun(ctx context.Context, req *pb.StartRunReq) (*pb.RunResponse, error) {
 	if s.svcCtx.RuntimeClient != nil {
-		return s.svcCtx.RuntimeClient.StartRun(forwardRuntimeContext(ctx), req)
+		return forwardRuntime(s, ctx, func(client pb.BotServiceClient) (*pb.RunResponse, error) {
+			return client.StartRun(forwardRuntimeContext(ctx), req)
+		})
 	}
 	if req == nil {
 		req = &pb.StartRunReq{}
@@ -33,7 +38,7 @@ func (s *RuntimeServer) StartRun(ctx context.Context, req *pb.StartRunReq) (*pb.
 	if values := md.Get("x-user-language"); len(values) > 0 {
 		language = values[0]
 	}
-	accepted, err := s.runs.Accept(ctx, run.Input{BotID: req.BotId, ConvID: req.ConvId, RequesterID: runtimeUserID(ctx), SubmissionKey: req.SubmissionKey, Message: req.Message, ReplyToMsgID: req.ReplyToMsgId, HistoryGrantID: req.HistoryGrantId, ParentRunID: req.ParentRunId, MessageIDs: req.MessageIds, FileIDs: req.FileIds, Language: language, Visibility: req.Visibility, ResourceGrantIDs: req.ResourceGrantIds})
+	accepted, err := s.runs.Accept(ctx, run.Input{BotID: req.BotId, ConvID: req.ConvId, RequesterID: runtimeUserID(ctx), SubmissionKey: req.SubmissionKey, Message: req.Message, ReplyToMsgID: req.ReplyToMsgId, HistoryGrantID: req.HistoryGrantId, ParentRunID: req.ParentRunId, MessageIDs: req.MessageIds, FileIDs: req.FileIds, Language: language, Visibility: req.Visibility, ResourceGrantIDs: req.ResourceGrantIds, SkillVersionIDs: req.SkillVersionIds})
 	if err != nil {
 		return nil, err
 	}
@@ -43,9 +48,49 @@ func (s *RuntimeServer) StartRun(ctx context.Context, req *pb.StartRunReq) (*pb.
 	}
 	return &pb.RunResponse{RunJson: string(raw)}, nil
 }
+
+// forwardRuntime retries an idempotent runtime RPC across a stale connection.
+// A control replica may resolve the runtime name before the runtime replica
+// exists; the DNS resolver caches that failure. A fresh client performs a
+// current lookup, so a later restart also recovers without a process restart.
+func forwardRuntime[Resp any](s *RuntimeServer, ctx context.Context, invoke func(pb.BotServiceClient) (Resp, error)) (Resp, error) {
+	var zero Resp
+	var lastErr error
+	for attempt := range 8 {
+		client := s.svcCtx.RuntimeClient
+		if attempt > 0 {
+			conn, err := grpc.NewClient(s.svcCtx.Config.Runtime.Target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				return zero, err
+			}
+			client = pb.NewBotServiceClient(conn)
+			defer conn.Close()
+		}
+		response, err := invoke(client)
+		if err == nil {
+			return response, nil
+		}
+		lastErr = err
+		if status.Code(err) != codes.Unavailable {
+			return zero, err
+		}
+		if s.svcCtx.RuntimeConn != nil {
+			s.svcCtx.RuntimeConn.Conn().ResetConnectBackoff()
+		}
+		select {
+		case <-ctx.Done():
+			return zero, ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 250 * time.Millisecond):
+		}
+	}
+	return zero, lastErr
+}
+
 func (s *RuntimeServer) GetRun(ctx context.Context, req *pb.GetRunReq) (*pb.RunResponse, error) {
 	if s.svcCtx.RuntimeClient != nil {
-		return s.svcCtx.RuntimeClient.GetRun(forwardRuntimeContext(ctx), req)
+		return forwardRuntime(s, ctx, func(client pb.BotServiceClient) (*pb.RunResponse, error) {
+			return client.GetRun(forwardRuntimeContext(ctx), req)
+		})
 	}
 	if req == nil {
 		req = &pb.GetRunReq{}
@@ -62,7 +107,9 @@ func (s *RuntimeServer) GetRun(ctx context.Context, req *pb.GetRunReq) (*pb.RunR
 }
 func (s *RuntimeServer) ListRuns(ctx context.Context, req *pb.ListRunsReq) (*pb.ListRunsResponse, error) {
 	if s.svcCtx.RuntimeClient != nil {
-		return s.svcCtx.RuntimeClient.ListRuns(forwardRuntimeContext(ctx), req)
+		return forwardRuntime(s, ctx, func(client pb.BotServiceClient) (*pb.ListRunsResponse, error) {
+			return client.ListRuns(forwardRuntimeContext(ctx), req)
+		})
 	}
 	if req == nil {
 		req = &pb.ListRunsReq{}
@@ -128,7 +175,9 @@ func (s *RuntimeServer) ControlRun(ctx context.Context, req *pb.ControlRunReq) (
 
 func (s *RuntimeServer) Authorization(ctx context.Context, req *pb.AuthorizationReq) (*pb.AuthorizationResponse, error) {
 	if s.svcCtx.RuntimeClient != nil {
-		return s.svcCtx.RuntimeClient.Authorization(forwardRuntimeContext(ctx), req)
+		return forwardRuntime(s, ctx, func(client pb.BotServiceClient) (*pb.AuthorizationResponse, error) {
+			return client.Authorization(forwardRuntimeContext(ctx), req)
+		})
 	}
 	if req == nil || len(req.Body) == 0 || len(req.Body) > 1<<20 {
 		return nil, status.Error(codes.InvalidArgument, "authorization request required")

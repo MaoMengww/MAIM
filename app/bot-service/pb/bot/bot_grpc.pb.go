@@ -26,6 +26,7 @@ const (
 	BotService_ExecutorUpdate_FullMethodName        = "/bot.BotService/ExecutorUpdate"
 	BotService_ControlRun_FullMethodName            = "/bot.BotService/ControlRun"
 	BotService_Authorization_FullMethodName         = "/bot.BotService/Authorization"
+	BotService_SkillOperation_FullMethodName        = "/bot.BotService/SkillOperation"
 	BotService_CreateBot_FullMethodName             = "/bot.BotService/CreateBot"
 	BotService_UpdateBot_FullMethodName             = "/bot.BotService/UpdateBot"
 	BotService_DeleteBot_FullMethodName             = "/bot.BotService/DeleteBot"
@@ -60,6 +61,7 @@ type BotServiceClient interface {
 	ExecutorUpdate(ctx context.Context, in *ExecutorUpdateReq, opts ...grpc.CallOption) (*RunResponse, error)
 	ControlRun(ctx context.Context, in *ControlRunReq, opts ...grpc.CallOption) (*RunResponse, error)
 	Authorization(ctx context.Context, in *AuthorizationReq, opts ...grpc.CallOption) (*AuthorizationResponse, error)
+	SkillOperation(ctx context.Context, in *SkillOperationReq, opts ...grpc.CallOption) (*SkillOperationResponse, error)
 	// Bot CRUD
 	CreateBot(ctx context.Context, in *CreateBotReq, opts ...grpc.CallOption) (*Bot, error)
 	UpdateBot(ctx context.Context, in *UpdateBotReq, opts ...grpc.CallOption) (*Bot, error)
@@ -154,6 +156,16 @@ func (c *botServiceClient) Authorization(ctx context.Context, in *AuthorizationR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AuthorizationResponse)
 	err := c.cc.Invoke(ctx, BotService_Authorization_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *botServiceClient) SkillOperation(ctx context.Context, in *SkillOperationReq, opts ...grpc.CallOption) (*SkillOperationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SkillOperationResponse)
+	err := c.cc.Invoke(ctx, BotService_SkillOperation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -390,6 +402,7 @@ type BotServiceServer interface {
 	ExecutorUpdate(context.Context, *ExecutorUpdateReq) (*RunResponse, error)
 	ControlRun(context.Context, *ControlRunReq) (*RunResponse, error)
 	Authorization(context.Context, *AuthorizationReq) (*AuthorizationResponse, error)
+	SkillOperation(context.Context, *SkillOperationReq) (*SkillOperationResponse, error)
 	// Bot CRUD
 	CreateBot(context.Context, *CreateBotReq) (*Bot, error)
 	UpdateBot(context.Context, *UpdateBotReq) (*Bot, error)
@@ -447,6 +460,9 @@ func (UnimplementedBotServiceServer) ControlRun(context.Context, *ControlRunReq)
 }
 func (UnimplementedBotServiceServer) Authorization(context.Context, *AuthorizationReq) (*AuthorizationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Authorization not implemented")
+}
+func (UnimplementedBotServiceServer) SkillOperation(context.Context, *SkillOperationReq) (*SkillOperationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SkillOperation not implemented")
 }
 func (UnimplementedBotServiceServer) CreateBot(context.Context, *CreateBotReq) (*Bot, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateBot not implemented")
@@ -639,6 +655,24 @@ func _BotService_Authorization_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(BotServiceServer).Authorization(ctx, req.(*AuthorizationReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BotService_SkillOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SkillOperationReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BotServiceServer).SkillOperation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BotService_SkillOperation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BotServiceServer).SkillOperation(ctx, req.(*SkillOperationReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1069,6 +1103,10 @@ var BotService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Authorization",
 			Handler:    _BotService_Authorization_Handler,
+		},
+		{
+			MethodName: "SkillOperation",
+			Handler:    _BotService_SkillOperation_Handler,
 		},
 		{
 			MethodName: "CreateBot",

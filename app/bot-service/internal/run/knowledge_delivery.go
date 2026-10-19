@@ -28,6 +28,11 @@ func (s *Service) deliveryModelView(ctx context.Context, r *model.Run, config Ex
 	if err != nil {
 		return nil, 0, err
 	}
+	if checkpoint != nil {
+		if constraint := s.skillConstraints(ctx, r, config); constraint != nil {
+			messages = append(messages, constraint)
+		}
+	}
 	messages = append(messages, &llm.Message{Role: "system", Content: boundedDeliveryInstruction})
 	withoutTools := config
 	withoutTools.Tools = nil

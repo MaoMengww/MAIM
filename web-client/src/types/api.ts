@@ -184,6 +184,22 @@ export interface StartRunReq extends RunMaterialsReq {
   parent_run_id?: string;
   visibility?: 'conversation' | 'personal';
   resource_grant_ids?: string[];
+  skill_version_ids?: string[];
+}
+
+export interface SkillImportReq {
+  archive: string;
+  submission_key: string;
+  representative_task: string;
+  expected_output: string;
+}
+
+export interface SkillActionReq {
+  submission_key: string;
+}
+
+export interface SkillEnableReq {
+  submission_key: string;
 }
 
 export type ControlRunReq = RunMaterialsReq & {

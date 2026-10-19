@@ -18,6 +18,7 @@ import { convApi } from '@/services/conversation';
 import { msgApi, normalizeRealtimeMessageContent } from '@/services/message';
 import { fileApi } from '@/services/file';
 import { botApi, isBotBindingActive } from '@/services/bot';
+import { skillApi } from '@/services/skill';
 import { messageSync } from '@/services/messageSync';
 import { createPendingSend, retryPendingSend, loadPendingSends, type PendingSend } from '@/services/pendingSend';
 import { createPendingRun, retryPendingRun, loadPendingRuns, type PendingRun } from '@/services/pendingRun';
@@ -639,6 +640,12 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
       {run.stop_reason && <p>停止原因：{RUN_STOP_REASON[run.stop_reason] || run.stop_reason}</p>}
       {run.stop_status !== 'none' && run.executor_status === 'completed' && run.status !== 'stopped' && <p>执行器实际完成；停止请求不会改写已完成的事实。</p>}
     </div>
+    {run.frozen_skills.length > 0 && <details className="chat-run-details"><summary>使用的技能 · {run.frozen_skills.length}</summary>
+      <ul className="chat-run-steps">{run.frozen_skills.map((skill) => <li key={skill.version_id}>
+        {skill.name} v{skill.version} · 摘要 {skill.digest.slice(0, 12)} · {skill.loaded ? '正文已加载' : '仅目录，尚未加载'}{skill.explicit ? ' · 显式选择' : ''}
+      </li>)}</ul>
+      <p className="chat-run-notice">版本在接收时冻结；后续发布不热切换本 Run，实时撤权仍会阻断后续调用。</p>
+    </details>}
     {run.input_sources.length > 0 && <details className="chat-run-details"><summary>已接受输入与补充者 · {run.input_sources.length} 条</summary>
       <ol className="chat-run-steps">{run.input_sources.map((source) => <li key={source.version}>
         输入 v{source.version} · <span title={source.requester_id}>{source.sender_type === 'rule' ? '显式规则' : SOURCE_SENDER_LABEL[source.sender_type]}{source.requester_id ? ` ${nameForUser(source.requester_id)}` : ' · 非人类发起，无人类请求者'}</span>
@@ -886,6 +893,7 @@ export function ChatPage() {
   const [requestingKey, setRequestingKey] = useState<string | null>(null);
   const [creatingRun, setCreatingRun] = useState(false);
   const [runTarget, setRunTarget] = useState<string>();
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [workRelation, setWorkRelation] = useState<WorkRelation>();
   const [workMaterials, setWorkMaterials] = useState<WorkMaterials>(emptyWorkMaterials);
   const [resourceGrantIDs, setResourceGrantIDs] = useState<string[]>([]);
@@ -1135,6 +1143,7 @@ export function ChatPage() {
       setWorkMaterials(emptyWorkMaterials());
       setReplyTo(null);
       setInput('');
+      setSelectedSkills([]);
       inputRetry.current = undefined;
       historyGrant.current = undefined;
     }
@@ -1221,7 +1230,7 @@ export function ChatPage() {
     const account = currentUserId;
     if (account !== useAuthStore.getState().user?.id || authRevision !== useAuthStore.getState().revision) return;
     const text = input;
-    const signature = JSON.stringify({ botId: runTarget, relation: workRelation, text, materials: workMaterials, replyTo });
+    const signature = JSON.stringify({ botId: runTarget, relation: workRelation, text, materials: workMaterials, replyTo, skills: selectedSkills });
     const retry = inputRetry.current?.signature === signature ? inputRetry.current : undefined;
     newSendLock.current = true;
     setCreatingRun(true);
@@ -1238,10 +1247,11 @@ export function ChatPage() {
           ? '此第三方执行器不支持补充输入，请发起独立新请求'
           : '此执行已结束或不再接受补充；请明确继续结果创建关联新 Run，或发起独立新话题');
       }
-      const materials: RunMaterialsReq = {
+      const materials: RunMaterialsReq & { skill_version_ids?: string[] } = {
         ...(workMaterials.messageIds.length > 0 ? { message_ids: [...workMaterials.messageIds] } : {}),
         ...(workMaterials.fileIds.length > 0 ? { file_ids: [...workMaterials.fileIds] } : {}),
       };
+      if (workRelation?.mode !== 'input' && selectedSkills.length > 0) materials.skill_version_ids = [...selectedSkills];
       if (!retry && (workMaterials.startSeq !== null || workMaterials.endSeq !== null)) {
         const start = workMaterials.startSeq;
         const end = workMaterials.endSeq;
@@ -1282,6 +1292,7 @@ export function ChatPage() {
         setReplyTo(null);
         setWorkRelation(undefined);
         setWorkMaterials(emptyWorkMaterials());
+        setSelectedSkills([]);
         historyGrant.current = undefined;
       }
       await retryRunSubmission(pending);
@@ -1449,11 +1460,23 @@ export function ChatPage() {
   const privateBot = conv?.type === 'private' ? convBots[0] : undefined;
   const runnableBots = bindingsError ? [] : convBots.filter(isBotBindingActive);
   const currentBinding = runnableBots.find((bot) => bot.bot_id === runTarget);
+  const { data: skillCatalog = [] } = useQuery({
+    queryKey: ['skill-catalog', runTarget],
+    queryFn: ({ signal }) => skillApi.catalog(runTarget!, signal),
+    enabled: !!runTarget && currentBinding?.type !== 'third_party',
+  });
+  useEffect(() => {
+    const available = new Set(skillCatalog.map((entry) => entry.version_id));
+    setSelectedSkills((current) => {
+      const next = current.filter((id) => available.has(id));
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }, [skillCatalog]);
   const inputBlocked = workRelation?.mode === 'input' && (!relatedRun || !hasCurrentRunBinding(relatedRun, runnableBots) || !acceptsRunInput(relatedRun));
   const continuationAllowed = !!relatedRun && isTerminalRun(relatedRun) && relatedRun.interaction_status === 'active'
     && hasCurrentRunBinding(relatedRun, runnableBots) && currentBinding?.binding_id === relatedRun.binding_id;
   const retryInputReady = !!inputRetry.current && inputRetry.current.signature === JSON.stringify({
-    botId: runTarget, relation: workRelation, text: input, materials: workMaterials, replyTo,
+    botId: runTarget, relation: workRelation, text: input, materials: workMaterials, replyTo, skills: selectedSkills,
   });
   useEffect(() => {
     if (!runTarget) { selectedBinding.current = undefined; return; }
@@ -1468,6 +1491,7 @@ export function ChatPage() {
       setUploadedWorkFiles([]);
       setReplyTo(null);
       setInput('');
+      setSelectedSkills([]);
       inputRetry.current = undefined;
       historyGrant.current = undefined;
       setWorkError('Bot 绑定或原交互已失效，已清除旧工作选择；重新绑定后请明确发起新请求。');
@@ -2416,6 +2440,15 @@ export function ChatPage() {
             <Button disabled={creatingRun} onClick={() => beginNewTopic(runTarget)}>独立新话题</Button>
           </div>
           {inputBlocked && <p className="chat-run-notice">原 Run 当前不接受补充，不会暗中创建新执行。已结束的开放交互可明确继续，其余情况请发起独立新话题。</p>}
+        </div>}
+        {runTarget && currentBinding?.type !== 'third_party' && skillCatalog.length > 0 && <div className="chat-work-skills">
+          <label htmlFor="chat-work-skills">显式选择技能（可选，最多 8 个）</label>
+          <Select id="chat-work-skills" aria-label="显式选择技能" mode="multiple" maxTagCount="responsive"
+            value={selectedSkills} disabled={creatingRun || requestingKey !== null} optionFilterProp="label"
+            placeholder="不选择时由模型按任务需要从已启用目录加载"
+            onChange={(values: string[]) => setSelectedSkills(values.slice(0, 8))}
+            options={skillCatalog.map((entry) => ({ value: entry.version_id, label: `${entry.name} v${entry.version} · ${entry.description}` }))} />
+          <p className="chat-run-notice">技能以不可变版本冻结到本 Run；正文与资源在模型需要时才加载。技能不是工具或授权。</p>
         </div>}
         {runTarget && <WorkSourcePicker materials={workMaterials} onChange={setWorkMaterials} messages={messages}
           uploadedFiles={uploadedWorkFiles} disabled={creatingRun || requestingKey !== null} uploading={uploading} onUpload={uploadWorkFile} />}

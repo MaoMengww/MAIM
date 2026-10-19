@@ -19,6 +19,7 @@ import compaction
 import collaboration
 import recovery
 import knowledge_tools
+import instruction_skills
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8099"))
@@ -593,6 +594,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path.startswith("/instruction-skills/"):
+            self._json(200, instruction_skills.command(path, body))
+            return
         if path.startswith("/knowledge-tools/"):
             self._json(200, knowledge_tools.command(path, body))
             return
@@ -687,6 +691,8 @@ class Handler(BaseHTTPRequestHandler):
             if recovery.model(body, self, accepted_input, user_text):
                 return
             if knowledge_tools.model(body, self, accepted_input):
+                return
+            if model.startswith("fixture-skill-") and instruction_skills.model(body, self, messages):
                 return
             if "RUN_FAIL_PROVIDER" in text:
                 self._json(503, {"error": {"message": "fixture unavailable"}})

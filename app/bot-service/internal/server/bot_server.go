@@ -248,3 +248,7 @@ func (s *BotServer) ControlRun(ctx context.Context, req *pb.ControlRunReq) (*pb.
 func (s *BotServer) Authorization(ctx context.Context, req *pb.AuthorizationReq) (*pb.AuthorizationResponse, error) {
 	return s.runtime.Authorization(ctx, req)
 }
+
+func (s *BotServer) SkillOperation(ctx context.Context, req *pb.SkillOperationReq) (*pb.SkillOperationResponse, error) {
+	return s.runtime.SkillOperation(ctx, req)
+}

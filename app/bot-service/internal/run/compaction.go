@@ -201,6 +201,11 @@ func (s *Service) workingModelView(ctx context.Context, r *model.Run, generation
 			*r = *updated
 		}
 	}
+	if checkpoint != nil {
+		if constraint := s.skillConstraints(ctx, r, config); constraint != nil {
+			messages = append(messages, constraint)
+		}
+	}
 	cost, err := modelInputCost(messages, config)
 	if err != nil {
 		return nil, err
@@ -236,6 +241,9 @@ func (s *Service) workingModelView(ctx context.Context, r *model.Run, generation
 	messages, _, err = compactionView(blocks, checkpoint, config)
 	if err != nil {
 		return nil, err
+	}
+	if constraint := s.skillConstraints(ctx, r, config); constraint != nil {
+		messages = append(messages, constraint)
 	}
 	cost, err = modelInputCost(messages, config)
 	if err != nil {

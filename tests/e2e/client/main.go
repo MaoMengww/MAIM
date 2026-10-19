@@ -239,6 +239,7 @@ func run(args []string) error {
 			{"bot-recovery", *realtimeA, *realtimeB},
 			{"bot-cutover", *realtimeA, *realtimeB},
 			{"bot-knowledge-tools", *realtimeA, *realtimeB},
+			{"bot-skills", *realtimeA, *realtimeB},
 			{"knowledge-ingest", "", ""},
 			{"llm-chat", "", ""},
 			{"llm-components", "", ""},
@@ -282,6 +283,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"bot-authorizations", *realtimeA, *realtimeB}}
 	case "bot-knowledge-tools":
 		scenarios = []scenarioSpec{{"bot-knowledge-tools", *realtimeA, *realtimeB}}
+	case "bot-skills":
+		scenarios = []scenarioSpec{{"bot-skills", *realtimeA, *realtimeB}}
 	case "bot-collaboration":
 		scenarios = []scenarioSpec{{"bot-collaboration", *realtimeA, *realtimeB}}
 	case "bot-recovery":
@@ -379,6 +382,8 @@ func run(args []string) error {
 			err = d.botAuthorizations(scenario.a, scenario.b)
 		case "bot-knowledge-tools":
 			err = d.botKnowledgeTools(scenario.a, scenario.b)
+		case "bot-skills":
+			err = d.botSkills(scenario.a, scenario.b)
 		case "bot-collaboration":
 			err = d.botCollaboration(scenario.a, scenario.b)
 		case "bot-recovery":

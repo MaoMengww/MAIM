@@ -39,6 +39,7 @@ type ServiceContext struct {
 	KnowledgeConn     zrpc.Client
 	DeliveryPublisher *delivery.Publisher
 	RuntimeClient     botpb.BotServiceClient
+	RuntimeConn       zrpc.Client
 	UserServiceConn   zrpc.Client
 	FileServiceConn   zrpc.Client
 }
@@ -48,6 +49,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	// and callback work bodies from the client interceptor's request formatting.
 	zrpc.DontLogClientContentForMethod(botpb.BotService_ExecutorUpdate_FullMethodName)
 	zrpc.DontLogClientContentForMethod(botpb.BotService_HandleIncomingWebhook_FullMethodName)
+	// Package archives and evidence bodies stay out of transport logs.
+	zrpc.DontLogClientContentForMethod(botpb.BotService_SkillOperation_FullMethodName)
 	logger := logx.DefaultLogger()
 
 	db, err := database.NewDB(c.Database, logger)
@@ -77,23 +80,27 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		}
 		base.MessageClient = msgpb.NewMessageServiceClient(zrpc.MustNewClient(c.MessageService).Conn())
 	}
-	if c.Role == "control" {
-		if c.Runtime.Target == "" {
-			panic("Runtime.Target is required for the control role")
-		}
-		base.RuntimeClient = botpb.NewBotServiceClient(zrpc.MustNewClient(c.Runtime).Conn())
-		return base
-	}
-
 	reqIDClientOpt := zrpc.WithDialOption(
 		grpc.WithChainUnaryInterceptor(interceptor.UnaryRequestIDClientInterceptor()),
 	)
 	reqIDStreamOpt := zrpc.WithDialOption(
 		grpc.WithChainStreamInterceptor(interceptor.StreamRequestIDClientInterceptor()),
 	)
+	// Skill governance, including representative-task evaluation, is served by
+	// the control replica and calls the LLM domain directly. It must not depend
+	// on a runtime connection that is established only later.
 	llmGatewayConn, err := zrpc.NewClient(c.LlmGateway, reqIDClientOpt, reqIDStreamOpt)
 	if err != nil {
 		panic(fmt.Sprintf("llm-gateway client failed: %v", err))
+	}
+	base.LlmGatewayConn = llmGatewayConn
+	if c.Role == "control" {
+		if c.Runtime.Target == "" {
+			panic("Runtime.Target is required for the control role")
+		}
+		base.RuntimeConn = zrpc.MustNewClient(c.Runtime)
+		base.RuntimeClient = botpb.NewBotServiceClient(base.RuntimeConn.Conn())
+		return base
 	}
 
 	messageSvcConn, err := zrpc.NewClient(c.MessageService, reqIDClientOpt, reqIDStreamOpt)
@@ -116,7 +123,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		base.FileServiceConn = fileServiceConn
 	}
 
-	base.LlmGatewayConn = llmGatewayConn
 	base.MessageSvcConn = messageSvcConn
 	base.KnowledgeConn = knowledgeConn
 	base.UserServiceConn = userServiceConn

@@ -1929,3 +1929,19 @@
   .chat-run-identities { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .chat-run-identities dd { margin-bottom: 4px; }
 }
+
+.chat-work-skills {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 8px;
+  padding: 12px;
+  border: 1px solid var(--aim-border);
+  border-radius: var(--aim-radius-md, 8px);
+  background: var(--aim-surface-hover);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.chat-work-skills label { color: var(--aim-text-secondary); }
+.chat-work-skills .ant-select { max-width: 100%; }

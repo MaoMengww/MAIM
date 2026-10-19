@@ -13,6 +13,7 @@ service BotService {
   rpc ExecutorUpdate(ExecutorUpdateReq) returns (RunResponse);
   rpc ControlRun(ControlRunReq) returns (RunResponse);
   rpc Authorization(AuthorizationReq) returns (AuthorizationResponse);
+  rpc SkillOperation(SkillOperationReq) returns (SkillOperationResponse);
 
   // Bot CRUD
   rpc CreateBot(CreateBotReq) returns (Bot);
@@ -469,6 +470,7 @@ message StartRunReq {
   repeated string file_ids = 9 [(common.entity_id) = true];
   string visibility = 10;
   repeated string resource_grant_ids = 11 [(common.entity_id) = true];
+  repeated string skill_version_ids = 12 [(common.entity_id) = true];
 }
 
 message GetRunReq { string run_id = 1 [(common.entity_id) = true]; }
@@ -506,3 +508,11 @@ message AuthorizationReq {
 }
 message AuthorizationResponse { bytes body = 1; }
 
+
+message SkillOperationReq {
+  string bot_id = 1 [(common.entity_id) = true];
+  string operation = 2;
+  bytes body = 3;
+}
+
+message SkillOperationResponse { bytes body = 1; }
