@@ -1,0 +1,43 @@
+[Unit]
+Description=AIM trusted fixed-workload execution manager (dedicated node only)
+Requires=docker.service
+After=docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+# Provision a dedicated unprivileged bridge UID in /etc/aim-executor/node.env.
+EnvironmentFile=/etc/aim-executor/node.env
+RuntimeDirectory=aim-executor
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=no
+StateDirectory=aim-executor
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 -I -B /opt/aim-executor/manager.py --state /var/lib/aim-executor --policy /etc/aim-executor/policy.json --socket /run/aim-executor/control.sock --caller-uid ${AIM_EXECUTOR_CALLER_UID}
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=90
+KillMode=control-group
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/aim-executor /run/aim-executor
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=512M
+MemorySwapMax=0
+TasksMax=64
+LimitNOFILE=256
+# Workload stdout never enters journald; Docker log driver is none.
+StandardOutput=null
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
