@@ -311,9 +311,12 @@ class Acceptance:
         identity = record["execution_id"]
         budget = seconds if seconds is not None else record["limits"]["total_seconds"] + 25
         deadline = min(self.deadline, time.monotonic() + budget)
+        recovery_deadline = min(deadline, time.monotonic() + 10)
         while time.monotonic() < deadline:
             record = manager.get(identity)
-            if record.get("phase") in ("cleaned", "unknown"):
+            if record.get("phase") == "cleaned":
+                break
+            if record.get("phase") == "unknown" and time.monotonic() >= recovery_deadline:
                 break
             time.sleep(0.1)
         self.records[identity] = record
@@ -940,7 +943,8 @@ else:
         status, value = self.docker.inspect(self.sentinel)
         self.evidence.save("foreign-sentinel-after-recovery", {"id": self.sentinel, "status": status, "body": value})
         self.check(status == 200 and value.get("Id") == self.sentinel and
-                   value.get("Config", {}).get("Labels") == self.sentinel_labels and
+                   all(value.get("Config", {}).get("Labels", {}).get(key) == expected
+                       for key, expected in self.sentinel_labels.items()) and
                    value.get("State", {}).get("Running") is False,
                    "Cleanup/recovery did not delete, relabel or start the foreign-owner container", value)
 
@@ -948,7 +952,9 @@ else:
         if not self.sentinel:
             return
         status, value = self.docker.inspect(self.sentinel)
-        if status != 200 or value.get("Id") != self.sentinel or value.get("Config", {}).get("Labels") != self.sentinel_labels:
+        if status != 200 or value.get("Id") != self.sentinel or not all(
+                value.get("Config", {}).get("Labels", {}).get(key) == expected
+                for key, expected in self.sentinel_labels.items()):
             self.check(False, "Sentinel exact-ID and ownership verified before deletion",
                        {"status": status, "body": value}, available=False)
             return

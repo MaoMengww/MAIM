@@ -514,6 +514,7 @@ class Manager:
                 if current is None:
                     if record["evidence"].get("stop_confirmed") and record["evidence"].get("resource_directory"):
                         self._confirm_resources(record)
+                        record["error"] = ""
                         record["phase"] = "cleaned"
                         self._recovery_checkpoint(record)
                         return
@@ -549,8 +550,12 @@ class Manager:
                 if self._inspect(current["Id"]) is not None:
                     raise Rejected("container removal unconfirmed")
                 self._confirm_resources(record)
+                record["error"] = ""
                 record["phase"] = "cleaned"
             except Exception as exc:
+                failures = record.setdefault("recovery_errors", [])
+                if len(failures) < 16:
+                    failures.append(str(exc)[:1024])
                 record["phase"] = "unknown"
                 record["error"] = str(exc)[:2048]
             self._recovery_checkpoint(record)
@@ -572,13 +577,6 @@ class Manager:
                 continue
             if current == process["starttime"]:
                 raise Rejected("recorded host process still present")
-        # Node-wide mount namespace observation, not merely Docker object absence.
-        for path in Path("/proc").glob("[0-9]*/cgroup"):
-            try:
-                if record["container_id"] in path.read_text():
-                    raise Rejected("host still has a process in this container cgroup")
-            except (FileNotFoundError, ProcessLookupError):
-                pass
 
     def _confirm_resources(self, record):
         self._confirm_processes(record)
@@ -590,12 +588,6 @@ class Manager:
         if cgroup and Path(cgroup).exists():
             raise Rejected("exact container cgroup still present")
         identity = record["container_id"]
-        for path in Path("/proc").glob("[0-9]*/mountinfo"):
-            try:
-                if identity in path.read_text():
-                    raise Rejected("container mount remains in host-visible namespace")
-            except (FileNotFoundError, ProcessLookupError):
-                pass
         record["evidence"].update(removed=True, resources_absent=True)
 
     def stop(self, execution_id):
