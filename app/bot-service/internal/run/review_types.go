@@ -75,30 +75,58 @@ type reviewExtraction struct {
 	ExpectedOutput     string            `json:"expected_output"`
 }
 
+// Display-only content is resolved from the authorized immutable baseline.
+type candidateBaselineContent struct {
+	Instructions string            `json:"instructions"`
+	Resources    json.RawMessage   `json:"resources"`
+	Scripts      map[string]string `json:"scripts"`
+	ImageDigest  string            `json:"image_digest"`
+	EntryPoint   string            `json:"entry_point"`
+}
+
 type reviewCandidate struct {
-	ID                   string            `json:"id"`
-	Name                 string            `json:"name"`
-	Description          string            `json:"description"`
-	SkillID              string            `json:"skill_id"`
-	SourceRunID          string            `json:"source_run_id"`
-	PublisherID          string            `json:"publisher_id"`
-	ScopeKey             string            `json:"scope_key"`
-	Intent               string            `json:"intent"`
-	TargetGoal           string            `json:"target_goal"`
-	Applicability        string            `json:"applicability"`
-	Rationale            string            `json:"rationale"`
-	Instructions         string            `json:"instructions"`
-	BaselineInstructions string            `json:"baseline_instructions"`
-	Resources            map[string]string `json:"resources"`
-	Scripts              map[string]string `json:"scripts"`
-	ImageDigest          string            `json:"image_digest"`
-	EntryPoint           string            `json:"entry_point"`
-	Digest               string            `json:"digest"`
-	BaselineVersionID    *string           `json:"baseline_version_id,omitempty"`
-	Status               string            `json:"status"`
-	CodeReviewRequired   bool              `json:"code_review_required"`
-	EvidenceDigest       string            `json:"evidence_digest"`
-	ExpiresAt            int64             `json:"expires_at"`
+	ID                   string                    `json:"id"`
+	Name                 string                    `json:"name"`
+	Description          string                    `json:"description"`
+	SkillID              string                    `json:"skill_id"`
+	SourceRunID          string                    `json:"source_run_id"`
+	PublisherID          string                    `json:"publisher_id"`
+	ScopeKey             string                    `json:"scope_key"`
+	Intent               string                    `json:"intent"`
+	TargetGoal           string                    `json:"target_goal"`
+	Applicability        string                    `json:"applicability"`
+	Rationale            string                    `json:"rationale"`
+	Instructions         string                    `json:"instructions"`
+	BaselineInstructions string                    `json:"baseline_instructions"`
+	BaselineContent      *candidateBaselineContent `json:"baseline_content,omitempty"`
+	Resources            map[string]string         `json:"resources"`
+	Scripts              map[string]string         `json:"scripts"`
+	ImageDigest          string                    `json:"image_digest"`
+	EntryPoint           string                    `json:"entry_point"`
+	Digest               string                    `json:"digest"`
+	BaselineVersionID    *string                   `json:"baseline_version_id,omitempty"`
+	Status               string                    `json:"status"`
+	CodeReviewRequired   bool                      `json:"code_review_required"`
+	EvidenceDigest       string                    `json:"evidence_digest"`
+	ExpiresAt            int64                     `json:"expires_at"`
+	EvidenceRevision     int64                     `json:"evidence_revision"`
+	CodeReviewedMemberID string                    `json:"code_reviewed_member_id,omitempty"`
+	ApprovedMemberID     string                    `json:"approved_member_id,omitempty"`
+	RepresentativeTask   string                    `json:"representative_task"`
+	ExpectedOutput       string                    `json:"expected_output"`
+	InputBase64          string                    `json:"input_b64"`
+	ExpectedOutputBase64 string                    `json:"expected_output_b64"`
+	CodeReviewDigest     string                    `json:"code_review_digest,omitempty"`
+	CodeReviewIdentity   string                    `json:"code_review_identity,omitempty"`
+	CodeReviewedBy       string                    `json:"code_reviewed_by,omitempty"`
+	PublishedVersionID   *string                   `json:"published_version_id,omitempty"`
+	Evaluation           *candidateEvaluation      `json:"evaluation,omitempty"`
+	CanMaintain          bool                      `json:"can_maintain"`
+	CanViewMaterials     bool                      `json:"can_view_materials"`
+	CanReviewCode        bool                      `json:"can_review_code"`
+	CanPublish           bool                      `json:"can_publish"`
+	Evidence             string                    `json:"evidence,omitempty"`
+	Reason               string                    `json:"reason,omitempty"`
 }
 
 type reviewView struct {

@@ -66,6 +66,7 @@ def command(path, body):
                 "version_id": body["version_id"], "evaluation": body["evaluation"],
                 "answer": body["answer"], "body_marker": body["body_marker"],
                 "resource": body.get("resource", ""), "resource_marker": body.get("resource_marker", ""),
+                "evaluation_http_status": body.get("evaluation_http_status", 0),
             })
             return {"ok": True}
         session = SESSIONS.get(token)
@@ -87,6 +88,9 @@ def model(body, handler, messages):
     if not tools:
         # Representative-task evaluation: no tools, no Run. The concrete output
         # is the expected result the client configured, so the pass is explicit.
+        if session["evaluation_http_status"]:
+            handler._json(session["evaluation_http_status"], {"error": {"message": "controlled evaluation outage"}})
+            return True
         _emit(handler, {"role": "assistant", "content": session["evaluation"]}, "stop", body.get("stream"))
         return True
     names = [item.get("function", {}).get("name") for item in tools]

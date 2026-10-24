@@ -267,6 +267,7 @@ export interface SkillEvaluation {
   expected_digest: string;
   output_digest: string;
   model_version: string;
+  environment_digest?: string;
   created_at: number;
 }
 

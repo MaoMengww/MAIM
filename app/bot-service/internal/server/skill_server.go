@@ -17,13 +17,19 @@ func (s *RuntimeServer) SkillOperation(ctx context.Context, req *pb.SkillOperati
 	if req == nil || req.BotId == "" {
 		return nil, status.Error(codes.InvalidArgument, "Bot identity is required")
 	}
-	if strings.HasPrefix(req.Operation, "review-") {
+	if strings.HasPrefix(req.Operation, "review-") || strings.HasPrefix(req.Operation, "candidate-") {
 		if s.svcCtx.RuntimeClient != nil {
 			return forwardRuntime(s, ctx, func(client pb.BotServiceClient) (*pb.SkillOperationResponse, error) {
 				return client.SkillOperation(forwardRuntimeContext(ctx), req)
 			})
 		}
-		body, err := s.runs.ReviewOperation(ctx, runtimeUserID(ctx), req.BotId, req.Operation, req.Body)
+		var body []byte
+		var err error
+		if strings.HasPrefix(req.Operation, "candidate-") {
+			body, err = s.runs.CandidateOperation(ctx, runtimeUserID(ctx), req.BotId, req.Operation, req.Body)
+		} else {
+			body, err = s.runs.ReviewOperation(ctx, runtimeUserID(ctx), req.BotId, req.Operation, req.Body)
+		}
 		if err != nil {
 			return nil, err
 		}

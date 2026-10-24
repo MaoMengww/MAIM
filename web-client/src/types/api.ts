@@ -196,6 +196,7 @@ export interface SkillImportReq {
 
 export interface SkillActionReq {
   submission_key: string;
+  digest: string;
 }
 
 export interface SkillEnableReq {

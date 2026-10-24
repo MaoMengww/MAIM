@@ -240,6 +240,9 @@ func (s *Service) manageResource(ctx context.Context, user, kind string, body []
 }
 
 func (s *Service) currentRunTools(ctx context.Context, r *model.Run) error {
+	if err := s.checkScopedRunSkills(ctx, r, r.RequesterID); err != nil {
+		return err
+	}
 	var stored int64
 	if err := s.svc.DB.WithContext(ctx).Model(&model.Run{}).Where("id = ?", r.ID).Count(&stored).Error; err != nil {
 		return err

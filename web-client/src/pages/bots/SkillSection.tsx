@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Divider, Form, Input, Modal, Space, Spin, Tag, Upload, message } from 'antd';
+import { Button, Checkbox, Divider, Form, Input, Modal, Space, Spin, Tag, Upload, message } from 'antd';
 import { CloudUploadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { skillApi } from '@/services/skill';
 import type { SkillCandidate, SkillPackage } from '@/types/model';
+import { SourceCandidateList } from '@/components/skills/CandidateGovernance';
+import { submitSkillIntent } from '@/utils/skillSubmission';
+import { useAuthStore } from '@/stores/auth';
 
 const STATUS_LABEL: Record<string, { text: string; color: string }> = {
   pending_validation: { text: '待验证', color: 'default' },
@@ -44,17 +47,24 @@ function candidateEvidence(candidate: SkillCandidate) {
 
 function CandidateRow({ botId, pkg, candidate }: { botId: string; pkg: SkillPackage; candidate: SkillCandidate }) {
   const queryClient = useQueryClient();
-  const [submissionKey] = useState(() => crypto.randomUUID());
+  const userId = useAuthStore((state) => state.user?.id);
+  const [confirmed, setConfirmed] = useState(false);
+  const actionRequest = (action: 'evaluate' | 'approve' | 'publish') => {
+    const payload = { digest: candidate.digest };
+    return submitSkillIntent(`${userId}:${botId}:${candidate.id}:${action}`, payload,
+      async (submission_key) => skillApi[action](botId, candidate.id, { ...payload, submission_key }));
+  };
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['bot-skills', botId] });
   const onError = (err: unknown) => {
     const value = err as { response?: { data?: { message?: string } } };
-    message.error(value?.response?.data?.message || '操作失败');
+    message.error(`${value?.response?.data?.message || '操作失败'}；相同意图保留原提交键，过时摘要不会自动替换，请手动刷新后重新审阅。`);
   };
-  const evaluate = useMutation({ mutationFn: () => skillApi.evaluate(botId, candidate.id, { submission_key: submissionKey }), onSuccess: invalidate, onError });
-  const approve = useMutation({ mutationFn: () => skillApi.approve(botId, candidate.id, { submission_key: submissionKey }), onSuccess: invalidate, onError });
-  const publish = useMutation({ mutationFn: () => skillApi.publish(botId, candidate.id, { submission_key: submissionKey }), onSuccess: invalidate, onError });
+  const evaluate = useMutation({ mutationFn: () => actionRequest('evaluate'), retry: false, onSuccess: invalidate, onError });
+  const approve = useMutation({ mutationFn: () => actionRequest('approve'), retry: false, onSuccess: invalidate, onError });
+  const publish = useMutation({ mutationFn: () => actionRequest('publish'), retry: false, onSuccess: invalidate, onError });
   const enable = useMutation({
-    mutationFn: (versionId: string) => skillApi.enable(botId, versionId, { submission_key: submissionKey }),
+    mutationFn: (versionId: string) => submitSkillIntent(`${userId}:${botId}:enable`, { versionId },
+      (submission_key) => skillApi.enable(botId, versionId, { submission_key })),
     onSuccess: () => { message.success('已启用该版本'); invalidate(); },
     onError,
   });
@@ -70,11 +80,12 @@ function CandidateRow({ botId, pkg, candidate }: { botId: string; pkg: SkillPack
     <div style={{ fontSize: 12, color: 'var(--aim-text-secondary)', margin: '6px 0' }}>{candidate.description}</div>
     {candidateEvidence(candidate)}
     {candidate.failure && <div style={{ fontSize: 12, color: 'var(--aim-text-tertiary)' }}>{candidate.failure}</div>}
+    {candidate.status === 'evaluated' && <Checkbox checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)}>我已核对当前确切内容与验证证据，确认发布批准（不是执行前代码审查）</Checkbox>}
     <Space style={{ marginTop: 8 }} wrap>
       {['pending_validation', 'validation_failed'].includes(candidate.status)
         && <Button size="small" loading={evaluate.isPending} onClick={() => evaluate.mutate()}>运行代表任务验证</Button>}
       {candidate.status === 'evaluated'
-        && <Button size="small" type="primary" loading={approve.isPending} onClick={() => approve.mutate()}>批准确切内容与证据</Button>}
+        && <Button size="small" type="primary" disabled={!confirmed || candidate.evaluation?.status !== 'passed'} loading={approve.isPending} onClick={() => approve.mutate()}>批准确切内容与证据</Button>}
       {candidate.status === 'approved'
         && <Button size="small" type="primary" loading={publish.isPending} onClick={() => publish.mutate()}>发布不可变版本</Button>}
       {candidate.status === 'published' && published && (
@@ -87,23 +98,22 @@ function CandidateRow({ botId, pkg, candidate }: { botId: string; pkg: SkillPack
 
 export function BotSkillSection({ botId, canManage }: { botId: string; canManage: boolean }) {
   const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id);
   const [importOpen, setImportOpen] = useState(false);
   const [file, setFile] = useState<File>();
   const [form] = Form.useForm();
-  const { data = [], isLoading } = useQuery({
-    queryKey: ['bot-skills', botId],
+  const { data = [], isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ['bot-skills', botId, userId],
     queryFn: () => skillApi.list(botId),
     enabled: canManage,
+    retry: false, gcTime: 0, refetchOnWindowFocus: false, refetchOnReconnect: false,
   });
   const importMutation = useMutation({
     mutationFn: async (values: { representative_task: string; expected_output: string }) => {
       if (!file) throw new Error('请选择 zip 包');
-      return skillApi.importPackage(botId, {
-        archive: await fileBase64(file),
-        submission_key: crypto.randomUUID(),
-        representative_task: values.representative_task,
-        expected_output: values.expected_output,
-      });
+      const payload = { archive: await fileBase64(file), representative_task: values.representative_task, expected_output: values.expected_output };
+      return submitSkillIntent(`${userId}:${botId}:import`, payload,
+        (submission_key) => skillApi.importPackage(botId, { ...payload, submission_key }));
     },
     onSuccess: () => {
       message.success('包已导入为待验证候选');
@@ -117,16 +127,19 @@ export function BotSkillSection({ botId, canManage }: { botId: string; canManage
       message.error(value?.response?.data?.message || value?.message || '导入失败');
     },
   });
-  if (!canManage) return null;
-  return <div style={{ marginBottom: 24 }}>
-    <Divider orientation="left" style={{ color: 'var(--aim-text-secondary)', fontSize: 13 }}>Instruction skills</Divider>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+  return <>
+    <SourceCandidateList botId={botId} />
+    {canManage && <div style={{ marginBottom: 24 }}>
+    <Divider orientation="left" style={{ color: 'var(--aim-text-secondary)', fontSize: 13 }}>Instruction skills · 已导入包</Divider>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
       <span style={{ fontSize: 13, color: 'var(--aim-text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
         <SafetyCertificateOutlined /> 纯指令包 · 验证、批准后发布不可变版本
       </span>
       <Button size="small" icon={<CloudUploadOutlined />} onClick={() => setImportOpen(true)}>导入 zip 包</Button>
+      <Button loading={isFetching} onClick={() => void refetch()}>刷新已导入包</Button>
     </div>
-    {isLoading ? <div style={{ textAlign: 'center', padding: 16 }}><Spin /></div>
+    {isError ? <p role="alert">技能包列表读取失败或当前权限不足；不展示缓存材料，请刷新重新核验。</p>
+      : isLoading ? <div style={{ textAlign: 'center', padding: 16 }}><Spin /></div>
       : data.length === 0 ? <div style={{ fontSize: 13, color: 'var(--aim-text-tertiary)', padding: '8px 0' }}>
         尚无技能包。包必须包含 SKILL.md（name、description、license）与 references/ 或 assets/ 文本资源；不支持脚本、模型覆盖、fork、自动 MCP 或命令扩展。
       </div>
@@ -158,9 +171,10 @@ export function BotSkillSection({ botId, canManage }: { botId: string; canManage
           <Input.TextArea rows={3} maxLength={16384} placeholder="任务输入；验证会用 Bot 当前模型真实执行" />
         </Form.Item>
         <Form.Item name="expected_output" label="预期明确结果" rules={[{ required: true, message: '必须给出可核对的具体结果，而不是“非空”' }]}>
-          <Input.TextArea rows={2} maxLength={2048} placeholder="如：统计值 42 与文件内容摘要；输出必须包含该结果" />
+          <Input.TextArea rows={2} maxLength={2048} placeholder="给出具体预期文本，验证将核对明确结果，不接受仅非空或退出码" />
         </Form.Item>
       </Form>
     </Modal>
-  </div>;
+  </div>}
+  </>;
 }

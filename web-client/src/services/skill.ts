@@ -3,7 +3,7 @@ import type { SkillActionReq, SkillEnableReq, SkillImportReq } from '@/types/api
 import type { APIResponse, AvailableSkill, SkillCandidate, SkillEvaluation, SkillPackage, SkillVersion } from '@/types/model';
 import { entityId } from '@/utils/json';
 
-function normalizeVersion(value: unknown): SkillVersion {
+export function normalizeVersion(value: unknown): SkillVersion {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('技能版本格式无效');
   const version = value as Record<string, unknown>;
   if (typeof version.name !== 'string' || typeof version.description !== 'string' || typeof version.digest !== 'string'
@@ -18,7 +18,7 @@ function normalizeVersion(value: unknown): SkillVersion {
 
 const EVALUATION_STATUSES = ['passed', 'failed', 'insufficient', 'error'] as const;
 
-function normalizeEvaluation(value: unknown): SkillEvaluation {
+export function normalizeEvaluation(value: unknown): SkillEvaluation {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('技能验证格式无效');
   const result = value as Record<string, unknown>;
   if (!EVALUATION_STATUSES.includes(result.status as (typeof EVALUATION_STATUSES)[number])
@@ -29,6 +29,7 @@ function normalizeEvaluation(value: unknown): SkillEvaluation {
     status: result.status as SkillEvaluation['status'], passed: result.passed, reason: result.reason, digest: result.digest,
     task_digest: String(result.task_digest ?? ''), expected_digest: String(result.expected_digest ?? ''),
     output_digest: String(result.output_digest ?? ''), model_version: String(result.model_version ?? ''),
+    environment_digest: typeof result.environment_digest === 'string' ? result.environment_digest : undefined,
     created_at: Number(result.created_at ?? 0),
   };
 }

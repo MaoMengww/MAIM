@@ -288,7 +288,7 @@ class Runner:
             for name, port in (("gateway", 8080), ("realtime-service", 8081), ("realtime-b", 8081)):
                 services[name]["ports"] = [{"target": port, "published": "0",
                                             "host_ip": "127.0.0.1", "protocol": "tcp"}]
-            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-skills"}:
+            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-skills", "bot-run-reviews"}:
                 services["e2e-provider"]["ports"] = [{"target": 8099, "published": "0",
                                                      "host_ip": "127.0.0.1", "protocol": "tcp"}]
             if "minio" in services:
@@ -377,7 +377,7 @@ class Runner:
                     "-timeout", f"{self.args.timeout:g}s",
                     "-provider", "http://e2e-provider:8099",
                     "-ingest-timeout", "10m", "-query-deadline", "5s"]
-        if self.args.scenario in ("all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools"):
+        if self.args.scenario in ("all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-run-reviews"):
             scenario.extend(["-control-dir", "/control"])
         scenario.extend(["-scenario", self.args.scenario])
         if self.args.scenario == "all":
@@ -432,7 +432,7 @@ class Runner:
                 if not address.startswith("127.0.0.1:") or "\n" in address:
                     raise LayerFailure("browser-access: minio did not publish a single loopback address")
                 access["minio"] = "http://" + address
-            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-skills"}:
+            if self.args.scenario in {"all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-skills", "bot-run-reviews"}:
                 address = self.compose("browser-port-provider", "port", "e2e-provider", "8099", capture=True).strip()
                 if not address.startswith("127.0.0.1:") or "\n" in address:
                     raise LayerFailure("browser-access: provider did not publish a single loopback address")

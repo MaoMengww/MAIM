@@ -15,12 +15,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM alpine:3.21
 
-RUN apk add --no-cache tzdata ca-certificates
+ARG SERVICE
+RUN apk add --no-cache tzdata ca-certificates && \
+    if [ "$SERVICE" = "bot-service" ]; then apk add --no-cache openssh-client-default; fi
 
 COPY --from=builder /build/service /app/service
 RUN chmod +x /app/service
 
-ARG SERVICE
 COPY app/${SERVICE}/etc/ /app/etc/
 
 WORKDIR /app

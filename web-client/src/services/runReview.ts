@@ -30,7 +30,7 @@ export interface ReviewCandidate {
   entry_point: string;
   digest: string;
   baseline_version_id?: string;
-  status: 'pending_validation';
+  status: string;
   code_review_required: boolean;
   evidence_digest: string;
   expires_at: number;
@@ -91,7 +91,7 @@ function normalizePolicy(value: unknown): ReviewPolicy {
 }
 function normalizeCandidate(value: unknown): ReviewCandidate {
   const data = object(value);
-  if (data.intent !== 'create' && data.intent !== 'modify' || data.status !== 'pending_validation') throw new Error('复盘候选状态无效');
+  if (data.intent !== 'create' && data.intent !== 'modify' || !['pending_validation', 'evaluating', 'evaluated', 'validation_failed', 'awaiting_evidence', 'approved', 'rejected', 'published', 'expired'].includes(text(data.status))) throw new Error('复盘候选状态无效');
   return {
     id: entityId(data.id, 'review.candidate_id'), skill_id: entityId(data.skill_id, 'review.skill_id'),
     source_run_id: entityId(data.source_run_id, 'review.source_run_id'), publisher_id: entityId(data.publisher_id, 'review.publisher_id'),
@@ -99,7 +99,7 @@ function normalizeCandidate(value: unknown): ReviewCandidate {
     rationale: text(data.rationale), instructions: text(data.instructions), baseline_instructions: text(data.baseline_instructions),
     resources: files(data.resources), scripts: files(data.scripts), image_digest: text(data.image_digest), entry_point: text(data.entry_point),
     digest: text(data.digest), baseline_version_id: data.baseline_version_id == null ? undefined : entityId(data.baseline_version_id, 'review.baseline_version_id'),
-    status: data.status, code_review_required: boolean(data.code_review_required), evidence_digest: text(data.evidence_digest), expires_at: number(data.expires_at),
+    status: text(data.status), code_review_required: boolean(data.code_review_required), evidence_digest: text(data.evidence_digest), expires_at: number(data.expires_at),
   };
 }
 function normalizeReview(value: unknown): Review {

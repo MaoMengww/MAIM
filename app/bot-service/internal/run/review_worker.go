@@ -348,7 +348,7 @@ func validateReviewExtraction(value *reviewExtraction, assessment reviewAssessme
 			total += len(name) + len(body)
 		}
 	}
-	if total > 16384 || len(value.ImageDigest) > 128 || len(value.EntryPoint) > 256 {
+	if total > 80<<10 || len(value.ImageDigest) > 128 || len(value.EntryPoint) > 256 {
 		return errors.New("candidate files too large")
 	}
 	return nil
@@ -396,6 +396,7 @@ func (s *Service) saveReviewCandidate(ctx context.Context, item *model.RunOutbox
 		}
 		candidate := reviewCandidate{ID: id, SourceRunID: r.ID, PublisherID: *review.PublisherID, ScopeKey: review.ScopeKey, Intent: "create", TargetGoal: assessment.TargetGoal, Applicability: assessment.Applicability, Rationale: value.Rationale, Instructions: value.Instructions, Resources: value.Resources, Scripts: value.Scripts, ImageDigest: value.ImageDigest, EntryPoint: value.EntryPoint, Status: "pending_validation", CodeReviewRequired: len(value.Scripts) > 0, EvidenceDigest: mustReviewDigest(evidence), ExpiresAt: review.ExpiresAt.Unix()}
 		candidate.Name, candidate.Description = value.Name, value.Description
+		candidate.RepresentativeTask, candidate.ExpectedOutput = value.RepresentativeTask, value.ExpectedOutput
 		if assessment.TargetVersionID != "" {
 			baseline, err := reviewTarget(ctx, tx, r, review, assessment.TargetVersionID)
 			if err != nil {
@@ -424,7 +425,7 @@ func (s *Service) saveReviewCandidate(ctx context.Context, item *model.RunOutbox
 				candidate.SkillID = existing.ID
 			}
 		}
-		candidate.Digest = mustReviewDigest(map[string]any{"content": value, "license": "private-source-scope", "publisher_id": candidate.PublisherID, "scope_key": candidate.ScopeKey, "source_run_id": r.ID, "baseline_version_id": candidate.BaselineVersionID, "evidence_digest": candidate.EvidenceDigest})
+		candidate.Digest = candidateContentDigest(&candidate)
 		content, err := json.Marshal(candidate)
 		if err != nil {
 			return err

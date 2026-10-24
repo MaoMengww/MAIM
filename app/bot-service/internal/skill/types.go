@@ -13,6 +13,7 @@ type Frozen struct {
 	PackageID   string `json:"package_id"`
 	PublisherID string `json:"publisher_id"`
 	ScopeID     string `json:"scope_id"`
+	ScopeKey    string `json:"scope_key,omitempty"`
 	Version     int    `json:"version"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -113,43 +114,47 @@ type importRequest struct {
 }
 
 type candidate struct {
-	ID                       string          `gorm:"column:id;primaryKey;type:uuid"`
-	SkillID                  string          `gorm:"column:skill_id;type:uuid"`
-	BotID                    string          `gorm:"column:bot_id;type:uuid"`
-	Digest                   string          `gorm:"column:digest"`
-	Name                     string          `gorm:"column:name"`
-	Description              string          `gorm:"column:description"`
-	Instructions             string          `gorm:"column:instructions"`
-	Resources                json.RawMessage `gorm:"column:resources;type:jsonb"`
-	License                  string          `gorm:"column:license"`
-	BaselineVersionID        *string         `gorm:"column:baseline_version_id;type:uuid"`
-	Status                   string          `gorm:"column:status"`
-	Failure                  string          `gorm:"column:failure"`
-	Task                     string          `gorm:"column:task"`
-	ExpectedOutput           string          `gorm:"column:expected_output"`
-	EvaluationDigest         string          `gorm:"column:evaluation_digest"`
-	ApprovedDigest           string          `gorm:"column:approved_digest"`
-	ApprovedEvaluationDigest string          `gorm:"column:approved_evaluation_digest"`
-	PublishedVersionID       *string         `gorm:"column:published_version_id;type:uuid"`
-	CreatedAt                time.Time       `gorm:"column:created_at"`
-	UpdatedAt                time.Time       `gorm:"column:updated_at"`
+	ID                           string          `gorm:"column:id;primaryKey;type:uuid"`
+	SkillID                      string          `gorm:"column:skill_id;type:uuid"`
+	BotID                        string          `gorm:"column:bot_id;type:uuid"`
+	Digest                       string          `gorm:"column:digest"`
+	Name                         string          `gorm:"column:name"`
+	Description                  string          `gorm:"column:description"`
+	Instructions                 string          `gorm:"column:instructions"`
+	Resources                    json.RawMessage `gorm:"column:resources;type:jsonb"`
+	License                      string          `gorm:"column:license"`
+	BaselineVersionID            *string         `gorm:"column:baseline_version_id;type:uuid"`
+	Status                       string          `gorm:"column:status"`
+	Failure                      string          `gorm:"column:failure"`
+	Task                         string          `gorm:"column:task"`
+	ExpectedOutput               string          `gorm:"column:expected_output"`
+	EvaluationDigest             string          `gorm:"column:evaluation_digest"`
+	ApprovedDigest               string          `gorm:"column:approved_digest"`
+	ApprovedEvaluationDigest     string          `gorm:"column:approved_evaluation_digest"`
+	ApprovedBy                   *string         `gorm:"column:approved_by;type:uuid"`
+	ApprovedAuthorizationVersion int64           `gorm:"column:approved_authorization_version"`
+	PublishedVersionID           *string         `gorm:"column:published_version_id;type:uuid"`
+	CreatedAt                    time.Time       `gorm:"column:created_at"`
+	UpdatedAt                    time.Time       `gorm:"column:updated_at"`
 }
 
 func (candidate) TableName() string { return "bot.skill_candidates" }
 
 type version struct {
-	ID           string          `gorm:"column:id;primaryKey;type:uuid"`
-	SkillID      string          `gorm:"column:skill_id;type:uuid"`
-	BotID        string          `gorm:"column:bot_id;type:uuid"`
-	Version      int             `gorm:"column:version"`
-	Digest       string          `gorm:"column:digest"`
-	Name         string          `gorm:"column:name"`
-	Description  string          `gorm:"column:description"`
-	Instructions string          `gorm:"column:instructions"`
-	Resources    json.RawMessage `gorm:"column:resources;type:jsonb"`
-	License      string          `gorm:"column:license"`
-	Status       string          `gorm:"column:status"`
-	CreatedAt    time.Time       `gorm:"column:created_at"`
+	ID                 string          `gorm:"column:id;primaryKey;type:uuid"`
+	SkillID            string          `gorm:"column:skill_id;type:uuid"`
+	BotID              string          `gorm:"column:bot_id;type:uuid"`
+	Version            int             `gorm:"column:version"`
+	Digest             string          `gorm:"column:digest"`
+	Name               string          `gorm:"column:name"`
+	Description        string          `gorm:"column:description"`
+	Instructions       string          `gorm:"column:instructions"`
+	Resources          json.RawMessage `gorm:"column:resources;type:jsonb"`
+	License            string          `gorm:"column:license"`
+	ScopeKey           string          `gorm:"column:scope_key"`
+	ValidationContract json.RawMessage `gorm:"column:validation_contract;type:jsonb"`
+	Status             string          `gorm:"column:status"`
+	CreatedAt          time.Time       `gorm:"column:created_at"`
 }
 
 func (version) TableName() string { return "bot.skill_versions" }
@@ -170,6 +175,7 @@ type binding struct {
 	BotID     string    `gorm:"column:bot_id;type:uuid"`
 	SkillID   string    `gorm:"column:skill_id;type:uuid"`
 	VersionID string    `gorm:"column:version_id;type:uuid"`
+	ScopeKey  string    `gorm:"column:scope_key"`
 	Enabled   bool      `gorm:"column:enabled"`
 	UpdatedAt time.Time `gorm:"column:updated_at"`
 }
@@ -177,19 +183,20 @@ type binding struct {
 func (binding) TableName() string { return "bot.skill_bindings" }
 
 type evaluation struct {
-	ID           string    `gorm:"column:id;primaryKey;type:uuid"`
-	CandidateID  string    `gorm:"column:candidate_id;type:uuid"`
-	BotID        string    `gorm:"column:bot_id;type:uuid"`
-	Digest       string    `gorm:"column:digest"`
-	Status       string    `gorm:"column:status"`
-	Reason       string    `gorm:"column:reason"`
-	TaskDigest   string    `gorm:"column:task_digest"`
-	ExpectedHash string    `gorm:"column:expected_digest"`
-	OutputDigest string    `gorm:"column:output_digest"`
-	Observed     string    `gorm:"column:observed"`
-	ModelVersion string    `gorm:"column:model_version"`
-	Attempt      int       `gorm:"column:attempt"`
-	CreatedAt    time.Time `gorm:"column:created_at"`
+	ID            string    `gorm:"column:id;primaryKey;type:uuid"`
+	CandidateID   string    `gorm:"column:candidate_id;type:uuid"`
+	BotID         string    `gorm:"column:bot_id;type:uuid"`
+	Digest        string    `gorm:"column:digest"`
+	ContentDigest string    `gorm:"column:content_digest"`
+	Status        string    `gorm:"column:status"`
+	Reason        string    `gorm:"column:reason"`
+	TaskDigest    string    `gorm:"column:task_digest"`
+	ExpectedHash  string    `gorm:"column:expected_digest"`
+	OutputDigest  string    `gorm:"column:output_digest"`
+	Observed      string    `gorm:"column:observed"`
+	ModelVersion  string    `gorm:"column:model_version"`
+	Attempt       int       `gorm:"column:attempt"`
+	CreatedAt     time.Time `gorm:"column:created_at"`
 }
 
 func (evaluation) TableName() string { return "bot.skill_evaluations" }

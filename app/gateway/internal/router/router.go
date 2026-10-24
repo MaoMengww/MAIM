@@ -211,6 +211,17 @@ func New(
 	bots.GET("/:id/run-reviews/:review", botSkillH.Review)
 	bots.POST("/:id/run-reviews/:review/cancel", botSkillH.CancelReview)
 
+	// Source-scoped candidate governance rechecks material authority in runtime.
+	bots.GET("/:id/skill-candidates", botSkillH.Candidates)
+	bots.GET("/:id/skill-candidates/:candidate", botSkillH.Candidate)
+	bots.POST("/:id/skill-candidates/:candidate/code-review", botSkillH.ReviewCandidateCode)
+	bots.POST("/:id/skill-candidates/:candidate/evaluate", botSkillH.EvaluateCandidate)
+	bots.POST("/:id/skill-candidates/:candidate/request-evidence", botSkillH.RequestCandidateEvidence)
+	bots.POST("/:id/skill-candidates/:candidate/reject", botSkillH.RejectCandidate)
+	bots.POST("/:id/skill-candidates/:candidate/approve", botSkillH.ApproveCandidate)
+	bots.POST("/:id/skill-candidates/:candidate/publish", botSkillH.PublishCandidate)
+	bots.POST("/:id/skill-candidates/:candidate/revise", botSkillH.ReviseCandidate)
+
 	// Single-run work and authoritative readback.
 	bots.POST("/:id/runs", botH.StartRun)
 	protected.GET("/runs/:id", botH.GetRun)

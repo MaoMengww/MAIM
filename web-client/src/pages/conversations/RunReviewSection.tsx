@@ -84,7 +84,7 @@ function ReviewDetails({ review, run, canCancel }: { review: Review; run: BotRun
     {ACTIVE[data.status] && !canCancel && <p className="chat-run-notice">当前没有取消权限；仅合资格请求者、控制者、显式获权成员或会话管理员可取消。</p>}
     {cancel.isError && <p className="chat-run-error" role="alert">{reviewError(cancel.error)} 请刷新确认状态；重试使用原提交键。</p>}
     {cancel.isSuccess && data.status === 'cancelled' && <p className="chat-run-notice" role="status">复盘已取消，原 Run 结果保持不变。</p>}
-    {!expired && data.candidate && <ReviewCandidateDetails candidate={data.candidate} />}
+    {!expired && data.candidate && <ReviewCandidateDetails botId={run.bot_id} candidate={data.candidate} />}
     {data.status === 'candidate_generated' && (expired || !data.candidate) && <p className="chat-run-notice" role="status">候选材料当前不可用，可能已过期或来源许可已变化；可刷新详情确认。</p>}
   </article>;
 }

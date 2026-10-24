@@ -448,7 +448,10 @@ func (d *driver) botRunReviews() error {
 	if err = f.modifyCandidate(); err != nil {
 		return err
 	}
-	return f.complete()
+	if err = f.complete(); err != nil {
+		return err
+	}
+	return f.candidateGovernance()
 }
 
 func (f *runReviewFixture) defaultPolicies() error {

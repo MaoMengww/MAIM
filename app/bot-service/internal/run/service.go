@@ -450,7 +450,7 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 	} else {
 		// The catalog identity is frozen at acceptance. Instructions and
 		// resources stay unloaded until this Run actually needs them.
-		frozenSkills, err := skill.Freeze(ctx, s.svc.DB.DB, bot.ID, input.SkillVersionIDs)
+		frozenSkills, err := s.freezeScopedSkills(ctx, input)
 		if err != nil {
 			return nil, err
 		}
@@ -780,6 +780,9 @@ func (s *Service) visible(ctx context.Context, user string, r *model.Run) error 
 		return status.Error(codes.PermissionDenied, reason)
 	}
 	if err := resourcegrant.CheckIDs(s.svc.DB.WithContext(ctx), resourceAccess(r), r.Visibility != "personal", false); err != nil {
+		return err
+	}
+	if err := s.checkScopedRunSkills(ctx, r, user); err != nil {
 		return err
 	}
 	if err := s.currentRunTools(ctx, r); err != nil {

@@ -104,7 +104,7 @@ func (s *Service) ReviewOperation(ctx context.Context, caller, botID, operation 
 				return nil, err
 			}
 		}
-		view, err := s.reviewView(ctx, &review, true)
+		view, err := s.reviewView(ctx, caller, &review, true)
 		if err != nil {
 			return nil, err
 		}
@@ -202,7 +202,7 @@ func (s *Service) ReviewOperation(ctx context.Context, caller, botID, operation 
 				}
 				return nil, err
 			}
-			view, err := s.reviewView(ctx, &rows[i], false)
+			view, err := s.reviewView(ctx, caller, &rows[i], false)
 			if err != nil {
 				return nil, err
 			}
@@ -231,18 +231,21 @@ func (s *Service) reviewViewer(ctx context.Context, caller string, r *model.Run,
 	if r.Visibility == "personal" && (review.PersonalUserID == nil || *review.PersonalUserID != caller) {
 		return status.Error(codes.PermissionDenied, "personal review is private")
 	}
-	return nil
+	return s.svc.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.candidateMaterialAccess(ctx, tx, r, caller, make(map[string]bool))
+	})
 }
 
-func (s *Service) reviewView(ctx context.Context, review *runReview, detail bool) (*reviewView, error) {
+func (s *Service) reviewView(ctx context.Context, caller string, review *runReview, detail bool) (*reviewView, error) {
 	view := &reviewView{ID: review.ID, RunID: review.RunID, BotID: review.BotID, ConvID: review.ConvID, ScopeKey: review.ScopeKey, Status: review.Status, Reason: review.Reason, ModelCalls: review.ModelCalls, ModelVersion: review.ModelVersion, CandidateID: review.CandidateID, CreatedAt: review.CreatedAt.Unix(), UpdatedAt: review.UpdatedAt.Unix(), ExpiresAt: review.ExpiresAt.Unix()}
 	if detail && review.CandidateID != nil && review.ExpiresAt.After(time.Now()) {
-		var row struct{ ReviewContent json.RawMessage }
-		if err := s.svc.DB.WithContext(ctx).Table("bot.skill_candidates").Select("review_content").Where("id = ? AND source_review_id = ?", *review.CandidateID, review.ID).Take(&row).Error; err != nil {
+		body, _ := json.Marshal(map[string]string{"candidate_id": *review.CandidateID})
+		current, err := s.CandidateOperation(ctx, caller, review.BotID, "candidate-get", body)
+		if err != nil {
 			return nil, err
 		}
 		var candidate reviewCandidate
-		if err := json.Unmarshal(row.ReviewContent, &candidate); err != nil {
+		if err := json.Unmarshal(current, &candidate); err != nil {
 			return nil, err
 		}
 		view.Candidate = &candidate

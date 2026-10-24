@@ -162,9 +162,13 @@ func (f *skillFixture) importPackage(instructions, resourcePath, resource, task,
 }
 
 func (f *skillFixture) action(candidate entityID, operation string) ([]byte, error) {
+	var current skillCandidateView
+	if err := f.d.request(http.MethodGet, "/bots/"+f.bot.ID.String()+"/skills/"+candidate.String(), f.owner.token, nil, &current); err != nil {
+		return nil, err
+	}
 	var raw json.RawMessage
 	err := f.d.request(http.MethodPost, "/bots/"+f.bot.ID.String()+"/skills/"+candidate.String()+"/"+operation,
-		f.owner.token, map[string]any{"submission_key": uuid.NewString()}, &raw)
+		f.owner.token, map[string]any{"submission_key": uuid.NewString(), "digest": current.Digest}, &raw)
 	return raw, err
 }
 
@@ -449,6 +453,65 @@ func (d *driver) botSkills(address, secondAddress string) error {
 	_, err = f.importPackage(changed, "", "", task, evaluation, key)
 	if err = f.d.expectStatus(err, http.StatusConflict, "submission key reuse"); err != nil {
 		return err
+	}
+	// A transient provider failure must become a durable error receipt, not a
+	// permanently evaluating candidate. Replaying that intent never calls the
+	// recovered provider again; only an explicit new intent may retry.
+	outageCandidate, err := f.importPackage(instructions, "references/format.md", resource, task, evaluation, uuid.NewString())
+	if err != nil {
+		return err
+	}
+	if err = d.executorProvider("/instruction-skills/arm", map[string]any{
+		"token": f.token, "version_id": f.version.VersionID.String(), "evaluation": evaluation,
+		"answer": "FINAL_" + f.token, "body_marker": bodyMarker, "resource": "references/format.md",
+		"resource_marker": resourceMarker, "evaluation_http_status": http.StatusServiceUnavailable,
+	}, nil); err != nil {
+		return err
+	}
+	outageKey := uuid.NewString()
+	outageBody := map[string]any{"submission_key": outageKey, "digest": outageCandidate.Digest}
+	outagePath := "/bots/" + f.bot.ID.String() + "/skills/" + outageCandidate.ID.String()
+	var failedReceipt json.RawMessage
+	if err = d.request(http.MethodPost, outagePath+"/evaluate", f.owner.token, outageBody, &failedReceipt); err != nil {
+		return err
+	}
+	if err = json.Unmarshal(failedReceipt, &result); err != nil || result.Status != "error" || result.Passed {
+		return fmt.Errorf("skills: outage did not return an error receipt: %s %v", failedReceipt, err)
+	}
+	var failedCandidate skillCandidateView
+	if err = d.request(http.MethodGet, outagePath, f.owner.token, nil, &failedCandidate); err != nil {
+		return err
+	}
+	if failedCandidate.Status == "evaluating" || failedCandidate.Evaluation == nil || failedCandidate.Evaluation.Status != "error" {
+		return fmt.Errorf("skills: transient outage left candidate evaluating: %+v", failedCandidate)
+	}
+	beforeReplay, err := f.observe()
+	if err != nil {
+		return err
+	}
+	if err = f.arm(f.version.VersionID, evaluation, "FINAL_"+f.token, bodyMarker, "references/format.md", resourceMarker); err != nil {
+		return err
+	}
+	var replayReceipt json.RawMessage
+	if err = d.request(http.MethodPost, outagePath+"/evaluate", f.owner.token, outageBody, &replayReceipt); err != nil {
+		return err
+	}
+	if string(replayReceipt) != string(failedReceipt) {
+		return errors.New("skills: same-key outage receipt changed after model recovery")
+	}
+	afterReplay, err := f.observe()
+	if err != nil {
+		return err
+	}
+	if len(afterReplay.Requests) != len(beforeReplay.Requests) {
+		return errors.New("skills: same-key outage retry replayed the model call")
+	}
+	retryRaw, err := f.action(outageCandidate.ID, "evaluate")
+	if err != nil {
+		return err
+	}
+	if err = json.Unmarshal(retryRaw, &result); err != nil || result.Status != "passed" || !result.Passed {
+		return fmt.Errorf("skills: explicit new intent could not recover transient outage: %s %v", retryRaw, err)
 	}
 
 	// A newer compatible version is adopted by later Runs; the finished Run

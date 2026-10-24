@@ -1,7 +1,6 @@
 .chat-review-workspace,
 .chat-review-section,
-.chat-review-detail,
-.chat-review-candidate {
+.chat-review-detail {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -29,15 +28,13 @@
   max-width: 360px;
   margin-top: 8px;
 }
-.chat-review-policy-grid,
-.chat-review-diff {
+.chat-review-policy-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin-top: 12px;
 }
-.chat-review-policy,
-.chat-review-diff > section {
+.chat-review-policy {
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--aim-border);
@@ -76,36 +73,8 @@
   margin: 0;
   white-space: pre-wrap;
 }
-.chat-review-code {
-  max-height: 360px;
-  overflow: auto;
-  padding: 12px;
-  border: 1px solid var(--aim-border);
-  border-radius: var(--aim-radius-md, 8px);
-  background: var(--aim-surface-hover);
-  color: var(--aim-text);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  line-height: 1.6;
-}
-.chat-review-code:focus-visible {
-  outline: 2px solid var(--aim-primary);
-  outline-offset: 2px;
-}
-.chat-review-removed {
-  border-left: 2px solid var(--aim-error);
-}
-.chat-review-added {
-  border-left: 2px solid var(--aim-primary);
-}
-.chat-review-candidate {
-  border-top: 1px solid var(--aim-border);
-  margin-top: 12px;
-}
 @media (min-width: 960px) {
-  .chat-review-policy-grid,
-  .chat-review-diff {
+  .chat-review-policy-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

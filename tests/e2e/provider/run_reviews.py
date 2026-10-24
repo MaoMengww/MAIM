@@ -25,6 +25,7 @@ def command(path, body):
                 return {"ok": False, "mode": mode}
             SESSIONS[token] = {"mode": mode,
                                "target_version_id": body.get("target_version_id", ""),
+                               "target_goal": body.get("target_goal", "Summarize fixed rows"),
                                "requests": [], "held": "", "executions": 0,
                                "callback_url": body.get("callback_url", ""), "release": threading.Event()}
             return {"ok": True, "mode": mode}
@@ -92,7 +93,7 @@ def model(body, handler, messages):
             handler._json(400, {"error": {"message": "deterministic review-only provider failure"}})
             return True
         result = {"valuable": mode != "no-value", "reason": "No reusable procedure" if mode == "no-value" else "Reusable bounded procedure",
-                  "target_goal": "Summarize fixed rows", "applicability": "Fixed CSV input only"}
+                  "target_goal": session["target_goal"], "applicability": "Fixed CSV input only"}
         if session["target_version_id"]:
             result["target_version_id"] = session["target_version_id"]
         if mode == "over-budget":
@@ -125,7 +126,7 @@ def model(body, handler, messages):
                   "instructions": "Count the supplied rows, then report the total. " + token,
                   "resources": {"references/format.md": "Report a literal total."},
                   "scripts": {"scripts/review.sh": script} if mode == "script" else {},
-                  "image_digest": "", "entry_point": "", "target_goal": "Summarize fixed rows",
+                  "image_digest": "", "entry_point": "", "target_goal": session["target_goal"],
                   "applicability": "Fixed CSV input only", "rationale": "The accepted work demonstrates a repeatable procedure.",
                   "representative_task": "Count rows A and B. " + token, "expected_output": "2"}
         content = json.dumps(result)

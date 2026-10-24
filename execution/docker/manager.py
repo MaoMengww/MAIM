@@ -215,7 +215,77 @@ class Manager:
                 raise Rejected("unknown execution")
             return copy.deepcopy(self.records[execution_id])
 
-    def submit(self, request, probe=False):
+    def validation_review(self, identity):
+        if (not isinstance(identity, dict) or set(identity) != {"scripts", "image_digest", "entry_point"} or
+                not isinstance(identity["scripts"], dict) or set(identity["scripts"]) != {"worker.py"} or
+                not isinstance(identity["scripts"]["worker.py"], str) or
+                len(identity["scripts"]["worker.py"].encode("utf-8")) > 65536):
+            raise Rejected("only exact reviewed worker.py is admitted")
+        expected = dict(worker_sha256=hashlib.sha256(identity["scripts"]["worker.py"].encode("utf-8")).hexdigest(),
+                        image_id=identity["image_digest"], entry_point=identity["entry_point"])
+        return self._validation_admission(expected)
+
+    def _validation_admission(self, expected):
+        if (not isinstance(expected, dict) or set(expected) != {"worker_sha256", "image_id", "entry_point"} or
+                expected["worker_sha256"] != self.policy["worker_sha256"] or
+                expected["image_id"] != self.policy["image_id"] or
+                expected["entry_point"] != " ".join(ENTRYPOINT)):
+            raise Rejected("candidate differs from root-installed human execution policy")
+        host = self._preflight()  # Recheck local worker, pinned image and host at each admission.
+        frozen = dict(schema=1, capability="csv-v1", **expected)
+        digest = hashlib.sha256(json.dumps(frozen, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        environment = dict(schema=1, host=host, identity=frozen, limits=DEFAULT_LIMITS,
+                           network="none", user="65532:65532", read_only=True, log_driver="none")
+        environment_digest = hashlib.sha256(json.dumps(environment, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        return dict(review_digest=digest, environment_digest=environment_digest, **expected)
+
+    def validation_submit(self, request):
+        if not isinstance(request, dict) or set(request) != {"execution_key", "identity", "input_b64", "expected_sha256"}:
+            raise Rejected("invalid validation submission")
+        key = request["execution_key"]
+        expected_sha = request["expected_sha256"]
+        if (not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key) or
+                not isinstance(expected_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha)):
+            raise Rejected("invalid validation identity")
+        admission = self._validation_admission(request["identity"])
+        validation = dict(review_digest=admission["review_digest"], environment_digest=admission["environment_digest"],
+                          expected_sha256=expected_sha, identity=copy.deepcopy(request["identity"]))
+        fixed = dict(run_id=key, generation=1, capability="csv-v1", input_b64=request["input_b64"],
+                     limits=copy.deepcopy(DEFAULT_LIMITS))
+        return self.validation_view(self.submit(fixed, validation=validation))
+
+    def validation_view(self, record):
+        if not record.get("validation"):
+            raise Rejected("not a validation execution")
+        evidence = record.get("evidence", {})
+        result = record.get("result") or {}
+        failure_class = record.get("failure_class", "environment_error")
+        if record["outcome"] == "succeeded":
+            failure_class = ""
+        elif failure_class == "worker_failure":
+            if (not evidence.get("input_delivered") or
+                    record["outcome"] not in ("failed", "timeout", "output_limit") or
+                    (record["outcome"] == "timeout" and evidence.get("workload_timeout") is not True) or
+                    (record["outcome"] == "failed" and
+                     ("attached_exit_code" not in evidence or evidence.get("wait") != evidence["attached_exit_code"]))):
+                failure_class = "environment_error"
+        return {key: copy.deepcopy(record[key]) for key in
+                ("execution_id", "run_id", "phase", "outcome", "input_sha256", "image_id", "worker_sha256", "validation")} | dict(
+                    container_id=record.get("container_id"), files=copy.deepcopy(result.get("files", [])),
+                    removed=evidence.get("removed") is True, resources_absent=evidence.get("resources_absent") is True,
+                    stop_confirmed=evidence.get("stop_confirmed") is True, wait=evidence.get("wait"),
+                    failure_class=failure_class)
+
+    def validation_lookup(self, key):
+        if not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key):
+            raise Rejected("invalid validation lookup key")
+        with self.lock:
+            for record in self.records.values():
+                if record["run_id"] == key and record["generation"] == 1:
+                    return self.validation_view(record)
+        return None
+
+    def submit(self, request, probe=False, validation=None):
         if not isinstance(request, dict) or set(request) != {"run_id", "generation", "capability", "input_b64", "limits"}:
             raise Rejected("unknown or missing request fields")
         run_id = request["run_id"]
@@ -261,6 +331,8 @@ class Manager:
                           image_id=self.policy["image_id"], worker_sha256=self.policy["worker_sha256"],
                           created_at=now, deadline=now + limits["total_seconds"], limits=copy.deepcopy(limits),
                           operation=operation, evidence={"host": self.host}, result=None, error="", stop_requested=False)
+            if validation is not None:
+                record["validation"] = copy.deepcopy(validation)
             self.records[execution_id] = record
             self._save(record)  # Intent and exact owner/name precede Docker create, including unknown outcomes.
             worker = threading.Thread(target=self._execute, args=(record, request["input_b64"]), daemon=True)
@@ -338,6 +410,21 @@ class Manager:
                                     host_pids=[{"pid": pid, "starttime": proc.joinpath("stat").read_text().rsplit(")", 1)[1].split()[19]}])
         self._save(record)
 
+    def _execution_timeout(self, record, workload_deadline):
+        record["outcome"] = "timeout"
+        record["failure_class"] = "environment_error"
+        # An expired Docker CLI/pipe budget is not proof that the workload timed out.
+        # Require a full step budget after input delivery and a fresh owned running observation.
+        if workload_deadline is None or time.monotonic() < workload_deadline:
+            return
+        current = self._inspect(record["container_id"])
+        if current is None:
+            return
+        self._owned(record, current)
+        if current["State"]["Running"]:
+            record["evidence"]["workload_timeout"] = True
+            record["failure_class"] = "worker_failure"
+
     def _execute(self, record, input_b64):
         process = None
         total_deadline = time.monotonic() + max(0, record["deadline"] - time.time())
@@ -397,6 +484,7 @@ class Manager:
             pending_input = memoryview(json.dumps(payload).encode() + b"\n")
             os.set_blocking(process.stdin.fileno(), False)
             deadline = min(total_deadline, time.monotonic() + limits["step_seconds"])
+            workload_deadline = None
             selector = selectors.DefaultSelector()
             selector.register(process.stdout, selectors.EVENT_READ, "out")
             selector.register(process.stderr, selectors.EVENT_READ, "err")
@@ -405,7 +493,7 @@ class Manager:
             try:
                 while selector.get_map():
                     if time.monotonic() >= deadline:
-                        record["outcome"] = "timeout"
+                        self._execution_timeout(record, workload_deadline)
                         break
                     if record["stop_requested"] or self.halt.is_set():
                         record["outcome"] = "stopped"
@@ -418,6 +506,9 @@ class Manager:
                                 continue
                             pending_input = pending_input[sent:]
                             if not pending_input:
+                                record["evidence"]["input_delivered"] = True
+                                workload_deadline = time.monotonic() + limits["step_seconds"]
+                                deadline = min(total_deadline, workload_deadline)
                                 selector.unregister(process.stdin)
                                 process.stdin.close()
                             continue
@@ -427,20 +518,36 @@ class Manager:
                             continue
                         if sum(map(len, captured.values())) + len(chunk) > limits["log_bytes"]:
                             record["outcome"] = "output_limit"
+                            if record["evidence"].get("input_delivered"):
+                                record["failure_class"] = "worker_failure"
                             break
                         captured[key.data].extend(chunk)
                     if record["outcome"] == "output_limit":
                         break
                 if record["outcome"] == "unknown":
-                    code = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+                    try:
+                        code = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+                    except subprocess.TimeoutExpired:
+                        self._execution_timeout(record, workload_deadline)
+                        raise
                     record["outcome"] = "succeeded" if code == 0 else "failed"
+                    record["evidence"]["attached_exit_code"] = code
+                    if code != 0 and record["evidence"].get("input_delivered"):
+                        record["failure_class"] = "worker_failure"
                 if record["outcome"] == "succeeded" and not captured["out"]:
+                    if record["evidence"].get("input_delivered"):
+                        record["failure_class"] = "worker_failure"
                     raise Rejected("fixed workload returned no result")
                 record["evidence"]["attached_bytes"] = sum(map(len, captured.values()))
                 record["evidence"]["stderr"] = captured["err"].decode(errors="replace")
                 if captured["out"]:
-                    result = strict_json(captured["out"])
-                    self._validate_result(record, result)
+                    try:
+                        result = strict_json(captured["out"])
+                        self._validate_result(record, result)
+                    except (ValueError, TypeError, KeyError):
+                        if record["evidence"].get("input_delivered"):
+                            record["failure_class"] = "worker_failure"
+                        raise
                     record["result"] = result
             finally:
                 selector.close()
@@ -665,6 +772,18 @@ class Handler(socketserver.StreamRequestHandler):
                 result = getattr(self.server.manager, action)(request["execution_id"])
             elif action == "lookup" and set(request) == {"action", "run_id", "generation"}:
                 result = self.server.manager.lookup(request["run_id"], request["generation"])
+            elif action == "validation-review" and set(request) == {"action", "identity"}:
+                result = self.server.manager.validation_review(request["identity"])
+            elif action == "validation-submit" and set(request) == {"action", "request"}:
+                result = self.server.manager.validation_submit(request["request"])
+            elif action == "validation-lookup" and set(request) == {"action", "execution_key"}:
+                result = self.server.manager.validation_lookup(request["execution_key"])
+            elif action in ("validation-get", "validation-stop") and set(request) == {"action", "execution_id"}:
+                record = self.server.manager.get(request["execution_id"])
+                self.server.manager.validation_view(record)  # Reject other execution classes before stop.
+                if action == "validation-stop":
+                    record = self.server.manager.stop(request["execution_id"])
+                result = self.server.manager.validation_view(record)
             else:
                 raise Rejected("unsupported narrow execution command")
             response = dict(ok=True, result=result)
