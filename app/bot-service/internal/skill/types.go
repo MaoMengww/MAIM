@@ -81,13 +81,19 @@ type VersionView struct {
 }
 
 type PackageView struct {
-	SkillID        string          `json:"skill_id"`
-	Name           string          `json:"name"`
-	License        string          `json:"license"`
-	PublisherID    string          `json:"publisher_id"`
-	EnabledVersion *VersionView    `json:"enabled_version,omitempty"`
-	Versions       []VersionView   `json:"versions"`
-	Candidates     []CandidateView `json:"candidates"`
+	SkillID         string            `json:"skill_id"`
+	Name            string            `json:"name"`
+	License         string            `json:"license"`
+	PublisherID     string            `json:"publisher_id"`
+	ScopeKey        string            `json:"scope_key"`
+	BindingRevision int64             `json:"binding_revision"`
+	BlockedUpgrade  *BlockedUpgrade   `json:"blocked_upgrade,omitempty"`
+	RollbackHold    bool              `json:"rollback_hold"`
+	CanManage       bool              `json:"can_manage"`
+	Activities      []VersionActivity `json:"activities"`
+	EnabledVersion  *VersionView      `json:"enabled_version,omitempty"`
+	Versions        []VersionView     `json:"versions"`
+	Candidates      []CandidateView   `json:"candidates"`
 }
 
 type AvailableSkill struct {
@@ -171,13 +177,17 @@ type packageRow struct {
 func (packageRow) TableName() string { return "bot.skill_packages" }
 
 type binding struct {
-	ID        string    `gorm:"column:id;primaryKey;type:uuid"`
-	BotID     string    `gorm:"column:bot_id;type:uuid"`
-	SkillID   string    `gorm:"column:skill_id;type:uuid"`
-	VersionID string    `gorm:"column:version_id;type:uuid"`
-	ScopeKey  string    `gorm:"column:scope_key"`
-	Enabled   bool      `gorm:"column:enabled"`
-	UpdatedAt time.Time `gorm:"column:updated_at"`
+	ID                  string          `gorm:"column:id;primaryKey;type:uuid"`
+	BotID               string          `gorm:"column:bot_id;type:uuid"`
+	SkillID             string          `gorm:"column:skill_id;type:uuid"`
+	VersionID           string          `gorm:"column:version_id;type:uuid"`
+	ScopeKey            string          `gorm:"column:scope_key"`
+	Enabled             bool            `gorm:"column:enabled"`
+	Revision            int64           `gorm:"column:revision"`
+	RollbackHoldVersion int             `gorm:"column:rollback_hold_version"`
+	BlockedVersionID    *string         `gorm:"column:blocked_version_id;type:uuid"`
+	BlockedReasons      json.RawMessage `gorm:"column:blocked_reasons;type:jsonb"`
+	UpdatedAt           time.Time       `gorm:"column:updated_at"`
 }
 
 func (binding) TableName() string { return "bot.skill_bindings" }

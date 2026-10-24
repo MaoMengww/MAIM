@@ -5,6 +5,7 @@ import { CloudUploadOutlined, SafetyCertificateOutlined } from '@ant-design/icon
 import { skillApi } from '@/services/skill';
 import type { SkillCandidate, SkillPackage } from '@/types/model';
 import { SourceCandidateList } from '@/components/skills/CandidateGovernance';
+import { SkillVersionGovernance } from '@/components/skills/SkillVersionGovernance';
 import { submitSkillIntent } from '@/utils/skillSubmission';
 import { useAuthStore } from '@/stores/auth';
 
@@ -54,7 +55,10 @@ function CandidateRow({ botId, pkg, candidate }: { botId: string; pkg: SkillPack
     return submitSkillIntent(`${userId}:${botId}:${candidate.id}:${action}`, payload,
       async (submission_key) => skillApi[action](botId, candidate.id, { ...payload, submission_key }));
   };
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['bot-skills', botId] });
+  const invalidate = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['bot-skills', botId] }),
+    queryClient.invalidateQueries({ queryKey: ['skill-versions', botId] }),
+  ]);
   const onError = (err: unknown) => {
     const value = err as { response?: { data?: { message?: string } } };
     message.error(`${value?.response?.data?.message || '操作失败'}；相同意图保留原提交键，过时摘要不会自动替换，请手动刷新后重新审阅。`);
@@ -62,12 +66,6 @@ function CandidateRow({ botId, pkg, candidate }: { botId: string; pkg: SkillPack
   const evaluate = useMutation({ mutationFn: () => actionRequest('evaluate'), retry: false, onSuccess: invalidate, onError });
   const approve = useMutation({ mutationFn: () => actionRequest('approve'), retry: false, onSuccess: invalidate, onError });
   const publish = useMutation({ mutationFn: () => actionRequest('publish'), retry: false, onSuccess: invalidate, onError });
-  const enable = useMutation({
-    mutationFn: (versionId: string) => submitSkillIntent(`${userId}:${botId}:enable`, { versionId },
-      (submission_key) => skillApi.enable(botId, versionId, { submission_key })),
-    onSuccess: () => { message.success('已启用该版本'); invalidate(); },
-    onError,
-  });
   const published = pkg.versions.find((version) => version.version_id === candidate.published_version_id);
   const status = STATUS_LABEL[candidate.status] ?? { text: candidate.status, color: 'default' };
   return <div style={{ border: '1px solid var(--aim-border)', borderRadius: 8, padding: 12, background: 'var(--aim-surface)' }}>
@@ -88,10 +86,6 @@ function CandidateRow({ botId, pkg, candidate }: { botId: string; pkg: SkillPack
         && <Button size="small" type="primary" disabled={!confirmed || candidate.evaluation?.status !== 'passed'} loading={approve.isPending} onClick={() => approve.mutate()}>批准确切内容与证据</Button>}
       {candidate.status === 'approved'
         && <Button size="small" type="primary" loading={publish.isPending} onClick={() => publish.mutate()}>发布不可变版本</Button>}
-      {candidate.status === 'published' && published && (
-        <Button size="small" disabled={published.enabled} loading={enable.isPending}
-          onClick={() => enable.mutate(published.version_id)}>{published.enabled ? '已启用' : '启用此版本'}</Button>
-      )}
     </Space>
   </div>;
 }
@@ -129,6 +123,7 @@ export function BotSkillSection({ botId, canManage }: { botId: string; canManage
   });
   return <>
     <SourceCandidateList botId={botId} />
+    <SkillVersionGovernance botId={botId} />
     {canManage && <div style={{ marginBottom: 24 }}>
     <Divider orientation="left" style={{ color: 'var(--aim-text-secondary)', fontSize: 13 }}>Instruction skills · 已导入包</Divider>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

@@ -264,12 +264,14 @@ func (s *Service) runCandidateValidation(ctx context.Context, state *candidateSt
 	samples := []validationSample{{Task: c.RepresentativeTask, Expected: c.ExpectedOutput, InputBase64: c.InputBase64, ExpectedOutputBase64: c.ExpectedOutputBase64, Script: len(c.Scripts) > 0}}
 	baselineID := c.BaselineVersionID
 	seen := make(map[string]bool)
+	var versions []string
 	for baselineID != nil {
 		if len(samples) >= 8 || seen[*baselineID] {
 			result.Reason = "preserved baseline suite exceeds the independent validation budget or is cyclic"
 			return result
 		}
 		seen[*baselineID] = true
+		versions = append(versions, *baselineID)
 		var baseline struct {
 			Digest             string
 			ValidationContract json.RawMessage
@@ -293,6 +295,8 @@ func (s *Service) runCandidateValidation(ctx context.Context, state *candidateSt
 		result.ExpectedDigest = mustReviewDigest([]string{result.ExpectedDigest, original.ExpectedOutput, original.ExpectedOutputBase64})
 		baselineID = original.BaselineVersionID
 	}
+	ctx, stopGuard := s.guardValidationVersions(ctx, versions)
+	defer stopGuard()
 	resources, _ := json.Marshal(c.Resources)
 	hasScripts, hasInstructions, inputBytes := false, false, 0
 	for _, sample := range samples {

@@ -782,7 +782,8 @@ func (s *Service) publishedCandidate(tx *gorm.DB, state *candidateState) (*skill
 	if err := tx.Table("bot.skill_versions").Where("id = ? AND skill_id = ?", *state.Row.PublishedVersionID, state.Row.SkillID).Take(&row).Error; err != nil {
 		return nil, err
 	}
-	return &skill.VersionView{VersionID: row.ID, Version: row.Version, Name: row.Name, Description: row.Description, Digest: row.Digest, Status: row.Status, Enabled: true, CreatedAt: row.CreatedAt.Unix()}, nil
+	enabled, err := skill.VersionEnabled(tx, state.Row.BotID, row.ID)
+	return &skill.VersionView{VersionID: row.ID, Version: row.Version, Name: row.Name, Description: row.Description, Digest: row.Digest, Status: row.Status, Enabled: enabled, CreatedAt: row.CreatedAt.Unix()}, err
 }
 
 func (s *Service) publishGovernedCandidate(ctx context.Context, tx *gorm.DB, state *candidateState) (*skill.VersionView, error) {
@@ -843,6 +844,10 @@ func (s *Service) publishGovernedCandidate(ctx context.Context, tx *gorm.DB, sta
 	if err != nil {
 		return nil, err
 	}
+	contract, err = skill.StampContract(contract, map[string]any{"scripts": len(c.Scripts) > 0}, map[string]any{"scope": c.ScopeKey, "materials": json.RawMessage(state.Run.Materials), "provenance": json.RawMessage(state.Run.Provenance)})
+	if err != nil {
+		return nil, err
+	}
 	if err := candidateFresh(tx, state); err != nil {
 		return nil, err
 	}
@@ -850,14 +855,10 @@ func (s *Service) publishGovernedCandidate(ctx context.Context, tx *gorm.DB, sta
 	if err := tx.Table("bot.skill_versions").Create(map[string]any{"id": id, "skill_id": c.SkillID, "bot_id": state.Row.BotID, "scope_key": c.ScopeKey, "version": number + 1, "digest": c.Digest, "name": c.Name, "description": c.Description, "instructions": c.Instructions, "resources": json.RawMessage(resources), "license": "private-source-scope", "status": "published", "validation_contract": json.RawMessage(contract), "created_at": now}).Error; err != nil {
 		return nil, err
 	}
-	bindingID, err := identity.New()
+	enabled, err := skill.AdoptPublished(ctx, tx, state.Row.BotID, c.SkillID, id, c.ScopeKey, c.PublisherID)
 	if err != nil {
 		return nil, err
 	}
-	binding := map[string]any{"id": bindingID, "bot_id": state.Row.BotID, "skill_id": c.SkillID, "version_id": id, "scope_key": c.ScopeKey, "enabled": true, "updated_at": now}
-	if err := tx.Table("bot.skill_bindings").Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "bot_id"}, {Name: "skill_id"}, {Name: "scope_key"}}, DoUpdates: clause.AssignmentColumns([]string{"version_id", "enabled", "updated_at"})}).Create(binding).Error; err != nil {
-		return nil, err
-	}
 	c.Status, c.PublishedVersionID = "published", &id
-	return &skill.VersionView{VersionID: id, Version: number + 1, Name: c.Name, Description: c.Description, Digest: c.Digest, Status: "published", Enabled: true, CreatedAt: now.Unix()}, nil
+	return &skill.VersionView{VersionID: id, Version: number + 1, Name: c.Name, Description: c.Description, Digest: c.Digest, Status: "published", Enabled: enabled, CreatedAt: now.Unix()}, nil
 }

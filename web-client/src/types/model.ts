@@ -297,6 +297,26 @@ export interface SkillPackage {
   candidates: SkillCandidate[];
 }
 
+export interface SkillVersionActivity {
+  action: string;
+  reason: string;
+  actor_id: string;
+  created_at: number;
+  version_id: string;
+  version: number;
+  digest: string;
+  binding_revision: number;
+}
+
+export interface SkillVersionPackage extends SkillPackage {
+  scope_key: string;
+  binding_revision: number;
+  can_manage: boolean;
+  blocked_upgrade?: { version: SkillVersion; reasons: string[] };
+  rollback_hold: boolean;
+  activities?: SkillVersionActivity[];
+}
+
 export interface AvailableSkill {
   version_id: string;
   name: string;

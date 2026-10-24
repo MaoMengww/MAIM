@@ -71,6 +71,11 @@ func (s *Service) authorityState(ctx context.Context, r *model.Run) (string, err
 	if bot.Status != "active" || bot.AuthorizationVersion != r.BotAuthorizationVersion {
 		return "bot_disabled", nil
 	}
+	if disabled, err := s.disabledRunSkill(ctx, r); err != nil {
+		return "", err
+	} else if disabled {
+		return "skill_version_disabled", nil
+	}
 	if err := resourcegrant.CheckIDs(s.svc.DB.WithContext(ctx), resourceAccess(r), r.Visibility != "personal", false); err != nil {
 		if status.Code(err) == codes.PermissionDenied {
 			return "resource_authorization_revoked", nil

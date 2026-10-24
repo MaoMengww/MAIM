@@ -145,8 +145,8 @@ func decodeSample(encoded string) ([]byte, error) {
 
 // Evaluate uses a durable caller-owned key. Each distinct sample must have its own
 // stable key; retries query the recorded execution and never blindly replay it.
-func Evaluate(ctx context.Context, executionKey string, identity Identity, sample Sample) (Result, error) {
-	result := Result{Status: "environment_error", Reason: "validation environment unavailable"}
+func Evaluate(ctx context.Context, executionKey string, identity Identity, sample Sample) (result Result, err error) {
+	result = Result{Status: "environment_error", Reason: "validation environment unavailable"}
 	frozen, err := freeze(identity)
 	if err != nil {
 		return result, err
@@ -187,7 +187,16 @@ func Evaluate(ctx context.Context, executionKey string, identity Identity, sampl
 		}
 		if matches(current) {
 			var stopped record
-			_ = exchange(safety, map[string]any{"action": "validation-stop", "execution_id": current.ExecutionID}, &stopped)
+			if stopErr := exchange(safety, map[string]any{"action": "validation-stop", "execution_id": current.ExecutionID}, &stopped); stopErr == nil && matches(&stopped) {
+				result.ExecutionID = stopped.ExecutionID
+				result.EnvironmentDigest = stopped.Validation.EnvironmentDigest
+				result.Terminal = stopped.Phase == "cleaned" && stopped.Removed && stopped.ResourcesAbsent && stopped.StopConfirmed && stopped.Wait != nil && digestPattern.MatchString(stopped.ContainerID)
+				if result.Terminal {
+					result.Status = "environment_error"
+					result.Reason = "validation cancelled; process termination and resource cleanup confirmed; external side effects unknown"
+					err = nil
+				}
+			}
 		}
 	}()
 	if current == nil {

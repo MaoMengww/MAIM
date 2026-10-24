@@ -1,6 +1,6 @@
 import client, { unwrap } from './client';
-import type { SkillActionReq, SkillEnableReq, SkillImportReq } from '@/types/api';
-import type { APIResponse, AvailableSkill, SkillCandidate, SkillEvaluation, SkillPackage, SkillVersion } from '@/types/model';
+import type { SkillActionReq, SkillVersionActionReq, SkillImportReq } from '@/types/api';
+import type { APIResponse, AvailableSkill, SkillCandidate, SkillEvaluation, SkillPackage, SkillVersion, SkillVersionPackage, SkillVersionActivity } from '@/types/model';
 import { entityId } from '@/utils/json';
 
 export function normalizeVersion(value: unknown): SkillVersion {
@@ -65,6 +65,42 @@ function normalizePackage(value: unknown): SkillPackage {
   };
 }
 
+export type SkillVersionAction = 'confirm' | 'rollback' | 'disable';
+
+function normalizeActivity(value: unknown): SkillVersionActivity {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('版本活动格式无效');
+  const item = value as Record<string, unknown>;
+  if (typeof item.action !== 'string' || typeof item.reason !== 'string' || typeof item.digest !== 'string'
+    || typeof item.created_at !== 'number' || typeof item.version !== 'number'
+    || !Number.isSafeInteger(item.binding_revision)) throw new Error('版本活动字段无效');
+  return {
+    action: item.action, reason: item.reason, digest: item.digest,
+    actor_id: entityId(item.actor_id, 'skill.actor_id'), version_id: entityId(item.version_id, 'skill.version_id'),
+    created_at: item.created_at, version: item.version, binding_revision: item.binding_revision as number,
+  };
+}
+
+function normalizeVersionPackage(value: unknown): SkillVersionPackage {
+  const pkg = normalizePackage(value);
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.scope_key !== 'string' || !raw.scope_key || !Number.isSafeInteger(raw.binding_revision)
+    || (raw.binding_revision as number) < 0 || typeof raw.can_manage !== 'boolean'
+    || typeof raw.rollback_hold !== 'boolean') throw new Error('版本治理字段无效');
+  let blocked_upgrade: SkillVersionPackage['blocked_upgrade'];
+  if (raw.blocked_upgrade != null) {
+    if (typeof raw.blocked_upgrade !== 'object' || Array.isArray(raw.blocked_upgrade)) throw new Error('受阻升级格式无效');
+    const blocked = raw.blocked_upgrade as Record<string, unknown>;
+    if (!Array.isArray(blocked.reasons) || !blocked.reasons.every((reason) => typeof reason === 'string')) throw new Error('受阻原因格式无效');
+    blocked_upgrade = { version: normalizeVersion(blocked.version), reasons: blocked.reasons as string[] };
+  }
+  if (raw.activities != null && !Array.isArray(raw.activities)) throw new Error('版本活动必须是数组');
+  return {
+    ...pkg, scope_key: raw.scope_key, binding_revision: raw.binding_revision as number,
+    can_manage: raw.can_manage, rollback_hold: raw.rollback_hold, blocked_upgrade,
+    activities: raw.activities == null ? undefined : (raw.activities as unknown[]).map(normalizeActivity),
+  };
+}
+
 export const skillApi = {
   list: (botId: string): Promise<SkillPackage[]> =>
     client.get<APIResponse<unknown>>(`/bots/${botId}/skills`).then((r) => {
@@ -103,6 +139,14 @@ export const skillApi = {
   publish: (botId: string, candidateId: string, data: SkillActionReq): Promise<SkillVersion> =>
     client.post<APIResponse<unknown>>(`/bots/${botId}/skills/${candidateId}/publish`, data).then((r) => normalizeVersion(unwrap(r))),
 
-  enable: (botId: string, versionId: string, data: SkillEnableReq): Promise<SkillVersion> =>
-    client.post<APIResponse<unknown>>(`/bots/${botId}/skill-versions/${versionId}/enable`, data).then((r) => normalizeVersion(unwrap(r))),
+  versions: (botId: string, signal?: AbortSignal): Promise<SkillVersionPackage[]> =>
+    client.get<APIResponse<unknown>>(`/bots/${botId}/skill-versions`, { signal }).then((r) => {
+      const data = unwrap(r);
+      if (!Array.isArray(data)) throw new Error('版本治理列表必须是数组');
+      return data.map(normalizeVersionPackage);
+    }),
+
+  versionAction: (botId: string, versionId: string, action: SkillVersionAction, data: SkillVersionActionReq): Promise<SkillVersionPackage> =>
+    client.post<APIResponse<unknown>>(`/bots/${botId}/skill-versions/${versionId}/${action}`, data)
+      .then((r) => normalizeVersionPackage(unwrap(r))),
 };

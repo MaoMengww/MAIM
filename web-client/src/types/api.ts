@@ -199,8 +199,9 @@ export interface SkillActionReq {
   digest: string;
 }
 
-export interface SkillEnableReq {
-  submission_key: string;
+export interface SkillVersionActionReq extends SkillActionReq {
+  expected_revision: number;
+  reason: string;
 }
 
 export type ControlRunReq = RunMaterialsReq & {

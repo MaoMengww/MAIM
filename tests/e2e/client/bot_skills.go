@@ -45,12 +45,21 @@ type skillVersionView struct {
 }
 
 type skillPackageView struct {
-	SkillID        entityID             `json:"skill_id"`
-	Name           string               `json:"name"`
-	License        string               `json:"license"`
-	EnabledVersion *skillVersionView    `json:"enabled_version"`
-	Versions       []skillVersionView   `json:"versions"`
-	Candidates     []skillCandidateView `json:"candidates"`
+	SkillID         entityID             `json:"skill_id"`
+	Name            string               `json:"name"`
+	License         string               `json:"license"`
+	EnabledVersion  *skillVersionView    `json:"enabled_version"`
+	Versions        []skillVersionView   `json:"versions"`
+	Candidates      []skillCandidateView `json:"candidates"`
+	ScopeKey        string               `json:"scope_key"`
+	BindingRevision int64                `json:"binding_revision"`
+	RollbackHold    bool                 `json:"rollback_hold"`
+	CanManage       bool                 `json:"can_manage"`
+	BlockedUpgrade  *struct {
+		Version skillVersionView `json:"version"`
+		Reasons []string         `json:"reasons"`
+	} `json:"blocked_upgrade"`
+	Activities []skillVersionActivity `json:"activities"`
 }
 
 type availableSkillView struct {
@@ -72,6 +81,17 @@ type frozenSkillView struct {
 
 type skillObservation struct {
 	Requests []map[string]any `json:"requests"`
+}
+
+type skillVersionActivity struct {
+	Action          string   `json:"action"`
+	Reason          string   `json:"reason"`
+	ActorID         entityID `json:"actor_id"`
+	CreatedAt       int64    `json:"created_at"`
+	VersionID       entityID `json:"version_id"`
+	Version         int      `json:"version"`
+	Digest          string   `json:"digest"`
+	BindingRevision int64    `json:"binding_revision"`
 }
 
 func skillZip(instructions, resourcePath, resource string) (string, error) {
@@ -514,49 +534,7 @@ func (d *driver) botSkills(address, secondAddress string) error {
 		return fmt.Errorf("skills: explicit new intent could not recover transient outage: %s %v", retryRaw, err)
 	}
 
-	// A newer compatible version is adopted by later Runs; the finished Run
-	// keeps its frozen identity.
-	time.Sleep(10 * time.Millisecond)
-	versionTwo := strings.Replace(instructions, bodyMarker, bodyMarker+"_V2", 1)
-	f.arm(f.version.VersionID, evaluation, "FINAL_"+f.token, bodyMarker, "references/format.md", resourceMarker)
-	secondCandidate, err := f.importPackage(versionTwo, "references/format.md", resource, task, evaluation, uuid.NewString())
-	if err != nil {
-		return err
-	}
-	if _, err = f.action(secondCandidate.ID, "evaluate"); err != nil {
-		return err
-	}
-	if _, err = f.action(secondCandidate.ID, "approve"); err != nil {
-		return err
-	}
-	raw, err = f.action(secondCandidate.ID, "publish")
-	var versionTwoView skillVersionView
-	if err != nil || json.Unmarshal(raw, &versionTwoView) != nil || versionTwoView.Version != 2 {
-		return fmt.Errorf("skills: compatible second version was not published: %s %v", string(raw), err)
-	}
-	frozen, err := d.getRun(f.requester, finished.ID)
-	if err != nil {
-		return err
-	}
-	if len(frozen.FrozenSkills) != 1 || frozen.FrozenSkills[0].VersionID != f.version.VersionID || frozen.FrozenSkills[0].Version != 1 {
-		return errors.New("skills: published upgrade rewrote the frozen Run version")
-	}
-	if err = f.arm(versionTwoView.VersionID, evaluation, "FINAL_"+f.token, bodyMarker+"_V2", "references/format.md", resourceMarker); err != nil {
-		return err
-	}
-	later, err := f.startRun("Use the authorized skill without explicit selection. "+f.token, nil)
-	if err != nil {
-		return err
-	}
-	laterDone, err := d.waitRun(f.requester, later.ID)
-	if err != nil {
-		return err
-	}
-	if len(laterDone.FrozenSkills) != 1 || laterDone.FrozenSkills[0].Version != 2 || laterDone.FrozenSkills[0].Explicit {
-		return fmt.Errorf("skills: later Run did not adopt the compatible published version: %+v", laterDone.FrozenSkills)
-	}
-	fmt.Printf("Instruction skills: import->evaluate->approve->publish->enable->Run explicit result verified; frozen v1 retained after v2 adoption, cross-Bot selection denied\n")
-	return nil
+	return f.versionLifecycle(instructions, resource, task, evaluation, bodyMarker, resourceMarker, finished)
 }
 
 func (d *driver) getRun(caller account, id entityID) (publicRun, error) {

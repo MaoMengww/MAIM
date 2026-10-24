@@ -108,7 +108,7 @@ func (h *BotSkillHandler) Evaluate(c *gin.Context) { h.candidate(c, "evaluate") 
 func (h *BotSkillHandler) Approve(c *gin.Context)  { h.candidate(c, "approve") }
 func (h *BotSkillHandler) Publish(c *gin.Context)  { h.candidate(c, "publish") }
 
-func (h *BotSkillHandler) Enable(c *gin.Context) {
+func (h *BotSkillHandler) VersionAction(c *gin.Context) {
 	if err := identity.Validate(c.Param("version")); err != nil {
 		response.BadRequest(c, "invalid skill version")
 		return
@@ -118,8 +118,10 @@ func (h *BotSkillHandler) Enable(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	h.performWithBody(c, "enable", body)
+	h.performWithBody(c, "version-"+c.Param("action"), body)
 }
+
+func (h *BotSkillHandler) Versions(c *gin.Context) { h.perform(c, "version-list") }
 
 // mergePathBody reads a small JSON object and forces the path identity over any
 // conflicting client-provided field.

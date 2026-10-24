@@ -116,8 +116,6 @@ func (s *Service) Operation(ctx context.Context, caller, botID, operation string
 		return s.approve(ctx, bot, body)
 	case "publish":
 		return s.publish(ctx, bot, body)
-	case "enable":
-		return s.enable(ctx, bot, body)
 	default:
 		return nil, status.Error(codes.InvalidArgument, "unknown skill operation")
 	}
@@ -625,7 +623,8 @@ func (s *Service) publish(ctx context.Context, bot *botRow, body []byte) ([]byte
 			if err := tx.Where("id = ?", *row.PublishedVersionID).Take(&published).Error; err != nil {
 				return nil, err
 			}
-			return versionView(&published, true), nil
+			enabled, err := VersionEnabled(tx, bot.ID, published.ID)
+			return versionView(&published, enabled), err
 		}
 		if row.Status != "approved" || row.ApprovedDigest != row.Digest || row.ApprovedEvaluationDigest != row.EvaluationDigest || row.ApprovedBy == nil || *row.ApprovedBy != *bot.OwnerID || row.ApprovedAuthorizationVersion != authorityVersion {
 			return nil, status.Error(codes.FailedPrecondition, "candidate content and verification have not been approved")
@@ -653,13 +652,14 @@ func (s *Service) publish(ctx context.Context, bot *botRow, body []byte) ([]byte
 			if duplicate.Status != "published" {
 				return nil, status.Error(codes.FailedPrecondition, "identical content is disabled")
 			}
-			if err := s.bind(tx, bot.ID, row.SkillID, duplicate.ID); err != nil {
+			enabled, err := AdoptPublished(ctx, tx, bot.ID, row.SkillID, duplicate.ID, "bot", *bot.OwnerID)
+			if err != nil {
 				return nil, err
 			}
 			if err := tx.Model(&candidate{}).Where("id = ?", row.ID).Updates(map[string]any{"status": "published", "published_version_id": duplicate.ID, "updated_at": time.Now()}).Error; err != nil {
 				return nil, err
 			}
-			return versionView(&duplicate, true), nil
+			return versionView(&duplicate, enabled), nil
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
 		}
@@ -675,60 +675,23 @@ func (s *Service) publish(ctx context.Context, bot *botRow, body []byte) ([]byte
 		if err != nil {
 			return nil, err
 		}
+		contract, err = StampContract(contract, map[string]any{"mode": "instruction-only", "tools": false}, map[string]any{"scope": "bot"})
+		if err != nil {
+			return nil, err
+		}
 		created := version{ID: id, SkillID: row.SkillID, BotID: bot.ID, ScopeKey: "bot", Version: maximum + 1, Digest: row.Digest, Name: row.Name, Description: row.Description, Instructions: row.Instructions, Resources: row.Resources, License: row.License, Status: "published", ValidationContract: contract, CreatedAt: time.Now()}
 		if err := tx.Create(&created).Error; err != nil {
 			return nil, err
 		}
-		if err := s.bind(tx, bot.ID, row.SkillID, created.ID); err != nil {
+		enabled, err := AdoptPublished(ctx, tx, bot.ID, row.SkillID, created.ID, "bot", *bot.OwnerID)
+		if err != nil {
 			return nil, err
 		}
 		if err := tx.Model(&candidate{}).Where("id = ?", row.ID).Updates(map[string]any{"status": "published", "published_version_id": created.ID, "updated_at": time.Now()}).Error; err != nil {
 			return nil, err
 		}
-		return versionView(&created, true), nil
+		return versionView(&created, enabled), nil
 	})
-}
-
-func (s *Service) enable(ctx context.Context, bot *botRow, body []byte) ([]byte, error) {
-	var request struct {
-		VersionID     string `json:"version_id"`
-		SubmissionKey string `json:"submission_key"`
-	}
-	if err := json.Unmarshal(body, &request); err != nil || identity.Validate(request.VersionID) != nil || len(request.SubmissionKey) == 0 || len(request.SubmissionKey) > 256 {
-		return nil, status.Error(codes.InvalidArgument, "valid version_id and submission_key are required")
-	}
-	return s.mutate(ctx, bot.ID, *bot.OwnerID, "enable", request.SubmissionKey, body, func(tx *gorm.DB) (any, error) {
-		var target version
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND bot_id = ? AND scope_key = 'bot'", request.VersionID, bot.ID).Take(&target).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, status.Error(codes.NotFound, "skill version not found")
-			}
-			return nil, err
-		}
-		if target.Status != "published" {
-			return nil, status.Error(codes.FailedPrecondition, "skill version is not published")
-		}
-		if err := s.bind(tx, bot.ID, target.SkillID, target.ID); err != nil {
-			return nil, err
-		}
-		return versionView(&target, true), nil
-	})
-}
-
-func (s *Service) bind(tx *gorm.DB, botID, skillID, versionID string) error {
-	var current binding
-	err := tx.Where("bot_id = ? AND skill_id = ? AND scope_key = 'bot'", botID, skillID).Take(&current).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		id, err := identity.New()
-		if err != nil {
-			return err
-		}
-		return tx.Create(&binding{ID: id, BotID: botID, SkillID: skillID, VersionID: versionID, ScopeKey: "bot", Enabled: true, UpdatedAt: time.Now()}).Error
-	}
-	if err != nil {
-		return err
-	}
-	return tx.Model(&binding{}).Where("id = ?", current.ID).Updates(map[string]any{"version_id": versionID, "enabled": true, "updated_at": time.Now()}).Error
 }
 
 // mutate records a stable submission identity with its response. A retry
@@ -893,7 +856,7 @@ func Check(ctx context.Context, db *gorm.DB, botID string, frozen Frozen) error 
 	}
 	err := db.WithContext(ctx).Model(&version{}).
 		Joins("JOIN bot.skill_bindings AS b ON b.skill_id = skill_versions.skill_id").
-		Where("skill_versions.id = ? AND skill_versions.bot_id = ? AND skill_versions.status = 'published' AND skill_versions.scope_key = ? AND b.scope_key = skill_versions.scope_key AND b.bot_id = ? AND b.enabled = true", frozen.VersionID, botID, scopeKey, botID).
+		Where("skill_versions.id = ? AND skill_versions.bot_id = ? AND skill_versions.status = 'published' AND skill_versions.scope_key = ? AND b.scope_key = skill_versions.scope_key AND b.bot_id = ?", frozen.VersionID, botID, scopeKey, botID).
 		Count(&count).Error
 	if err != nil {
 		return err
