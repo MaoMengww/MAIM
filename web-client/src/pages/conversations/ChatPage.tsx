@@ -33,6 +33,9 @@ import { GroupInfoDrawer } from './GroupInfoDrawer';
 import { AuthorizationPanel } from './AuthorizationPanel';
 import { RunActions } from './RunActions';
 import { RunDelegation, RunOriginDetails } from './RunProvenance';
+import { RunReviewProvider } from './RunReviewContext';
+import { RunReviewWorkspace } from './RunReviewPolicy';
+import { RunReviewSection } from './RunReviewSection';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Message, MsgContentOneof, ConvMember, AudioContent, ImageContent, VideoContent, FileContent, KnowledgeSource, BotRun, RunSource, BotInConv } from '@/types/model';
@@ -723,6 +726,7 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
     {run.interaction_status === 'closed' && <p className="chat-run-notice">继续关系已关闭。历史与结果仍可回看，新请求不会继承此交互。</p>}
     {controlError && <div className="chat-run-error" role="alert">{controlError}</div>}
     {run.error && <div className="chat-run-error" role="alert">{run.error}</div>}
+    <RunReviewSection run={run} />
     {run.result_text && <details className="chat-run-result" open={run.output_status !== 'committed'}>
       <summary>执行结果{run.output_status === 'committed' ? '（已进入消息历史）' : '（尚未发送）'}</summary>
       <div className="chat-msg-bubble"><ChatMarkdown>{run.result_text}</ChatMarkdown></div>
@@ -2339,11 +2343,13 @@ export function ChatPage() {
           );
         })}
 
+          <RunReviewProvider key={`${currentUserId}:${authRevision}:${id}`}>
           <section className="chat-run-list" aria-label="Bot 执行记录">
             {(runnableBots.length > 0 || runQuery.runs.length > 0 || runQuery.isError) && <div className="chat-run-list-header">
               <strong>Bot 执行记录</strong>
               <Button size="small" loading={runQuery.isFetching} onClick={() => { void runQuery.refetch(); void refetchMembers(); void queryClient.invalidateQueries({ queryKey: ['conv-bots', id] }); }}>刷新执行</Button>
             </div>}
+            {!bindingsError && !bindingsPending && id && <RunReviewWorkspace convId={id} bots={convBots} />}
             {runQuery.isPending && runnableBots.length > 0 && <div role="status">正在读取执行记录…</div>}
             {runQuery.connection !== 'connected' && runQuery.runs.length > 0 && <div className="chat-run-notice" role="status">实时连接已断开；执行不因此结束，查询将恢复最新状态。</div>}
             {runQuery.isError && <div className="chat-run-error" role="alert">执行记录读取失败，请刷新重试。</div>}
@@ -2368,6 +2374,7 @@ export function ChatPage() {
               }}
               onCompose={beginWork} onNew={(run) => beginNewTopic(run.bot_id)} onUpdated={handleUpdatedRun} />)}
           </section>
+          </RunReviewProvider>
         </div>
         {!isAtBottom && (
           <button className="chat-scroll-bottom" onClick={scrollToBottom}>

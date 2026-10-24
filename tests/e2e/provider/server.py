@@ -20,6 +20,7 @@ import collaboration
 import recovery
 import knowledge_tools
 import instruction_skills
+import run_reviews
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8099"))
@@ -594,6 +595,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path.startswith("/run-reviews/"):
+            self._json(200, run_reviews.command(path, body))
+            return
         if path.startswith("/instruction-skills/"):
             self._json(200, instruction_skills.command(path, body))
             return
@@ -682,6 +686,8 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 OBSERVATIONS["chat_models"].append(model)
                 OBSERVATIONS["chat_requests"].append(body)
+            if run_reviews.model(body, self, messages):
+                return
             if compaction.model(body, self, accepted_input):
                 return
             if run_control.model(body, self, text):

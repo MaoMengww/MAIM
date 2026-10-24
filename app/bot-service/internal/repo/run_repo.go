@@ -721,9 +721,24 @@ func (r *RunRepo) FindResult(ctx context.Context, bot, conv, binding, message st
 	return &run, err
 }
 
-func (r *RunRepo) Claim(ctx context.Context, kinds []string) (*model.RunOutbox, error) {
+func (r *RunRepo) Claim(ctx context.Context, kinds []string, reviewLimit ...int) (*model.RunOutbox, error) {
 	var item model.RunOutbox
 	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if slices.Contains(kinds, "review") {
+			if len(reviewLimit) != 1 || reviewLimit[0] < 1 || reviewLimit[0] > 8 {
+				return status.Error(codes.FailedPrecondition, "finite review concurrency required")
+			}
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(4278605,22)").Error; err != nil {
+				return err
+			}
+			var live int64
+			if err := tx.Model(&model.RunOutbox{}).Where("kind = 'review' AND completed_at IS NULL AND lease_until > NOW()").Count(&live).Error; err != nil {
+				return err
+			}
+			if live >= int64(reviewLimit[0]) {
+				return gorm.ErrRecordNotFound
+			}
+		}
 		eligible := func(db *gorm.DB) *gorm.DB {
 			return db.Where("kind IN ? AND completed_at IS NULL AND available_at <= NOW() AND (lease_until IS NULL OR lease_until <= NOW())", kinds).
 				Where("kind <> 'execute' OR NOT EXISTS (SELECT 1 FROM bot.run_outbox live WHERE live.run_id = run_outbox.run_id AND live.id <> run_outbox.id AND live.kind = 'execute' AND live.completed_at IS NULL AND live.lease_until > NOW())")

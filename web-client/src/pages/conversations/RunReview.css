@@ -1,0 +1,120 @@
+.chat-review-workspace,
+.chat-review-section,
+.chat-review-detail,
+.chat-review-candidate {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-review-workspace {
+  padding: 8px 12px;
+  border: 1px solid var(--aim-border);
+  border-radius: var(--aim-radius-md, 8px);
+  background: var(--aim-surface);
+  color: var(--aim-text);
+}
+.chat-review-workspace summary,
+.chat-review-section summary {
+  min-height: 44px;
+  padding: 12px 0;
+  cursor: pointer;
+}
+.chat-review-workspace summary:focus-visible,
+.chat-review-section summary:focus-visible {
+  outline: 2px solid var(--aim-primary);
+  outline-offset: 2px;
+}
+.chat-review-bot-select {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  margin-top: 8px;
+}
+.chat-review-policy-grid,
+.chat-review-diff {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+.chat-review-policy,
+.chat-review-diff > section {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--aim-border);
+  border-radius: var(--aim-radius-md, 8px);
+}
+.chat-review-policy-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.chat-review-policy-heading .ant-btn {
+  min-height: 36px;
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+}
+.chat-review-detail {
+  padding: 12px 0;
+  border-top: 1px solid var(--aim-border);
+  margin-top: 12px;
+}
+.chat-review-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.chat-review-meta dt {
+  color: var(--aim-text-secondary);
+}
+.chat-review-meta dd {
+  min-width: 0;
+  margin: 0;
+  white-space: pre-wrap;
+}
+.chat-review-code {
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--aim-border);
+  border-radius: var(--aim-radius-md, 8px);
+  background: var(--aim-surface-hover);
+  color: var(--aim-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.chat-review-code:focus-visible {
+  outline: 2px solid var(--aim-primary);
+  outline-offset: 2px;
+}
+.chat-review-removed {
+  border-left: 2px solid var(--aim-error);
+}
+.chat-review-added {
+  border-left: 2px solid var(--aim-primary);
+}
+.chat-review-candidate {
+  border-top: 1px solid var(--aim-border);
+  margin-top: 12px;
+}
+@media (min-width: 960px) {
+  .chat-review-policy-grid,
+  .chat-review-diff {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 480px) {
+  .chat-review-meta {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .chat-review-meta dd {
+    margin-bottom: 8px;
+  }
+}

@@ -25,8 +25,13 @@ type Config struct {
 }
 
 type BotConfig struct {
-	MaxContextMessages int           `json:"maxContextMessages,default=10"`
-	MaxToolRounds      int           `json:"maxToolRounds,default=3"`
-	WorkerPoolSize     int           `json:"workerPoolSize,default=0"`
-	RequestTimeout     time.Duration `json:"requestTimeout,default=120s"`
+	MaxContextMessages  int           `json:"maxContextMessages,default=10"`
+	MaxToolRounds       int           `json:"maxToolRounds,default=3"`
+	WorkerPoolSize      int           `json:"workerPoolSize,default=0"`
+	RequestTimeout      time.Duration `json:"requestTimeout,default=120s"`
+	ReviewConcurrency   int           `json:"reviewConcurrency,default=2"`
+	ReviewTimeout       time.Duration `json:"reviewTimeout,default=300s"`
+	ReviewMaxTokens     int           `json:"reviewMaxTokens,default=4096"`
+	ReviewInputBytes    int           `json:"reviewInputBytes,default=49152"`
+	ReviewRetentionDays int           `json:"reviewRetentionDays,default=30"`
 }

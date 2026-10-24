@@ -3,12 +3,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/logic/bot"
 	"github.com/maomeng/aim/app/bot-service/internal/run"
 	"github.com/maomeng/aim/app/bot-service/internal/svc"
 	pb "github.com/maomeng/aim/app/bot-service/pb/bot"
+	"github.com/zeromicro/go-zero/core/breaker"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -71,7 +73,7 @@ func forwardRuntime[Resp any](s *RuntimeServer, ctx context.Context, invoke func
 			return response, nil
 		}
 		lastErr = err
-		if status.Code(err) != codes.Unavailable {
+		if status.Code(err) != codes.Unavailable && !errors.Is(err, breaker.ErrServiceUnavailable) {
 			return zero, err
 		}
 		if s.svcCtx.RuntimeConn != nil {

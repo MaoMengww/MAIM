@@ -205,6 +205,11 @@ func New(
 	bots.POST("/:id/skills/:candidate/approve", botSkillH.Approve)
 	bots.POST("/:id/skills/:candidate/publish", botSkillH.Publish)
 	bots.POST("/:id/skill-versions/:version/enable", botSkillH.Enable)
+	bots.GET("/:id/review-policy", botSkillH.ReviewPolicy)
+	bots.PUT("/:id/review-policy", botSkillH.SetReviewPolicy)
+	bots.GET("/:id/run-reviews", botSkillH.Reviews)
+	bots.GET("/:id/run-reviews/:review", botSkillH.Review)
+	bots.POST("/:id/run-reviews/:review/cancel", botSkillH.CancelReview)
 
 	// Single-run work and authoritative readback.
 	bots.POST("/:id/runs", botH.StartRun)

@@ -69,6 +69,21 @@ func (s *Service) Operation(ctx context.Context, caller, botID, operation string
 	if len(body) > 1<<20 {
 		return nil, status.Error(codes.InvalidArgument, "skill operation body exceeds 1 MiB")
 	}
+	// Derived candidates require source-material authorization, not just Bot ownership.
+	if operation == "get" || operation == "evaluate" || operation == "approve" || operation == "publish" {
+		var request struct {
+			CandidateID string `json:"candidate_id"`
+		}
+		if json.Unmarshal(body, &request) == nil && identity.Validate(request.CandidateID) == nil {
+			var count int64
+			if err := s.db.WithContext(ctx).Table("bot.skill_candidates").Where("id = ? AND bot_id = ? AND source_review_id IS NOT NULL", request.CandidateID, botID).Count(&count).Error; err != nil {
+				return nil, err
+			}
+			if count != 0 {
+				return nil, status.Error(codes.PermissionDenied, "Run-derived candidate requires source-scoped review; validation and trusted script review are not yet granted")
+			}
+		}
+	}
 	if operation == "available" {
 		if identity.Validate(caller) != nil {
 			return nil, status.Error(codes.Unauthenticated, "authenticated requester required")
@@ -163,7 +178,7 @@ func (s *Service) importPackage(ctx context.Context, bot *botRow, body []byte) (
 			return nil, err
 		}
 		var pkgRow packageRow
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("bot_id = ? AND publisher_id = ? AND name = ?", bot.ID, *bot.OwnerID, pkg.Name).Take(&pkgRow).Error
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("bot_id = ? AND publisher_id = ? AND name = ? AND scope_key = 'bot'", bot.ID, *bot.OwnerID, pkg.Name).Take(&pkgRow).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			id, err := identity.New()
 			if err != nil {
@@ -210,7 +225,7 @@ func (s *Service) importPackage(ctx context.Context, bot *botRow, body []byte) (
 
 func (s *Service) list(ctx context.Context, bot *botRow) ([]PackageView, error) {
 	var packages []packageRow
-	if err := s.db.WithContext(ctx).Where("bot_id = ?", bot.ID).Order("name ASC").Find(&packages).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("bot_id = ? AND scope_key = 'bot'", bot.ID).Order("name ASC").Find(&packages).Error; err != nil {
 		return nil, err
 	}
 	result := make([]PackageView, 0, len(packages))
@@ -236,7 +251,7 @@ func (s *Service) list(ctx context.Context, bot *botRow) ([]PackageView, error) 
 			}
 		}
 		var candidates []candidate
-		if err := s.db.WithContext(ctx).Where("skill_id = ?", pkg.ID).Order("created_at DESC").Find(&candidates).Error; err != nil {
+		if err := s.db.WithContext(ctx).Where("skill_id = ? AND source_review_id IS NULL", pkg.ID).Order("created_at DESC").Find(&candidates).Error; err != nil {
 			return nil, err
 		}
 		for index := range candidates {

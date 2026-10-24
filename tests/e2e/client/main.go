@@ -193,7 +193,7 @@ func run(args []string) error {
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
 	failFast := flags.Bool("fail-fast", false, "首个场景失败立即返回，不继续等待后续生命周期检查点")
-	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-run-reviews|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
@@ -240,6 +240,7 @@ func run(args []string) error {
 			{"bot-cutover", *realtimeA, *realtimeB},
 			{"bot-knowledge-tools", *realtimeA, *realtimeB},
 			{"bot-skills", *realtimeA, *realtimeB},
+			{"bot-run-reviews", *realtimeA, *realtimeB},
 			{"knowledge-ingest", "", ""},
 			{"llm-chat", "", ""},
 			{"llm-components", "", ""},
@@ -285,6 +286,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"bot-knowledge-tools", *realtimeA, *realtimeB}}
 	case "bot-skills":
 		scenarios = []scenarioSpec{{"bot-skills", *realtimeA, *realtimeB}}
+	case "bot-run-reviews":
+		scenarios = []scenarioSpec{{"bot-run-reviews", *realtimeA, *realtimeB}}
 	case "bot-collaboration":
 		scenarios = []scenarioSpec{{"bot-collaboration", *realtimeA, *realtimeB}}
 	case "bot-recovery":
@@ -318,7 +321,7 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-run-reviews|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	}
 	if *cross && *selected == "bot-runtime" {
 		scenarios = append(scenarios, scenarioSpec{"bot-runtime-cross-instance", *realtimeA, *realtimeB})
@@ -326,6 +329,11 @@ func run(args []string) error {
 		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
 	}
 	for _, scenario := range scenarios {
+		if scenario.name == "bot-run-reviews" {
+			if _, err := endpoint(*provider, "http", "https"); err != nil {
+				return fmt.Errorf("配置复盘 provider: %w", err)
+			}
+		}
 		if scenario.name == "bot-cutover" || scenario.name == "bot-collaboration" || scenario.name == "bot-recovery" || scenario.name == "bot-compaction" || scenario.name == "bot-authorizations" || scenario.name == "llm-components" || scenario.name == "llm-chat" || scenario.name == "bot-run-controls" || scenario.name == "bot-interactions" || scenario.name == "bot-executor-runs" || scenario.name == "bot-runs" || scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
 			if _, err := endpoint(*provider, "http", "https"); err != nil {
 				return fmt.Errorf("配置外部 provider: %w", err)
@@ -384,6 +392,8 @@ func run(args []string) error {
 			err = d.botKnowledgeTools(scenario.a, scenario.b)
 		case "bot-skills":
 			err = d.botSkills(scenario.a, scenario.b)
+		case "bot-run-reviews":
+			err = d.botRunReviews()
 		case "bot-collaboration":
 			err = d.botCollaboration(scenario.a, scenario.b)
 		case "bot-recovery":
@@ -434,6 +444,8 @@ func run(args []string) error {
 			fmt.Println("E2E PASS: bot-run-controls 当前控制权限/重放 → 实际模型及工具取消 → 第三方工作循环确认/未确认/拒绝/完成竞态 → 接手来源与个人许可隔离 → 退群暂停/明确接手/新成员历史 → Bot撤绑停用许可撤销即刻拒读输出/无材料确认/重入不复活")
 		} else if scenario.name == "bot-authorizations" {
 			fmt.Println("E2E PASS: bot-authorizations public REST/WS resource read/share/private/revocation and exact external action authority")
+		} else if scenario.name == "bot-run-reviews" {
+			fmt.Println("E2E PASS: bot-run-reviews 公开客户端确定性合同回归；不代表真实模型提炼质量")
 		} else if scenario.name == "bot-collaboration" {
 			fmt.Println("E2E PASS: bot-collaboration explicit activity rules and independent delegated Run outcomes")
 		} else if scenario.name == "bot-compaction" {

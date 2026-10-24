@@ -43,6 +43,7 @@ func main() {
 		botpb.BotService_Authorization_FullMethodName,
 		botpb.BotService_StartRun_FullMethodName,
 		botpb.BotService_ControlRun_FullMethodName,
+		botpb.BotService_SkillOperation_FullMethodName,
 		botpb.BotService_CreateBot_FullMethodName,
 		botpb.BotService_UpdateBot_FullMethodName,
 		botpb.BotService_CreateMcpServer_FullMethodName,

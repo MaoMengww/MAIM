@@ -40,11 +40,20 @@ func (s *Service) Start(ctx context.Context) {
 		go s.worker(ctx, []string{"deliver"})
 	}
 	go s.worker(ctx, []string{"updated"})
+	// Review has its own finite pool and never delays original result delivery.
+	for range min(max(s.svc.Config.Bot.ReviewConcurrency, 1), 8) {
+		go s.worker(ctx, []string{"review"})
+	}
 	go s.monitorAuthority(ctx)
 }
 func (s *Service) worker(ctx context.Context, kinds []string) {
 	for ctx.Err() == nil {
-		item, err := s.repo.Claim(ctx, kinds)
+		var limits []int
+		if slices.Contains(kinds, "review") {
+			// Claim safely at a finite limit; processReview records invalid configuration as failed.
+			limits = []int{min(max(s.svc.Config.Bot.ReviewConcurrency, 1), 8)}
+		}
+		item, err := s.repo.Claim(ctx, kinds, limits...)
 		if err != nil {
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				s.svc.Logger.Errorf("Run outbox claim failed: kind=%s", kinds[0])
@@ -81,6 +90,8 @@ func (s *Service) worker(ctx context.Context, kinds []string) {
 			err = s.publishUpdate(workCtx, item)
 		case "deliver":
 			err = s.deliverRun(workCtx, item)
+		case "review":
+			err = s.processReview(workCtx, item)
 		}
 		cancel()
 		<-done

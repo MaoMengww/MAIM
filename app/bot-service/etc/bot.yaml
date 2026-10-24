@@ -26,6 +26,11 @@ Bot:
   maxToolRounds: 3
   workerPoolSize: 0
   requestTimeout: 120s
+  reviewConcurrency: 2
+  reviewTimeout: 300s
+  reviewMaxTokens: 4096
+  reviewInputBytes: 49152
+  reviewRetentionDays: 30
 
 LlmGateway:
   Target: ${LLM_GATEWAY_ADDR}
