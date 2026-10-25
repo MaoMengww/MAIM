@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Tag } from 'antd';
 import { reviewMetadata, runReviewApi, type Review, type ReviewStatus, type ReviewTrigger } from '@/services/runReview';
 import type { BotRun } from '@/types/model';
 import { clearReviewMaterials, isReviewPermissionError, reviewDetailKey, reviewListKey, useReviewIdentity, useReviewPolicy, useRunReviews } from './RunReviewContext';
-import { ReviewCandidateDetails } from './ReviewCandidateDetails';
+import { CandidateGovernance } from '@/components/skills/CandidateGovernance';
 import { reviewError } from './RunReviewPolicy';
 import { RunReviewSubmission } from './RunReviewSubmission';
 import './RunReview.css';
@@ -42,28 +42,14 @@ function ReviewDetails({ review, run, canCancel }: { review: Review; run: BotRun
     retry: false,
     staleTime: 3000,
     gcTime: 0,
-    refetchInterval: (query) => query.state.status === 'error' ? false : query.state.data && (ACTIVE[query.state.data.status] || query.state.data.candidate || query.state.data.feedback || query.state.data.assessment) ? 5000 : false,
+    refetchInterval: (query) => query.state.status === 'error' ? false : query.state.data && (ACTIVE[query.state.data.status] || query.state.data.feedback || query.state.data.assessment) ? 5000 : false,
   });
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const expires = detail.data?.expires_at;
-    if (!expires) return;
-    if (expires * 1000 <= now) {
-      queryClient.setQueryData<Review>(queryKey, (current) => current ? reviewMetadata(current) : current);
-      return;
-    }
-    const delay = Math.min(Math.max(expires * 1000 - Date.now(), 0), 2147483647);
-    const timer = window.setTimeout(() => {
-      setNow(Date.now());
-      if (expires * 1000 <= Date.now()) {
-        queryClient.setQueryData<Review>(queryKey, (current) => current ? reviewMetadata(current) : current);
-      }
-    }, delay);
-    return () => window.clearTimeout(timer);
-  }, [detail.data?.expires_at, now, queryClient, userId, revision, run.bot_id, review.id]);
   const cancel = useMutation({
+    gcTime: 0,
+    meta: { evidence_expires_at: review.expires_at },
     mutationFn: () => runReviewApi.cancel(run.bot_id, review.id, { submission_key: submissionKey }),
     onSuccess: (data) => {
+      cancel.reset();
       queryClient.setQueryData(queryKey, data);
       const listKey = reviewListKey(userId, revision, { bot_id: run.bot_id, conv_id: run.conv_id, visibility: run.visibility });
       queryClient.setQueryData<Review[]>(listKey, (current) => current?.map((entry) => entry.id === data.id ? reviewMetadata(data) : entry));
@@ -76,7 +62,7 @@ function ReviewDetails({ review, run, canCancel }: { review: Review; run: BotRun
   });
   const data = detail.isError ? review : detail.data ?? review;
   const status = STATUS[data.status];
-  const expired = data.expires_at > 0 && data.expires_at * 1000 <= Math.max(now, Date.now());
+  const expired = data.expires_at > 0 && data.expires_at * 1000 <= Date.now();
   const materialsAvailable = !!detail.data && !detail.isError && !expired;
   return <article id={`review-${data.id}`} className="chat-review-detail" aria-label={`复盘修订 ${data.revision} · ${TRIGGER[data.trigger_kind]}`}>
     <div className="chat-review-policy-heading" role="status">
@@ -122,8 +108,8 @@ function ReviewDetails({ review, run, canCancel }: { review: Review; run: BotRun
     {ACTIVE[data.status] && !canCancel && <p className="chat-run-notice">当前没有取消权限；仅合资格请求者、控制者、显式获权成员或会话管理员可取消。</p>}
     {cancel.isError && <p className="chat-run-error" role="alert">{reviewError(cancel.error)} 请刷新确认状态；重试使用原提交键。</p>}
     {cancel.isSuccess && data.status === 'cancelled' && <p className="chat-run-notice" role="status">复盘已取消，原 Run 结果保持不变。</p>}
-    {materialsAvailable && data.candidate && <ReviewCandidateDetails botId={run.bot_id} candidate={data.candidate} />}
-    {data.status === 'candidate_generated' && (expired || !data.candidate) && <p className="chat-run-notice" role="status">候选材料当前不可用，可能已过期或来源许可已变化；可刷新详情确认。</p>}
+    {!detail.isError && data.candidate_id && <CandidateGovernance botId={run.bot_id} candidateId={data.candidate_id} />}
+    {data.status === 'candidate_generated' && expired && <p className="chat-run-notice" role="status">原复盘材料已到期；候选仅通过独立的当前授权查询展示安全元数据与补证入口，不复用失效原文。</p>}
   </article>;
 }
 

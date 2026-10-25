@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Button, Checkbox, Input } from 'antd';
-import { skillCandidateApi, type CandidateAction, type CandidateActionRequest, type GovernedCandidate } from '@/services/skillCandidate';
+import { candidateEvidenceExpired, skillCandidateApi, type CandidateAction, type CandidateActionRequest, type GovernedCandidate } from '@/services/skillCandidate';
 import { submitSkillIntent } from '@/utils/skillSubmission';
 import { CandidateRevisionForm } from './CandidateRevisionForm';
 
@@ -17,19 +17,30 @@ export function CandidateActions({ botId, candidate, identity, onChanged }: {
   const [notice, setNotice] = useState('');
   const mutation = useMutation({
     retry: false,
+    gcTime: 0,
+    meta: { evidence_expires_at: candidate.expires_at },
     mutationFn: async ({ action, payload }: { action: CandidateAction; payload: Omit<CandidateActionRequest, 'submission_key'> }) => {
       return submitSkillIntent(`${identity}:${botId}:${candidate.id}:${action}`, payload,
         (submission_key) => skillCandidateApi.act(botId, candidate.id, action, { ...payload, submission_key }));
     },
     onSuccess: async (_data, { action }) => {
+      mutation.reset();
       setReviewConfirmed(false);
       setApprovalConfirmed(false);
       setNotice(action === 'publish' ? '不可变版本已发布。发布不等于启用；原 Run 结果保持不变。' : '操作已保存，请按当前内容与证据继续审阅。');
       await onChanged();
     },
+    onError: async () => { await onChanged(); },
   });
+  useLayoutEffect(() => {
+    if (mutation.isSuccess) mutation.reset();
+  }, [mutation.isSuccess, mutation.reset]);
   const submit = (action: CandidateAction, extra: Partial<CandidateActionRequest> = {}) => {
     setNotice('');
+    if (candidateEvidenceExpired(candidate) && action !== 'revise') {
+      setNotice('材料已过期，必须提交新获准证据并重新验证批准，不能继续此操作。');
+      return;
+    }
     if (extra.reason !== undefined && new TextEncoder().encode(extra.reason).length > 1024) {
       setNotice('补证要求 / 拒绝原因不能超过 1024 UTF-8 字节。');
       return;
@@ -37,15 +48,23 @@ export function CandidateActions({ botId, candidate, identity, onChanged }: {
     mutation.mutate({ action, payload: { ...extra, digest: candidate.digest } });
   };
   const hasScripts = Object.keys(candidate.scripts).length > 0 || candidate.code_review_required;
-  const immutable = ['published', 'rejected', 'expired'].includes(candidate.status);
-  const canMaintain = candidate.can_maintain && candidate.can_view_materials && !immutable;
+  const expired = candidateEvidenceExpired(candidate);
+  const immutable = ['published', 'rejected'].includes(candidate.status);
+  const canMaintain = candidate.can_maintain && candidate.can_view_materials && !immutable && !expired;
+  const canRenew = candidate.can_maintain && !immutable && (candidate.can_view_materials || expired);
   const verified = candidate.evaluation?.status === 'passed' && candidate.evaluation.passed === true;
   const busy = mutation.isPending;
   const error = mutation.error as { message?: string; response?: { data?: { message?: string } } } | null;
   return <section aria-label="候选治理操作" aria-busy={busy}>
     <p className="skill-candidate-notice">执行前代码审查仅允许验证被冻结的确切脚本身份，不是发布批准。无可信执行节点人工准入策略时必须明确拒绝执行；界面确认不能授予准入。</p>
     <p className="skill-candidate-notice">脚本验证每次使用新的加固容器；共享宿主内核的容器不是恶意代码强隔离。只应运行获准且经可信人工审查的代码。</p>
-    {!canMaintain && <p role="note">当前无维护及材料查看权限，或候选已终结；不能修订、验证或批准。Bot 所有权和脱敏不是材料授权。</p>}
+    {!canRenew && <p role="note">当前无维护及材料查看权限，或候选已终结；不能补证、修订、验证或批准。Bot 所有权和脱敏不是材料授权。</p>}
+    {expired && <>
+      <div className="skill-candidate-actions" aria-label="证据已过期，操作禁用">
+        <Button disabled>验证（须先补证）</Button><Button disabled>批准（须重新验证）</Button><Button disabled>发布（须重新批准）</Button>
+      </div>
+      {canRenew && <p>请在下方补证入口提交完整包和新的获准样例、具体预期、许可确认及截止时间；不可只延长旧期限。</p>}
+    </>}
     {candidate.reason && <p role="note">已保存的补证要求 / 处理原因：{candidate.reason}</p>}
     {canMaintain && <>
       {hasScripts && <fieldset disabled={busy || !candidate.can_review_code}>
@@ -89,9 +108,9 @@ export function CandidateActions({ botId, candidate, identity, onChanged }: {
         {!verified && <p>未验证、不通过、证据不足或环境故障均不能批准发布；退出码与单次反馈不是通过证据。</p>}
         {!candidate.can_publish && <p>当前没有发布权限；维护权限不代替发布权限。</p>}
       </fieldset>
-      <CandidateRevisionForm candidate={candidate} pending={busy}
-        onSubmit={(revision) => submit('revise', revision)} />
     </>}
+    {canRenew && <CandidateRevisionForm key={`${candidate.evidence_id}:${expired ? 'new-evidence' : 'live'}`} candidate={candidate} pending={busy}
+      onSubmit={(revision) => submit('revise', revision)} />}
     {busy && <p role="status">操作处理中，请勿重复发起。验证有独立模型 / 沙箱 / 时间 / 资源 / 日志预算，且不递归复盘。</p>}
     {mutation.isError && <div className="skill-candidate-error" role="alert">
       <p>{error?.response?.data?.message || error?.message || '操作失败或结果未知。'}</p>

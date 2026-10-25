@@ -108,19 +108,22 @@ func (s *Service) submitRunReview(ctx context.Context, caller, botID string, req
 		} else if previous.ID != "" {
 			parent = &previous.ID
 		}
-		days := s.svc.Config.Bot.ReviewRetentionDays
-		if days < 1 || days > 30 {
-			return status.Error(codes.FailedPrecondition, "finite review retention required")
-		}
 		// A new intent does not renew permission to the old evidence. When no
 		// automatic review exists, use the original terminal fact's timestamp.
-		expires := current.UpdatedAt.Add(time.Duration(days) * 24 * time.Hour)
+		expires, err := s.reviewRetentionDeadline(current.UpdatedAt)
+		if err != nil {
+			return err
+		}
 		var oldest struct{ ExpiresAt time.Time }
 		if err := tx.Model(&runReview{}).Select("MIN(expires_at) AS expires_at").Where("run_id = ?", r.ID).Scan(&oldest).Error; err != nil {
 			return err
 		}
 		if !oldest.ExpiresAt.IsZero() && oldest.ExpiresAt.Before(expires) {
 			expires = oldest.ExpiresAt
+		}
+		expires, err = s.reviewExpiry(ctx, &current, expires, make(map[string]bool))
+		if err != nil {
+			return err
 		}
 		var publisher model.Bot
 		if err := tx.Where("id = ?", botID).Take(&publisher).Error; err != nil {

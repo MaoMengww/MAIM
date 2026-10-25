@@ -14,9 +14,16 @@ import (
 // tables. Real Docker validation is a separate smoke with the human-frozen worker.
 type governedCandidate struct {
 	runReviewCandidateView
-	CanMaintain bool `json:"can_maintain"`
-	CanPublish  bool `json:"can_publish"`
-	Evaluation  *struct {
+	CanMaintain        bool   `json:"can_maintain"`
+	CanPublish         bool   `json:"can_publish"`
+	CanViewMaterials   bool   `json:"can_view_materials"`
+	EvidenceID         string `json:"evidence_id"`
+	EvidenceRevision   int64  `json:"evidence_revision"`
+	Evidence           string `json:"evidence"`
+	RepresentativeTask string `json:"representative_task"`
+	ExpectedOutput     string `json:"expected_output"`
+	Reason             string `json:"reason"`
+	Evaluation         *struct {
 		Status string `json:"status"`
 		Passed bool   `json:"passed"`
 		Digest string `json:"digest"`
@@ -53,6 +60,9 @@ func (f *runReviewFixture) newGoverned(label, mode string) (governedCandidate, p
 	review, err := f.waitReview(run, "conversation", "candidate_generated")
 	if err != nil {
 		return governedCandidate{}, run, token, err
+	}
+	if label == "expiry" && review.ExpiresAt-review.CreatedAt != int64(30*24*time.Hour/time.Second) {
+		return governedCandidate{}, run, token, errors.New("candidate retention: default evidence retention is not 30 days from collection")
 	}
 	candidate, err := f.governed(f.owner, review.Candidate.ID)
 	return candidate, run, token, err
@@ -211,37 +221,8 @@ func (f *runReviewFixture) candidateGovernance() error {
 		return err
 	}
 
-	// A previously passed and approved candidate still cannot publish expired evidence.
-	expiring, _, expiryToken, err := f.newGoverned("expiry", "valuable")
-	if err != nil {
+	if err = f.retentionGovernance(); err != nil {
 		return err
-	}
-	expiresAt := time.Now().Add(8 * time.Second).Unix()
-	if err = f.govern(f.owner, expiring, "revise", uuid.NewString(), map[string]any{"expires_at": expiresAt}, &expiring); err != nil {
-		return err
-	}
-	expiring, err = f.readyGoverned(expiring, expiryToken)
-	if err != nil {
-		return err
-	}
-	time.Sleep(time.Until(time.Unix(expiresAt, 0).Add(100 * time.Millisecond)))
-	if err = f.govern(f.owner, expiring, "publish", uuid.NewString(), nil, nil); err == nil {
-		return errors.New("candidate governance: expired approved evidence published")
-	}
-	if err = f.govern(f.owner, expiring, "approve", uuid.NewString(), nil, nil); err == nil {
-		return errors.New("candidate governance: expired evidence approved")
-	}
-	if _, err = f.governed(f.owner, expiring.ID); err == nil {
-		return errors.New("candidate governance: expired GET exposed candidate materials")
-	}
-	var unexpired []governedCandidate
-	if err = f.d.request(http.MethodGet, f.path("skill-candidates"), f.owner.token, nil, &unexpired); err != nil {
-		return err
-	}
-	for _, item := range unexpired {
-		if item.ID == expiring.ID {
-			return errors.New("candidate governance: expired list exposed candidate materials")
-		}
 	}
 
 	// Actual membership revocation after approval blocks material and publish.
@@ -454,6 +435,9 @@ func (f *runReviewFixture) candidateFileViewer() error {
 		if view.Instructions == "" || view.SourceRunID != run.ID {
 			return errors.New("candidate governance: authorized file viewer lost candidate material")
 		}
+		if review.ExpiresAt != grant.ExpiresAt.Unix() || view.ExpiresAt != grant.ExpiresAt.Unix() {
+			return errors.New("candidate retention: shorter source license did not cap archived review and candidate")
+		}
 		_, ownerErr := f.governed(f.owner, review.Candidate.ID)
 		if visibility == "personal" {
 			if err = f.d.expectStatus(ownerErr, http.StatusForbidden, "Bot owner reading private source candidate"); err != nil {
@@ -464,6 +448,24 @@ func (f *runReviewFixture) candidateFileViewer() error {
 		}
 		if err = f.unchanged(run); err != nil {
 			return err
+		}
+		if visibility == "conversation" {
+			if err = f.d.request(http.MethodPost, "/bot-authorizations/resources", f.requester.token, map[string]any{"op": "revoke", "grant_id": grant.ID}, nil); err != nil {
+				return err
+			}
+			f.hiddenSources[run.ID] = true
+			for _, caller := range []account{f.owner, f.requester} {
+				_, denied := f.governed(caller, view.ID)
+				if err = f.d.expectStatus(denied, http.StatusForbidden, "revoked source candidate read"); err != nil {
+					return err
+				}
+				for _, operation := range []string{"evaluate", "approve", "publish", "revise"} {
+					if err = f.d.expectStatus(f.govern(caller, view, operation, uuid.NewString(), map[string]any{"evidence_authorized": true, "source_license_expires_at": time.Now().Add(time.Hour).Unix()}, nil), http.StatusForbidden, "revoked source "+operation); err != nil {
+						return err
+					}
+				}
+			}
+			f.browser["retention"].(map[string]any)["revoked_candidate_id"] = view.ID
 		}
 	}
 	return nil

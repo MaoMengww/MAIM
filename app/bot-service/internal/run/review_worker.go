@@ -80,11 +80,7 @@ func (s *Service) processReview(ctx context.Context, item *model.RunOutbox) erro
 	}
 	if review.StartedAt == nil {
 		now := time.Now()
-		configuredExpiry := review.CreatedAt.Add(time.Duration(cfg.ReviewRetentionDays) * 24 * time.Hour)
-		if configuredExpiry.Before(review.ExpiresAt) {
-			review.ExpiresAt = configuredExpiry
-		}
-		expires, err := s.reviewExpiry(ctx, r, review.ExpiresAt, make(map[string]bool))
+		expires, err := s.reviewEffectiveExpiry(ctx, r, &review)
 		if err != nil {
 			return err
 		}
@@ -169,8 +165,14 @@ Evaluate whether the terminal Run contains a reusable workflow, evidence-backed 
 			if err := s.reviewLease(tx, item); err != nil {
 				return err
 			}
-			result := tx.Model(&runReview{}).Where("id = ? AND status = 'assessing'", review.ID).Updates(map[string]any{"assessment": json.RawMessage(raw), "reason": assessment.Reason, "model_version": execution.Version, "updated_at": time.Now()})
-			return result.Error
+			result := tx.Model(&runReview{}).Where("id = ? AND status = 'assessing' AND expires_at > NOW() AND materials_cleared_at IS NULL AND evidence_revoked_at IS NULL", review.ID).Updates(map[string]any{"assessment": json.RawMessage(raw), "reason": assessment.Reason, "model_version": execution.Version, "updated_at": time.Now()})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return status.Error(codes.Canceled, "review evidence no longer available")
+			}
+			return nil
 		}); err != nil {
 			return err
 		}
@@ -261,6 +263,9 @@ func (s *Service) reviewCall(ctx context.Context, item *model.RunOutbox, r *mode
 		}
 		if reviewFinished(current.Status) || current.ModelCalls >= 2 {
 			return status.Error(codes.Canceled, "review stopped or exhausted")
+		}
+		if !current.ExpiresAt.After(time.Now()) || current.MaterialsClearedAt != nil || current.EvidenceRevokedAt != nil {
+			return status.Error(codes.Canceled, "review evidence no longer available")
 		}
 		if current.ModelCalls != review.ModelCalls {
 			return status.Error(codes.Aborted, "review model attempt already claimed")

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/skill"
@@ -32,8 +31,8 @@ func (s *Service) scopedSkillAccess(ctx context.Context, botID, user, scopeKey s
 		if err != nil {
 			return err
 		}
-		if state.Content.ScopeKey != scopeKey || state.Content.ExpiresAt <= time.Now().Unix() || !state.Review.ExpiresAt.After(time.Now()) {
-			return status.Error(codes.PermissionDenied, "scoped skill evidence expired or changed")
+		if state.Content.ScopeKey != scopeKey {
+			return status.Error(codes.PermissionDenied, "scoped skill source changed")
 		}
 		return nil
 	})

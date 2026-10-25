@@ -2,11 +2,19 @@
 // A timeout must retry the same intent, including after closing the panel.
 const fallbackKeys = new Map<string, string>();
 const inFlight = new Map<string, Promise<unknown>>();
+const fingerprinting = new Map<string, Promise<string>>();
 async function intentStorageKey(scope: string, payload: unknown): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify(payload));
-  const hash = await crypto.subtle.digest('SHA-256', bytes);
-  const fingerprint = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
-  return `aim-skill-intent:${scope}:${fingerprint}`;
+  const serialized = JSON.stringify([scope, payload]);
+  let pending = fingerprinting.get(serialized);
+  if (!pending) {
+    pending = crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload))).then((hash) => {
+      const fingerprint = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
+      return `aim-skill-intent:${scope}:${fingerprint}`;
+    });
+    fingerprinting.set(serialized, pending);
+  }
+  try { return await pending; }
+  finally { if (fingerprinting.get(serialized) === pending) fingerprinting.delete(serialized); }
 }
 
 function submissionKeyAt(storageKey: string): string {
@@ -33,11 +41,11 @@ export async function skillSubmissionKey(scope: string, payload: unknown): Promi
 // Failures and unknown outcomes preserve the old key, and concurrent callers
 // in this client share one pending request rather than executing twice.
 export async function submitSkillIntent<T>(scope: string, payload: unknown, execute: (key: string) => Promise<T>): Promise<T> {
-  const pendingKey = JSON.stringify([scope, payload]);
+  const pendingKey = await intentStorageKey(scope, payload);
   const existing = inFlight.get(pendingKey);
   if (existing) return existing as Promise<T>;
   const job = Promise.resolve().then(async () => {
-    const storageKey = await intentStorageKey(scope, payload);
+    const storageKey = pendingKey;
     const key = submissionKeyAt(storageKey);
     const result = await execute(key);
     try {

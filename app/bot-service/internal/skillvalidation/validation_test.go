@@ -113,9 +113,10 @@ func TestEvaluateExactArtifactAndCleanup(t *testing.T) {
 			current.Validation.EnvironmentDigest = strings.Repeat("e", 64)
 			current.Validation.ExpectedSHA256 = digest(expected)
 			current.Files = append(current.Files, struct {
-				Name       string `json:"name"`
-				DataBase64 string `json:"data_b64"`
-			}{"result.csv", base64.StdEncoding.EncodeToString([]byte(scenario.actual))})
+				Name   string `json:"name"`
+				SHA256 string `json:"sha256"`
+				Size   int    `json:"size"`
+			}{"result.csv", digest([]byte(scenario.actual)), len(scenario.actual)})
 			fixtureManager(t, func(request map[string]json.RawMessage) any {
 				// Lookup returns an existing durable record: there must be no submit.
 				var action string
@@ -161,9 +162,10 @@ func TestEvaluateUnknownReconcilesSameExecutionWithoutSubmit(t *testing.T) {
 	current.Validation.EnvironmentDigest = strings.Repeat("e", 64)
 	current.Validation.ExpectedSHA256 = digest(expected)
 	current.Files = append(current.Files, struct {
-		Name       string `json:"name"`
-		DataBase64 string `json:"data_b64"`
-	}{"result.csv", base64.StdEncoding.EncodeToString(expected)})
+		Name   string `json:"name"`
+		SHA256 string `json:"sha256"`
+		Size   int    `json:"size"`
+	}{"result.csv", digest(expected), len(expected)})
 	lookups := 0
 	fixtureManager(t, func(request map[string]json.RawMessage) any {
 		var action string

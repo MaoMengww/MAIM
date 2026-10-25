@@ -423,8 +423,13 @@ func (s *Service) runEvaluation(ctx context.Context, bot *botRow, row *candidate
 		if err := s.db.WithContext(callCtx).Where("id = ? AND skill_id = ? AND scope_key = 'bot'", *baselineID, row.SkillID).Take(&baseline).Error; err != nil {
 			return nil, err
 		}
-		var original legacySample
-		if json.Unmarshal(baseline.ValidationContract, &original) != nil || strings.TrimSpace(original.Task) == "" || strings.TrimSpace(original.Expected) == "" {
+		var retained candidate
+		if err := s.db.WithContext(callCtx).Where("published_version_id = ? AND skill_id = ? AND source_review_id IS NULL", *baselineID, row.SkillID).Take(&retained).Error; err != nil {
+			result.Status, result.Reason = "insufficient", "original baseline representative scenario is unavailable"
+			return result, nil
+		}
+		original := legacySample{Task: retained.Task, Expected: retained.ExpectedOutput, BaselineVersionID: retained.BaselineVersionID}
+		if strings.TrimSpace(original.Task) == "" || strings.TrimSpace(original.Expected) == "" {
 			result.Status, result.Reason = "insufficient", "original baseline representative scenario is unavailable"
 			return result, nil
 		}
@@ -671,7 +676,7 @@ func (s *Service) publish(ctx context.Context, bot *botRow, body []byte) ([]byte
 		if err := tx.Model(&version{}).Where("skill_id = ?", row.SkillID).Select("COALESCE(MAX(version),0)").Scan(&maximum).Error; err != nil {
 			return nil, err
 		}
-		contract, err := json.Marshal(legacySample{Task: row.Task, Expected: row.ExpectedOutput, BaselineVersionID: row.BaselineVersionID})
+		contract, err := json.Marshal(map[string]any{"id": row.ID, "digest": row.Digest, "baseline_version_id": row.BaselineVersionID, "io_contract_digest": contentDigest(row.Task + "\x00" + row.ExpectedOutput), "evaluation": map[string]any{"status": proof.Status, "digest": proof.Digest, "task_digest": proof.TaskDigest, "expected_digest": proof.ExpectedHash, "output_digest": proof.OutputDigest, "model_version": proof.ModelVersion}})
 		if err != nil {
 			return nil, err
 		}

@@ -224,6 +224,33 @@ func (s *Service) reviewViewer(ctx context.Context, caller string, r *model.Run,
 	if identity.Validate(caller) != nil {
 		return status.Error(codes.Unauthenticated, "authenticated requester required")
 	}
+	// After expiry, a current scope maintainer can inspect safe identities even
+	// when the old grant's natural TTL prevents reading its former materials.
+	if review.ID != "" {
+		expires, err := s.reviewEffectiveExpiry(ctx, r, review)
+		if err != nil {
+			return err
+		}
+		if !expires.After(time.Now()) || review.MaterialsClearedAt != nil {
+			return s.svc.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+				if err := s.candidateSourceRevocation(ctx, tx, r); err != nil {
+					return err
+				}
+				_, role, err := repo.RunMember(tx, r.ConvID, caller)
+				if err != nil {
+					return err
+				}
+				if r.Visibility == "personal" {
+					if review.PersonalUserID == nil || *review.PersonalUserID != caller {
+						return status.Error(codes.PermissionDenied, "personal review is private")
+					}
+				} else if role > 2 {
+					return status.Error(codes.PermissionDenied, "scope maintainer required for expired review metadata")
+				}
+				return nil
+			})
+		}
+	}
 	if err := s.visible(ctx, caller, r); err != nil {
 		return err
 	}
@@ -243,8 +270,22 @@ func (s *Service) reviewViewer(ctx context.Context, caller string, r *model.Run,
 }
 
 func (s *Service) reviewView(ctx context.Context, caller string, review *runReview, detail bool) (*reviewView, error) {
+	r, err := s.repo.Get(ctx, review.RunID)
+	if err != nil {
+		return nil, err
+	}
+	expires, err := s.reviewEffectiveExpiry(ctx, r, review)
+	if err != nil {
+		return nil, err
+	}
+	current := expires.After(time.Now()) && review.MaterialsClearedAt == nil && review.EvidenceRevokedAt == nil
 	view := &reviewView{ID: review.ID, RunID: review.RunID, BotID: review.BotID, ConvID: review.ConvID, ScopeKey: review.ScopeKey, Status: review.Status, Reason: review.Reason, ModelCalls: review.ModelCalls, ModelVersion: review.ModelVersion, CandidateID: review.CandidateID, CreatedAt: review.CreatedAt.Unix(), UpdatedAt: review.UpdatedAt.Unix(), ExpiresAt: review.ExpiresAt.Unix()}
 	view.Revision, view.TriggerKind, view.SubmittedBy, view.ParentReviewID = review.Revision, review.TriggerKind, review.SubmittedBy, review.ParentReviewID
+	view.ExpiresAt = expires.Unix()
+	if !current {
+		view.Reason = "evidence retention expired; new authorized evidence required"
+		return view, nil
+	}
 	if detail {
 		var policy reviewPolicy
 		err := s.svc.DB.WithContext(ctx).Where("bot_id = ? AND scope_key = ?", review.BotID, review.ScopeKey).Take(&policy).Error
@@ -278,9 +319,11 @@ func (s *Service) reviewView(ctx context.Context, caller string, review *runRevi
 		}
 		view.Candidate = &candidate
 	}
-	if !review.ExpiresAt.After(time.Now()) {
-		view.Reason = "evidence retention expired; new evidence required"
-		view.CandidateID = nil
+	// Check again after resolving a nested candidate: no response may cross the
+	// evidence deadline while carrying the old feedback or assessment.
+	if !expires.After(time.Now()) {
+		view.Reason = "evidence retention expired; new authorized evidence required"
+		view.Feedback, view.Assessment, view.Candidate = "", nil, nil
 	}
 	return view, nil
 }
@@ -301,7 +344,11 @@ func (s *Service) reviewBoundary(ctx context.Context, r *model.Run, review *runR
 	if err == nil && !policy.Enabled {
 		return status.Error(codes.Canceled, "scope review disabled")
 	}
-	if !current.ExpiresAt.After(time.Now()) {
+	expires, err := s.reviewEffectiveExpiry(ctx, r, &current)
+	if err != nil {
+		return err
+	}
+	if !expires.After(time.Now()) || current.MaterialsClearedAt != nil || current.EvidenceRevokedAt != nil {
 		return status.Error(codes.PermissionDenied, "review evidence expired")
 	}
 	if !repo.TerminalRun(r) || strings.EqualFold(r.TriggerKind, "review") || r.TriggerKind == "validation" {

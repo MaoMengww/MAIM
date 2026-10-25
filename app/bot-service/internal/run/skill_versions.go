@@ -11,10 +11,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"strings"
-	"time"
 )
 
-func (s *Service) versionAuthority(ctx context.Context, tx *gorm.DB, caller, botID, versionID string, maintain bool, allowExpired ...bool) error {
+func (s *Service) versionAuthority(ctx context.Context, tx *gorm.DB, caller, botID, versionID string, maintain bool) error {
 	target, err := skill.FindVersion(tx, botID, versionID)
 	if err != nil {
 		return err
@@ -53,9 +52,6 @@ func (s *Service) versionAuthority(ctx context.Context, tx *gorm.DB, caller, bot
 	}
 	if err := json.Unmarshal(state.Row.ReviewContent, &state.Content); err != nil {
 		return err
-	}
-	if (len(allowExpired) == 0 || !allowExpired[0]) && (!state.Review.ExpiresAt.After(time.Now()) || state.Content.ExpiresAt <= time.Now().Unix()) {
-		return status.Error(codes.PermissionDenied, "version source materials expired")
 	}
 	return s.candidatePrincipal(ctx, tx, state, caller, maintain)
 }
@@ -135,7 +131,7 @@ func (s *Service) SkillVersionOperation(ctx context.Context, caller, botID, op s
 		if json.Unmarshal(body, &req) != nil || identity.Validate(req.VersionID) != nil || req.SubmissionKey == "" || len(req.SubmissionKey) > 256 || strings.TrimSpace(req.Reason) == "" || len(req.Reason) > 2048 {
 			return status.Error(codes.InvalidArgument, "version, digest, revision, bounded reason and submission key required")
 		}
-		if err := s.versionAuthority(ctx, tx, caller, botID, req.VersionID, true, action == "disable"); err != nil {
+		if err := s.versionAuthority(ctx, tx, caller, botID, req.VersionID, true); err != nil {
 			return err
 		}
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", "version-operation:"+botID+":"+op+":"+req.SubmissionKey).Error; err != nil {

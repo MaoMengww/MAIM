@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
 import { useAuthStore } from './stores/auth';
+import { installEvidenceExpiration } from './utils/evidenceExpiration';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -14,6 +15,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+const stopEvidenceExpiration = installEvidenceExpiration(queryClient);
+if (import.meta.hot) import.meta.hot.dispose(stopEvidenceExpiration);
 
 useAuthStore.subscribe((state, previous) => {
   if (state.revision !== previous.revision) queryClient.clear();

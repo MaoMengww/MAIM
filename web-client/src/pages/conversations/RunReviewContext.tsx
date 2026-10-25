@@ -36,13 +36,16 @@ export function isReviewPermissionError(error: unknown) {
 export async function clearReviewMaterials(queryClient: QueryClient, userId: string | undefined, revision: number, botId: string, readingReviewId?: string) {
   const detailKey = ['run-review', userId, revision, botId];
   const candidateKey = ['skill-candidate', userId, revision, botId];
+  const candidateListKey = ['skill-candidates', userId, revision, botId];
   await Promise.all([
     queryClient.cancelQueries({ queryKey: detailKey, predicate: (query) => query.queryKey[4] !== readingReviewId }),
     queryClient.cancelQueries({ queryKey: candidateKey }),
+    queryClient.cancelQueries({ queryKey: candidateListKey }),
   ]);
   queryClient.setQueriesData<Review>({ queryKey: detailKey }, (data) => data ? reviewMetadata(data) : data);
   queryClient.setQueriesData<Review[]>({ queryKey: ['run-reviews', userId, revision, botId] }, (data) => data?.map(reviewMetadata));
   queryClient.removeQueries({ queryKey: candidateKey });
+  queryClient.removeQueries({ queryKey: candidateListKey });
 }
 
 export function useReviewPolicy(scope: Scope) {

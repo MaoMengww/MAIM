@@ -88,8 +88,9 @@ type record struct {
 		ExpectedSHA256    string         `json:"expected_sha256"`
 	} `json:"validation"`
 	Files []struct {
-		Name       string `json:"name"`
-		DataBase64 string `json:"data_b64"`
+		Name   string `json:"name"`
+		SHA256 string `json:"sha256"`
+		Size   int    `json:"size"`
 	} `json:"files"`
 }
 
@@ -246,15 +247,15 @@ func Evaluate(ctx context.Context, executionKey string, identity Identity, sampl
 				result.Reason = "fixed CSV artifact missing"
 				return result, nil
 			}
-			actual, err := decodeSample(current.Files[0].DataBase64)
-			if err != nil {
-				result.Reason = "fixed CSV artifact encoding invalid"
+			artifact := current.Files[0]
+			if !digestPattern.MatchString(artifact.SHA256) || artifact.Size < 0 || artifact.Size > maxSample {
+				result.Reason = "fixed CSV artifact summary invalid"
 				return result, nil
 			}
-			result.OutputDigest = digest(actual)
+			result.OutputDigest = artifact.SHA256
 			result.Status = "failed"
 			result.Reason = "CSV artifact bytes differ from expected output"
-			if bytes.Equal(actual, expected) {
+			if artifact.SHA256 == expectedDigest && artifact.Size == len(expected) {
 				result.Status = "passed"
 				result.Reason = "exact CSV artifact bytes matched; fresh container and resource cleanup confirmed"
 			}

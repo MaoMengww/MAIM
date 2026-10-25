@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Input } from 'antd';
-import { reviewMetadata, runReviewApi, type SubmitRunReviewPayload } from '@/services/runReview';
+import { reviewMetadata, runReviewApi, type Review, type SubmitRunReviewPayload } from '@/services/runReview';
 import type { BotRun } from '@/types/model';
 import { submitSkillIntent } from '@/utils/skillSubmission';
 import { clearReviewMaterials, isReviewPermissionError, reviewListKey, reviewPolicyKey, useReviewIdentity, useReviewPolicy, useReviewSubmissionIntent } from './RunReviewContext';
@@ -15,6 +15,7 @@ export function RunReviewSubmission({ run }: { run: BotRun }) {
   const intent = useReviewSubmissionIntent(run.id);
   const [feedback, setFeedback] = useState(() => intent.current?.request.trigger_kind === 'feedback' ? intent.current.request.feedback : '');
   const [validation, setValidation] = useState('');
+  const [submitted, setSubmitted] = useState<Review>();
   const locked = useRef(false);
   const bytes = new TextEncoder().encode(feedback).byteLength;
   const available = !!userId && !policy.isError && policy.data?.enabled === true;
@@ -23,7 +24,9 @@ export function RunReviewSubmission({ run }: { run: BotRun }) {
     retry: false,
     mutationFn: (request: SubmitRunReviewPayload) => submitSkillIntent(`${userId}:${run.bot_id}:${run.id}:review-submit`, request,
       async (submission_key) => reviewMetadata(await runReviewApi.submit(run.bot_id, run.id, { ...request, submission_key }))),
-    onSuccess: async (_data, request) => {
+    onSuccess: async (data, request) => {
+      setSubmitted(reviewMetadata(data));
+      mutation.reset();
       intent.current = undefined;
       if (request.trigger_kind === 'feedback') setFeedback('');
       await Promise.all([
@@ -38,6 +41,9 @@ export function RunReviewSubmission({ run }: { run: BotRun }) {
       }
     },
   });
+  useLayoutEffect(() => {
+    if (mutation.isSuccess) mutation.reset();
+  }, [mutation.isSuccess, mutation.reset]);
   const submit = async (trigger: 'feedback' | 'historical') => {
     if (locked.current || !available) return;
     if (trigger === 'feedback' && (!feedback.trim() || bytes > 8192)) {
@@ -45,6 +51,7 @@ export function RunReviewSubmission({ run }: { run: BotRun }) {
       return;
     }
     setValidation('');
+    setSubmitted(undefined);
     const signature = JSON.stringify({ trigger_kind: trigger, feedback: trigger === 'feedback' ? feedback : undefined });
     if (intent.current?.signature !== signature) {
       intent.current = { signature, request: trigger === 'feedback'
@@ -88,6 +95,6 @@ export function RunReviewSubmission({ run }: { run: BotRun }) {
       <Button size="small" disabled={mutation.isPending} loading={policy.isFetching} onClick={() => void policy.refetch()}>刷新提交资格</Button>
     </div>
     {mutation.isError && <p className="chat-run-error" role="alert">{reviewError(mutation.error)} 未确认结果时可重试同一操作；不修改内容则保留原提交键，避免重复修订。</p>}
-    {mutation.isSuccess && <p className="chat-run-notice" role="status">已提交{mutation.data.trigger_kind === 'feedback' ? '反馈' : '显式历史复盘'}：修订 #{mutation.data.revision} · <a href={`#review-${mutation.data.id}`}>{mutation.data.id}</a>。原 Run 结果未改变，评估结果与候选请在下方审阅。</p>}
+    {submitted && <p className="chat-run-notice" role="status">已提交{submitted.trigger_kind === 'feedback' ? '反馈' : '显式历史复盘'}：修订 #{submitted.revision} · <a href={`#review-${submitted.id}`}>{submitted.id}</a>。原 Run 结果未改变，评估结果与候选请在下方审阅。</p>}
   </section>;
 }

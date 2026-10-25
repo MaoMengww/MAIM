@@ -100,11 +100,10 @@ func contractChanges(before, after *version) []string {
 	if oldScripts != newScripts {
 		reasons = append(reasons, "environment_changed")
 	}
-	for _, key := range []string{"representative_task", "expected_output", "input_b64", "expected_output_b64"} {
-		if !reflect.DeepEqual(old[key], next[key]) {
-			reasons = append(reasons, "io_contract_changed")
-			break
-		}
+	oldIO, oldIOExists := old["io_contract_digest"].(string)
+	nextIO, nextIOExists := next["io_contract_digest"].(string)
+	if !oldIOExists || !nextIOExists || oldIO == "" || nextIO == "" || oldIO != nextIO {
+		reasons = append(reasons, "io_contract_changed")
 	}
 	return reasons
 }

@@ -36,6 +36,8 @@ export function CandidateContent({ candidate }: { candidate: GovernedCandidate }
       <dt>基线版本</dt><dd>{candidate.baseline_version_id || '无（新建候选）'}</dd>
       <dt>内容摘要</dt><dd><code>{candidate.digest}</code></dd>
       <dt>证据摘要</dt><dd><code>{candidate.evidence_digest || '未提供'}</code></dd>
+      <dt>证据身份 / 修订</dt><dd>{candidate.evidence_id || '未记录'} / {candidate.evidence_revision}</dd>
+      <dt>来源许可截止</dt><dd>{candidate.source_license_expires_at ? new Date(candidate.source_license_expires_at * 1000).toLocaleString('zh-CN') : '按当前已确认来源许可限制'}</dd>
       <dt>材料期限</dt><dd>{new Date(candidate.expires_at * 1000).toLocaleString('zh-CN')}</dd>
     </dl>
     <details className="skill-candidate-details" open>
@@ -79,6 +81,22 @@ export function CandidateContent({ candidate }: { candidate: GovernedCandidate }
       <p>CSV 样例按原始字节核对，以下 base64 不丢失换行或编码信息。</p>
       <pre tabIndex={0} aria-label="输入 CSV 原始字节 base64">{candidate.input_b64 || '未提供输入样例'}</pre>
       <pre tabIndex={0} aria-label="预期 CSV 产物原始字节 base64">{candidate.expected_output_b64 || '未提供预期产物样例'}</pre>
+    </details>
+    <details className="skill-candidate-details">
+      <summary>新获准基线回归样例（{candidate.baseline_samples.length}）</summary>
+      <p>以下样例随当前证据身份、来源许可和材料期限授权，仅用于绑定版本的回归验证，不修改已发布基线包或结论；原基线授权失效时仍不可验证。</p>
+      {candidate.baseline_samples.map((sample, index) => <details key={`${sample.version_id}-${index}`} className="skill-candidate-details">
+        <summary>样例 {index + 1} · 绑定基线版本 {sample.version_id}</summary>
+        <dl className="skill-candidate-meta">
+          <dt>绑定版本</dt><dd><code>{sample.version_id}</code></dd>
+          <dt>代表任务</dt><dd><pre tabIndex={0} aria-label={`基线样例 ${index + 1} 代表任务`}>{sample.representative_task || '未提供'}</pre></dd>
+          <dt>具体预期结果</dt><dd><pre tabIndex={0} aria-label={`基线样例 ${index + 1} 具体预期结果`}>{sample.expected_output || '未提供'}</pre></dd>
+        </dl>
+        <p>CSV 样例按原始字节核对；以下 base64 保留换行与编码信息。</p>
+        <pre tabIndex={0} aria-label={`基线样例 ${index + 1} 输入 CSV 原始字节 base64`}>{sample.input_b64 || '未提供输入样例'}</pre>
+        <pre tabIndex={0} aria-label={`基线样例 ${index + 1} 预期 CSV 产物原始字节 base64`}>{sample.expected_output_b64 || '未提供预期产物样例'}</pre>
+      </details>)}
+      {candidate.baseline_samples.length === 0 && <p>未提交新获准基线回归样例；验证仍须使用当前获准且未过期的原基线样例。</p>}
     </details>
   </>;
 }

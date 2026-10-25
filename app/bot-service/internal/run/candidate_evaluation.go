@@ -253,6 +253,15 @@ type validationSample struct {
 	Script               bool
 }
 
+func (c *reviewCandidate) baselineSample(version string) *candidateBaselineSample {
+	for i := range c.BaselineSamples {
+		if c.BaselineSamples[i].VersionID == version {
+			return &c.BaselineSamples[i]
+		}
+	}
+	return nil
+}
+
 type candidateValidationOutcome struct {
 	*candidateEvaluation
 	disposition string
@@ -272,11 +281,8 @@ func (s *Service) runCandidateValidation(ctx context.Context, state *candidateSt
 		}
 		seen[*baselineID] = true
 		versions = append(versions, *baselineID)
-		var baseline struct {
-			Digest             string
-			ValidationContract json.RawMessage
-		}
-		if err := s.svc.DB.WithContext(ctx).Table("bot.skill_versions").Select("digest,validation_contract").Where("id = ? AND skill_id = ?", *baselineID, c.SkillID).Take(&baseline).Error; err != nil {
+		var baseline struct{ Digest string }
+		if err := s.svc.DB.WithContext(ctx).Table("bot.skill_versions").Select("digest").Where("id = ? AND skill_id = ?", *baselineID, c.SkillID).Take(&baseline).Error; err != nil {
 			result.Status, result.Reason = "environment_error", "baseline verification contract is unavailable"
 			result.disposition = "not_started"
 			if len(c.Scripts) > 0 {
@@ -285,17 +291,44 @@ func (s *Service) runCandidateValidation(ctx context.Context, state *candidateSt
 			return result
 		}
 		var original reviewCandidate
-		if json.Unmarshal(baseline.ValidationContract, &original) != nil {
-			result.Reason = "baseline representative scenarios are unavailable"
+		err := s.svc.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var retained governedCandidate
+			if err := tx.Select("id").Where("published_version_id = ? AND skill_id = ?", *baselineID, c.SkillID).Take(&retained).Error; err != nil {
+				return err
+			}
+			source, err := s.lockCandidate(ctx, tx, state.Viewer, state.Row.BotID, retained.ID)
+			if err != nil {
+				return err
+			}
+			original = source.Content
+			if replacement := c.baselineSample(*baselineID); replacement != nil {
+				if c.EvidenceID == "" || original.ScopeKey != c.ScopeKey {
+					return status.Error(codes.PermissionDenied, "new baseline evidence requires authorized matching scope")
+				}
+				original.RepresentativeTask, original.ExpectedOutput = replacement.Task, replacement.Expected
+				original.InputBase64, original.ExpectedOutputBase64 = replacement.InputBase64, replacement.ExpectedOutputBase64
+			} else if !candidateEvidenceCurrent(source) || !original.CanViewMaterials {
+				return status.Error(codes.FailedPrecondition, "baseline evidence unavailable")
+			}
+			return nil
+		})
+		if err != nil {
+			result.Reason = "baseline evidence is unavailable or expired; newly authorized regression evidence is required"
 			return result
 		}
 		result.BaselineDigest = mustReviewDigest([]string{result.BaselineDigest, baseline.Digest})
-		samples = append(samples, validationSample{Task: original.RepresentativeTask, Expected: original.ExpectedOutput, InputBase64: original.InputBase64, ExpectedOutputBase64: original.ExpectedOutputBase64, Script: len(original.Scripts) > 0})
+		samples = append(samples, validationSample{Task: original.RepresentativeTask, Expected: original.ExpectedOutput, InputBase64: original.InputBase64, ExpectedOutputBase64: original.ExpectedOutputBase64, Script: original.CodeReviewRequired})
 		result.TaskDigest = mustReviewDigest([]string{result.TaskDigest, original.RepresentativeTask, original.InputBase64})
 		result.ExpectedDigest = mustReviewDigest([]string{result.ExpectedDigest, original.ExpectedOutput, original.ExpectedOutputBase64})
 		baselineID = original.BaselineVersionID
 	}
-	ctx, stopGuard := s.guardValidationVersions(ctx, versions)
+	for _, sample := range c.BaselineSamples {
+		if !seen[sample.VersionID] {
+			result.Reason = "new regression evidence does not identify an exact preserved baseline"
+			return result
+		}
+	}
+	ctx, stopGuard := s.guardCandidateEvidence(ctx, state, versions)
 	defer stopGuard()
 	resources, _ := json.Marshal(c.Resources)
 	hasScripts, hasInstructions, inputBytes := false, false, 0
@@ -364,11 +397,11 @@ func (s *Service) runCandidateValidation(ctx context.Context, state *candidateSt
 			executionIDs = append(executionIDs, execution.ExecutionID)
 			result.OutputDigest, result.EnvironmentDigest, result.ExecutionID = mustReviewDigest(outputs), mustReviewDigest(environments), strings.Join(executionIDs, ",")
 			if !execution.Terminal {
-				result.Status, result.Reason, result.disposition = "running", execution.Reason, "running"
+				result.Status, result.Reason, result.disposition = "running", "isolated validation has not confirmed a terminal outcome and cleanup", "running"
 				return result
 			}
 			if execution.Status != "passed" {
-				result.Status, result.Reason = execution.Status, execution.Reason
+				result.Status, result.Reason = execution.Status, "isolated validation did not pass the exact expected artifact"
 				if result.Status != "failed" && result.Status != "insufficient_evidence" && result.Status != "environment_error" {
 					result.Status, result.Reason = "environment_error", "validation manager returned an invalid conclusion"
 				}
@@ -426,15 +459,18 @@ func scriptOnlyValidation(tx *gorm.DB, c *reviewCandidate) (bool, error) {
 			return false, nil
 		}
 		seen[*baselineID] = true
-		var row struct{ ValidationContract json.RawMessage }
-		if err := tx.Table("bot.skill_versions").Select("validation_contract").Where("id = ? AND skill_id = ?", *baselineID, c.SkillID).Take(&row).Error; err != nil {
+		var row governedCandidate
+		if err := tx.Where("published_version_id = ? AND skill_id = ?", *baselineID, c.SkillID).Take(&row).Error; err != nil {
 			return false, err
 		}
 		var original reviewCandidate
-		if err := json.Unmarshal(row.ValidationContract, &original); err != nil {
+		if err := json.Unmarshal(row.ReviewContent, &original); err != nil {
 			return false, err
 		}
-		if len(original.Scripts) == 0 {
+		if original.ExpiresAt <= time.Now().Unix() && c.baselineSample(*baselineID) == nil {
+			return false, nil
+		}
+		if !original.CodeReviewRequired {
 			return false, nil
 		}
 		baselineID = original.BaselineVersionID

@@ -3,7 +3,6 @@ package run
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
@@ -51,15 +50,15 @@ func (s *Service) candidateFrozenSources(ctx context.Context, tx *gorm.DB, r *mo
 		if err := json.Unmarshal(candidate.ReviewContent, &content); err != nil {
 			return err
 		}
-		if content.ScopeKey != scopeKey || content.ExpiresAt <= time.Now().Unix() {
-			return status.Error(codes.PermissionDenied, "frozen skill material expired or changed scope")
+		if content.ScopeKey != scopeKey {
+			return status.Error(codes.PermissionDenied, "frozen skill source scope changed")
 		}
 		var review runReview
 		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", *candidate.SourceReviewID).Take(&review).Error; err != nil {
 			return err
 		}
-		if !review.ExpiresAt.After(time.Now()) || content.EvidenceDigest != review.EvidenceDigest {
-			return status.Error(codes.PermissionDenied, "frozen skill evidence expired or changed")
+		if content.EvidenceID == "" && content.EvidenceDigest != review.EvidenceDigest {
+			return status.Error(codes.PermissionDenied, "frozen skill evidence identity changed")
 		}
 		var source model.Run
 		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", review.RunID).Take(&source).Error; err != nil {
@@ -68,10 +67,13 @@ func (s *Service) candidateFrozenSources(ctx context.Context, tx *gorm.DB, r *mo
 		if source.BotID != r.BotID || source.BindingID != r.BindingID || source.ConvID != r.ConvID || source.AccessRevoked || source.ResultInvalidated {
 			return status.Error(codes.PermissionDenied, "frozen skill source authority changed")
 		}
-		if err := repo.LockRunAuthority(tx, &source); err != nil {
+		if err := s.candidateSourceRevocation(ctx, tx, &source); err != nil {
 			return err
 		}
-		if err := s.candidateMaterialAccess(ctx, tx, &source, user, make(map[string]bool)); err != nil {
+		if source.Visibility == "personal" && (source.PersonalUserID == nil || *source.PersonalUserID != user) {
+			return status.Error(codes.PermissionDenied, "personal frozen skill source is private")
+		}
+		if _, _, err := repo.RunMember(tx, source.ConvID, user); err != nil {
 			return err
 		}
 		if err := s.candidateFrozenSources(ctx, tx, &source, user, visited); err != nil {

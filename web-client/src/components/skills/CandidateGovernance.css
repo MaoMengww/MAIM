@@ -75,6 +75,9 @@
 .skill-candidate-error { border-left: 2px solid var(--aim-error); padding-left: 12px; }
 .skill-candidate-list-row { min-width: 0; margin: 12px 0; }
 .skill-candidate .ant-input-number { width: 100%; max-width: 320px; }
+.skill-candidate .ant-form-item-label > label { max-width: 100%; height: auto; white-space: normal; }
+.skill-candidate :is(.ant-form-item, .ant-form-item-control, .ant-form-item-control-input-content) { min-width: 0; max-width: 100%; }
+.skill-candidate :is(input, textarea) { min-height: 44px; }
 @media (min-width: 600px) {
   .skill-candidate-meta { grid-template-columns: max-content minmax(0, 1fr); gap: 8px 12px; }
   .skill-candidate-meta dd { margin: 0; }

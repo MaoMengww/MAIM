@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
@@ -73,21 +74,29 @@ type candidateValidation struct {
 func (candidateValidation) TableName() string { return "bot.skill_candidate_validations" }
 
 type candidateRequest struct {
-	CandidateID          string             `json:"candidate_id"`
-	SubmissionKey        string             `json:"submission_key"`
-	Digest               string             `json:"digest"`
-	Reason               string             `json:"reason"`
-	Confirmed            bool               `json:"confirmed"`
-	Instructions         *string            `json:"instructions"`
-	Resources            *map[string]string `json:"resources"`
-	Scripts              *map[string]string `json:"scripts"`
-	ImageDigest          *string            `json:"image_digest"`
-	EntryPoint           *string            `json:"entry_point"`
-	Task                 *string            `json:"representative_task"`
-	ExpectedOutput       *string            `json:"expected_output"`
-	InputBase64          *string            `json:"input_b64"`
-	ExpectedOutputBase64 *string            `json:"expected_output_b64"`
-	ExpiresAt            *int64             `json:"expires_at"`
+	CandidateID            string                     `json:"candidate_id"`
+	SubmissionKey          string                     `json:"submission_key"`
+	Digest                 string                     `json:"digest"`
+	Reason                 string                     `json:"reason"`
+	Confirmed              bool                       `json:"confirmed"`
+	Instructions           *string                    `json:"instructions"`
+	Resources              *map[string]string         `json:"resources"`
+	Scripts                *map[string]string         `json:"scripts"`
+	ImageDigest            *string                    `json:"image_digest"`
+	EntryPoint             *string                    `json:"entry_point"`
+	Task                   *string                    `json:"representative_task"`
+	ExpectedOutput         *string                    `json:"expected_output"`
+	InputBase64            *string                    `json:"input_b64"`
+	ExpectedOutputBase64   *string                    `json:"expected_output_b64"`
+	ExpiresAt              *int64                     `json:"expires_at"`
+	EvidenceAuthorized     bool                       `json:"evidence_authorized"`
+	SourceLicenseExpiresAt int64                      `json:"source_license_expires_at"`
+	Name                   *string                    `json:"name"`
+	Description            *string                    `json:"description"`
+	Rationale              *string                    `json:"rationale"`
+	TargetGoal             *string                    `json:"target_goal"`
+	Applicability          *string                    `json:"applicability"`
+	BaselineSamples        *[]candidateBaselineSample `json:"baseline_samples"`
 }
 
 type candidateState struct {
@@ -96,10 +105,11 @@ type candidateState struct {
 	Review  runReview
 	Run     model.Run
 	Bot     model.Bot
+	Viewer  string
 }
 
 func candidateContentDigest(c *reviewCandidate) string {
-	return mustReviewDigest(map[string]any{
+	content := map[string]any{
 		"skill_id": c.SkillID, "name": c.Name, "description": c.Description,
 		"instructions": c.Instructions, "resources": c.Resources, "scripts": c.Scripts,
 		"image_digest": c.ImageDigest, "entry_point": c.EntryPoint,
@@ -109,7 +119,12 @@ func candidateContentDigest(c *reviewCandidate) string {
 		"task": c.RepresentativeTask, "expected": c.ExpectedOutput,
 		"input_b64": c.InputBase64, "expected_output_b64": c.ExpectedOutputBase64,
 		"evidence_digest": c.EvidenceDigest, "evidence_revision": c.EvidenceRevision, "expires_at": c.ExpiresAt,
-	})
+		"evidence_id": c.EvidenceID, "evidence_license_expires_at": c.EvidenceLicenseExpiresAt,
+	}
+	if len(c.BaselineSamples) > 0 {
+		content["baseline_samples"] = c.BaselineSamples
+	}
+	return mustReviewDigest(content)
 }
 func candidateScriptDigest(c *reviewCandidate) string {
 	return mustReviewDigest(skillvalidation.Identity{Scripts: c.Scripts, ImageDigest: c.ImageDigest, EntryPoint: c.EntryPoint})
@@ -155,11 +170,17 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 		}
 		c := &state.Content
 		if operation == "candidate-get" {
-			response, err = json.Marshal(c)
+			if !candidateEvidenceCurrent(state) && !c.CanMaintain {
+				return status.Error(codes.PermissionDenied, "scope maintainer required for expired evidence metadata")
+			}
+			response, err = json.Marshal(candidateView(state))
 			return err
 		}
 		if !c.CanMaintain {
 			return status.Error(codes.PermissionDenied, "candidate maintenance permission required")
+		}
+		if operation != "candidate-revise" && operation != "candidate-reject" && operation != "candidate-request-evidence" && !candidateEvidenceCurrent(state) {
+			return status.Error(codes.FailedPrecondition, "source evidence expired; obtain fresh authorized samples and revalidate")
 		}
 		// Authorization precedes replay, so an old response cannot bypass
 		if operation == "candidate-publish" && !c.CanPublish {
@@ -176,7 +197,7 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 				response = replay
 				return nil
 			}
-			response, err = json.Marshal(c)
+			response, err = json.Marshal(candidateView(state))
 			return err
 		}
 		if state.Row.Digest != req.Digest {
@@ -206,15 +227,15 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 		}
 		switch operation {
 		case "candidate-revise":
-			if !state.Review.ExpiresAt.After(time.Now()) {
-				return status.Error(codes.FailedPrecondition, "source evidence expired")
-			}
 			if err := candidateBaseline(tx, state); err != nil {
 				return err
 			}
-			if err := reviseCandidate(state, req); err != nil {
+			if err := s.reviseCandidate(state, req); err != nil {
 				return err
 			}
+			c.CanViewMaterials = candidateEvidenceCurrent(state)
+			c.CanPublish = c.CanMaintain && c.CanViewMaterials && state.Bot.OwnerType == "user" && state.Bot.OwnerID != nil && *state.Bot.OwnerID == caller && caller == c.PublisherID
+			c.CanReviewCode = c.CanPublish
 		case "candidate-request-evidence", "candidate-reject":
 			c.Reason = req.Reason
 			c.Status = "awaiting_evidence"
@@ -300,7 +321,7 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 			return err
 		}
 		if response == nil {
-			response, err = json.Marshal(c)
+			response, err = json.Marshal(candidateView(state))
 			if err != nil {
 				return err
 			}
@@ -323,7 +344,7 @@ func (s *Service) listGovernedCandidates(ctx context.Context, caller, botID stri
 				return err
 			}
 			if state.Content.CanMaintain {
-				result = append(result, state.Content)
+				result = append(result, candidateView(state))
 			}
 			return nil
 		})
@@ -335,7 +356,7 @@ func (s *Service) listGovernedCandidates(ctx context.Context, caller, botID stri
 }
 
 func (s *Service) lockCandidate(ctx context.Context, tx *gorm.DB, caller, botID, id string) (*candidateState, error) {
-	state := &candidateState{}
+	state := &candidateState{Viewer: caller}
 	// Read only enough to obtain the source conversation, then follow the same
 	// lock order as Run authority/revocation before locking the mutable candidate.
 	var locator struct{ ConvID string }
@@ -369,7 +390,7 @@ func (s *Service) lockCandidate(ctx context.Context, tx *gorm.DB, caller, botID,
 	}
 	c := &state.Content
 	baselineMatches := c.BaselineVersionID == nil && state.Row.BaselineVersionID == nil || c.BaselineVersionID != nil && state.Row.BaselineVersionID != nil && *c.BaselineVersionID == *state.Row.BaselineVersionID
-	if !baselineMatches || state.Run.BotID != botID || state.Review.BotID != botID || state.Run.BindingID != state.Review.BindingID || state.Run.ConvID != state.Review.ConvID || c.ID != id || c.SkillID != state.Row.SkillID || c.SourceRunID != state.Run.ID || c.ScopeKey != state.Review.ScopeKey || state.Review.PublisherID == nil || c.PublisherID != *state.Review.PublisherID || c.Digest != state.Row.Digest || c.Instructions != state.Row.Instructions || c.EvidenceDigest != state.Review.EvidenceDigest || state.Review.CandidateID == nil || *state.Review.CandidateID != id || state.Review.Status != "candidate_generated" {
+	if !baselineMatches || state.Run.BotID != botID || state.Review.BotID != botID || state.Run.BindingID != state.Review.BindingID || state.Run.ConvID != state.Review.ConvID || c.ID != id || c.SkillID != state.Row.SkillID || c.SourceRunID != state.Run.ID || c.ScopeKey != state.Review.ScopeKey || state.Review.PublisherID == nil || c.PublisherID != *state.Review.PublisherID || c.Digest != state.Row.Digest || c.Instructions != state.Row.Instructions || (c.EvidenceID == "" && c.EvidenceDigest != state.Review.EvidenceDigest) || state.Review.CandidateID == nil || *state.Review.CandidateID != id || (state.Review.Status != "candidate_generated" && state.Review.Status != "expired") {
 		return nil, status.Error(codes.FailedPrecondition, "candidate content identity is inconsistent")
 	}
 	c.Status, c.PublishedVersionID = state.Row.Status, state.Row.PublishedVersionID
@@ -377,8 +398,9 @@ func (s *Service) lockCandidate(ctx context.Context, tx *gorm.DB, caller, botID,
 	if err := s.candidatePrincipal(ctx, tx, state, caller, false); err != nil {
 		return nil, err
 	}
-	if !state.Review.ExpiresAt.After(time.Now()) || c.ExpiresAt <= time.Now().Unix() {
-		return nil, status.Error(codes.FailedPrecondition, "candidate materials expired")
+	c.CanMaintain = candidateMaintainer(tx, state, caller) == nil
+	if !candidateEvidenceCurrent(state) {
+		return state, nil
 	}
 	// This display-only projection never contributes to candidate identity and
 	// is reconstructed only after the caller's live material authorization.
@@ -425,7 +447,9 @@ func (s *Service) lockCandidate(ctx context.Context, tx *gorm.DB, caller, botID,
 			}
 		}
 	}
-	c.Evidence = string(state.Review.Evidence)
+	if c.EvidenceID == "" && state.Review.ExpiresAt.After(time.Now()) {
+		c.Evidence = string(state.Review.Evidence)
+	}
 	var validation candidateValidation
 	err = tx.Where("candidate_id = ? AND digest = ?", id, c.Digest).Take(&validation).Error
 	if err == nil && validation.Status != "running" {
@@ -469,6 +493,9 @@ func (s *Service) candidatePrincipal(ctx context.Context, tx *gorm.DB, state *ca
 	}
 	if state.Bot.OwnerID == nil || *state.Bot.OwnerID != state.Content.PublisherID {
 		return status.Error(codes.PermissionDenied, "source publisher changed")
+	}
+	if state.Content.EvidenceID != "" || !candidateEvidenceCurrent(state) {
+		return s.candidateRetainedAuthority(ctx, tx, &state.Run, user, make(map[string]bool))
 	}
 	if err := repo.LockRunAuthority(tx, &state.Run); err != nil {
 		return err
@@ -576,7 +603,7 @@ func (s *Service) candidateKnowledgeAccess(ctx context.Context, tx *gorm.DB, acc
 }
 
 func candidateFresh(tx *gorm.DB, state *candidateState) error {
-	if !state.Review.ExpiresAt.After(time.Now()) || state.Content.ExpiresAt <= time.Now().Unix() || state.Content.ExpiresAt > state.Review.ExpiresAt.Unix() {
+	if !candidateEvidenceCurrent(state) {
 		return status.Error(codes.FailedPrecondition, "source evidence expired; obtain fresh evidence")
 	}
 	return candidateBaseline(tx, state)
@@ -618,9 +645,60 @@ func invalidateCandidate(state *candidateState) {
 	state.Row.EvaluationDigest, state.Row.ApprovedDigest, state.Row.ApprovedEvaluationDigest, state.Row.ApprovedBy = "", "", "", nil
 }
 
-func reviseCandidate(state *candidateState, req candidateRequest) error {
+func (s *Service) reviseCandidate(state *candidateState, req candidateRequest) error {
 	c := &state.Content
 	oldDigest, oldScripts := c.Digest, candidateScriptDigest(c)
+	renew := req.EvidenceAuthorized
+	if !candidateEvidenceCurrent(state) && !renew {
+		return status.Error(codes.FailedPrecondition, "expired evidence requires newly authorized samples, expected results and license")
+	}
+	if req.SourceLicenseExpiresAt != 0 && !renew {
+		return status.Error(codes.InvalidArgument, "explicit new evidence authorization required")
+	}
+	if renew && (req.Name == nil || req.Description == nil || req.Rationale == nil || req.Instructions == nil || req.Resources == nil || req.Scripts == nil || req.ImageDigest == nil || req.EntryPoint == nil) {
+		return status.Error(codes.InvalidArgument, "new evidence requires an explicitly resubmitted complete authorized package")
+	}
+	if !candidateEvidenceCurrent(state) {
+		*c = candidateView(state)
+		c.TargetGoal, c.Applicability, c.Reason = "", "", ""
+	}
+	if renew {
+		c.TargetGoal, c.Applicability, c.Reason, c.BaselineContent = "", "", "", nil
+		if req.Task == nil || req.ExpectedOutput == nil || strings.TrimSpace(*req.Task) == "" || strings.TrimSpace(*req.ExpectedOutput) == "" || req.SourceLicenseExpiresAt <= time.Now().Unix() {
+			return status.Error(codes.InvalidArgument, "new authorized task, independent expected output and future source license deadline required")
+		}
+		deadline, err := s.reviewRetentionDeadline(time.Now())
+		if err != nil {
+			return err
+		}
+		c.ExpiresAt = min(deadline.Unix(), req.SourceLicenseExpiresAt)
+		if req.ExpiresAt != nil && (*req.ExpiresAt <= time.Now().Unix() || *req.ExpiresAt > c.ExpiresAt) {
+			return status.Error(codes.InvalidArgument, "evidence deadline exceeds configured retention or source license")
+		}
+		id, err := identity.New()
+		if err != nil {
+			return err
+		}
+		c.EvidenceID, c.EvidenceLicenseExpiresAt = id, req.SourceLicenseExpiresAt
+		c.InputBase64, c.ExpectedOutputBase64, c.Evidence, c.BaselineInstructions = "", "", "", ""
+		c.CodeReviewDigest, c.CodeReviewIdentity, c.CodeReviewedBy, c.CodeReviewedMemberID, c.ApprovedMemberID = "", "", "", "", ""
+		c.BaselineSamples = nil
+	}
+	if req.Name != nil {
+		c.Name = *req.Name
+	}
+	if req.Description != nil {
+		c.Description = *req.Description
+	}
+	if req.Rationale != nil {
+		c.Rationale = *req.Rationale
+	}
+	if req.TargetGoal != nil {
+		c.TargetGoal = *req.TargetGoal
+	}
+	if req.Applicability != nil {
+		c.Applicability = *req.Applicability
+	}
 	if req.Instructions != nil {
 		c.Instructions = *req.Instructions
 	}
@@ -649,12 +727,31 @@ func reviseCandidate(state *candidateState, req candidateRequest) error {
 		c.ExpectedOutputBase64 = *req.ExpectedOutputBase64
 	}
 	if req.ExpiresAt != nil {
-		if *req.ExpiresAt <= time.Now().Unix() || *req.ExpiresAt > state.Review.ExpiresAt.Unix() {
-			return status.Error(codes.InvalidArgument, "sample expiry must be current and within source evidence deadline")
+		if *req.ExpiresAt <= time.Now().Unix() || *req.ExpiresAt > c.ExpiresAt {
+			return status.Error(codes.InvalidArgument, "sample expiry may only shorten the current evidence deadline")
 		}
 		c.ExpiresAt = *req.ExpiresAt
 	}
 	value := reviewExtraction{Name: c.Name, Description: c.Description, Instructions: c.Instructions, Resources: c.Resources, Scripts: c.Scripts, ImageDigest: c.ImageDigest, EntryPoint: c.EntryPoint, TargetGoal: c.TargetGoal, Applicability: c.Applicability, Rationale: c.Rationale, RepresentativeTask: c.RepresentativeTask, ExpectedOutput: c.ExpectedOutput}
+	if req.BaselineSamples != nil {
+		if !renew || len(*req.BaselineSamples) > 7 {
+			return status.Error(codes.InvalidArgument, "bounded baseline samples require explicit new evidence authorization")
+		}
+		seen := make(map[string]bool)
+		for _, sample := range *req.BaselineSamples {
+			if identity.Validate(sample.VersionID) != nil || seen[sample.VersionID] || len(sample.Task) > 16384 || len(sample.Expected) > 2048 || strings.TrimSpace(sample.Task) == "" || strings.TrimSpace(sample.Expected) == "" {
+				return status.Error(codes.InvalidArgument, "baseline samples require unique version identities and bounded tasks with exact expected results")
+			}
+			seen[sample.VersionID] = true
+			for _, encoded := range []string{sample.InputBase64, sample.ExpectedOutputBase64} {
+				decoded, err := base64.StdEncoding.DecodeString(encoded)
+				if err != nil || len(decoded) > 65536 {
+					return status.Error(codes.InvalidArgument, "invalid bounded baseline artifact")
+				}
+			}
+		}
+		c.BaselineSamples = *req.BaselineSamples
+	}
 	if err := validateReviewExtraction(&value, reviewAssessment{TargetGoal: c.TargetGoal, Applicability: c.Applicability}); err != nil {
 		return status.Error(codes.InvalidArgument, "revised candidate exceeds content bounds")
 	}
@@ -674,6 +771,12 @@ func reviseCandidate(state *candidateState, req candidateRequest) error {
 		if err != nil || len(decoded) > 65536 {
 			return status.Error(codes.InvalidArgument, "invalid bounded base64 sample")
 		}
+	}
+	if renew {
+		if len(c.Scripts) > 0 && (req.InputBase64 == nil || req.ExpectedOutputBase64 == nil || c.InputBase64 == "" || c.ExpectedOutputBase64 == "") {
+			return status.Error(codes.InvalidArgument, "new script evidence requires explicit input and expected output artifacts")
+		}
+		c.EvidenceDigest = mustReviewDigest(map[string]any{"id": c.EvidenceID, "task": c.RepresentativeTask, "expected": c.ExpectedOutput, "input_b64": c.InputBase64, "expected_output_b64": c.ExpectedOutputBase64, "baseline_samples": c.BaselineSamples, "license_expires_at": c.EvidenceLicenseExpiresAt})
 	}
 	c.CodeReviewRequired = len(c.Scripts) > 0
 	if oldScripts != candidateScriptDigest(c) {
@@ -705,6 +808,21 @@ func persistCandidate(tx *gorm.DB, state *candidateState) error {
 	resources, err := json.Marshal(stored.Resources)
 	if err != nil {
 		return err
+	}
+	if stored.EvidenceID == "" && stored.ExpiresAt < state.Review.ExpiresAt.Unix() {
+		deadline := time.Unix(stored.ExpiresAt, 0)
+		if err := tx.Model(&runReview{}).Where("id = ? AND expires_at > ?", state.Review.ID, deadline).Update("expires_at", deadline).Error; err != nil {
+			return err
+		}
+		state.Review.ExpiresAt = deadline
+	}
+	if stored.EvidenceID != "" {
+		if err := tx.Model(&candidateValidation{}).Where("candidate_id = ? AND digest <> ? AND jsonb_exists(result, 'reason')", stored.ID, stored.Digest).Update("result", gorm.Expr("result - 'reason'")).Error; err != nil {
+			return err
+		}
+		if err := tx.Table("bot.skill_evaluations").Where("candidate_id = ? AND (reason <> '' OR observed <> '')", stored.ID).Updates(map[string]any{"reason": "", "observed": ""}).Error; err != nil {
+			return err
+		}
 	}
 	return tx.Model(&governedCandidate{}).Where("id = ?", state.Row.ID).Updates(map[string]any{
 		"review_content": json.RawMessage(raw), "digest": stored.Digest, "status": stored.Status,
@@ -739,6 +857,22 @@ func recordCandidateOperation(tx *gorm.DB, botID, operation, key string, body, r
 	id, err := identity.New()
 	if err != nil {
 		return err
+	}
+	if strings.HasPrefix(operation, "candidate-") && !strings.HasPrefix(operation, "candidate-publish:") && !strings.HasPrefix(operation, "candidate-evaluate:") {
+		var content struct {
+			ID               string `json:"id"`
+			Digest           string `json:"digest"`
+			Status           string `json:"status"`
+			EvidenceID       string `json:"evidence_id,omitempty"`
+			EvidenceRevision int64  `json:"evidence_revision"`
+		}
+		if err := json.Unmarshal(response, &content); err != nil {
+			return err
+		}
+		response, err = json.Marshal(content)
+		if err != nil {
+			return err
+		}
 	}
 	return tx.Table("bot.skill_operations").Create(map[string]any{"id": id, "bot_id": botID, "operation": operation, "submission_key": key, "request_hash": mustReviewDigest(json.RawMessage(body)), "response": json.RawMessage(response), "created_at": time.Now()}).Error
 }
@@ -837,14 +971,11 @@ func (s *Service) publishGovernedCandidate(ctx context.Context, tx *gorm.DB, sta
 	if err != nil {
 		return nil, err
 	}
-	contractCandidate := *c
-	contractCandidate.Evidence = ""
-	contractCandidate.CanMaintain, contractCandidate.CanViewMaterials, contractCandidate.CanReviewCode, contractCandidate.CanPublish = false, false, false, false
-	contract, err := json.Marshal(contractCandidate)
+	contract, err := json.Marshal(candidatePublishedContract(c))
 	if err != nil {
 		return nil, err
 	}
-	contract, err = skill.StampContract(contract, map[string]any{"scripts": len(c.Scripts) > 0}, map[string]any{"scope": c.ScopeKey, "materials": json.RawMessage(state.Run.Materials), "provenance": json.RawMessage(state.Run.Provenance)})
+	contract, err = skill.StampContract(contract, map[string]any{"scripts": len(c.Scripts) > 0}, map[string]any{"scope": c.ScopeKey, "source_authority_digest": mustReviewDigest(map[string]any{"materials": json.RawMessage(state.Run.Materials), "provenance": json.RawMessage(state.Run.Provenance)})})
 	if err != nil {
 		return nil, err
 	}

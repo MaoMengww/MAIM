@@ -26,30 +26,6 @@ export interface ReviewPolicy {
   revision: number;
 }
 
-export interface ReviewCandidate {
-  id: string;
-  skill_id: string;
-  source_run_id: string;
-  publisher_id: string;
-  scope_key: string;
-  intent: 'create' | 'modify';
-  target_goal: string;
-  applicability: string;
-  rationale: string;
-  instructions: string;
-  baseline_instructions: string;
-  resources: Record<string, string>;
-  scripts: Record<string, string>;
-  image_digest: string;
-  entry_point: string;
-  digest: string;
-  baseline_version_id?: string;
-  status: string;
-  code_review_required: boolean;
-  evidence_digest: string;
-  expires_at: number;
-}
-
 export interface Review {
   id: string;
   run_id: string;
@@ -70,7 +46,6 @@ export interface Review {
   updated_at: number;
   expires_at: number;
   candidate_id?: string;
-  candidate?: ReviewCandidate;
 }
 
 export interface ReviewScope {
@@ -101,26 +76,9 @@ function boolean(value: unknown): boolean {
   if (typeof value !== 'boolean') throw new Error('复盘状态字段无效');
   return value;
 }
-function files(value: unknown): Record<string, string> {
-  const entries = Object.entries(object(value));
-  return Object.fromEntries(entries.map(([name, content]) => [name, text(content)]));
-}
 function normalizePolicy(value: unknown): ReviewPolicy {
   const data = object(value);
   return { enabled: boolean(data.enabled), can_manage: boolean(data.can_manage), scope_key: text(data.scope_key), revision: number(data.revision) };
-}
-function normalizeCandidate(value: unknown): ReviewCandidate {
-  const data = object(value);
-  if (data.intent !== 'create' && data.intent !== 'modify' || !['pending_validation', 'evaluating', 'evaluated', 'validation_failed', 'awaiting_evidence', 'approved', 'rejected', 'published', 'expired'].includes(text(data.status))) throw new Error('复盘候选状态无效');
-  return {
-    id: entityId(data.id, 'review.candidate_id'), skill_id: entityId(data.skill_id, 'review.skill_id'),
-    source_run_id: entityId(data.source_run_id, 'review.source_run_id'), publisher_id: entityId(data.publisher_id, 'review.publisher_id'),
-    scope_key: text(data.scope_key), intent: data.intent, target_goal: text(data.target_goal), applicability: text(data.applicability),
-    rationale: text(data.rationale), instructions: text(data.instructions), baseline_instructions: text(data.baseline_instructions),
-    resources: files(data.resources), scripts: files(data.scripts), image_digest: text(data.image_digest), entry_point: text(data.entry_point),
-    digest: text(data.digest), baseline_version_id: data.baseline_version_id == null ? undefined : entityId(data.baseline_version_id, 'review.baseline_version_id'),
-    status: text(data.status), code_review_required: boolean(data.code_review_required), evidence_digest: text(data.evidence_digest), expires_at: number(data.expires_at),
-  };
 }
 function normalizeAssessment(value: unknown): ReviewAssessment {
   const data = object(value);
@@ -131,7 +89,8 @@ function normalizeAssessment(value: unknown): ReviewAssessment {
 }
 
 export function reviewMetadata(review: Review): Review {
-  return { ...review, feedback: undefined, assessment: undefined, candidate: undefined };
+  if (review.feedback === undefined && review.assessment === undefined && !review.reason) return review;
+  return { ...review, feedback: undefined, assessment: undefined, reason: '' };
 }
 
 function normalizeReview(value: unknown): Review {
@@ -139,7 +98,7 @@ function normalizeReview(value: unknown): Review {
   if (!REVIEW_STATUSES.includes(text(data.status))) throw new Error('复盘进展状态无效');
   if (!['automatic', 'feedback', 'historical'].includes(text(data.trigger_kind))) throw new Error('复盘来源无效');
   if (!Number.isSafeInteger(data.revision) || number(data.revision) < 1) throw new Error('复盘修订号无效');
-  return {
+  const review: Review = {
     id: entityId(data.id, 'review.id'), run_id: entityId(data.run_id, 'review.run_id'), bot_id: entityId(data.bot_id, 'review.bot_id'),
     conv_id: entityId(data.conv_id, 'review.conv_id'), scope_key: text(data.scope_key), status: data.status as ReviewStatus,
     revision: number(data.revision), trigger_kind: data.trigger_kind as ReviewTrigger,
@@ -150,8 +109,8 @@ function normalizeReview(value: unknown): Review {
     reason: text(data.reason), model_calls: number(data.model_calls), model_version: text(data.model_version),
     created_at: number(data.created_at), updated_at: number(data.updated_at), expires_at: number(data.expires_at),
     candidate_id: data.candidate_id == null ? undefined : entityId(data.candidate_id, 'review.candidate_id'),
-    candidate: data.candidate == null ? undefined : normalizeCandidate(data.candidate),
   };
+  return review.expires_at > 0 && review.expires_at * 1000 <= Date.now() ? reviewMetadata(review) : review;
 }
 
 export const runReviewApi = {

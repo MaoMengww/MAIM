@@ -121,6 +121,8 @@ class Manager:
             if path.stem != record["execution_id"] or record["owner"] != self.owner:
                 raise Rejected("journal ownership mismatch")
             uuid.UUID(path.stem)
+            if record.get("validation"):
+                self._save(record)  # Remove raw outputs from pre-retention journals before serving reads.
             self.records[path.stem] = record
         self.host = self._preflight()
         self.recover()
@@ -207,6 +209,9 @@ class Manager:
                 "rootless_userns": "not qualified; rejected", "daemon_persisted_log_bytes": 0}
 
     def _save(self, record):
+        if record.get("validation"):
+            record["result"] = self._validation_result(record.get("result"))
+            record.get("evidence", {}).pop("stderr", None)
         atomic_json(self.state / (record["execution_id"] + ".json"), record)
 
     def get(self, execution_id):
@@ -214,6 +219,18 @@ class Manager:
             if execution_id not in self.records:
                 raise Rejected("unknown execution")
             return copy.deepcopy(self.records[execution_id])
+
+    def _validation_result(self, result):
+        if result is None:
+            return None
+        files = []
+        for item in result.get("files", []):
+            if "data_b64" in item:
+                data = base64.b64decode(item["data_b64"], validate=True)
+                files.append(dict(name=item["name"], sha256=hashlib.sha256(data).hexdigest(), size=len(data)))
+            else:
+                files.append({key: item[key] for key in ("name", "sha256", "size")})
+        return dict(files=files)
 
     def validation_review(self, identity):
         if (not isinstance(identity, dict) or set(identity) != {"scripts", "image_digest", "entry_point"} or
@@ -539,7 +556,8 @@ class Manager:
                         record["failure_class"] = "worker_failure"
                     raise Rejected("fixed workload returned no result")
                 record["evidence"]["attached_bytes"] = sum(map(len, captured.values()))
-                record["evidence"]["stderr"] = captured["err"].decode(errors="replace")
+                if not record.get("validation"):
+                    record["evidence"]["stderr"] = captured["err"].decode(errors="replace")
                 if captured["out"]:
                     try:
                         result = strict_json(captured["out"])
@@ -548,7 +566,7 @@ class Manager:
                         if record["evidence"].get("input_delivered"):
                             record["failure_class"] = "worker_failure"
                         raise
-                    record["result"] = result
+                    record["result"] = self._validation_result(result) if record.get("validation") else result
             finally:
                 selector.close()
         except Exception as exc:
