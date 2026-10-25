@@ -44,6 +44,7 @@ func (s *Service) Start(ctx context.Context) {
 	for range min(max(s.svc.Config.Bot.ReviewConcurrency, 1), 8) {
 		go s.worker(ctx, []string{"review"})
 	}
+	go s.cleanupReviewFeedback(ctx)
 	go s.monitorAuthority(ctx)
 }
 func (s *Service) worker(ctx context.Context, kinds []string) {

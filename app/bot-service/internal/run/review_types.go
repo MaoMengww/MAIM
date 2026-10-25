@@ -15,6 +15,11 @@ type runReview struct {
 	ScopeKey       string          `json:"scope_key"`
 	PersonalUserID *string         `gorm:"type:uuid" json:"-"`
 	PublisherID    *string         `gorm:"type:uuid" json:"-"`
+	Revision       int64           `json:"revision"`
+	TriggerKind    string          `json:"trigger_kind"`
+	SubmittedBy    *string         `gorm:"type:uuid" json:"submitted_by,omitempty"`
+	ParentReviewID *string         `gorm:"type:uuid" json:"parent_review_id,omitempty"`
+	Feedback       string          `json:"-"`
 	Status         string          `json:"status"`
 	Reason         string          `json:"reason"`
 	Assessment     json.RawMessage `gorm:"type:jsonb" json:"-"`
@@ -45,11 +50,15 @@ type reviewPolicy struct {
 func (reviewPolicy) TableName() string { return "bot.run_review_policies" }
 
 type reviewScopeRequest struct {
-	ConvID        string `json:"conv_id"`
-	Visibility    string `json:"visibility"`
-	Enabled       *bool  `json:"enabled"`
-	SubmissionKey string `json:"submission_key"`
-	ReviewID      string `json:"review_id"`
+	ConvID         string `json:"conv_id"`
+	Visibility     string `json:"visibility"`
+	Enabled        *bool  `json:"enabled"`
+	SubmissionKey  string `json:"submission_key"`
+	ReviewID       string `json:"review_id"`
+	RunID          string `json:"run_id"`
+	TriggerKind    string `json:"trigger_kind"`
+	Feedback       string `json:"feedback"`
+	ParentReviewID string `json:"parent_review_id"`
 }
 
 type reviewAssessment struct {
@@ -130,18 +139,24 @@ type reviewCandidate struct {
 }
 
 type reviewView struct {
-	ID           string           `json:"id"`
-	RunID        string           `json:"run_id"`
-	BotID        string           `json:"bot_id"`
-	ConvID       string           `json:"conv_id"`
-	ScopeKey     string           `json:"scope_key"`
-	Status       string           `json:"status"`
-	Reason       string           `json:"reason"`
-	ModelCalls   int              `json:"model_calls"`
-	ModelVersion string           `json:"model_version"`
-	CandidateID  *string          `json:"candidate_id,omitempty"`
-	Candidate    *reviewCandidate `json:"candidate,omitempty"`
-	CreatedAt    int64            `json:"created_at"`
-	UpdatedAt    int64            `json:"updated_at"`
-	ExpiresAt    int64            `json:"expires_at"`
+	ID             string            `json:"id"`
+	RunID          string            `json:"run_id"`
+	BotID          string            `json:"bot_id"`
+	ConvID         string            `json:"conv_id"`
+	ScopeKey       string            `json:"scope_key"`
+	Revision       int64             `json:"revision"`
+	TriggerKind    string            `json:"trigger_kind"`
+	SubmittedBy    *string           `json:"submitted_by,omitempty"`
+	ParentReviewID *string           `json:"parent_review_id,omitempty"`
+	Feedback       string            `json:"feedback,omitempty"`
+	Assessment     *reviewAssessment `json:"assessment,omitempty"`
+	Status         string            `json:"status"`
+	Reason         string            `json:"reason"`
+	ModelCalls     int               `json:"model_calls"`
+	ModelVersion   string            `json:"model_version"`
+	CandidateID    *string           `json:"candidate_id,omitempty"`
+	Candidate      *reviewCandidate  `json:"candidate,omitempty"`
+	CreatedAt      int64             `json:"created_at"`
+	UpdatedAt      int64             `json:"updated_at"`
+	ExpiresAt      int64             `json:"expires_at"`
 }

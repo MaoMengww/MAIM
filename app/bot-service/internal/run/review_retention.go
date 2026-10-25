@@ -61,3 +61,24 @@ func (s *Service) reviewExpiry(ctx context.Context, r *model.Run, expires time.T
 	}
 	return expires, nil
 }
+
+// Only newly collected feedback is covered here. Other review evidence and
+// candidate material lifecycle remain owned by their existing retention flow.
+func (s *Service) cleanupReviewFeedback(ctx context.Context) {
+	for ctx.Err() == nil {
+		work, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := s.svc.DB.WithContext(work).Exec(`UPDATE bot.run_reviews SET feedback = ''
+			WHERE id IN (SELECT id FROM bot.run_reviews
+				WHERE feedback <> '' AND expires_at <= NOW()
+				ORDER BY expires_at, id LIMIT 1000 FOR UPDATE SKIP LOCKED)`).Error
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			s.svc.Logger.Error("Expired review feedback cleanup failed")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Minute):
+		}
+	}
+}

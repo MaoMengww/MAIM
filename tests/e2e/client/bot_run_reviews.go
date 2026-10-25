@@ -47,20 +47,26 @@ type runReviewCandidateView struct {
 }
 
 type runReviewView struct {
-	ID           entityID                `json:"id"`
-	RunID        entityID                `json:"run_id"`
-	BotID        entityID                `json:"bot_id"`
-	ConvID       entityID                `json:"conv_id"`
-	ScopeKey     string                  `json:"scope_key"`
-	Status       string                  `json:"status"`
-	Reason       string                  `json:"reason"`
-	ModelCalls   int                     `json:"model_calls"`
-	ModelVersion string                  `json:"model_version"`
-	CreatedAt    int64                   `json:"created_at"`
-	UpdatedAt    int64                   `json:"updated_at"`
-	ExpiresAt    int64                   `json:"expires_at"`
-	CandidateID  *entityID               `json:"candidate_id"`
-	Candidate    *runReviewCandidateView `json:"candidate"`
+	ID             entityID                 `json:"id"`
+	RunID          entityID                 `json:"run_id"`
+	BotID          entityID                 `json:"bot_id"`
+	ConvID         entityID                 `json:"conv_id"`
+	ScopeKey       string                   `json:"scope_key"`
+	Status         string                   `json:"status"`
+	Reason         string                   `json:"reason"`
+	ModelCalls     int                      `json:"model_calls"`
+	ModelVersion   string                   `json:"model_version"`
+	CreatedAt      int64                    `json:"created_at"`
+	UpdatedAt      int64                    `json:"updated_at"`
+	ExpiresAt      int64                    `json:"expires_at"`
+	CandidateID    *entityID                `json:"candidate_id"`
+	Candidate      *runReviewCandidateView  `json:"candidate"`
+	Revision       int64                    `json:"revision"`
+	TriggerKind    string                   `json:"trigger_kind"`
+	SubmittedBy    *entityID                `json:"submitted_by"`
+	ParentReviewID *entityID                `json:"parent_review_id"`
+	Feedback       string                   `json:"feedback"`
+	Assessment     *runReviewAssessmentView `json:"assessment"`
 }
 
 type runReviewObservation struct {
@@ -75,6 +81,9 @@ type runReviewObservation struct {
 type runReviewFixture struct {
 	recoveryFixture
 	sources        map[entityID]string
+	revisions      map[entityID]runReviewView
+	hiddenSources  map[entityID]bool
+	reviewBrowser  map[string]any
 	approvalServer entityID
 }
 
@@ -445,13 +454,20 @@ func (d *driver) botRunReviews() error {
 	if err = f.cancellation(); err != nil {
 		return err
 	}
+	if err = f.feedbackAndHistorical(); err != nil {
+		return err
+	}
 	if err = f.modifyCandidate(); err != nil {
 		return err
 	}
 	if err = f.complete(); err != nil {
 		return err
 	}
-	return f.candidateGovernance()
+	if err = f.candidateGovernance(); err != nil {
+		return err
+	}
+	f.browser["review_revisions"] = f.reviewBrowser
+	return f.save()
 }
 
 func (f *runReviewFixture) defaultPolicies() error {
@@ -907,24 +923,45 @@ func (f *runReviewFixture) modifyCandidate() error {
 	return f.calls(unusedToken, "assess", "extract")
 }
 
-// Every public source Run has exactly one review. No evaluation, extraction,
-// repeated read or legacy candidate denial may recursively create work.
+// Each source retains one automatic review. Only explicitly submitted revisions
+// may add reviews; reads, extraction and legacy denials never create work.
 func (f *runReviewFixture) complete() error {
 	seen := make(map[entityID]bool)
+	seenRevisions := make(map[entityID]bool)
 	for _, visibility := range []string{"conversation", "personal"} {
 		rows, err := f.list(f.requester, visibility)
 		if err != nil {
 			return err
 		}
 		for _, review := range rows {
+			if f.hiddenSources[review.RunID] {
+				return errors.New("run-reviews: revoked source reappeared in public reviews")
+			}
+			if expected, ok := f.revisions[review.ID]; ok {
+				if seenRevisions[review.ID] || review.RunID != expected.RunID || review.Revision != expected.Revision || review.TriggerKind != expected.TriggerKind ||
+					f.sources[review.RunID] != visibility || !reviewTerminal(review.Status) || review.ModelCalls > 2 {
+					return fmt.Errorf("run-reviews: explicit revision changed identity, scope or budget: %+v", review)
+				}
+				seenRevisions[review.ID] = true
+				continue
+			}
 			if seen[review.RunID] || f.sources[review.RunID] != visibility || !reviewTerminal(review.Status) || review.ModelCalls > 2 {
 				return fmt.Errorf("run-reviews: duplicate, recursive, wrong-scope or incomplete review: %+v", review)
 			}
 			seen[review.RunID] = true
 		}
 	}
-	if len(seen) != len(f.sources) {
-		return fmt.Errorf("run-reviews: terminal sources=%d reviews=%d", len(f.sources), len(seen))
+	visibleRevisions := 0
+	for _, revision := range f.revisions {
+		if !f.hiddenSources[revision.RunID] {
+			visibleRevisions++
+		}
+	}
+	if len(seenRevisions) != visibleRevisions {
+		return fmt.Errorf("run-reviews: visible explicit revisions=%d listed=%d", visibleRevisions, len(seenRevisions))
+	}
+	if len(seen)+len(f.hiddenSources) != len(f.sources) {
+		return fmt.Errorf("run-reviews: terminal sources=%d visible reviews=%d hidden sources=%d", len(f.sources), len(seen), len(f.hiddenSources))
 	}
 	for _, label := range []string{"valuable", "original-failed", "script", "personal", "waiting-stopped", "modify"} {
 		if err := f.calls("RUN_REVIEW_"+label+"_"+f.suffix, "assess", "extract"); err != nil {

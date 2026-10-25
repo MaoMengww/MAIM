@@ -211,6 +211,7 @@ func New(
 	bots.GET("/:id/run-reviews", botSkillH.Reviews)
 	bots.GET("/:id/run-reviews/:review", botSkillH.Review)
 	bots.POST("/:id/run-reviews/:review/cancel", botSkillH.CancelReview)
+	bots.POST("/:id/runs/:run/reviews", botSkillH.SubmitRunReview)
 
 	// Source-scoped candidate governance rechecks material authority in runtime.
 	bots.GET("/:id/skill-candidates", botSkillH.Candidates)

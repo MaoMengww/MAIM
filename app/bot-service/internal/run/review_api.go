@@ -62,6 +62,9 @@ func (s *Service) ReviewOperation(ctx context.Context, caller, botID, operation 
 	if json.Unmarshal(body, &request) != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid review request")
 	}
+	if operation == "review-submit" {
+		return s.submitRunReview(ctx, caller, botID, request)
+	}
 	if operation == "review-get" || operation == "review-cancel" {
 		if identity.Validate(request.ReviewID) != nil {
 			return nil, status.Error(codes.InvalidArgument, "valid review identity required")
@@ -206,6 +209,9 @@ func (s *Service) ReviewOperation(ctx context.Context, caller, botID, operation 
 			if err != nil {
 				return nil, err
 			}
+			if !policy.Enabled {
+				view.Reason = "scope review disabled; materials hidden"
+			}
 			views = append(views, *view)
 		}
 		return json.Marshal(views)
@@ -238,6 +244,28 @@ func (s *Service) reviewViewer(ctx context.Context, caller string, r *model.Run,
 
 func (s *Service) reviewView(ctx context.Context, caller string, review *runReview, detail bool) (*reviewView, error) {
 	view := &reviewView{ID: review.ID, RunID: review.RunID, BotID: review.BotID, ConvID: review.ConvID, ScopeKey: review.ScopeKey, Status: review.Status, Reason: review.Reason, ModelCalls: review.ModelCalls, ModelVersion: review.ModelVersion, CandidateID: review.CandidateID, CreatedAt: review.CreatedAt.Unix(), UpdatedAt: review.UpdatedAt.Unix(), ExpiresAt: review.ExpiresAt.Unix()}
+	view.Revision, view.TriggerKind, view.SubmittedBy, view.ParentReviewID = review.Revision, review.TriggerKind, review.SubmittedBy, review.ParentReviewID
+	if detail {
+		var policy reviewPolicy
+		err := s.svc.DB.WithContext(ctx).Where("bot_id = ? AND scope_key = ?", review.BotID, review.ScopeKey).Take(&policy).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		if err == nil && !policy.Enabled {
+			view.Reason = "scope review disabled; materials hidden"
+			return view, nil
+		}
+	}
+	if detail && review.ExpiresAt.After(time.Now()) {
+		view.Feedback = review.Feedback
+		if len(review.Assessment) > 2 {
+			var assessment reviewAssessment
+			if err := json.Unmarshal(review.Assessment, &assessment); err != nil {
+				return nil, err
+			}
+			view.Assessment = &assessment
+		}
+	}
 	if detail && review.CandidateID != nil && review.ExpiresAt.After(time.Now()) {
 		body, _ := json.Marshal(map[string]string{"candidate_id": *review.CandidateID})
 		current, err := s.CandidateOperation(ctx, caller, review.BotID, "candidate-get", body)
@@ -282,5 +310,11 @@ func (s *Service) reviewBoundary(ctx context.Context, r *model.Run, review *runR
 	if err := s.authorize(ctx, r, false); err != nil {
 		return err
 	}
-	return repo.CheckRunSources(s.svc.DB.WithContext(ctx), r)
+	if err := repo.CheckRunSources(s.svc.DB.WithContext(ctx), r); err != nil {
+		return err
+	}
+	if review.SubmittedBy != nil {
+		return s.reviewViewer(ctx, *review.SubmittedBy, r, review)
+	}
+	return nil
 }

@@ -46,6 +46,20 @@ def model(body, handler, messages):
     text = json.dumps(messages, ensure_ascii=False)
     system = "\n".join(str(item.get("content", "")) for item in messages if item.get("role") == "system")
     phase = "assess" if ASSESS in system else "extract" if EXTRACT in system else "run"
+    # Feedback is a structured model input, never inferred from the original
+    # prompt. These explicit fixture markers exercise authorization/state only.
+    feedback = ""
+    for item in messages:
+        if item.get("role") != "user":
+            continue
+        try:
+            material = json.loads(item.get("content", ""))
+        except (TypeError, ValueError):
+            continue
+        if isinstance(material, dict) and isinstance(material.get("evidence"), dict):
+            material = material["evidence"]
+        if isinstance(material, dict) and isinstance(material.get("feedback"), dict):
+            feedback = material["feedback"].get("text", "")
     with LOCK:
         token = next((value for value in reversed(SESSIONS) if value and value in text), None)
         if token is None:
@@ -54,6 +68,10 @@ def model(body, handler, messages):
         session = SESSIONS[token]
         session["requests"].append({"phase": phase, "body": body})
         mode = session["mode"]
+        if phase != "run" and "RUN_REVIEW_FEEDBACK_HOLD" in feedback:
+            mode = "hold"
+        elif phase != "run" and "RUN_REVIEW_FEEDBACK_NO_VALUE" in feedback:
+            mode = "no-value"
         if phase == "assess" and mode == "hold":
             session["held"] = phase
     if phase == "assess" and mode == "hold":
@@ -123,7 +141,7 @@ def model(body, handler, messages):
         if session["callback_url"]:
             script += "curl -fsS -X POST -H 'Content-Type: application/json' -d '" + json.dumps({"token": token}) + "' '" + session["callback_url"] + "'\n"
         result = {"name": "review-fixed-rows", "description": "Summarize fixed rows deterministically",
-                  "instructions": "Count the supplied rows, then report the total. " + token,
+                  "instructions": "Count the supplied rows, then report the total. " + token + ("\nUser correction: " + feedback if feedback else ""),
                   "resources": {"references/format.md": "Report a literal total."},
                   "scripts": {"scripts/review.sh": script} if mode == "script" else {},
                   "image_digest": "", "entry_point": "", "target_goal": session["target_goal"],

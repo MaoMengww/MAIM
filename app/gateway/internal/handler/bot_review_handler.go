@@ -32,3 +32,16 @@ func (h *BotSkillHandler) CancelReview(c *gin.Context) {
 	}
 	h.performWithBody(c, "review-cancel", body)
 }
+
+func (h *BotSkillHandler) SubmitRunReview(c *gin.Context) {
+	if identity.Validate(c.Param("run")) != nil {
+		response.BadRequest(c, "invalid Run")
+		return
+	}
+	body, err := mergePathBody(c, map[string]string{"run_id": c.Param("run")})
+	if err != nil {
+		response.BadRequest(c, "invalid review request")
+		return
+	}
+	h.performWithBody(c, "review-submit", body)
+}
