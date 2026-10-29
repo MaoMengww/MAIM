@@ -42,8 +42,13 @@ func (l *GetFileInfoLogic) GetFileInfo(in *filepb.GetFileInfoReq) (*filepb.GetFi
 		}
 	} else if f.Access != int32(filepb.FileAccess_FILE_ACCESS_PUBLIC) && f.UploaderID != in.GetUserId() {
 		if err := resourcegrant.ForViewer(l.svcCtx.DB.WithContext(l.ctx), in.GetUserId(), "file", in.FileId); err != nil {
-			return nil, err
+			if err := resourcegrant.ForSubject(l.svcCtx.DB.WithContext(l.ctx), in.GetUserId(), "file", in.FileId); err != nil {
+				return nil, err
+			}
 		}
+	}
+	if _, err := resourcegrant.CheckFileOutputSources(l.svcCtx.DB.WithContext(l.ctx), f.ID, false); err != nil {
+		return nil, err
 	}
 
 	return &filepb.GetFileInfoResp{File: toProtoFileInfo(f)}, nil

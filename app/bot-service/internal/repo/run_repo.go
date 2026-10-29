@@ -809,10 +809,28 @@ func (r *RunRepo) Renew(ctx context.Context, item *model.RunOutbox) error {
 	return nil
 }
 func (r *RunRepo) Complete(ctx context.Context, item *model.RunOutbox) error {
-	return r.DB.WithContext(ctx).Model(&model.RunOutbox{}).Where("id = ? AND lease_token = ?", item.ID, item.LeaseToken).Updates(map[string]any{"completed_at": time.Now(), "lease_until": nil, "lease_token": nil}).Error
+	result := r.DB.WithContext(ctx).Model(&model.RunOutbox{}).
+		Where("id = ? AND lease_token = ? AND completed_at IS NULL AND lease_until > NOW()", item.ID, item.LeaseToken).
+		Updates(map[string]any{"completed_at": time.Now(), "lease_until": nil, "lease_token": nil})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return status.Error(codes.Aborted, "outbox lease lost")
+	}
+	return nil
 }
 func (r *RunRepo) Retry(ctx context.Context, item *model.RunOutbox) error {
-	return r.DB.WithContext(ctx).Model(&model.RunOutbox{}).Where("id = ? AND lease_token = ?", item.ID, item.LeaseToken).Updates(map[string]any{"available_at": time.Now().Add(time.Duration(min(item.Attempts, 30)) * time.Second), "lease_until": nil, "lease_token": nil}).Error
+	result := r.DB.WithContext(ctx).Model(&model.RunOutbox{}).
+		Where("id = ? AND lease_token = ? AND completed_at IS NULL AND lease_until > NOW()", item.ID, item.LeaseToken).
+		Updates(map[string]any{"available_at": time.Now().Add(time.Duration(min(item.Attempts, 30)) * time.Second), "lease_until": nil, "lease_token": nil})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return status.Error(codes.Aborted, "outbox lease lost")
+	}
+	return nil
 }
 
 var errRunAuthorizationChanged = errors.New("Run changed during authorization")

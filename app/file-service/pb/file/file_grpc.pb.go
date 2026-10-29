@@ -29,6 +29,7 @@ const (
 	FileService_BatchDeleteFiles_FullMethodName      = "/file.FileService/BatchDeleteFiles"
 	FileService_UploadAvatar_FullMethodName          = "/file.FileService/UploadAvatar"
 	FileService_ResourceAuthorization_FullMethodName = "/file.FileService/ResourceAuthorization"
+	FileService_RegisterBotOutput_FullMethodName     = "/file.FileService/RegisterBotOutput"
 )
 
 // FileServiceClient is the client API for FileService service.
@@ -52,6 +53,10 @@ type FileServiceClient interface {
 	// upload avatar (server-side processing: resize/crop)
 	UploadAvatar(ctx context.Context, in *UploadAvatarReq, opts ...grpc.CallOption) (*UploadAvatarResp, error)
 	ResourceAuthorization(ctx context.Context, in *ResourceAuthorizationReq, opts ...grpc.CallOption) (*ResourceAuthorizationResp, error)
+	// Server-side registration of a bot-owned, permission-scoped output file.
+	// The trusted bot runtime supplies exact accepted Run identity and content;
+	// this is the file domain's own submission contract, not a parallel delivery API.
+	RegisterBotOutput(ctx context.Context, in *RegisterBotOutputReq, opts ...grpc.CallOption) (*RegisterBotOutputResp, error)
 }
 
 type fileServiceClient struct {
@@ -152,6 +157,16 @@ func (c *fileServiceClient) ResourceAuthorization(ctx context.Context, in *Resou
 	return out, nil
 }
 
+func (c *fileServiceClient) RegisterBotOutput(ctx context.Context, in *RegisterBotOutputReq, opts ...grpc.CallOption) (*RegisterBotOutputResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegisterBotOutputResp)
+	err := c.cc.Invoke(ctx, FileService_RegisterBotOutput_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FileServiceServer is the server API for FileService service.
 // All implementations must embed UnimplementedFileServiceServer
 // for forward compatibility.
@@ -173,6 +188,10 @@ type FileServiceServer interface {
 	// upload avatar (server-side processing: resize/crop)
 	UploadAvatar(context.Context, *UploadAvatarReq) (*UploadAvatarResp, error)
 	ResourceAuthorization(context.Context, *ResourceAuthorizationReq) (*ResourceAuthorizationResp, error)
+	// Server-side registration of a bot-owned, permission-scoped output file.
+	// The trusted bot runtime supplies exact accepted Run identity and content;
+	// this is the file domain's own submission contract, not a parallel delivery API.
+	RegisterBotOutput(context.Context, *RegisterBotOutputReq) (*RegisterBotOutputResp, error)
 	mustEmbedUnimplementedFileServiceServer()
 }
 
@@ -209,6 +228,9 @@ func (UnimplementedFileServiceServer) UploadAvatar(context.Context, *UploadAvata
 }
 func (UnimplementedFileServiceServer) ResourceAuthorization(context.Context, *ResourceAuthorizationReq) (*ResourceAuthorizationResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResourceAuthorization not implemented")
+}
+func (UnimplementedFileServiceServer) RegisterBotOutput(context.Context, *RegisterBotOutputReq) (*RegisterBotOutputResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method RegisterBotOutput not implemented")
 }
 func (UnimplementedFileServiceServer) mustEmbedUnimplementedFileServiceServer() {}
 func (UnimplementedFileServiceServer) testEmbeddedByValue()                     {}
@@ -393,6 +415,24 @@ func _FileService_ResourceAuthorization_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FileService_RegisterBotOutput_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterBotOutputReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FileServiceServer).RegisterBotOutput(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FileService_RegisterBotOutput_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FileServiceServer).RegisterBotOutput(ctx, req.(*RegisterBotOutputReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FileService_ServiceDesc is the grpc.ServiceDesc for FileService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -435,6 +475,10 @@ var FileService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResourceAuthorization",
 			Handler:    _FileService_ResourceAuthorization_Handler,
+		},
+		{
+			MethodName: "RegisterBotOutput",
+			Handler:    _FileService_RegisterBotOutput_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

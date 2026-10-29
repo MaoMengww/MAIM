@@ -51,8 +51,7 @@ CONTEXT.md
 
 # Agent 产出的文档：issue tracker、spec 与 ADR 只留在工作区，不进入版本库
 .scratch/
-docs/adr/
-docs/agents/
+docs/
 
 # ==== IDE & OS ====
 .vscode/

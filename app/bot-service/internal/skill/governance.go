@@ -44,6 +44,13 @@ func legacyBaseline(tx *gorm.DB, row *candidate) error {
 }
 
 func legacyCandidateAuthority(tx *gorm.DB, row *candidate, caller string) (int64, error) {
+	var governed int64
+	if err := tx.Table("bot.skill_candidates").Where("id = ? AND review_content IS NOT NULL", row.ID).Count(&governed).Error; err != nil {
+		return 0, err
+	}
+	if governed != 0 {
+		return 0, status.Error(codes.PermissionDenied, "reviewed candidate requires candidate governance")
+	}
 	var bot botRow
 	if err := tx.Table("bots").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", row.BotID).Take(&bot).Error; err != nil {
 		return 0, err

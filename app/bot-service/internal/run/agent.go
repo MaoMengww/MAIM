@@ -347,6 +347,30 @@ func (s *Service) runAgent(ctx context.Context, r *model.Run, generation int64, 
 		if r.InputVersion > r.AppliedInputVersion {
 			continue
 		}
+		// A fixed-script execution already registered this Run's formal file
+		// result. The model's closing prose cannot replace that artifact, and a
+		// missing prose answer must not turn a verified file into a failure.
+		if r.ResultType == "file" && len(r.ResultContent) > 0 {
+			r, err = s.repo.Change(ctx, r.ID, generation, func(_ *gorm.DB, current *model.Run) error {
+				if current.InputVersion != current.AppliedInputVersion {
+					return status.Error(codes.Aborted, "new input precedes completion")
+				}
+				if current.ResultType != "file" || len(current.ResultContent) == 0 {
+					return status.Error(codes.Aborted, "file result was superseded")
+				}
+				current.Stage = "generated"
+				current.ExecutorStatus, current.OutputStatus = "completed", "generated"
+				current.ResultInvalidated = false
+				return nil
+			})
+			if status.Code(err) == codes.Aborted {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			return s.queueOutput(ctx, r, generation)
+		}
 		messages, err := s.messagesFor(ctx, r.ID)
 		if err != nil {
 			return err

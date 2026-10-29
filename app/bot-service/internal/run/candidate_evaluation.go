@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/app/bot-service/internal/skillvalidation"
 	llm "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"github.com/maomeng/aim/pkg/identity"
@@ -57,7 +56,7 @@ func (s *Service) evaluateGovernedCandidate(ctx context.Context, caller, botID s
 			if err := s.candidatePrincipal(ctx, tx, state, c.CodeReviewedBy, true); err != nil {
 				return err
 			}
-			member, _, err := repo.RunMember(tx, state.Run.ConvID, c.CodeReviewedBy)
+			member, err := candidateMember(tx, state, c.CodeReviewedBy)
 			if err != nil || member != c.CodeReviewedMemberID {
 				return status.Error(codes.PermissionDenied, "code reviewer membership changed")
 			}
@@ -182,7 +181,7 @@ func (s *Service) evaluateGovernedCandidate(ctx context.Context, caller, botID s
 			if err := s.candidatePrincipal(finish, tx, state, state.Content.CodeReviewedBy, true); err != nil {
 				return err
 			}
-			member, _, err := repo.RunMember(tx, state.Run.ConvID, state.Content.CodeReviewedBy)
+			member, err := candidateMember(tx, state, state.Content.CodeReviewedBy)
 			if err != nil || member != state.Content.CodeReviewedMemberID {
 				return status.Error(codes.PermissionDenied, "code reviewer membership changed during validation")
 			}

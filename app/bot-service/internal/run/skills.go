@@ -38,7 +38,10 @@ func skillCatalogPrompt(frozen []skill.Frozen) string {
 	for _, entry := range frozen {
 		marker := ""
 		if entry.Explicit {
-			marker = " explicitly selected"
+			marker += " explicitly selected"
+		}
+		if entry.Executable {
+			marker += " fixed-script capability: run_skill_script over one accepted CSV file"
 		}
 		builder.WriteString("\n- ")
 		builder.WriteString(entry.Name)

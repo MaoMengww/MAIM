@@ -26,7 +26,8 @@ func NewGetDownloadURLLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Ge
 }
 
 func (l *GetDownloadURLLogic) GetDownloadURL(in *filepb.GetDownloadURLReq) (*filepb.GetDownloadURLResp, error) {
-	if _, bot := resourcegrant.Incoming(l.ctx); !bot {
+	access, bot := resourcegrant.Incoming(l.ctx)
+	if !bot {
 		if err := validateIdentities(in.GetFileId(), in.GetUserId()); err != nil {
 			return nil, err
 		}
@@ -38,14 +39,20 @@ func (l *GetDownloadURLLogic) GetDownloadURL(in *filepb.GetDownloadURLReq) (*fil
 	}
 
 	public := f.Access == int32(filepb.FileAccess_FILE_ACCESS_PUBLIC)
-	if a, bot := resourcegrant.Incoming(l.ctx); bot {
-		if _, err := resourcegrant.Check(l.svcCtx.DB.WithContext(l.ctx), a, "file", in.FileId, a.Visibility != "personal", false); err != nil {
+	if bot {
+		if _, err := resourcegrant.Check(l.svcCtx.DB.WithContext(l.ctx), access, "file", in.FileId, access.Visibility != "personal", false); err != nil {
 			return nil, err
 		}
 	} else if !public && f.UploaderID != in.GetUserId() {
 		if err := resourcegrant.ForViewer(l.svcCtx.DB.WithContext(l.ctx), in.GetUserId(), "file", in.FileId); err != nil {
-			return nil, err
+			if err := resourcegrant.ForSubject(l.svcCtx.DB.WithContext(l.ctx), in.GetUserId(), "file", in.FileId); err != nil {
+				return nil, err
+			}
 		}
+	}
+	sourceExpiry, err := resourcegrant.CheckFileOutputSources(l.svcCtx.DB.WithContext(l.ctx), f.ID, false)
+	if err != nil {
+		return nil, err
 	}
 	if _, _, err := l.svcCtx.MinIO.Stat(l.ctx, f.Key); err != nil {
 		return nil, fileLookupError(err)
@@ -53,14 +60,24 @@ func (l *GetDownloadURLLogic) GetDownloadURL(in *filepb.GetDownloadURLReq) (*fil
 
 	var downloadURL string
 	var expiresAt int64
-	if public {
+	if public && !bot {
 		downloadURL = l.svcCtx.MinIO.PublicURL(f.Key)
 	} else {
 		expiry := time.Duration(in.GetExpiresIn()) * time.Second
 		if expiry <= 0 {
 			expiry = time.Hour
 		}
-		downloadURL, err = l.svcCtx.MinIO.PresignedURL(l.ctx, f.Key, expiry)
+		if !sourceExpiry.IsZero() {
+			expiry = min(expiry, time.Until(sourceExpiry))
+			if expiry <= 0 {
+				return nil, grpcError(ErrAccessDenied)
+			}
+		}
+		if bot {
+			downloadURL, err = l.svcCtx.MinIO.InternalPresignedURL(l.ctx, f.Key, expiry)
+		} else {
+			downloadURL, err = l.svcCtx.MinIO.PresignedURL(l.ctx, f.Key, expiry)
+		}
 		if err != nil {
 			return nil, grpcError(err)
 		}

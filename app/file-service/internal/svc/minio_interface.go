@@ -20,5 +20,6 @@ type MinIOClient interface {
 	Stat(ctx context.Context, objectName string) (size int64, etag string, err error)
 	PublicURL(objectName string) string
 	PresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error)
+	InternalPresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error)
 	PresignedPutURL(ctx context.Context, objectName string, expiry time.Duration) (string, error)
 }

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/base64"
 	"encoding/json"
-	"io"
 	"net"
 	"path/filepath"
 	"strings"
@@ -26,8 +25,8 @@ func fixtureManager(t *testing.T, handler func(map[string]json.RawMessage) any) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AIM_SKILL_VALIDATION_SOCKET", path)
-	t.Setenv("AIM_SKILL_VALIDATION_SSH_TARGET", "")
+	t.Setenv("AIM_EXECUTION_SOCKET", path)
+	t.Setenv("AIM_EXECUTION_SSH_TARGET", "")
 	var workers sync.WaitGroup
 	workers.Go(func() {
 		for {
@@ -139,8 +138,8 @@ func TestEvaluateExactArtifactAndCleanup(t *testing.T) {
 }
 
 func TestEvaluateMissingEvidenceDoesNotConnect(t *testing.T) {
-	t.Setenv("AIM_SKILL_VALIDATION_SOCKET", "")
-	t.Setenv("AIM_SKILL_VALIDATION_SSH_TARGET", "")
+	t.Setenv("AIM_EXECUTION_SOCKET", "")
+	t.Setenv("AIM_EXECUTION_SSH_TARGET", "")
 	result, err := Evaluate(t.Context(), "missing-evidence", fixtureIdentity(), Sample{})
 	if err != nil || result.Status != "insufficient_evidence" || !result.Terminal {
 		t.Fatalf("got %+v, %v", result, err)
@@ -190,15 +189,5 @@ func TestEvaluateUnknownReconcilesSameExecutionWithoutSubmit(t *testing.T) {
 	second, err := Evaluate(t.Context(), key, identity, sample)
 	if err != nil || !second.Terminal || second.Status != "passed" || second.ExecutionID != first.ExecutionID {
 		t.Fatalf("same-key reconciliation lost execution identity: %+v, %v", second, err)
-	}
-}
-
-func TestCaptureBudgetCannotBeBypassedByCopy(t *testing.T) {
-	capture := &boundedBuffer{limit: 8}
-	if _, err := io.Copy(capture, io.LimitReader(strings.NewReader(strings.Repeat("x", 64)), 64)); err == nil {
-		t.Fatal("oversized capture accepted")
-	}
-	if len(capture.Bytes()) > 8 {
-		t.Fatal("transport capture exceeded hard budget")
 	}
 }

@@ -187,16 +187,25 @@ class SocketGate:
             upstream.settimeout(3)
             upstream.connect(self.destination)
             upstream.settimeout(None)
-            while not self.closed:
+            client_open, upstream_open = True, True
+            while not self.closed and (client_open or upstream_open):
                 with self.lock:
                     if not self.enabled:
                         return
-                readable, _, _ = select.select((client, upstream), (), (), 0.2)
+                readable, _, _ = select.select(tuple(source for source, open_ in ((client, client_open), (upstream, upstream_open)) if open_), (), (), 0.2)
                 for source in readable:
                     chunk = source.recv(65536)
-                    if not chunk:
-                        return
                     target = upstream if source is client else client
+                    if not chunk:
+                        if source is client:
+                            client_open = False
+                        else:
+                            upstream_open = False
+                        try:
+                            target.shutdown(socket.SHUT_WR)
+                        except OSError:
+                            pass
+                        continue
                     target.settimeout(3)
                     target.sendall(chunk)
                     target.settimeout(None)

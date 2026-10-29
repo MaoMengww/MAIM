@@ -19,6 +19,10 @@ type Frozen struct {
 	Description string `json:"description"`
 	Digest      string `json:"digest"`
 	Explicit    bool   `json:"explicit"`
+	// Executable marks a published fixed-script capability whose exact script,
+	// image and entry passed trusted human review and validation. It is not an
+	// execution permit; each invocation rechecks the current manager policy.
+	Executable bool `json:"executable,omitempty"`
 }
 
 // FrozenSkills is the public Run projection. Loaded state is derived from the
@@ -109,6 +113,9 @@ type Package struct {
 	License      string
 	Instructions string
 	Resources    map[string]string
+	Scripts      map[string]string
+	ImageDigest  string
+	EntryPoint   string
 	Digest       string
 }
 

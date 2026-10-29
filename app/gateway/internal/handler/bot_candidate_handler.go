@@ -10,6 +10,10 @@ func (h *BotSkillHandler) Candidates(c *gin.Context) {
 	h.performWithBody(c, "candidate-list", []byte("{}"))
 }
 
+func (h *BotSkillHandler) ImportCandidateArchive(c *gin.Context) {
+	h.perform(c, "candidate-import")
+}
+
 func (h *BotSkillHandler) Candidate(c *gin.Context) {
 	if identity.Validate(c.Param("candidate")) != nil {
 		response.BadRequest(c, "invalid candidate")
@@ -44,4 +48,8 @@ func (h *BotSkillHandler) PublishCandidate(c *gin.Context) {
 
 func (h *BotSkillHandler) ReviseCandidate(c *gin.Context) {
 	h.candidate(c, "candidate-revise")
+}
+
+func (h *BotSkillHandler) ReintegrateCandidate(c *gin.Context) {
+	h.candidate(c, "candidate-reintegrate")
 }

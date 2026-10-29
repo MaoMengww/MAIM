@@ -93,6 +93,9 @@ func (s *Service) cleanupReviewEvidence(ctx context.Context) {
 	cursor := ""
 	for ctx.Err() == nil {
 		work, cancel := context.WithTimeout(ctx, 30*time.Second)
+		if err := s.cleanupArchiveCandidates(work); err != nil {
+			s.svc.Logger.Error("Archive candidate evidence cleanup failed; durable work will retry")
+		}
 		var rows []runReview
 		query := s.svc.DB.WithContext(work).Order("id").Limit(100)
 		if cursor != "" {
@@ -254,6 +257,8 @@ func clearCandidateCopies(tx *gorm.DB, row *governedCandidate, content *reviewCa
 		evaluation = &value
 	}
 	safe := reviewCandidate{ID: content.ID, SkillID: content.SkillID, SourceRunID: content.SourceRunID, PublisherID: content.PublisherID, ScopeKey: content.ScopeKey, Intent: content.Intent, Digest: content.Digest, BaselineVersionID: content.BaselineVersionID, Status: state, CodeReviewRequired: content.CodeReviewRequired, EvidenceDigest: content.EvidenceDigest, EvidenceID: content.EvidenceID, EvidenceLicenseExpiresAt: content.EvidenceLicenseExpiresAt, EvidenceRevision: content.EvidenceRevision, PublishedVersionID: content.PublishedVersionID, Evaluation: evaluation, Reason: "evidence unavailable; new authorized evidence required"}
+	safe.ParentCandidateID, safe.SourceReviewID, safe.SourceVersionIDs = content.ParentCandidateID, content.SourceReviewID, content.SourceVersionIDs
+	safe.Origin, safe.PackageDigest, safe.PublisherAuthorizationVersion = content.Origin, content.PackageDigest, content.PublisherAuthorizationVersion
 	safe.ExpiresAt = content.ExpiresAt
 	if state == "published" {
 		safe.CodeReviewDigest, safe.CodeReviewIdentity = content.CodeReviewDigest, content.CodeReviewIdentity
@@ -287,6 +292,7 @@ func clearCandidateReceipts(tx *gorm.DB, row *governedCandidate) error {
 	// Idempotency receipts keep identity, never stale private response snapshots.
 	return tx.Exec(`UPDATE bot.skill_operations SET response = jsonb_strip_nulls(jsonb_build_object(
 		'candidate_id', ?::text, 'version_id', response->'version_id', 'skill_id', response->'skill_id',
+		'child_candidate_id', response->'child_candidate_id',
 		'version', response->'version', 'digest', response->'digest',
 		'name', CASE WHEN jsonb_exists(response, 'version_id') THEN response->'name' ELSE NULL END,
 		'description', CASE WHEN jsonb_exists(response, 'version_id') THEN response->'description' ELSE NULL END,

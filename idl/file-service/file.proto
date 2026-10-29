@@ -26,6 +26,27 @@ service FileService {
   // upload avatar (server-side processing: resize/crop)
   rpc UploadAvatar(UploadAvatarReq) returns (UploadAvatarResp);
   rpc ResourceAuthorization(ResourceAuthorizationReq) returns (ResourceAuthorizationResp);
+  // Server-side registration of a bot-owned, permission-scoped output file.
+  // The trusted bot runtime supplies exact accepted Run identity and content;
+  // this is the file domain's own submission contract, not a parallel delivery API.
+  rpc RegisterBotOutput(RegisterBotOutputReq) returns (RegisterBotOutputResp);
+}
+
+message RegisterBotOutputReq {
+  string run_id = 1 [(common.entity_id) = true];
+  // Stable original execution identity, not the worker lease generation.
+  int64 generation = 2;
+  string name = 3;
+  string mime_type = 4;
+  bytes content = 5;
+  string sha256 = 6;
+  // Current live worker lease generation authorizing this registration attempt.
+  int64 worker_generation = 7;
+}
+
+message RegisterBotOutputResp {
+  FileInfo file = 1;
+  string grant_id = 2 [(common.entity_id) = true];
 }
 
 // ========== Enums ==========

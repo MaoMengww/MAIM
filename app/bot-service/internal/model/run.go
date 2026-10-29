@@ -251,6 +251,7 @@ type PublicRun struct {
 	Error                 string               `json:"error,omitempty"`
 	Sources               []map[string]any     `json:"sources"`
 	FrozenSkills          []PublicSkill        `json:"frozen_skills"`
+	Execution             *PublicExecution     `json:"execution,omitempty"`
 	Steps                 []RunStep            `json:"steps"`
 	CreatedAt             int64                `json:"created_at"`
 	UpdatedAt             int64                `json:"updated_at"`

@@ -44,8 +44,13 @@ func (l *BatchGetFileInfoLogic) BatchGetFileInfo(in *filepb.BatchGetFileInfoReq)
 	for _, f := range files {
 		if f.Access != int32(filepb.FileAccess_FILE_ACCESS_PUBLIC) && f.UploaderID != in.GetUserId() {
 			if err := resourcegrant.ForViewer(l.svcCtx.DB.WithContext(l.ctx), in.GetUserId(), "file", f.ID); err != nil {
-				continue
+				if err := resourcegrant.ForSubject(l.svcCtx.DB.WithContext(l.ctx), in.GetUserId(), "file", f.ID); err != nil {
+					continue
+				}
 			}
+		}
+		if _, err := resourcegrant.CheckFileOutputSources(l.svcCtx.DB.WithContext(l.ctx), f.ID, false); err != nil {
+			continue
 		}
 		items = append(items, toProtoFileInfo(&f))
 	}

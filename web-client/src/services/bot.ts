@@ -1,6 +1,6 @@
 import client, { unwrap } from './client';
 import type { CreateBotReq, UpdateBotReq, StartRunReq, ControlRunReq } from '@/types/api';
-import type { APIResponse, Bot, BotInConv, BotRun, RunOrigin, RunActivity } from '@/types/model';
+import type { APIResponse, Bot, BotInConv, BotRun, RunOrigin, RunActivity, RunExecution } from '@/types/model';
 import { entityId, optionalEntityId, quantity, sequence, knowledgeSources } from '@/utils/json';
 
 export const botApi = {
@@ -176,6 +176,7 @@ export function normalizeRun(value: unknown): BotRun {
     || typeof caps.supports_input !== 'boolean' || typeof caps.supports_stop !== 'boolean' || typeof caps.supports_resume !== 'boolean') throw new Error('执行器能力声明无效');
   if (run.result_type != null && run.result_type !== '' && !['text', 'file', 'result'].includes(String(run.result_type))) throw new Error('结果类型无效');
   if (run.result_content != null && (typeof run.result_content !== 'object' || Array.isArray(run.result_content))) throw new Error('结果内容无效');
+  const execution = normalizeExecution(run.execution);
   if (run.can_control !== undefined && typeof run.can_control !== 'boolean') throw new Error('当前查看者控制资格无效');
   return {
     visibility: run.visibility as BotRun['visibility'],
@@ -225,6 +226,7 @@ export function normalizeRun(value: unknown): BotRun {
     result_type: run.result_type ? run.result_type as BotRun['result_type'] : undefined,
     result_content: run.result_content == null ? undefined : run.result_content as Record<string, unknown>,
     message_id: optionalEntityId(run.message_id, 'run.message_id'), error: run.error == null ? undefined : text(run.error, 'run.error'),
+    execution,
     sources: run.sources.map((value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('执行来源格式无效');
       const source = value as Record<string, unknown>;
@@ -267,6 +269,37 @@ export function normalizeRun(value: unknown): BotRun {
       });
     })(),
     created_at: sequence(run.created_at, 'run.created_at'), updated_at: sequence(run.updated_at, 'run.updated_at'),
+  };
+}
+
+function normalizeExecution(value: unknown): RunExecution | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('文件执行状态无效');
+  const execution = value as Record<string, unknown>;
+  const status = String(execution.status);
+  const statuses = ['intent', 'created', 'running', 'stopping', 'cleaned', 'succeeded', 'failed', 'timeout', 'output_limit', 'stopped', 'unknown', 'unconfirmed'];
+  if (!statuses.includes(status)) throw new Error('文件执行状态无效');
+  const text = (field: string): string => {
+    if (typeof execution[field] !== 'string') throw new Error(`文件执行 ${field} 必须是文本`);
+    return execution[field] as string;
+  };
+  const optionalText = (field: string): string | undefined => execution[field] == null || execution[field] === '' ? undefined : text(field);
+  const flag = (field: string): boolean => {
+    if (typeof execution[field] !== 'boolean') throw new Error(`文件执行 ${field} 必须是布尔值`);
+    return execution[field] as boolean;
+  };
+  const outputBytes = execution.output_bytes == null ? undefined : sequence(execution.output_bytes, 'execution.output_bytes', true);
+  return {
+    status: status as RunExecution['status'], outcome: text('outcome'), failure_class: optionalText('failure_class'),
+    skill_version_id: entityId(execution.skill_version_id, 'execution.skill_version_id'),
+    input_file_id: entityId(execution.input_file_id, 'execution.input_file_id'),
+    execution_id: optionalEntityId(execution.execution_id, 'execution.execution_id'),
+    container_id: optionalText('container_id'), input_sha256: text('input_sha256'), image_id: text('image_id'),
+    worker_sha256: text('worker_sha256'), entry_point: text('entry_point'),
+    output_sha256: optionalText('output_sha256'), output_bytes: outputBytes,
+    result_file_id: optionalEntityId(execution.result_file_id, 'execution.result_file_id'),
+    stop_confirmed: flag('stop_confirmed'), removed: flag('removed'), resources_absent: flag('resources_absent'),
+    updated_at: sequence(execution.updated_at, 'execution.updated_at'),
   };
 }
 

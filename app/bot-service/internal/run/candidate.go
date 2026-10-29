@@ -27,6 +27,7 @@ type governedCandidate struct {
 	BotID                    string
 	SkillID                  string
 	SourceReviewID           *string
+	ParentCandidateID        *string
 	Digest                   string
 	Status                   string
 	Instructions             string
@@ -77,6 +78,7 @@ type candidateRequest struct {
 	CandidateID            string                     `json:"candidate_id"`
 	SubmissionKey          string                     `json:"submission_key"`
 	Digest                 string                     `json:"digest"`
+	CurrentVersionID       *string                    `json:"current_version_id"`
 	Reason                 string                     `json:"reason"`
 	Confirmed              bool                       `json:"confirmed"`
 	Instructions           *string                    `json:"instructions"`
@@ -121,8 +123,16 @@ func candidateContentDigest(c *reviewCandidate) string {
 		"evidence_digest": c.EvidenceDigest, "evidence_revision": c.EvidenceRevision, "expires_at": c.ExpiresAt,
 		"evidence_id": c.EvidenceID, "evidence_license_expires_at": c.EvidenceLicenseExpiresAt,
 	}
+	if c.Origin == "archive" {
+		content["origin"], content["package_digest"], content["publisher_authorization_version"] = c.Origin, c.PackageDigest, c.PublisherAuthorizationVersion
+	}
 	if len(c.BaselineSamples) > 0 {
 		content["baseline_samples"] = c.BaselineSamples
+	}
+	if c.ParentCandidateID != nil {
+		content["parent_candidate_id"] = c.ParentCandidateID
+		content["source_review_id"] = c.SourceReviewID
+		content["source_version_ids"] = c.SourceVersionIDs
 	}
 	return mustReviewDigest(content)
 }
@@ -139,8 +149,15 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 	if identity.Validate(caller) != nil {
 		return nil, status.Error(codes.Unauthenticated, "authenticated requester required")
 	}
-	if identity.Validate(botID) != nil || len(body) > 1<<20 {
+	maximum := 1 << 20
+	if operation == "candidate-import" {
+		maximum = 4 << 20
+	}
+	if identity.Validate(botID) != nil || len(body) > maximum {
 		return nil, status.Error(codes.InvalidArgument, "invalid candidate request")
+	}
+	if operation == "candidate-import" {
+		return s.importCandidateArchive(ctx, caller, botID, body)
 	}
 	if operation == "candidate-list" {
 		return s.listGovernedCandidates(ctx, caller, botID)
@@ -151,6 +168,11 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 	}
 	if operation != "candidate-get" && (req.SubmissionKey == "" || len(req.SubmissionKey) > 256 || req.Digest == "") {
 		return nil, status.Error(codes.InvalidArgument, "submission_key and expected digest required")
+	}
+	if operation == "candidate-reintegrate" {
+		if err := validateCandidateReintegration(req); err != nil {
+			return nil, err
+		}
 	}
 	if len(req.Reason) > 1024 {
 		return nil, status.Error(codes.InvalidArgument, "reason too long")
@@ -197,6 +219,20 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 				response = replay
 				return nil
 			}
+			if operation == "candidate-reintegrate" {
+				var receipt struct {
+					ChildCandidateID string `json:"child_candidate_id"`
+				}
+				if err := json.Unmarshal(replay, &receipt); err != nil {
+					return err
+				}
+				child, err := s.lockCandidate(work, tx, caller, botID, receipt.ChildCandidateID)
+				if err != nil {
+					return err
+				}
+				response, err = json.Marshal(candidateView(child))
+				return err
+			}
 			response, err = json.Marshal(candidateView(state))
 			return err
 		}
@@ -220,12 +256,22 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 		if c.Status == "rejected" {
 			return status.Error(codes.FailedPrecondition, "rejected candidate is immutable")
 		}
-		if operation != "candidate-reject" && operation != "candidate-request-evidence" && operation != "candidate-revise" {
+		if operation != "candidate-reject" && operation != "candidate-request-evidence" && operation != "candidate-revise" && operation != "candidate-reintegrate" {
 			if err := candidateFresh(tx, state); err != nil {
 				return err
 			}
 		}
 		switch operation {
+		case "candidate-reintegrate":
+			child, err := s.reintegrateCandidate(work, tx, state, req)
+			if err != nil {
+				return err
+			}
+			response, err = json.Marshal(candidateView(child))
+			if err != nil {
+				return err
+			}
+			return recordCandidateOperation(tx, botID, op, req.SubmissionKey, body, response)
 		case "candidate-revise":
 			if err := candidateBaseline(tx, state); err != nil {
 				return err
@@ -265,7 +311,7 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 			if err := candidateFresh(tx, state); err != nil {
 				return err
 			}
-			member, _, err := repo.RunMember(tx, state.Run.ConvID, caller)
+			member, err := candidateMember(tx, state, caller)
 			if err != nil {
 				return err
 			}
@@ -282,7 +328,7 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 			}
 			c.Status = "approved"
 			state.Row.ApprovedDigest, state.Row.ApprovedEvaluationDigest, state.Row.ApprovedBy = c.Digest, state.Row.EvaluationDigest, &caller
-			member, _, err := repo.RunMember(tx, state.Run.ConvID, caller)
+			member, err := candidateMember(tx, state, caller)
 			if err != nil {
 				return err
 			}
@@ -299,7 +345,7 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 			if err := s.candidatePrincipal(work, tx, state, *state.Row.ApprovedBy, true); err != nil {
 				return err
 			}
-			member, _, err := repo.RunMember(tx, state.Run.ConvID, *state.Row.ApprovedBy)
+			member, err := candidateMember(tx, state, *state.Row.ApprovedBy)
 			if err != nil || member != c.ApprovedMemberID {
 				return status.Error(codes.PermissionDenied, "approver membership changed; fresh approval required")
 			}
@@ -333,7 +379,7 @@ func (s *Service) CandidateOperation(ctx context.Context, caller, botID, operati
 
 func (s *Service) listGovernedCandidates(ctx context.Context, caller, botID string) ([]byte, error) {
 	var rows []struct{ ID string }
-	if err := s.svc.DB.WithContext(ctx).Table("bot.skill_candidates").Select("id").Where("bot_id = ? AND source_review_id IS NOT NULL", botID).Order("created_at DESC").Limit(100).Find(&rows).Error; err != nil {
+	if err := s.svc.DB.WithContext(ctx).Table("bot.skill_candidates").Select("id").Where("bot_id = ? AND (source_review_id IS NOT NULL OR review_content->>'origin' = 'archive')", botID).Order("created_at DESC").Limit(100).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	result := make([]reviewCandidate, 0, len(rows))
@@ -356,11 +402,18 @@ func (s *Service) listGovernedCandidates(ctx context.Context, caller, botID stri
 }
 
 func (s *Service) lockCandidate(ctx context.Context, tx *gorm.DB, caller, botID, id string) (*candidateState, error) {
+	var imported int64
+	if err := tx.Table("bot.skill_candidates").Where("id = ? AND bot_id = ? AND source_review_id IS NULL AND review_content->>'origin' = 'archive'", id, botID).Count(&imported).Error; err != nil {
+		return nil, err
+	}
+	if imported == 1 {
+		return s.lockArchiveCandidate(ctx, tx, caller, botID, id)
+	}
 	state := &candidateState{Viewer: caller}
-	// Read only enough to obtain the source conversation, then follow the same
-	// lock order as Run authority/revocation before locking the mutable candidate.
-	var locator struct{ ConvID string }
-	err := tx.Table("bot.skill_candidates c").Select("r.conv_id").Joins("JOIN bot.run_reviews r ON r.id = c.source_review_id").Where("c.id = ? AND c.bot_id = ?", id, botID).Take(&locator).Error
+	// Match evidence cleanup: conversation -> source Run -> review -> candidate.
+	// Taking a candidate before its review deadlocks against cleanup of siblings.
+	var locator struct{ ConvID, RunID, ReviewID string }
+	err := tx.Table("bot.skill_candidates c").Select("r.conv_id,r.run_id,r.id AS review_id").Joins("JOIN bot.run_reviews r ON r.id = c.source_review_id").Where("c.id = ? AND c.bot_id = ?", id, botID).Take(&locator).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, status.Error(codes.NotFound, "source candidate not found")
 	}
@@ -370,17 +423,17 @@ func (s *Service) lockCandidate(ctx context.Context, tx *gorm.DB, caller, botID,
 	if err := repo.LockRunConversation(tx, locator.ConvID); err != nil {
 		return nil, err
 	}
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", locator.RunID).Take(&state.Run).Error; err != nil {
+		return nil, err
+	}
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", locator.ReviewID).Take(&state.Review).Error; err != nil {
+		return nil, err
+	}
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND bot_id = ?", id, botID).Take(&state.Row).Error; err != nil {
 		return nil, err
 	}
-	if state.Row.SourceReviewID == nil {
-		return nil, status.Error(codes.NotFound, "source candidate not found")
-	}
-	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", *state.Row.SourceReviewID).Take(&state.Review).Error; err != nil {
-		return nil, err
-	}
-	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", state.Review.RunID).Take(&state.Run).Error; err != nil {
-		return nil, err
+	if state.Row.SourceReviewID == nil || *state.Row.SourceReviewID != locator.ReviewID || state.Review.RunID != state.Run.ID {
+		return nil, status.Error(codes.FailedPrecondition, "candidate source lineage changed")
 	}
 	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", botID).Take(&state.Bot).Error; err != nil {
 		return nil, err
@@ -390,9 +443,14 @@ func (s *Service) lockCandidate(ctx context.Context, tx *gorm.DB, caller, botID,
 	}
 	c := &state.Content
 	baselineMatches := c.BaselineVersionID == nil && state.Row.BaselineVersionID == nil || c.BaselineVersionID != nil && state.Row.BaselineVersionID != nil && *c.BaselineVersionID == *state.Row.BaselineVersionID
-	if !baselineMatches || state.Run.BotID != botID || state.Review.BotID != botID || state.Run.BindingID != state.Review.BindingID || state.Run.ConvID != state.Review.ConvID || c.ID != id || c.SkillID != state.Row.SkillID || c.SourceRunID != state.Run.ID || c.ScopeKey != state.Review.ScopeKey || state.Review.PublisherID == nil || c.PublisherID != *state.Review.PublisherID || c.Digest != state.Row.Digest || c.Instructions != state.Row.Instructions || (c.EvidenceID == "" && c.EvidenceDigest != state.Review.EvidenceDigest) || state.Review.CandidateID == nil || *state.Review.CandidateID != id || (state.Review.Status != "candidate_generated" && state.Review.Status != "expired") {
+	if !baselineMatches || state.Run.BotID != botID || state.Review.BotID != botID || state.Run.BindingID != state.Review.BindingID || state.Run.ConvID != state.Review.ConvID || c.ID != id || c.SkillID != state.Row.SkillID || c.SourceRunID != state.Run.ID || c.ScopeKey != state.Review.ScopeKey || state.Review.PublisherID == nil || c.PublisherID != *state.Review.PublisherID || c.Digest != state.Row.Digest || c.Instructions != state.Row.Instructions || (c.EvidenceID == "" && c.EvidenceDigest != state.Review.EvidenceDigest) || (state.Review.Status != "candidate_generated" && state.Review.Status != "expired") {
 		return nil, status.Error(codes.FailedPrecondition, "candidate content identity is inconsistent")
 	}
+	if err := candidateLineage(tx, state); err != nil {
+		return nil, err
+	}
+	c.SourceReviewID = state.Review.ID
+	c.BaselineContent, c.CurrentContent, c.CurrentVersionID, c.BaselineStale = nil, nil, nil, nil
 	c.Status, c.PublishedVersionID = state.Row.Status, state.Row.PublishedVersionID
 	c.RepresentativeTask, c.ExpectedOutput = state.Row.Task, state.Row.ExpectedOutput
 	if err := s.candidatePrincipal(ctx, tx, state, caller, false); err != nil {
@@ -404,30 +462,8 @@ func (s *Service) lockCandidate(ctx context.Context, tx *gorm.DB, caller, botID,
 	}
 	// This display-only projection never contributes to candidate identity and
 	// is reconstructed only after the caller's live material authorization.
-	c.BaselineContent = nil
-	if c.BaselineVersionID != nil {
-		baseline, err := reviewTarget(ctx, tx, &state.Run, &state.Review, *c.BaselineVersionID)
-		if err != nil {
-			return nil, err
-		}
-		if baseline.SkillID != c.SkillID {
-			return nil, status.Error(codes.FailedPrecondition, "candidate baseline belongs to another skill")
-		}
-		var version struct{ ValidationContract json.RawMessage }
-		if err := tx.Table("bot.skill_versions").Select("validation_contract").Where("id = ? AND skill_id = ?", baseline.ID, c.SkillID).Take(&version).Error; err != nil {
-			return nil, err
-		}
-		var contract reviewCandidate
-		if err := json.Unmarshal(version.ValidationContract, &contract); err != nil {
-			return nil, status.Error(codes.FailedPrecondition, "baseline execution contract is unavailable")
-		}
-		// Legacy instruction contracts omit script fields. The actual immutable
-		// resource set still comes from the version, not the mutable candidate.
-		scripts := contract.Scripts
-		if scripts == nil {
-			scripts = map[string]string{}
-		}
-		c.BaselineContent = &candidateBaselineContent{Instructions: baseline.Instructions, Resources: baseline.Resources, Scripts: scripts, ImageDigest: contract.ImageDigest, EntryPoint: contract.EntryPoint}
+	if err := s.candidateComparison(ctx, tx, state); err != nil {
+		return nil, err
 	}
 	c.CanViewMaterials = true
 	c.CanMaintain = candidateMaintainer(tx, state, caller) == nil
@@ -465,6 +501,9 @@ func (s *Service) lockCandidate(ctx context.Context, tx *gorm.DB, caller, botID,
 }
 
 func candidateMaintainer(tx *gorm.DB, state *candidateState, user string) error {
+	if archiveCandidate(state) {
+		return archivePrincipal(state, user)
+	}
 	_, role, err := repo.RunMember(tx, state.Run.ConvID, user)
 	if err != nil {
 		return err
@@ -480,8 +519,15 @@ func candidateMaintainer(tx *gorm.DB, state *candidateState, user string) error 
 }
 
 func (s *Service) candidatePrincipal(ctx context.Context, tx *gorm.DB, state *candidateState, user string, maintain bool) error {
+	return s.candidatePrincipalVisit(ctx, tx, state, user, maintain, make(map[string]bool))
+}
+
+func (s *Service) candidatePrincipalVisit(ctx context.Context, tx *gorm.DB, state *candidateState, user string, maintain bool, versions map[string]bool) error {
 	if identity.Validate(user) != nil {
 		return status.Error(codes.PermissionDenied, "candidate principal unavailable")
+	}
+	if archiveCandidate(state) {
+		return archivePrincipal(state, user)
 	}
 	if maintain {
 		if err := candidateMaintainer(tx, state, user); err != nil {
@@ -495,7 +541,10 @@ func (s *Service) candidatePrincipal(ctx context.Context, tx *gorm.DB, state *ca
 		return status.Error(codes.PermissionDenied, "source publisher changed")
 	}
 	if state.Content.EvidenceID != "" || !candidateEvidenceCurrent(state) {
-		return s.candidateRetainedAuthority(ctx, tx, &state.Run, user, make(map[string]bool))
+		if err := s.candidateRetainedAuthority(ctx, tx, &state.Run, user, make(map[string]bool)); err != nil {
+			return err
+		}
+		return s.candidateIntegratedSources(ctx, tx, state, user, versions)
 	}
 	if err := repo.LockRunAuthority(tx, &state.Run); err != nil {
 		return err
@@ -503,7 +552,10 @@ func (s *Service) candidatePrincipal(ctx context.Context, tx *gorm.DB, state *ca
 	if err := s.candidateMaterialAccess(ctx, tx, &state.Run, user, make(map[string]bool)); err != nil {
 		return err
 	}
-	return s.candidateFrozenSources(ctx, tx, &state.Run, user, make(map[string]bool))
+	if err := s.candidateFrozenSources(ctx, tx, &state.Run, user, make(map[string]bool)); err != nil {
+		return err
+	}
+	return s.candidateIntegratedSources(ctx, tx, state, user, versions)
 }
 
 // Check each viewer's actual source permissions recursively. Keeping the
@@ -659,7 +711,9 @@ func (s *Service) reviseCandidate(state *candidateState, req candidateRequest) e
 		return status.Error(codes.InvalidArgument, "new evidence requires an explicitly resubmitted complete authorized package")
 	}
 	if !candidateEvidenceCurrent(state) {
+		versions := c.SourceVersionIDs
 		*c = candidateView(state)
+		c.SourceVersionIDs = versions
 		c.TargetGoal, c.Applicability, c.Reason = "", "", ""
 	}
 	if renew {
@@ -801,6 +855,8 @@ func persistCandidate(tx *gorm.DB, state *candidateState) error {
 	stored.CanMaintain, stored.CanViewMaterials, stored.CanReviewCode, stored.CanPublish, stored.Evidence = false, false, false, false, ""
 	stored.Evaluation = nil
 	stored.BaselineContent = nil
+	stored.ArchiveBaselineStale = false
+	stored.CurrentContent, stored.CurrentVersionID, stored.BaselineStale = nil, nil, nil
 	raw, err := json.Marshal(stored)
 	if err != nil {
 		return err
@@ -861,6 +917,7 @@ func recordCandidateOperation(tx *gorm.DB, botID, operation, key string, body, r
 	if strings.HasPrefix(operation, "candidate-") && !strings.HasPrefix(operation, "candidate-publish:") && !strings.HasPrefix(operation, "candidate-evaluate:") {
 		var content struct {
 			ID               string `json:"id"`
+			ChildCandidateID string `json:"child_candidate_id,omitempty"`
 			Digest           string `json:"digest"`
 			Status           string `json:"status"`
 			EvidenceID       string `json:"evidence_id,omitempty"`
@@ -868,6 +925,9 @@ func recordCandidateOperation(tx *gorm.DB, botID, operation, key string, body, r
 		}
 		if err := json.Unmarshal(response, &content); err != nil {
 			return err
+		}
+		if strings.HasPrefix(operation, "candidate-reintegrate:") {
+			content.ChildCandidateID = content.ID
 		}
 		response, err = json.Marshal(content)
 		if err != nil {
@@ -930,7 +990,7 @@ func (s *Service) publishGovernedCandidate(ctx context.Context, tx *gorm.DB, sta
 		if err := s.candidatePrincipal(ctx, tx, state, c.CodeReviewedBy, true); err != nil {
 			return nil, err
 		}
-		member, _, err := repo.RunMember(tx, state.Run.ConvID, c.CodeReviewedBy)
+		member, err := candidateMember(tx, state, c.CodeReviewedBy)
 		if err != nil || member != c.CodeReviewedMemberID {
 			return nil, status.Error(codes.PermissionDenied, "code reviewer membership changed; fresh review required")
 		}
@@ -952,6 +1012,7 @@ func (s *Service) publishGovernedCandidate(ctx context.Context, tx *gorm.DB, sta
 	var pkg struct {
 		ScopeKey    string
 		PublisherID string
+		License     string
 	}
 	if err := tx.Table("bot.skill_packages").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ?", c.SkillID, state.Row.BotID).Take(&pkg).Error; err != nil {
 		return nil, err
@@ -982,8 +1043,12 @@ func (s *Service) publishGovernedCandidate(ctx context.Context, tx *gorm.DB, sta
 	if err := candidateFresh(tx, state); err != nil {
 		return nil, err
 	}
+	license := "private-source-scope"
+	if archiveCandidate(state) {
+		license = pkg.License
+	}
 	now := time.Now()
-	if err := tx.Table("bot.skill_versions").Create(map[string]any{"id": id, "skill_id": c.SkillID, "bot_id": state.Row.BotID, "scope_key": c.ScopeKey, "version": number + 1, "digest": c.Digest, "name": c.Name, "description": c.Description, "instructions": c.Instructions, "resources": json.RawMessage(resources), "license": "private-source-scope", "status": "published", "validation_contract": json.RawMessage(contract), "created_at": now}).Error; err != nil {
+	if err := tx.Table("bot.skill_versions").Create(map[string]any{"id": id, "skill_id": c.SkillID, "bot_id": state.Row.BotID, "scope_key": c.ScopeKey, "version": number + 1, "digest": c.Digest, "name": c.Name, "description": c.Description, "instructions": c.Instructions, "resources": json.RawMessage(resources), "license": license, "status": "published", "validation_contract": json.RawMessage(contract), "created_at": now}).Error; err != nil {
 		return nil, err
 	}
 	enabled, err := skill.AdoptPublished(ctx, tx, state.Row.BotID, c.SkillID, id, c.ScopeKey, c.PublisherID)

@@ -169,6 +169,9 @@ func (s *Service) execute(ctx context.Context, item *model.RunOutbox) error {
 	if ctx.Err() != nil || status.Code(err) == codes.Aborted {
 		return err
 	}
+	if recorded := s.executionFailureReason(ctx, r.ID); recorded != "" {
+		return s.fail(ctx, r, generation, recorded, false)
+	}
 	reason := "execution failed"
 	switch status.Code(err) {
 	case codes.PermissionDenied, codes.Unauthenticated:
@@ -258,6 +261,11 @@ func (s *Service) appendInputs(tx *gorm.DB, current *model.Run) error {
 		if input.Invalidated {
 			current.AppliedInputVersion = input.Version
 			continue
+		}
+		// A result selected before this newly applied input is not its answer.
+		// Keep the durable execution/file for explicit reuse without re-execution.
+		if current.ResultType == "file" {
+			current.ResultType, current.ResultText, current.ResultContent = "", "", nil
 		}
 		current.Provenance = input.Provenance
 		if len(input.Materials) > 0 {
@@ -695,6 +703,9 @@ func (s *Service) performTool(ctx context.Context, r *model.Run, generation int6
 	}
 	if frozen.ServerID == "runtime" && slices.Contains([]string{"load_skill", "read_skill_resource"}, frozen.Name) {
 		return s.performSkillTool(ctx, r, generation, config, call)
+	}
+	if frozen.ServerID == "runtime" && frozen.Name == "run_skill_script" {
+		return s.performExecutionTool(ctx, r, generation, config, call)
 	}
 	if frozen.ServerID == "runtime" && isRuntimeReadTool(frozen.Name) {
 		return s.performKnowledgeTool(ctx, r, generation, call)

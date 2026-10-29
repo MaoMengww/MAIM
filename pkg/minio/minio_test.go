@@ -7,6 +7,7 @@ import (
 
 	"github.com/maomeng/aim/pkg/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewClientEmptyEndpoint(t *testing.T) {
@@ -65,4 +66,23 @@ func TestPresignedURLEmptyName(t *testing.T) {
 	client, _ := NewClient(cfg)
 	_, err := client.PresignedURL(t.Context(), "", time.Hour)
 	assert.Error(t, err)
+}
+
+func TestPresignedURLsUseSeparateEndpoints(t *testing.T) {
+	client, err := NewClient(config.MinIOConfig{
+		Endpoint:       "minio:9000",
+		PublicEndpoint: "127.0.0.1:32769",
+		AccessKey:      "minioadmin",
+		SecretKey:      "minioadmin",
+		Region:         "us-east-1",
+	})
+	require.NoError(t, err)
+
+	browserURL, err := client.PresignedURL(t.Context(), "files/input.csv", time.Minute)
+	require.NoError(t, err)
+	assert.Contains(t, browserURL, "127.0.0.1:32769")
+
+	internalURL, err := client.InternalPresignedURL(t.Context(), "files/input.csv", time.Minute)
+	require.NoError(t, err)
+	assert.Contains(t, internalURL, "minio:9000")
 }

@@ -14,20 +14,37 @@ import (
 // tables. Real Docker validation is a separate smoke with the human-frozen worker.
 type governedCandidate struct {
 	runReviewCandidateView
-	CanMaintain        bool   `json:"can_maintain"`
-	CanPublish         bool   `json:"can_publish"`
-	CanViewMaterials   bool   `json:"can_view_materials"`
-	EvidenceID         string `json:"evidence_id"`
-	EvidenceRevision   int64  `json:"evidence_revision"`
-	Evidence           string `json:"evidence"`
-	RepresentativeTask string `json:"representative_task"`
-	ExpectedOutput     string `json:"expected_output"`
-	Reason             string `json:"reason"`
+	Name               string                `json:"name"`
+	Description        string                `json:"description"`
+	ParentCandidateID  *entityID             `json:"parent_candidate_id"`
+	SourceReviewID     entityID              `json:"source_review_id"`
+	SourceVersionIDs   []entityID            `json:"source_version_ids"`
+	CurrentVersionID   *entityID             `json:"current_version_id"`
+	BaselineStale      *bool                 `json:"baseline_stale"`
+	BaselineContent    *candidatePackageView `json:"baseline_content"`
+	CurrentContent     *candidatePackageView `json:"current_content"`
+	CanMaintain        bool                  `json:"can_maintain"`
+	CanPublish         bool                  `json:"can_publish"`
+	CanViewMaterials   bool                  `json:"can_view_materials"`
+	EvidenceID         string                `json:"evidence_id"`
+	EvidenceRevision   int64                 `json:"evidence_revision"`
+	Evidence           string                `json:"evidence"`
+	RepresentativeTask string                `json:"representative_task"`
+	ExpectedOutput     string                `json:"expected_output"`
+	Reason             string                `json:"reason"`
 	Evaluation         *struct {
 		Status string `json:"status"`
 		Passed bool   `json:"passed"`
 		Digest string `json:"digest"`
 	} `json:"evaluation"`
+}
+
+type candidatePackageView struct {
+	Instructions string            `json:"instructions"`
+	Resources    map[string]string `json:"resources"`
+	Scripts      map[string]string `json:"scripts"`
+	ImageDigest  string            `json:"image_digest"`
+	EntryPoint   string            `json:"entry_point"`
 }
 
 func (f *runReviewFixture) governed(caller account, id entityID) (governedCandidate, error) {
@@ -183,8 +200,20 @@ func (f *runReviewFixture) candidateGovernance() error {
 	if err = f.d.expectStatus(f.govern(f.owner, requested, "approve", uuid.NewString(), nil, nil), http.StatusConflict, "insufficient evidence approval"); err != nil {
 		return err
 	}
+	if err = f.govern(f.owner, requested, "revise", uuid.NewString(), map[string]any{
+		"instructions": requested.Instructions + "\nCorrection A: preserve rows whose total is zero.",
+		"resources":    map[string]string{"references/format.md": "Report a literal total.", "references/correction-a.md": "Preserve zero totals."},
+	}, &requested); err != nil {
+		return err
+	}
 	first, err = f.readyGoverned(requested, firstToken)
 	if err != nil {
+		return err
+	}
+	if err = f.govern(f.owner, competitor, "revise", uuid.NewString(), map[string]any{
+		"instructions": competitor.Instructions + "\nCorrection B: trim surrounding whitespace.",
+		"resources":    map[string]string{"references/format.md": "Report a literal total.", "references/correction-b.md": "Trim surrounding whitespace."},
+	}, &competitor); err != nil {
 		return err
 	}
 	competitor, err = f.readyGoverned(competitor, competitorToken)
@@ -293,6 +322,9 @@ func (f *runReviewFixture) candidateGovernance() error {
 		return err
 	}
 	if err = f.candidateBaselineRegression(published); err != nil {
+		return err
+	}
+	if err = f.candidateReintegrationRegression(first, competitor, published, firstToken); err != nil {
 		return err
 	}
 	if err = f.candidateFileViewer(); err != nil {
@@ -534,6 +566,181 @@ func (f *runReviewFixture) candidateModelRecovery() (result error) {
 	}
 	if string(failed) != string(replay) {
 		return errors.New("candidate governance: later successful intent overwrote original error receipt")
+	}
+	return nil
+}
+
+// These are public governance-contract checks using the controlled provider;
+// they assert no model-quality claim and never execute generated scripts.
+func (f *runReviewFixture) candidateReintegrationRegression(original, competitor governedCandidate, published skillVersionView, token string) error {
+	stale, err := f.governed(f.owner, competitor.ID)
+	if err != nil {
+		return err
+	}
+	if stale.BaselineStale == nil || !*stale.BaselineStale || stale.CurrentVersionID == nil || *stale.CurrentVersionID != published.VersionID || stale.BaselineVersionID != nil || stale.CurrentContent == nil || stale.CurrentContent.Resources["references/correction-a.md"] != "Preserve zero totals." {
+		return errors.New("candidate reintegration: competing publication did not expose the authorized current baseline")
+	}
+	outsider, err := f.d.register("candidate-comparison-outsider", f.suffix)
+	if err != nil {
+		return err
+	}
+	var denied governedCandidate
+	if err = f.d.expectStatus(f.d.request(http.MethodGet, f.path("skill-candidates/"+competitor.ID.String()), outsider.token, nil, &denied), http.StatusForbidden, "unauthorized candidate comparison"); err != nil {
+		return err
+	}
+	if denied.CurrentContent != nil || denied.BaselineContent != nil || denied.CurrentVersionID != nil || denied.Instructions != "" {
+		return errors.New("candidate reintegration: unauthorized comparison exposed content")
+	}
+	resources := make(map[string]string)
+	for path, body := range stale.CurrentContent.Resources {
+		resources[path] = body
+	}
+	for path, body := range stale.Resources {
+		resources[path] = body
+	}
+	// Explicitly resolve the package rather than asking the server to merge it.
+	fields := map[string]any{
+		"current_version_id": published.VersionID, "name": stale.Name, "description": stale.Description,
+		"rationale":    "Preserve the independent zero-total and whitespace corrections.",
+		"instructions": stale.CurrentContent.Instructions + "\nCorrection B: trim surrounding whitespace.",
+		"resources":    resources, "scripts": map[string]string{}, "image_digest": "", "entry_point": "",
+		"representative_task": "Return the accepted fixture result. " + token, "expected_output": "RUN_REVIEW_RESULT:" + token,
+	}
+	fields["current_version_id"] = uuid.NewString()
+	if err = f.d.expectStatus(f.govern(f.owner, stale, "reintegrate", uuid.NewString(), fields, nil), http.StatusConflict, "unobserved reintegration baseline"); err != nil {
+		return err
+	}
+	fields["current_version_id"] = published.VersionID
+	delete(fields, "entry_point")
+	if err = f.d.expectStatus(f.govern(f.owner, stale, "reintegrate", uuid.NewString(), fields, nil), http.StatusBadRequest, "partial reintegration package"); err != nil {
+		return err
+	}
+	fields["entry_point"] = ""
+	before, err := json.Marshal(stale)
+	if err != nil {
+		return err
+	}
+	key := uuid.NewString()
+	var child, retry governedCandidate
+	if err = f.govern(f.owner, stale, "reintegrate", key, fields, &child); err != nil {
+		return err
+	}
+	if child.ID == stale.ID || child.ParentCandidateID == nil || *child.ParentCandidateID != stale.ID || child.SourceReviewID != stale.SourceReviewID || child.SourceRunID != stale.SourceRunID || child.ScopeKey != stale.ScopeKey || child.PublisherID != stale.PublisherID || child.BaselineVersionID == nil || *child.BaselineVersionID != published.VersionID || child.BaselineStale == nil || *child.BaselineStale || child.Status != "pending_validation" || child.Evaluation != nil || child.Digest == stale.Digest {
+		return errors.New("candidate reintegration: child reused old validation/approval or lost exact lineage and baseline")
+	}
+	if child.Resources["references/correction-a.md"] != "Preserve zero totals." || child.Resources["references/correction-b.md"] != "Trim surrounding whitespace." {
+		return errors.New("candidate reintegration: explicit package lost a compatible correction")
+	}
+	if err = f.govern(f.owner, stale, "reintegrate", key, fields, &retry); err != nil {
+		return err
+	}
+	if retry.ID != child.ID || retry.Digest != child.Digest {
+		return errors.New("candidate reintegration: retry created a second child")
+	}
+	if err = f.d.expectStatus(f.govern(f.owner, stale, "reintegrate", uuid.NewString(), fields, nil), http.StatusConflict, "identical reintegration under a distinct intent"); err != nil {
+		return err
+	}
+	fields["instructions"] = "Different content under the same intent"
+	if err = f.d.expectStatus(f.govern(f.owner, stale, "reintegrate", key, fields, nil), http.StatusConflict, "reintegration intent payload conflict"); err != nil {
+		return err
+	}
+	fields["instructions"] = child.Instructions
+	parent, err := f.governed(f.owner, stale.ID)
+	if err != nil {
+		return err
+	}
+	after, err := json.Marshal(parent)
+	if err != nil || string(before) != string(after) {
+		return errors.New("candidate reintegration: child creation changed the original candidate")
+	}
+	if err = f.d.expectStatus(f.govern(f.owner, child, "approve", uuid.NewString(), nil, nil), http.StatusConflict, "reintegration requires new evaluation"); err != nil {
+		return err
+	}
+	if err = f.d.expectStatus(f.govern(f.owner, child, "publish", uuid.NewString(), nil, nil), http.StatusConflict, "reintegration cannot reuse parent approval"); err != nil {
+		return err
+	}
+	// A distinct maintenance intent may create a sibling, but neither sibling
+	// can bypass the shared publication fence when the other publishes first.
+	var sibling governedCandidate
+	siblingFields := make(map[string]any, len(fields))
+	for name, value := range fields {
+		siblingFields[name] = value
+	}
+	siblingFields["rationale"] = "A distinct follow-up integration for the publication race."
+	siblingFields["instructions"] = child.Instructions + "\nCorrection C: preserve the normalized header."
+	siblingKey := uuid.NewString()
+	if err = f.govern(f.owner, stale, "reintegrate", siblingKey, siblingFields, &sibling); err != nil {
+		return err
+	}
+	child, err = f.readyGoverned(child, token)
+	if err != nil {
+		return err
+	}
+	sibling, err = f.readyGoverned(sibling, token)
+	if err != nil {
+		return err
+	}
+	type publication struct {
+		candidate governedCandidate
+		version   skillVersionView
+		err       error
+	}
+	results := make(chan publication, 2)
+	publishKey := uuid.NewString()
+	siblingPublishKey := uuid.NewString()
+	for _, attempt := range []struct {
+		candidate governedCandidate
+		key       string
+	}{{child, publishKey}, {sibling, siblingPublishKey}} {
+		go func() {
+			result := publication{candidate: attempt.candidate}
+			result.err = f.govern(f.owner, attempt.candidate, "publish", attempt.key, nil, &result.version)
+			results <- result
+		}()
+	}
+	winner, loser := <-results, <-results
+	if winner.err != nil {
+		winner, loser = loser, winner
+	}
+	if winner.err != nil {
+		return winner.err
+	}
+	if err = f.d.expectStatus(loser.err, http.StatusConflict, "concurrent same-baseline publication"); err != nil {
+		return err
+	}
+	if winner.candidate.ID != child.ID {
+		child, sibling = sibling, child
+		key, fields, publishKey = siblingKey, siblingFields, siblingPublishKey
+	}
+	integrated := winner.version
+	var repeated skillVersionView
+	if integrated.VersionID == published.VersionID || integrated.Version <= published.Version {
+		return errors.New("candidate reintegration: publication did not create the next immutable version")
+	}
+	if err = f.govern(f.owner, child, "publish", publishKey, nil, &repeated); err != nil {
+		return err
+	}
+	if repeated.VersionID != integrated.VersionID {
+		return errors.New("candidate reintegration: repeated publication created another version")
+	}
+	if err = f.d.expectStatus(f.govern(f.owner, sibling, "publish", uuid.NewString(), nil, nil), http.StatusConflict, "publication advanced after reintegration"); err != nil {
+		return err
+	}
+	if err = f.d.expectStatus(f.govern(f.owner, stale, "reintegrate", uuid.NewString(), fields, nil), http.StatusConflict, "reintegration cannot retry past a newer baseline"); err != nil {
+		return err
+	}
+	if err = f.govern(f.owner, stale, "reintegrate", key, fields, &retry); err != nil {
+		return err
+	}
+	if retry.ID != child.ID || retry.Status != "published" || retry.CurrentVersionID == nil || *retry.CurrentVersionID != integrated.VersionID {
+		return errors.New("candidate reintegration: replay did not reauthorize and return the existing child")
+	}
+	originalReadback, err := f.governed(f.owner, original.ID)
+	if err != nil {
+		return err
+	}
+	if originalReadback.Resources["references/correction-a.md"] != "Preserve zero totals." || originalReadback.Digest != original.Digest {
+		return errors.New("candidate reintegration: later publication changed its immutable predecessor")
 	}
 	return nil
 }

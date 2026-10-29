@@ -3,31 +3,25 @@
 package skillvalidation
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
-	"net"
-	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/maomeng/aim/app/bot-service/internal/execution"
 )
 
 const (
-	entryPoint  = "python3 -I -B /opt/aim/worker.py"
-	maxSample   = 65536
-	maxRequest  = 100000
-	maxResponse = 1048576
+	entryPoint = "python3 -I -B /opt/aim/worker.py"
+	maxSample  = 65536
 )
 
 var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
-var targetPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,252}$`)
 
 // Identity freezes the exact UTF-8 source bytes, immutable image and fixed entry.
 type Identity struct {
@@ -124,7 +118,7 @@ func Review(ctx context.Context, identity Identity) (string, error) {
 		return "", err
 	}
 	var admitted admission
-	if err := exchange(ctx, map[string]any{"action": "validation-review", "identity": identity}, &admitted); err != nil {
+	if err := execution.Exchange(ctx, map[string]any{"action": "validation-review", "identity": identity}, &admitted); err != nil {
 		return "", err
 	}
 	if admitted.frozenIdentity != frozen || admitted.ReviewDigest != reviewDigest(frozen) || !digestPattern.MatchString(admitted.EnvironmentDigest) {
@@ -171,7 +165,7 @@ func Evaluate(ctx context.Context, executionKey string, identity Identity, sampl
 			digestPattern.MatchString(current.Validation.EnvironmentDigest)
 	}
 	var current *record
-	if err := exchange(ctx, map[string]any{"action": "validation-lookup", "execution_key": key}, &current); err != nil {
+	if err := execution.Exchange(ctx, map[string]any{"action": "validation-lookup", "execution_key": key}, &current); err != nil {
 		return result, err // Unknown lookup is not authority to submit.
 	}
 	cleaned := false
@@ -184,11 +178,11 @@ func Evaluate(ctx context.Context, executionKey string, identity Identity, sampl
 		safety, done := context.WithTimeout(context.Background(), 12*time.Second)
 		defer done()
 		if current == nil {
-			_ = exchange(safety, map[string]any{"action": "validation-lookup", "execution_key": key}, &current)
+			_ = execution.Exchange(safety, map[string]any{"action": "validation-lookup", "execution_key": key}, &current)
 		}
 		if matches(current) {
 			var stopped record
-			if stopErr := exchange(safety, map[string]any{"action": "validation-stop", "execution_id": current.ExecutionID}, &stopped); stopErr == nil && matches(&stopped) {
+			if stopErr := execution.Exchange(safety, map[string]any{"action": "validation-stop", "execution_id": current.ExecutionID}, &stopped); stopErr == nil && matches(&stopped) {
 				result.ExecutionID = stopped.ExecutionID
 				result.EnvironmentDigest = stopped.Validation.EnvironmentDigest
 				result.Terminal = stopped.Phase == "cleaned" && stopped.Removed && stopped.ResourcesAbsent && stopped.StopConfirmed && stopped.Wait != nil && digestPattern.MatchString(stopped.ContainerID)
@@ -203,10 +197,10 @@ func Evaluate(ctx context.Context, executionKey string, identity Identity, sampl
 	if current == nil {
 		request := map[string]any{"execution_key": key, "identity": frozen, "input_b64": sample.InputBase64,
 			"expected_sha256": expectedDigest}
-		if err := exchange(ctx, map[string]any{"action": "validation-submit", "request": request}, &current); err != nil {
+		if err := execution.Exchange(ctx, map[string]any{"action": "validation-submit", "request": request}, &current); err != nil {
 			// A submit error may mean a lost response or a concurrent winner. Query
 			// once; never send another submit in this attempt.
-			if lookupErr := exchange(ctx, map[string]any{"action": "validation-lookup", "execution_key": key}, &current); lookupErr != nil || current == nil {
+			if lookupErr := execution.Exchange(ctx, map[string]any{"action": "validation-lookup", "execution_key": key}, &current); lookupErr != nil || current == nil {
 				return result, errors.New("validation submission outcome unknown; retry the same execution key to reconcile")
 			}
 		}
@@ -268,102 +262,9 @@ func Evaluate(ctx context.Context, executionKey string, identity Identity, sampl
 		case <-ticker.C:
 		}
 		var next record
-		if err := exchange(ctx, map[string]any{"action": "validation-get", "execution_id": current.ExecutionID}, &next); err != nil {
+		if err := execution.Exchange(ctx, map[string]any{"action": "validation-get", "execution_id": current.ExecutionID}, &next); err != nil {
 			return result, err
 		}
 		current = &next
 	}
-}
-
-// boundedBuffer terminates transport capture rather than silently truncating it.
-type boundedBuffer struct {
-	buffer bytes.Buffer
-	limit  int
-}
-
-func (b *boundedBuffer) Write(data []byte) (int, error) {
-	if len(data) > b.limit-b.buffer.Len() {
-		return 0, errors.New("validation transport byte budget exceeded")
-	}
-	return b.buffer.Write(data)
-}
-
-func (b *boundedBuffer) Bytes() []byte { return b.buffer.Bytes() }
-
-func exchange(ctx context.Context, request any, result any) error {
-	payload, err := json.Marshal(request)
-	if err != nil || len(payload)+1 > maxRequest {
-		return errors.New("validation request exceeds finite protocol budget")
-	}
-	payload = append(payload, '\n')
-	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	socketPath := os.Getenv("AIM_SKILL_VALIDATION_SOCKET")
-	target := os.Getenv("AIM_SKILL_VALIDATION_SSH_TARGET")
-	if (socketPath == "") == (target == "") {
-		return errors.New("configure exactly one trusted skill validation transport")
-	}
-	var response []byte
-	if socketPath != "" {
-		if !strings.HasPrefix(socketPath, "/") {
-			return errors.New("validation socket must be an absolute node-local path")
-		}
-		connection, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
-		if err != nil {
-			return errors.New("trusted validation socket unavailable")
-		}
-		defer connection.Close()
-		stop := context.AfterFunc(ctx, func() { _ = connection.Close() })
-		defer stop()
-		deadline, _ := ctx.Deadline()
-		_ = connection.SetDeadline(deadline)
-		if _, err := io.Copy(connection, bytes.NewReader(payload)); err != nil {
-			return errors.New("validation request delivery unconfirmed")
-		}
-		response, err = io.ReadAll(io.LimitReader(connection, maxResponse+1))
-		if err != nil {
-			return errors.New("validation response incomplete")
-		}
-	} else {
-		if !targetPattern.MatchString(target) {
-			return errors.New("invalid configured restricted SSH target")
-		}
-		args := []string{"-T", "-oBatchMode=yes", "-oStrictHostKeyChecking=yes", "-oConnectTimeout=5", "-oConnectionAttempts=1",
-			"-oClearAllForwardings=yes", "-oRequestTTY=no", "-oPermitLocalCommand=no", "-oRemoteCommand=none"}
-		if identityFile := os.Getenv("AIM_SKILL_VALIDATION_SSH_IDENTITY_FILE"); identityFile != "" {
-			if !strings.HasPrefix(identityFile, "/") {
-				return errors.New("validation SSH identity path must be absolute")
-			}
-			args = append(args, "-oIdentitiesOnly=yes", "-i", identityFile)
-		}
-		args = append(args, "--", target)
-		command := exec.CommandContext(ctx, "/usr/bin/ssh", args...)
-		command.Stdin = bytes.NewReader(payload)
-		stdout := &boundedBuffer{limit: maxResponse}
-		stderr := &boundedBuffer{limit: 4096}
-		command.Stdout, command.Stderr = stdout, stderr
-		command.WaitDelay = time.Second
-		runErr := command.Run()
-		response = stdout.Bytes()
-		// The forced bridge exits 1 for a complete manager rejection response.
-		// Parse that response, but never expose SSH stderr or remote diagnostics.
-		if runErr != nil && (len(response) == 0 || ctx.Err() != nil) {
-			return errors.New("restricted validation SSH response unconfirmed")
-		}
-	}
-	if len(response) == 0 || len(response) > maxResponse || response[len(response)-1] != '\n' {
-		return errors.New("validation response exceeds budget or is incomplete")
-	}
-	var envelope struct {
-		OK     bool            `json:"ok"`
-		Result json.RawMessage `json:"result"`
-		Error  string          `json:"error"`
-	}
-	if json.Unmarshal(response, &envelope) != nil || !envelope.OK {
-		return errors.New("trusted execution manager refused validation admission or command")
-	}
-	if err := json.Unmarshal(envelope.Result, result); err != nil {
-		return errors.New("invalid trusted validation response")
-	}
-	return nil
 }

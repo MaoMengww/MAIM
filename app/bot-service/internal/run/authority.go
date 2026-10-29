@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/maomeng/aim/app/bot-service/internal/execution"
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/pkg/resourcegrant"
@@ -341,6 +342,64 @@ func (s *Service) executionBoundary(ctx context.Context, r *model.Run, generatio
 }
 
 func (s *Service) confirmBuiltinStop(ctx context.Context, r *model.Run, generation int64) error {
+	// A fixed-script workload has an independent whole-container stop and
+	// cleanup contract. A closed stream, cancelled context or an API object
+	// disappearing never confirms that its process and mounts are gone.
+	var record model.RunExecution
+	recordErr := s.svc.DB.WithContext(ctx).Where("run_id = ?", r.ID).Take(&record).Error
+	if recordErr != nil && !errors.Is(recordErr, gorm.ErrRecordNotFound) {
+		return recordErr
+	}
+	if recordErr == nil && record.ExecutionID == nil {
+		safety, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		if reconciled, err := s.reconcileExecutionRecord(safety, &record); err == nil {
+			record = *reconciled
+		}
+		cancel()
+	}
+	if recordErr == nil && record.Phase != "cleaned" {
+		if record.ExecutionID != nil {
+			safety, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			managerRecord, stopErr := execution.StopRun(safety, *record.ExecutionID)
+			if stopErr == nil {
+				for attempt := 0; attempt < 50 && managerRecord.Phase != "cleaned" && managerRecord.Phase != "unknown"; attempt++ {
+					select {
+					case <-safety.Done():
+						attempt = 50
+						continue
+					case <-time.After(executionPollStep):
+					}
+					managerRecord, stopErr = execution.GetRun(safety, *record.ExecutionID)
+					if stopErr != nil {
+						break
+					}
+				}
+				if stopErr == nil {
+					if saved, err := s.saveManagerRecord(context.Background(), &record, managerRecord); err == nil {
+						record = *saved
+					}
+				}
+			}
+			cancel()
+		}
+	}
+	if recordErr == nil {
+		removed, resourcesAbsent, stopConfirmed, wait := recordCleanup(&record)
+		neverStarted, noCreate := executionStartEvidence(&record)
+		if record.Phase != "cleaned" || !removed || !resourcesAbsent || !stopConfirmed || (wait == nil && !neverStarted && !noCreate) || (record.ContainerID == nil && !noCreate) {
+			_, err := s.repo.ChangeLifecycle(ctx, r.ID, generation, func(_ *gorm.DB, current *model.Run) error {
+				if current.Status != "stopping" {
+					return nil
+				}
+				current.StopStatus, current.Stage = "unknown", "stop_unconfirmed"
+				return nil
+			})
+			if err != nil && status.Code(err) != codes.FailedPrecondition && status.Code(err) != codes.Aborted {
+				return err
+			}
+			return status.Error(codes.Unavailable, "whole-container stop or resource cleanup is unconfirmed")
+		}
+	}
 	_, err := s.repo.ChangeLifecycle(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
 		if current.Status != "stopping" {
 			return nil

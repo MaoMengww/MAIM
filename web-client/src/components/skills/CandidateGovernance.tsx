@@ -106,11 +106,11 @@ export function SourceCandidateList({ botId }: { botId: string }) {
     queryFn: ({ signal }) => skillCandidateApi.list(botId, signal), enabled: !!userId,
     retry: false, gcTime: 0, refetchOnWindowFocus: false,
   });
-  return <section className="skill-candidate" aria-label="来源 Run 经验候选">
-    <div className="skill-candidate-actions"><strong>来源 Run 经验候选</strong>
-      <Button loading={query.isFetching} onClick={() => void query.refetch()}>刷新来源候选列表</Button>
+  return <section className="skill-candidate" aria-label="候选审阅">
+    <div className="skill-candidate-actions"><strong>候选审阅 · 归档导入与来源经验</strong>
+      <Button loading={query.isFetching} onClick={() => void query.refetch()}>刷新候选列表</Button>
     </div>
-    <p>列出当前范围可维护的候选；已过期项仅保留安全身份与补证入口。Bot 所有权不能绕过来源材料授权。</p>
+    <p>归档候选仅当前包发布者可维护；来源经验仍须独立材料许可，Bot 所有权不能绕过。所有脚本均须可信人工审查冻结后真实验证，最后另行批准发布。</p>
     {query.isPending ? <p role="status">正在读取授权候选…</p>
       : query.isError ? <p role="alert">来源候选列表读取失败或权限已变化；不展示缓存材料，请刷新重试。</p>
         : <>

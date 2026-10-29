@@ -95,6 +95,16 @@ func (s *FileServiceServer) UploadAvatar(ctx context.Context, in *filepb.UploadA
 	return l.UploadAvatar(in)
 }
 
+func (s *FileServiceServer) RegisterBotOutput(ctx context.Context, in *filepb.RegisterBotOutputReq) (*filepb.RegisterBotOutputResp, error) {
+	// Authorization comes from trusted bot resource metadata and is rechecked
+	// against the accepted Run, current sources and current tool sharing.
+	if _, bot := resourcegrant.Incoming(ctx); !bot {
+		return nil, status.Error(codes.Unauthenticated, "bot resource identity required")
+	}
+	l := logic.NewRegisterBotOutputLogic(ctx, s.svcCtx)
+	return l.RegisterBotOutput(in)
+}
+
 func requireCaller(ctx context.Context, requested string) error {
 	md, _ := metadata.FromIncomingContext(ctx)
 	users := md.Get("user-id")

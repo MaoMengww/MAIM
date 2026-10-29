@@ -1,7 +1,7 @@
 import { useLayoutEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Button, Checkbox, Input } from 'antd';
-import { candidateEvidenceExpired, skillCandidateApi, type CandidateAction, type CandidateActionRequest, type GovernedCandidate } from '@/services/skillCandidate';
+import { candidateEvidenceExpired, skillCandidateApi, type CandidateAction, type CandidateActionRequest, type CandidateRevision, type GovernedCandidate } from '@/services/skillCandidate';
 import { submitSkillIntent } from '@/utils/skillSubmission';
 import { CandidateRevisionForm } from './CandidateRevisionForm';
 
@@ -37,6 +37,10 @@ export function CandidateActions({ botId, candidate, identity, onChanged }: {
   }, [mutation.isSuccess, mutation.reset]);
   const submit = (action: CandidateAction, extra: Partial<CandidateActionRequest> = {}) => {
     setNotice('');
+    if (stale && action !== 'reintegrate') {
+      setNotice('基线版本已过期；请先比较当前与基线内容，并手动提交完整候选包重新整合。');
+      return;
+    }
     if (candidateEvidenceExpired(candidate) && action !== 'revise') {
       setNotice('材料已过期，必须提交新获准证据并重新验证批准，不能继续此操作。');
       return;
@@ -54,6 +58,14 @@ export function CandidateActions({ botId, candidate, identity, onChanged }: {
   const canRenew = candidate.can_maintain && !immutable && (candidate.can_view_materials || expired);
   const verified = candidate.evaluation?.status === 'passed' && candidate.evaluation.passed === true;
   const busy = mutation.isPending;
+  const stale = candidate.origin === 'archive' ? candidate.archive_baseline_stale : candidate.baseline_stale;
+  const submitReintegration = (revision: CandidateRevision) => {
+    if (!candidate.current_version_id || !candidate.current_content || (candidate.baseline_version_id && !candidate.baseline_content)) {
+      setNotice('缺少授权的完整基线或当前版本内容；刷新候选后再提交完整修订包。');
+      return;
+    }
+    submit('reintegrate', { ...revision, current_version_id: candidate.current_version_id });
+  };
   const error = mutation.error as { message?: string; response?: { data?: { message?: string } } } | null;
   return <section aria-label="候选治理操作" aria-busy={busy}>
     <p className="skill-candidate-notice">执行前代码审查仅允许验证被冻结的确切脚本身份，不是发布批准。无可信执行节点人工准入策略时必须明确拒绝执行；界面确认不能授予准入。</p>
@@ -66,7 +78,15 @@ export function CandidateActions({ botId, candidate, identity, onChanged }: {
       {canRenew && <p>请在下方补证入口提交完整包和新的获准样例、具体预期、许可确认及截止时间；不可只延长旧期限。</p>}
     </>}
     {candidate.reason && <p role="note">已保存的补证要求 / 处理原因：{candidate.reason}</p>}
-    {canMaintain && <>
+    {stale && canMaintain && candidate.origin === 'archive' && <p role="alert">归档基线已过时；请从归档导入入口重新提交完整获准包，再重新审查、验证和批准。归档不会整合来源复盘材料。</p>}
+    {stale && canMaintain && candidate.origin !== 'archive' && <>
+      <p role="alert">旧验证、代码审查和批准不能沿用。提交将创建可在来源列表刷新发现的新候选；脚本身份变化时必须重新代码审查。</p>
+      {candidate.current_version_id && candidate.current_content && (!candidate.baseline_version_id || candidate.baseline_content)
+        ? <CandidateRevisionForm key={`reintegrate:${candidate.digest}:${candidate.current_version_id}:${candidate.evidence_id}`}
+          candidate={candidate} pending={busy} reintegrating onSubmit={submitReintegration} />
+        : <p role="note">无法安全整合：必须刷新获得授权的完整基线内容、当前内容及当前版本身份。</p>}
+    </>}
+    {canMaintain && !stale && <>
       {hasScripts && <fieldset disabled={busy || !candidate.can_review_code}>
         <legend>执行前人工代码审查</legend>
         <p>先展开上方完整脚本、依赖镜像摘要和固定入口。当前仅支持可信节点已安装准入的完整 worker.py 与固定入口 python3 -I -B /opt/aim/worker.py；其余身份拒绝执行。</p>
@@ -109,7 +129,7 @@ export function CandidateActions({ botId, candidate, identity, onChanged }: {
         {!candidate.can_publish && <p>当前没有发布权限；维护权限不代替发布权限。</p>}
       </fieldset>
     </>}
-    {canRenew && <CandidateRevisionForm key={`${candidate.evidence_id}:${expired ? 'new-evidence' : 'live'}`} candidate={candidate} pending={busy}
+    {canRenew && !stale && <CandidateRevisionForm key={`${candidate.evidence_id}:${expired ? 'new-evidence' : 'live'}`} candidate={candidate} pending={busy}
       onSubmit={(revision) => submit('revise', revision)} />}
     {busy && <p role="status">操作处理中，请勿重复发起。验证有独立模型 / 沙箱 / 时间 / 资源 / 日志预算，且不递归复盘。</p>}
     {mutation.isError && <div className="skill-candidate-error" role="alert">

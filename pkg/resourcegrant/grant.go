@@ -191,6 +191,11 @@ func Check(tx *gorm.DB, a Access, kind, id string, sharing, lock bool) (*Grant, 
 		if sharing && !g.CanShare {
 			continue
 		}
+		if kind == "file" {
+			if _, err := CheckFileOutputSources(tx, id, lock); err != nil {
+				return nil, err
+			}
+		}
 		return g, nil
 	}
 	return nil, denial()
@@ -286,11 +291,19 @@ func Manage(ctx context.Context, db *gorm.DB, user, kind string, body []byte) ([
 }
 
 func CheckIDs(tx *gorm.DB, a Access, sharing, lock bool) error {
+	_, err := CheckIDsUntil(tx, a, sharing, lock)
+	return err
+}
+
+// CheckIDsUntil returns the earliest current source expiry as well as checking
+// every exact grant. Derived outputs must not outlive any source permission.
+func CheckIDsUntil(tx *gorm.DB, a Access, sharing, lock bool) (time.Time, error) {
+	var expires time.Time
 	ids := slices.Clone(a.GrantIDs)
 	slices.Sort(ids)
 	for _, id := range ids {
 		if identity.Validate(id) != nil {
-			return denial()
+			return time.Time{}, denial()
 		}
 		var g Grant
 		found := false
@@ -299,21 +312,83 @@ func CheckIDs(tx *gorm.DB, a Access, sharing, lock bool) error {
 			if err == nil {
 				exact := a
 				exact.GrantIDs = []string{id}
-				if _, err := Check(tx, exact, kind, g.ResourceID, sharing, lock); err != nil {
-					return err
+				current, err := Check(tx, exact, kind, g.ResourceID, sharing, lock)
+				if err != nil {
+					return time.Time{}, err
+				}
+				if expires.IsZero() || current.ExpiresAt.Before(expires) {
+					expires = current.ExpiresAt
 				}
 				found = true
 				break
 			}
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
+				return time.Time{}, err
 			}
 		}
 		if !found {
-			return denial()
+			return time.Time{}, denial()
 		}
 	}
-	return nil
+	return expires, nil
+}
+
+// OutputRegistration belongs to the file domain. Its immutable source snapshot
+// is committed with the file/grant, before the Bot can backfill its result ID.
+type OutputRegistration struct {
+	RunID        string `gorm:"type:uuid"`
+	Generation   int64
+	BotID        string    `gorm:"type:uuid"`
+	ConvID       string    `gorm:"type:uuid"`
+	BindingID    string    `gorm:"type:uuid"`
+	FileID       string    `gorm:"type:uuid"`
+	SourceAccess *Access   `gorm:"serializer:json;type:jsonb"`
+	SourceTools  []ToolRef `gorm:"serializer:json;type:jsonb"`
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
+}
+
+func (OutputRegistration) TableName() string { return "file.output_registrations" }
+
+type outputFilePathKey struct{}
+
+// CheckFileOutputSources is independent of Run projection and terminal status.
+// Each source retains its original requester, scope and exact grant identity;
+// a viewer's authority must never be substituted for the producing principal.
+func CheckFileOutputSources(tx *gorm.DB, fileID string, lock bool) (time.Time, error) {
+	var registration OutputRegistration
+	query := tx.Where("file_id = ?", fileID)
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "SHARE"})
+	}
+	if err := query.Take(&registration).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	a := registration.SourceAccess
+	if a == nil || a.BotID != registration.BotID || a.ConvID != registration.ConvID || a.BindingID != registration.BindingID || len(a.GrantIDs) == 0 || !slices.Contains([]string{"personal", "conversation"}, a.Visibility) || !registration.ExpiresAt.After(time.Now()) {
+		return time.Time{}, denial()
+	}
+	path, _ := tx.Statement.Context.Value(outputFilePathKey{}).([]string)
+	if len(path) >= 64 || slices.Contains(path, fileID) {
+		return time.Time{}, denial()
+	}
+	// Copy only when descending: sibling dependencies must not share mutations.
+	path = append(slices.Clone(path), fileID)
+	tx = tx.WithContext(context.WithValue(tx.Statement.Context, outputFilePathKey{}, path))
+	expires, err := CheckIDsUntil(tx, *a, a.Visibility != "personal", lock)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if err := CheckToolPermissions(tx, *a, registration.SourceTools, lock); err != nil {
+		return time.Time{}, err
+	}
+	if registration.ExpiresAt.Before(expires) {
+		expires = registration.ExpiresAt
+	}
+	return expires, nil
 }
 
 func ForViewer(tx *gorm.DB, user, kind, id string) error {
@@ -327,6 +402,29 @@ func ForViewer(tx *gorm.DB, user, kind, id string) error {
 			continue
 		}
 		if _, err := Check(tx, Access{BotID: g.BotID, ConvID: g.ConvID, BindingID: g.BindingID, RequesterID: user, Visibility: "conversation", GrantIDs: []string{g.ID}}, kind, id, true, false); err == nil {
+			return nil
+		}
+	}
+	return denial()
+}
+
+// ForSubject authorizes a named person's own grant, including a personal
+// result whose uploader is the Bot. Conversation viewers still use ForViewer;
+// this path never widens a personal grant to another member or to sharing.
+func ForSubject(tx *gorm.DB, user, kind, id string) error {
+	if identity.Validate(user) != nil {
+		return denial()
+	}
+	var grants []Grant
+	if err := tx.Table(Table(kind)).Where("resource_id = ? AND subject_id = ? AND can_read = true AND revoked_at IS NULL AND expires_at > ?", id, user, time.Now()).Order("id ASC").Find(&grants).Error; err != nil {
+		return err
+	}
+	for _, g := range grants {
+		var member struct{ ID string }
+		if tx.Table("messaging.conv_members").Where("conv_id = ? AND user_id = ? AND member_type = 'user' AND id = ?", g.ConvID, g.SubjectID, g.SubjectMemberID).Take(&member).Error != nil {
+			continue
+		}
+		if _, err := Check(tx, Access{BotID: g.BotID, ConvID: g.ConvID, BindingID: g.BindingID, RequesterID: user, Visibility: g.Scope, GrantIDs: []string{g.ID}}, kind, id, false, false); err == nil {
 			return nil
 		}
 	}

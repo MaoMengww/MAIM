@@ -21,11 +21,15 @@ def command(path, body):
         if path.endswith("/arm"):
             mode = body.get("mode", "valuable")
             if mode not in {"valuable", "no-value", "provider-failed", "over-budget", "run-failed",
-                            "script", "waiting", "waiting-approval", "hold", "catalog-only"}:
+                            "script", "waiting", "waiting-approval", "hold", "catalog-only",
+                            "file-processing"}:
                 return {"ok": False, "mode": mode}
             SESSIONS[token] = {"mode": mode,
                                "target_version_id": body.get("target_version_id", ""),
                                "target_goal": body.get("target_goal", "Summarize fixed rows"),
+                               "file_id": body.get("file_id", ""), "repeat_tool": body.get("repeat_tool", False),
+                               "hold_final": body.get("hold_final", False),
+                               "hold_initial": body.get("hold_initial", False), "release_initial": threading.Event(),
                                "requests": [], "held": "", "executions": 0,
                                "callback_url": body.get("callback_url", ""), "release": threading.Event()}
             return {"ok": True, "mode": mode}
@@ -36,6 +40,8 @@ def command(path, body):
             session["executions"] += 1
         if path.endswith("/release"):
             session["release"].set()
+        if path.endswith("/release-initial"):
+            session["release_initial"].set()
         return {"requests": json.loads(json.dumps(session["requests"])), "held": session["held"],
                 "executions": session["executions"]}
 
@@ -78,6 +84,20 @@ def model(body, handler, messages):
         if not session["release"].wait(30):
             handler._json(504, {"error": {"message": "review fixture gate timed out"}})
             return True
+    if phase == "run" and mode == "file-processing" and session["hold_initial"] and not any(
+            item.get("role") == "tool" for item in messages):
+        with LOCK:
+            session["held"] = "file-initial"
+        if not session["release_initial"].wait(30):
+            handler._json(504, {"error": {"message": "file initial gate timed out"}})
+            return True
+    if phase == "run" and mode == "file-processing" and session["hold_final"] and any(
+            item.get("role") == "tool" and item.get("name") == "run_skill_script" for item in messages):
+        with LOCK:
+            session["held"] = "file-final"
+        if not session["release"].wait(30):
+            handler._json(504, {"error": {"message": "file finalization gate timed out"}})
+            return True
     if phase == "run":
         if mode == "run-failed":
             handler._json(400, {"error": {"message": "deterministic original Run failure"}})
@@ -104,6 +124,28 @@ def model(body, handler, messages):
                 return True
             _emit(handler, _tool_call("review-baseline-load", "load_skill", {"version_id": target}),
                   "tool_calls", body.get("stream"))
+            return True
+        if mode == "file-processing":
+            names = [item.get("function", {}).get("name") for item in body.get("tools", [])]
+            if "run_skill_script" not in names:
+                handler._json(400, {"error": {"message": "fixed file execution tool missing from actual Run catalog"}})
+                return True
+            calls = [item for item in messages if item.get("role") == "tool" and item.get("name") == "run_skill_script"]
+            if not calls:
+                _emit(handler, _tool_call("run-file-1", "run_skill_script",
+                                          {"version_id": target, "file_id": session["file_id"]}),
+                      "tool_calls", body.get("stream"))
+                return True
+            if '"status":"succeeded"' not in str(calls[-1].get("content", "")).replace(" ", ""):
+                handler._json(400, {"error": {"message": "fixed file execution did not return a registered result"}})
+                return True
+            if session["repeat_tool"] and len(calls) == 1:
+                _emit(handler, _tool_call("run-file-2", "run_skill_script",
+                                          {"version_id": target, "file_id": session["file_id"]}),
+                      "tool_calls", body.get("stream"))
+                return True
+            content = "FILE_PROCESSING_RESULT:" + token
+            _emit(handler, {"role": "assistant", "content": content}, "stop", body.get("stream"))
             return True
         content = "RUN_REVIEW_RESULT:" + token
     elif phase == "assess":

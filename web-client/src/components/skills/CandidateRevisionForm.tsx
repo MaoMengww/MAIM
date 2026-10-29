@@ -40,9 +40,10 @@ interface RevisionValues extends Omit<CandidateRevision, 'resources' | 'scripts'
   baseline_samples: string;
 }
 
-export function CandidateRevisionForm({ candidate, pending, onSubmit }: {
+export function CandidateRevisionForm({ candidate, pending, reintegrating = false, onSubmit }: {
   candidate: GovernedCandidate;
   pending: boolean;
+  reintegrating?: boolean;
   onSubmit: (revision: CandidateRevision) => void;
 }) {
   const [form] = Form.useForm<RevisionValues>();
@@ -85,10 +86,15 @@ export function CandidateRevisionForm({ candidate, pending, onSubmit }: {
     return () => { formActive.current = false; };
   }, []);
   return <details className="skill-candidate-details">
-    <summary>{expired ? '补充新证据并重建完整候选' : '修订内容 / 提交新的获准证据'}</summary>
+    <summary>{reintegrating ? '人工重新整合到当前版本 · 提交完整候选包' : expired ? '补充新证据并重建完整候选' : '修订内容 / 提交新的获准证据'}</summary>
     <p>旧材料已到期时不会回填原文。请重新提交完整候选包、新获准代表任务和具体预期；仅修改期限不能恢复资格。</p>
     <p>每次补证生成新的证据身份，清除旧验证、代码审查与发布批准；保存后须重新审查、验证和批准。原 Run workspace 不会延期，新验证使用新环境。</p>
     <p>材料期限取当前留存政策与来源许可的较短者；默认政策为 30 天，查看和重试不会延长。修改已有 skill 仍须验证当前获准的基线回归场景。</p>
+    {reintegrating && <>
+      <p>本次仅以已观察到的当前版本 <code>{candidate.current_version_id}</code> 为新基线。下方保留候选内容供人工编辑，不会自动拼接、采用或合并当前版本。</p>
+      <p>请逐项核对上方原基线与当前完整包，明确填写最终指令、资源、脚本、镜像摘要和入口；空对象表示不保留该类文件。若当前版本再次变化，必须刷新、重新对照后提交，不能自动覆盖。</p>
+      <p>提交后旧验证和发布批准均不复用；脚本内容或执行环境变更必须重新可信人工审查，并重新验证及批准。</p>
+    </>}
     <Form form={form} layout="vertical" initialValues={initialValues} disabled={pending || reading}
       onValuesChange={() => setFileError('')}
       onFinish={(values) => {
@@ -162,7 +168,7 @@ export function CandidateRevisionForm({ candidate, pending, onSubmit }: {
         <Checkbox>我确认以上材料（含新获准基线回归样例）是新提交且明确获准在当前范围留存、验证的材料，许可覆盖所填期限；脱敏和 Bot 所有权不是许可。</Checkbox>
       </Form.Item>
       {fileError && <p role="alert">{fileError}</p>}
-      <Button htmlType="submit" loading={pending || reading} disabled={!!fileError}>保存新证据并撤销旧验证 / 批准</Button>
+      <Button htmlType="submit" loading={pending || reading} disabled={!!fileError}>{reintegrating ? '提交完整重新整合包并撤销旧验证 / 批准' : '保存新证据并撤销旧验证 / 批准'}</Button>
     </Form>
   </details>;
 }

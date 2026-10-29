@@ -26,7 +26,11 @@ func (h *BotSkillHandler) perform(c *gin.Context, operation string) {
 	if !requirePathIdentities(c, "id") {
 		return
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+	maximum := int64(1 << 20)
+	if operation == "candidate-import" {
+		maximum = 4 << 20
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maximum)
 	raw, err := c.GetRawData()
 	if err != nil || len(raw) > 0 && !json.Valid(raw) {
 		response.BadRequest(c, "invalid skill operation body")

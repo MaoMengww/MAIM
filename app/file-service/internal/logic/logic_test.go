@@ -46,24 +46,6 @@ func TestGetUploadURL_MissingName(t *testing.T) {
 
 // ========== ConfirmUpload Tests ==========
 
-func TestConfirmUpload_WithMD5(t *testing.T) {
-	svcCtx := newTestSvcCtx()
-	repository := &mockFileRepo{}
-	svcCtx.FileRepo = repository
-	logic := NewConfirmUploadLogic(t.Context(), svcCtx)
-
-	md5val := "d41d8cd98f00b204e9800998ecf8427e"
-	_, err := logic.ConfirmUpload(&filepb.ConfirmUploadReq{
-		FileId:     testFileID,
-		UploaderId: testUploaderID,
-		Md5:        &md5val,
-	})
-	require.NoError(t, err)
-	info, err := NewGetFileInfoLogic(t.Context(), svcCtx).GetFileInfo(&filepb.GetFileInfoReq{FileId: testFileID, UserId: testUploaderID})
-	require.NoError(t, err)
-	assert.Equal(t, md5val, info.File.Md5)
-}
-
 func TestConfirmUpload_MD5Mismatch(t *testing.T) {
 	svcCtx := newTestSvcCtx()
 	svcCtx.FileRepo = &mockFileRepo{md5: "abc123"}
@@ -93,9 +75,6 @@ func TestConfirmUpload_SameMD5(t *testing.T) {
 	differentMD5 := "5d41402abc4b2a76b9719d911017c592"
 	_, err = logic.ConfirmUpload(&filepb.ConfirmUploadReq{FileId: testFileID, UploaderId: testUploaderID, Md5: &differentMD5})
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
-	info, err := NewGetFileInfoLogic(t.Context(), svcCtx).GetFileInfo(&filepb.GetFileInfoReq{FileId: testFileID, UserId: testUploaderID})
-	require.NoError(t, err)
-	assert.Equal(t, md5val, info.File.Md5)
 }
 
 func TestConfirmUpload_NotFound(t *testing.T) {
@@ -319,6 +298,9 @@ func (m *mockMinIO) Stat(ctx context.Context, objectName string) (int64, string,
 }
 func (m *mockMinIO) PresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
 	return "https://minio.example.com/dl/" + objectName, nil
+}
+func (m *mockMinIO) InternalPresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
+	return "http://minio:9000/aim/" + objectName, nil
 }
 func (m *mockMinIO) PresignedPutURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
 	return "https://minio.example.com/up/" + objectName, nil

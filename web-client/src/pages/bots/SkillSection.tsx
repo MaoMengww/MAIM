@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Checkbox, Divider, Form, Input, Modal, Space, Spin, Tag, Upload, message } from 'antd';
 import { CloudUploadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { skillApi } from '@/services/skill';
+import { skillCandidateApi } from '@/services/skillCandidate';
 import type { SkillCandidate, SkillPackage } from '@/types/model';
 import { SourceCandidateList } from '@/components/skills/CandidateGovernance';
 import { SkillVersionGovernance } from '@/components/skills/SkillVersionGovernance';
@@ -96,6 +97,7 @@ export function BotSkillSection({ botId, canManage }: { botId: string; canManage
   const [importOpen, setImportOpen] = useState(false);
   const [file, setFile] = useState<File>();
   const [form] = Form.useForm();
+  const fixedScript = Form.useWatch('fixed_script', form);
   const { data = [], isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['bot-skills', botId, userId],
     queryFn: () => skillApi.list(botId),
@@ -103,9 +105,17 @@ export function BotSkillSection({ botId, canManage }: { botId: string; canManage
     retry: false, gcTime: 0, refetchOnWindowFocus: false, refetchOnReconnect: false,
   });
   const importMutation = useMutation({
-    mutationFn: async (values: { representative_task: string; expected_output: string }) => {
+    mutationFn: async (values: { representative_task: string; expected_output: string; fixed_script?: boolean; input_b64?: string; expected_output_b64?: string; evidence_authorized?: boolean; source_license_deadline?: string }) => {
       if (!file) throw new Error('请选择 zip 包');
+      if (file.size > 2 * 1024 * 1024) throw new Error('zip 包不得超过 2 MiB');
       const payload = { archive: await fileBase64(file), representative_task: values.representative_task, expected_output: values.expected_output };
+      if (values.fixed_script) {
+        const scriptPayload = { ...payload, input_b64: values.input_b64 || '', expected_output_b64: values.expected_output_b64 || '',
+          evidence_authorized: values.evidence_authorized === true, source_license_expires_at: Math.floor(new Date(values.source_license_deadline || '').getTime() / 1000) };
+        if (!Number.isFinite(scriptPayload.source_license_expires_at) || scriptPayload.source_license_expires_at <= Date.now() / 1000) throw new Error('填写未来的样例许可截止时间');
+        return submitSkillIntent(`${userId}:${botId}:script-import`, scriptPayload,
+          (submission_key) => skillCandidateApi.importArchive(botId, { ...scriptPayload, submission_key }));
+      }
       return submitSkillIntent(`${userId}:${botId}:import`, payload,
         (submission_key) => skillApi.importPackage(botId, { ...payload, submission_key }));
     },
@@ -115,6 +125,7 @@ export function BotSkillSection({ botId, canManage }: { botId: string; canManage
       setFile(undefined);
       form.resetFields();
       queryClient.invalidateQueries({ queryKey: ['bot-skills', botId] });
+      queryClient.invalidateQueries({ queryKey: ['skill-candidates'] });
     },
     onError: (err: unknown) => {
       const value = err as { response?: { data?: { message?: string } }; message?: string };
@@ -125,10 +136,10 @@ export function BotSkillSection({ botId, canManage }: { botId: string; canManage
     <SourceCandidateList botId={botId} />
     <SkillVersionGovernance botId={botId} />
     {canManage && <div style={{ marginBottom: 24 }}>
-    <Divider orientation="left" style={{ color: 'var(--aim-text-secondary)', fontSize: 13 }}>Instruction skills · 已导入包</Divider>
+    <Divider orientation="left" style={{ color: 'var(--aim-text-secondary)', fontSize: 13 }}>技能包 · 归档导入</Divider>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
       <span style={{ fontSize: 13, color: 'var(--aim-text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <SafetyCertificateOutlined /> 纯指令包 · 验证、批准后发布不可变版本
+        <SafetyCertificateOutlined /> 导入不授予执行权限 · 固定脚本须先人工审查冻结，再验证、批准与发布
       </span>
       <Button size="small" icon={<CloudUploadOutlined />} onClick={() => setImportOpen(true)}>导入 zip 包</Button>
       <Button loading={isFetching} onClick={() => void refetch()}>刷新已导入包</Button>
@@ -136,7 +147,7 @@ export function BotSkillSection({ botId, canManage }: { botId: string; canManage
     {isError ? <p role="alert">技能包列表读取失败或当前权限不足；不展示缓存材料，请刷新重新核验。</p>
       : isLoading ? <div style={{ textAlign: 'center', padding: 16 }}><Spin /></div>
       : data.length === 0 ? <div style={{ fontSize: 13, color: 'var(--aim-text-tertiary)', padding: '8px 0' }}>
-        尚无技能包。包必须包含 SKILL.md（name、description、license）与 references/ 或 assets/ 文本资源；不支持脚本、模型覆盖、fork、自动 MCP 或命令扩展。
+        尚无技能包。包必须包含 SKILL.md（name、description、license）。固定脚本包另含 scripts/worker.py 与 execution.json；依赖必须预置在不可变镜像中，不接受任意命令或运行时下载依赖。
       </div>
       : <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {data.map((pkg) => <div key={pkg.skill_id}>
@@ -154,7 +165,7 @@ export function BotSkillSection({ botId, canManage }: { botId: string; canManage
           </div>
         </div>)}
       </div>}
-    <Modal title="导入 instruction skill 包" open={importOpen} confirmLoading={importMutation.isPending}
+    <Modal title="导入技能包归档" open={importOpen} confirmLoading={importMutation.isPending}
       onCancel={() => setImportOpen(false)} onOk={() => form.submit()} okText="导入为候选">
       <Form form={form} layout="vertical" onFinish={(values) => importMutation.mutate(values)}>
         <Form.Item label="能力包（zip）" required>
@@ -162,8 +173,26 @@ export function BotSkillSection({ botId, canManage }: { botId: string; canManage
             <Button>选择 zip 包</Button>
           </Upload>
         </Form.Item>
+        <Form.Item name="fixed_script" valuePropName="checked">
+          <Checkbox>固定脚本包（导入统一候选治理，不直接执行）</Checkbox>
+        </Form.Item>
+        {fixedScript && <>
+          <p role="note">zip 根目录保留 SKILL.md，脚本只能为 scripts/worker.py；execution.json 必须包含 image_digest（sha256: 加 64 位小写十六进制）与 entry_point（python3 -I -B /opt/aim/worker.py）。依赖预置在镜像。导入后在“候选审阅”逐一核对全文，并由可信 Manager 人工策略准入后才能验证。</p>
+          <Form.Item name="input_b64" label="获准代表输入 CSV（原始字节 base64）" rules={[{ required: true, message: '提供获准 CSV 样例' }]}>
+            <Input.TextArea rows={3} maxLength={87384} />
+          </Form.Item>
+          <Form.Item name="expected_output_b64" label="独立确定的 result.csv（原始字节 base64）" rules={[{ required: true, message: '提供独立预期产物' }]}>
+            <Input.TextArea rows={3} maxLength={87384} />
+          </Form.Item>
+          <Form.Item name="source_license_deadline" label="样例许可截止时间（本地时间）" rules={[{ required: true, message: '填写未来的许可截止时间' }]}>
+            <Input type="datetime-local" />
+          </Form.Item>
+          <Form.Item name="evidence_authorized" valuePropName="checked" rules={[{ validator: (_, value) => value === true ? Promise.resolve() : Promise.reject(new Error('须明确确认材料许可')) }]}>
+            <Checkbox>我确认此包、样例及独立预期结果已获准用于验证；许可确认不是执行审查或发布批准。</Checkbox>
+          </Form.Item>
+        </>}
         <Form.Item name="representative_task" label="代表任务" rules={[{ required: true, message: '填写能区分正确与退化的代表性任务' }]}>
-          <Input.TextArea rows={3} maxLength={16384} placeholder="任务输入；验证会用 Bot 当前模型真实执行" />
+          <Input.TextArea rows={3} maxLength={16384} placeholder={fixedScript ? '描述获准 CSV 输入与应执行的固定处理' : '任务输入；验证会用 Bot 当前模型真实执行'} />
         </Form.Item>
         <Form.Item name="expected_output" label="预期明确结果" rules={[{ required: true, message: '必须给出可核对的具体结果，而不是“非空”' }]}>
           <Input.TextArea rows={2} maxLength={2048} placeholder="给出具体预期文本，验证将核对明确结果，不接受仅非空或退出码" />

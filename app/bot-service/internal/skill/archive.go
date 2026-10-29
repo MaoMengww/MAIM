@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"path"
@@ -28,9 +29,10 @@ const (
 )
 
 var (
-	skillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
-	licensePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+\- ]{0,127}$`)
-	scriptExtensions = []string{".sh", ".bash", ".zsh", ".fish", ".py", ".pyc", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".pm", ".php", ".lua", ".exe", ".dll", ".so", ".dylib", ".bat", ".cmd", ".ps1", ".jar", ".wasm"}
+	skillNamePattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+	imageDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	licensePattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+\- ]{0,127}$`)
+	scriptExtensions   = []string{".sh", ".bash", ".zsh", ".fish", ".py", ".pyc", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".pm", ".php", ".lua", ".exe", ".dll", ".so", ".dylib", ".bat", ".cmd", ".ps1", ".jar", ".wasm"}
 	// The instruction-only path does not interpret these package extensions.
 	unsupportedFrontmatter = []string{"model", "models", "fork", "mcp", "mcp_servers", "mcpservers", "hooks", "commands", "command", "allowed-tools", "allowed_tools", "scripts"}
 	allowedFrontmatter     = []string{"name", "description", "license"}
@@ -70,6 +72,9 @@ func ParseArchive(encoded string) (*Package, error) {
 	total := int64(0)
 	for _, member := range reader.File {
 		name := member.Name
+		if member.FileInfo().IsDir() {
+			name = strings.TrimSuffix(name, "/")
+		}
 		if name == "" || len(name) > maxResourceNameBytes || strings.ContainsAny(name, "\\\x00") || strings.HasPrefix(name, "/") || path.Clean(name) != name || strings.HasPrefix(name, "../") || name == ".." {
 			return nil, invalid(fmt.Sprintf("unsafe archive member path %q", name))
 		}
@@ -83,7 +88,7 @@ func ParseArchive(encoded string) (*Package, error) {
 			return nil, invalid(fmt.Sprintf("archive member %q is duplicated", name))
 		}
 		if !allowedMember(name) {
-			return nil, invalid(fmt.Sprintf("archive member %q is outside the instruction package roots (SKILL.md, references/, assets/)", name))
+			return nil, invalid(fmt.Sprintf("archive member %q is outside supported roots (SKILL.md, references/, assets/, scripts/worker.py, execution.json)", name))
 		}
 		if member.UncompressedSize64 > maxMemberBytes {
 			return nil, invalid(fmt.Sprintf("archive member %q exceeds the 1 MiB limit", name))
@@ -118,11 +123,29 @@ func ParseArchive(encoded string) (*Package, error) {
 	if err := validateMetadata(pkg); err != nil {
 		return nil, err
 	}
-	for name, content := range files {
-		if name == "SKILL.md" {
-			continue
+	worker, hasWorker := files["scripts/worker.py"]
+	manifest, hasManifest := files["execution.json"]
+	if hasWorker != hasManifest {
+		return nil, invalid("fixed scripts require both scripts/worker.py and execution.json")
+	}
+	if hasWorker {
+		var execution struct {
+			ImageDigest string `json:"image_digest"`
+			EntryPoint  string `json:"entry_point"`
 		}
-		pkg.Resources[name] = string(content)
+		decoder := json.NewDecoder(bytes.NewReader(manifest))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&execution) != nil || decoder.Decode(new(any)) != io.EOF || len(worker) == 0 || len(worker) > 65536 ||
+			!imageDigestPattern.MatchString(execution.ImageDigest) || execution.EntryPoint != "python3 -I -B /opt/aim/worker.py" {
+			return nil, invalid("execution.json requires an immutable sha256 image and the fixed CSV entry; worker.py must contain 1-65536 bytes")
+		}
+		pkg.Scripts = map[string]string{"worker.py": string(worker)}
+		pkg.ImageDigest, pkg.EntryPoint = execution.ImageDigest, execution.EntryPoint
+	}
+	for name, content := range files {
+		if name != "SKILL.md" && name != "execution.json" && name != "scripts/worker.py" {
+			pkg.Resources[name] = string(content)
+		}
 	}
 	pkg.Digest, err = packageDigest(files)
 	if err != nil {
@@ -141,7 +164,7 @@ const (
 )
 
 func allowedMember(name string) bool {
-	if name == "SKILL.md" {
+	if name == "SKILL.md" || name == "execution.json" || name == "scripts/worker.py" {
 		return true
 	}
 	if strings.HasPrefix(name, "scripts/") {

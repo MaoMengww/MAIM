@@ -128,13 +128,22 @@ func (c *Client) Delete(ctx context.Context, objectName string) error {
 }
 
 func (c *Client) PresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
+	return c.presignedGetURL(ctx, c.signer, objectName, expiry)
+}
+
+// InternalPresignedURL signs the service-reachable endpoint, not the browser endpoint.
+func (c *Client) InternalPresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
+	return c.presignedGetURL(ctx, c.client, objectName, expiry)
+}
+
+func (c *Client) presignedGetURL(ctx context.Context, signer *minio.Client, objectName string, expiry time.Duration) (string, error) {
 	if objectName == "" {
 		return "", fmt.Errorf("object name is required")
 	}
 	if expiry <= 0 {
 		expiry = time.Hour
 	}
-	url, err := c.signer.PresignedGetObject(ctx, c.bucket, objectName, expiry, nil)
+	url, err := signer.PresignedGetObject(ctx, c.bucket, objectName, expiry, nil)
 	if err != nil {
 		return "", fmt.Errorf("generate presigned url failed: %w", err)
 	}

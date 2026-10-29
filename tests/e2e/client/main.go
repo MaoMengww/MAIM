@@ -148,17 +148,19 @@ type event struct {
 }
 
 type driver struct {
-	gateway       string
-	client        *http.Client
-	timeout       time.Duration
-	provider      string
-	ingestTimeout time.Duration
-	queryDeadline time.Duration
-	realtimeRPC   string
-	userRPC       string
-	controlDir    string
-	fileRPC       string
-	llmRPC        string
+	gateway         string
+	client          *http.Client
+	timeout         time.Duration
+	provider        string
+	ingestTimeout   time.Duration
+	queryDeadline   time.Duration
+	realtimeRPC     string
+	userRPC         string
+	controlDir      string
+	fileRPC         string
+	llmRPC          string
+	workerPath      string
+	executionPolicy string
 }
 
 func main() {
@@ -193,7 +195,7 @@ func run(args []string) error {
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
 	failFast := flags.Bool("fail-fast", false, "首个场景失败立即返回，不继续等待后续生命周期检查点")
-	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-run-reviews|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-run-reviews|bot-authorizations|bot-runtime|bot-runtime-cross-instance|bot-file-processing|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
@@ -203,6 +205,8 @@ func run(args []string) error {
 	userRPC := flags.String("user-rpc", "user-service:50051", "现有用户domain gRPC入口")
 	fileRPC := flags.String("file-rpc", "file-service:50054", "文件domain批量删除 gRPC入口")
 	llmRPC := flags.String("llm-rpc", "llm-gateway:50056", "真实模型domain gRPC入口")
+	workerPath := flags.String("worker-path", "", "人工审查冻结的固定 worker.py 源文件")
+	executionPolicy := flags.String("execution-policy", "", "执行节点 root 安装的策略 JSON")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -288,6 +292,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"bot-skills", *realtimeA, *realtimeB}}
 	case "bot-run-reviews":
 		scenarios = []scenarioSpec{{"bot-run-reviews", *realtimeA, *realtimeB}}
+	case "bot-file-processing":
+		scenarios = []scenarioSpec{{"bot-file-processing", *realtimeA, *realtimeB}}
 	case "bot-collaboration":
 		scenarios = []scenarioSpec{{"bot-collaboration", *realtimeA, *realtimeB}}
 	case "bot-recovery":
@@ -321,7 +327,7 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-run-reviews|bot-authorizations|bot-runtime|bot-runtime-cross-instance|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-run-reviews|bot-authorizations|bot-runtime|bot-runtime-cross-instance|bot-file-processing|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	}
 	if *cross && *selected == "bot-runtime" {
 		scenarios = append(scenarios, scenarioSpec{"bot-runtime-cross-instance", *realtimeA, *realtimeB})
@@ -329,7 +335,7 @@ func run(args []string) error {
 		scenarios = append(scenarios, scenarioSpec{"cross-instance", *realtimeA, *realtimeB})
 	}
 	for _, scenario := range scenarios {
-		if scenario.name == "bot-run-reviews" {
+		if scenario.name == "bot-run-reviews" || scenario.name == "bot-file-processing" {
 			if _, err := endpoint(*provider, "http", "https"); err != nil {
 				return fmt.Errorf("配置复盘 provider: %w", err)
 			}
@@ -353,7 +359,8 @@ func run(args []string) error {
 	}
 	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout,
 		provider: strings.TrimRight(*provider, "/"), ingestTimeout: *ingestTimeout, queryDeadline: *queryDeadline, controlDir: *controlDir,
-		realtimeRPC: *realtimeRPC, userRPC: *userRPC, fileRPC: *fileRPC, llmRPC: *llmRPC}
+		realtimeRPC: *realtimeRPC, userRPC: *userRPC, fileRPC: *fileRPC, llmRPC: *llmRPC,
+		workerPath: *workerPath, executionPolicy: *executionPolicy}
 	defer d.client.CloseIdleConnections()
 	var failures []error
 	for _, scenario := range scenarios {
@@ -394,6 +401,8 @@ func run(args []string) error {
 			err = d.botSkills(scenario.a, scenario.b)
 		case "bot-run-reviews":
 			err = d.botRunReviews()
+		case "bot-file-processing":
+			err = d.botFileProcessing()
 		case "bot-collaboration":
 			err = d.botCollaboration(scenario.a, scenario.b)
 		case "bot-recovery":
@@ -446,6 +455,8 @@ func run(args []string) error {
 			fmt.Println("E2E PASS: bot-authorizations public REST/WS resource read/share/private/revocation and exact external action authority")
 		} else if scenario.name == "bot-run-reviews" {
 			fmt.Println("E2E PASS: bot-run-reviews 公开客户端确定性合同回归；不代表真实模型提炼质量")
+		} else if scenario.name == "bot-file-processing" {
+			fmt.Println("E2E PASS: bot-file-processing 公开客户端上传CSV → 固定脚本skill发布 → 真实Docker执行 → 正式文件/唯一消息 → 回收后下载与撤权边界")
 		} else if scenario.name == "bot-collaboration" {
 			fmt.Println("E2E PASS: bot-collaboration explicit activity rules and independent delegated Run outcomes")
 		} else if scenario.name == "bot-compaction" {

@@ -79,6 +79,17 @@ func (s *Service) candidateFrozenSources(ctx context.Context, tx *gorm.DB, r *mo
 		if err := s.candidateFrozenSources(ctx, tx, &source, user, visited); err != nil {
 			return err
 		}
+		if len(content.SourceVersionIDs) > 0 {
+			// Publication does not erase the material ancestry explicitly added
+			// by reintegration, even when a later Run freezes this child version.
+			state := &candidateState{Row: candidate, Content: content, Review: review, Run: source, Viewer: user}
+			if err := tx.Where("id = ?", r.BotID).Take(&state.Bot).Error; err != nil {
+				return err
+			}
+			if err := s.candidateIntegratedSources(ctx, tx, state, user, make(map[string]bool)); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

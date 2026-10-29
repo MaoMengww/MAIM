@@ -46,6 +46,10 @@ func (a *minioAdapter) PresignedURL(ctx context.Context, objectName string, expi
 	return a.cli.PresignedURL(ctx, objectName, expiry)
 }
 
+func (a *minioAdapter) InternalPresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
+	return a.cli.InternalPresignedURL(ctx, objectName, expiry)
+}
+
 func (a *minioAdapter) PresignedPutURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
 	return a.cli.PresignedPutURL(ctx, objectName, expiry)
 }

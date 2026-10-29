@@ -232,8 +232,30 @@ export interface BotRun {
   error?: string;
   sources: RunSource[];
   frozen_skills: FrozenSkill[];
+  execution?: RunExecution;
   steps: { version: number; stage: string; created_at: number }[];
   created_at: number;
+  updated_at: number;
+}
+
+export interface RunExecution {
+  status: 'intent' | 'created' | 'running' | 'stopping' | 'cleaned' | 'succeeded' | 'failed' | 'timeout' | 'output_limit' | 'stopped' | 'unknown' | 'unconfirmed';
+  outcome: string;
+  failure_class?: string;
+  skill_version_id: string;
+  input_file_id: string;
+  execution_id?: string;
+  container_id?: string;
+  input_sha256: string;
+  image_id: string;
+  worker_sha256: string;
+  entry_point: string;
+  output_sha256?: string;
+  output_bytes?: number;
+  result_file_id?: string;
+  stop_confirmed: boolean;
+  removed: boolean;
+  resources_absent: boolean;
   updated_at: number;
 }
 

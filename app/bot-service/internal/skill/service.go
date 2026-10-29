@@ -77,7 +77,7 @@ func (s *Service) Operation(ctx context.Context, caller, botID, operation string
 		}
 		if json.Unmarshal(body, &request) == nil && identity.Validate(request.CandidateID) == nil {
 			var count int64
-			if err := s.db.WithContext(ctx).Table("bot.skill_candidates").Where("id = ? AND bot_id = ? AND source_review_id IS NOT NULL", request.CandidateID, botID).Count(&count).Error; err != nil {
+			if err := s.db.WithContext(ctx).Table("bot.skill_candidates").Where("id = ? AND bot_id = ? AND (source_review_id IS NOT NULL OR review_content IS NOT NULL)", request.CandidateID, botID).Count(&count).Error; err != nil {
 				return nil, err
 			}
 			if count != 0 {
@@ -171,6 +171,9 @@ func (s *Service) importPackage(ctx context.Context, bot *botRow, body []byte) (
 		}
 		return nil, err
 	}
+	if len(pkg.Scripts) > 0 {
+		return nil, status.Error(codes.FailedPrecondition, "fixed-script archives require /skill-candidates/import and trusted code-review governance")
+	}
 	return s.mutate(ctx, bot.ID, *bot.OwnerID, "import", request.SubmissionKey, body, func(tx *gorm.DB) (any, error) {
 		// Serialize package identity creation across concurrent imports.
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", "skill-package:"+bot.ID+":"+*bot.OwnerID+":"+pkg.Name).Error; err != nil {
@@ -250,7 +253,7 @@ func (s *Service) list(ctx context.Context, bot *botRow) ([]PackageView, error) 
 			}
 		}
 		var candidates []candidate
-		if err := s.db.WithContext(ctx).Where("skill_id = ? AND source_review_id IS NULL", pkg.ID).Order("created_at DESC").Find(&candidates).Error; err != nil {
+		if err := s.db.WithContext(ctx).Where("skill_id = ? AND source_review_id IS NULL AND review_content IS NULL", pkg.ID).Order("created_at DESC").Find(&candidates).Error; err != nil {
 			return nil, err
 		}
 		for index := range candidates {
@@ -829,7 +832,7 @@ func FreezeScoped(ctx context.Context, db *gorm.DB, botID string, explicit []str
 		if err := db.WithContext(ctx).Where("id = ?", row.SkillID).Take(&pkg).Error; err != nil {
 			return nil, err
 		}
-		result = append(result, Frozen{VersionID: row.ID, PackageID: row.SkillID, PublisherID: pkg.PublisherID, ScopeID: botID, ScopeKey: row.ScopeKey, Version: row.Version, Name: row.Name, Description: row.Description, Digest: row.Digest, Explicit: selected[row.ID]})
+		result = append(result, Frozen{VersionID: row.ID, PackageID: row.SkillID, PublisherID: pkg.PublisherID, ScopeID: botID, ScopeKey: row.ScopeKey, Version: row.Version, Name: row.Name, Description: row.Description, Digest: row.Digest, Explicit: selected[row.ID], Executable: executionCapable(row.ValidationContract)})
 	}
 	sort.SliceStable(result, func(i, j int) bool {
 		if result[i].Name != result[j].Name {

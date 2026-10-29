@@ -1,15 +1,21 @@
 import type { GovernedCandidate } from '@/services/skillCandidate';
 
-function CandidateFiles({ title, files, baseline }: { title: string; files: Record<string, string>; baseline?: Record<string, string> }) {
+function CandidateFiles({ title, files, baseline, beforeLabel = '基线（原）', afterLabel = '候选（新）' }: {
+  title: string;
+  files: Record<string, string>;
+  baseline?: Record<string, string>;
+  beforeLabel?: string;
+  afterLabel?: string;
+}) {
   const names = [...new Set([...Object.keys(baseline || {}), ...Object.keys(files)])].sort();
   return <details className="skill-candidate-details">
-    <summary>{title} · 基线与候选（{names.length}）</summary>
+    <summary>{title} · {beforeLabel}与{afterLabel}（{names.length}）</summary>
     {baseline == null && <p>未提供可核对的基线材料；不能推断原版没有此文件。</p>}
     {names.map((name) => <details key={name} className="skill-candidate-details">
       <summary>{name} · {baseline == null ? '基线未提供' : baseline[name] === files[name] ? '未变更' : !(name in files) ? '删除' : !(name in baseline) ? '新增' : '修改'}</summary>
       <div className="skill-candidate-diff">
-        <section><strong>基线（原）</strong><pre tabIndex={0} aria-label={`基线${title}：${name}`}>{baseline == null ? '（基线未提供）' : baseline[name] ?? '（无此文件）'}</pre></section>
-        <section><strong>候选（新）</strong><pre tabIndex={0} aria-label={`候选${title}：${name}`}>{files[name] ?? '（已删除）'}</pre></section>
+        <section><strong>{beforeLabel}</strong><pre tabIndex={0} aria-label={`${beforeLabel}${title}：${name}`}>{baseline == null ? '（基线未提供）' : baseline[name] ?? '（无此文件）'}</pre></section>
+        <section><strong>{afterLabel}</strong><pre tabIndex={0} aria-label={`${afterLabel}${title}：${name}`}>{files[name] ?? '（已删除）'}</pre></section>
       </div>
     </details>)}
     {names.length === 0 && <p>无{title}。</p>}
@@ -30,16 +36,42 @@ export function CandidateContent({ candidate }: { candidate: GovernedCandidate }
     <dl className="skill-candidate-meta">
       <dt>目标 / 适用条件</dt><dd>{candidate.target_goal} / {candidate.applicability}</dd>
       <dt>变更理由</dt><dd>{candidate.rationale}</dd>
-      <dt>来源 Run</dt><dd>{candidate.source_run_id}</dd>
+      <dt>来源</dt><dd>{candidate.origin === 'archive' ? '管理者归档导入 · 无来源 Run · 未审脚本不执行' : candidate.source_run_id}</dd>
       <dt>发布者 / 范围</dt><dd>{candidate.publisher_id} / {candidate.scope_key}</dd>
       <dt>候选 / 技能</dt><dd>{candidate.id} / {candidate.skill_id}</dd>
       <dt>基线版本</dt><dd>{candidate.baseline_version_id || '无（新建候选）'}</dd>
+      <dt>当前版本</dt><dd>{candidate.current_version_id || '无当前版本'}</dd>
       <dt>内容摘要</dt><dd><code>{candidate.digest}</code></dd>
       <dt>证据摘要</dt><dd><code>{candidate.evidence_digest || '未提供'}</code></dd>
       <dt>证据身份 / 修订</dt><dd>{candidate.evidence_id || '未记录'} / {candidate.evidence_revision}</dd>
       <dt>来源许可截止</dt><dd>{candidate.source_license_expires_at ? new Date(candidate.source_license_expires_at * 1000).toLocaleString('zh-CN') : '按当前已确认来源许可限制'}</dd>
       <dt>材料期限</dt><dd>{new Date(candidate.expires_at * 1000).toLocaleString('zh-CN')}</dd>
     </dl>
+    {candidate.baseline_stale && <section aria-label="过时基线与当前版本对照">
+      <p role="alert">候选基线已过时：原基线 {candidate.baseline_version_id || '无'}，当前版本 {candidate.current_version_id || '无'}。不会自动合并或覆盖当前版本；请对照后人工提交完整重新整合包。</p>
+      <p>旧验证结论与发布批准不能用于重新整合后的内容。脚本、镜像或入口发生变化时，必须重新进行可信人工代码审查，再重新验证和批准。</p>
+      {!candidate.current_version_id ? <p role="note">当前没有可绑定的已发布版本，不能提交重新整合；请刷新并核实当前版本状态。</p>
+        : !candidate.current_content ? <p role="note">当前版本材料未提供或未获准查看，不能推断为空包，也不能重新整合。请重新核验材料权限并刷新。</p>
+          : <details className="skill-candidate-details" open>
+            <summary>原基线与当前已发布版本 · 完整包对照</summary>
+            <div className="skill-candidate-diff">
+              <section><strong>原基线指令</strong><pre tabIndex={0} aria-label="重新整合原基线指令">{baseline?.instructions ?? (candidate.baseline_version_id ? '（基线材料未提供）' : '（无原基线）')}</pre></section>
+              <section><strong>当前版本指令</strong><pre tabIndex={0} aria-label="重新整合当前版本指令">{candidate.current_content.instructions || '（空指令）'}</pre></section>
+            </div>
+            <CandidateFiles title="资源材料" baseline={baseline?.resources ?? emptyBaseline} files={candidate.current_content.resources} beforeLabel="原基线" afterLabel="当前版本" />
+            <CandidateFiles title="完整脚本" baseline={baseline?.scripts ?? emptyBaseline} files={candidate.current_content.scripts} beforeLabel="原基线" afterLabel="当前版本" />
+            <div className="skill-candidate-diff">
+              <section><strong>原基线执行环境</strong><dl className="skill-candidate-meta">
+                <dt>固定镜像摘要</dt><dd><code>{baseline?.image_digest ?? (candidate.baseline_version_id ? '（基线材料未提供）' : '（无原基线）')}</code></dd>
+                <dt>固定入口</dt><dd><code>{baseline?.entry_point ?? (candidate.baseline_version_id ? '（基线材料未提供）' : '（无原基线）')}</code></dd>
+              </dl></section>
+              <section><strong>当前版本执行环境</strong><dl className="skill-candidate-meta">
+                <dt>固定镜像摘要</dt><dd><code>{candidate.current_content.image_digest || '（无脚本镜像）'}</code></dd>
+                <dt>固定入口</dt><dd><code>{candidate.current_content.entry_point || '（无脚本入口）'}</code></dd>
+              </dl></section>
+            </div>
+          </details>}
+    </section>}
     <details className="skill-candidate-details" open>
       <summary>指令差异 · 基线与候选对照</summary>
       {candidate.instructions === candidate.baseline_instructions && <p>指令内容与基线一致。</p>}

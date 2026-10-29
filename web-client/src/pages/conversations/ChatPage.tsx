@@ -416,6 +416,20 @@ const RUN_OUTPUT: Record<BotRun['output_status'], string> = {
   none: '尚无结果', generated: '结果已生成 · 尚未发送', pending: '结果待提交 · 尚未发送',
   committed: '最终消息已提交', failed: '输出提交失败 · 未发送',
 };
+const RUN_EXECUTION: Record<string, { label: string; description: string; color: string }> = {
+  intent: { label: '文件执行已登记 · 尚未提交', description: '已持久化本次执行身份；尚未创建容器。', color: 'default' },
+  created: { label: '文件执行容器已创建', description: '尚未取得运行与权限核验结果。', color: 'processing' },
+  running: { label: '固定脚本执行中', description: '输入、包、镜像与限额按接受时的冻结身份执行。', color: 'processing' },
+  stopping: { label: '已请求停止 · 待确认', description: '容器停止与资源回收尚未确认。', color: 'warning' },
+  cleaned: { label: '执行已清理', description: '容器与本执行自有可写资源已回收。', color: 'default' },
+  succeeded: { label: '执行成功 · 文件已登记', description: '确切的结果字节已登记为正式文件资源。', color: 'success' },
+  failed: { label: '执行失败', description: '固定脚本或执行环境失败，未登记正式结果。', color: 'error' },
+  timeout: { label: '执行超时 · 已收敛', description: '执行时限到达后整容器停止并完成清理；未生成正式结果。', color: 'error' },
+  output_limit: { label: '输出或日志超限', description: '执行触发固定输出/日志硬上限并停止；未生成正式结果。', color: 'error' },
+  stopped: { label: '已停止 · 未生成结果', description: '停止请求已收敛，本次没有可交付的结果文件。', color: 'default' },
+  unknown: { label: '执行或回收未确认', description: '不能从断流或容器对象消失判断已停止；实际进程、清理或外部副作用未知。', color: 'warning' },
+  unconfirmed: { label: '执行或回收未确认', description: '不能从断流或容器对象消失判断已停止；实际进程、清理或外部副作用未知。', color: 'warning' },
+};
 const RUN_STOP: Record<BotRun['stop_status'], { label: string; description: string; color: string }> = {
   none: { label: '未请求停止', description: '尚无停止请求，输出流关闭也不等于实际停工。', color: 'default' },
   requested: { label: '停止请求已接受 · 待确认', description: 'AIM 已接受停止请求；尚未收到执行器实际停工确认。', color: 'warning' },
@@ -624,6 +638,32 @@ function RunCard({ run, botName, requesterName, nameForUser, canContinue, active
     <RunDelegation run={run} nameForIdentity={nameForUser} />
     {run.context_notice && <p className="chat-run-notice" role="status">{run.context_notice}</p>}
     <div className="chat-run-stage" role="status">当前阶段：{RUN_STAGE[run.stage] || run.stage} · {RUN_OUTPUT[run.output_status]}</div>
+    {run.execution && <div className="chat-run-details" data-execution-status={run.execution.status} data-execution-outcome={run.execution.outcome}>
+      <div className="chat-run-meta">
+        <Tag color={RUN_EXECUTION[run.execution.status]?.color || 'default'}>{RUN_EXECUTION[run.execution.status]?.label || run.execution.status}</Tag>
+        <span>技能版本 {run.execution.skill_version_id}</span>
+        <span>输入文件 {run.execution.input_file_id}</span>
+        {run.execution.output_bytes != null && <span>结果 {run.execution.output_bytes} 字节</span>}
+      </div>
+      <p>{RUN_EXECUTION[run.execution.status]?.description || '文件执行状态由管理侧记录。'}</p>
+      {run.execution.failure_class && <p>失败类别：{run.execution.failure_class === 'worker_failure' ? '固定脚本或输入预算' : '执行环境'}</p>}
+      <details><summary>执行与产物身份</summary>
+        <dl className="chat-run-identities">
+          {run.execution.execution_id && <><dt>管理侧执行 ID</dt><dd>{run.execution.execution_id}</dd></>}
+          {run.execution.container_id && <><dt>容器 ID</dt><dd>{run.execution.container_id}</dd></>}
+          <dt>镜像摘要</dt><dd>{run.execution.image_id}</dd>
+          <dt>脚本摘要</dt><dd>{run.execution.worker_sha256}</dd>
+          <dt>固定入口</dt><dd>{run.execution.entry_point}</dd>
+          <dt>输入摘要</dt><dd>{run.execution.input_sha256}</dd>
+          {run.execution.output_sha256 && <><dt>产物摘要</dt><dd>{run.execution.output_sha256}</dd></>}
+        </dl>
+      </details>
+      <div className="chat-run-meta">
+        <Tag>{run.execution.removed ? '容器已删除' : '容器删除未确认'}</Tag>
+        <Tag>{run.execution.resources_absent ? '自有资源已消失' : '自有资源未确认'}</Tag>
+        <Tag>{run.execution.stop_confirmed ? 'Wait/Inspect 停止已确认' : '停止未确认'}</Tag>
+      </div>
+    </div>}
     <RunActions run={run} onUpdated={onUpdated} />
     {run.executor_status === 'lost' && <div className="chat-run-waiting" role="status">执行器认领已过期，旧执行器不能提交进展或结果。只有无未知外部行动的未结束工作可以明确恢复；失联不表示外部行动已停止。</div>}
     {run.stage === 'action_outcome_unknown' && <div className="chat-run-waiting" role="status">外部行动可能已经完成，尚无可核对的结果。请人工核对外部系统；AIM 不会重做行动，也不会自动回滚已发生的副作用。</div>}

@@ -33,7 +33,9 @@ type publicRun struct {
 	Status          string                `json:"status"`
 	Stage           string                `json:"stage"`
 	ResultText      string                `json:"result_text"`
+	ResultType      string                `json:"result_type"`
 	ResultContent   json.RawMessage       `json:"result_content"`
+	Execution       *fileExecutionView    `json:"execution"`
 	OutputStatus    string                `json:"output_status"`
 	MessageID       *entityID             `json:"message_id"`
 	Error           string                `json:"error"`

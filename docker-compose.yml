@@ -410,7 +410,11 @@ services:
     image: aim-bot-service:latest
     container_name: aim-bot-service
     command: ["-f", "/app/etc/bot.yaml", "-role", "control"]
-    environment: *aim-env
+    environment:
+      <<: *aim-env
+      AIM_EXECUTION_SOCKET: ${AIM_EXECUTION_SOCKET:-}
+      AIM_EXECUTION_SSH_TARGET: ${AIM_EXECUTION_SSH_TARGET:-}
+      AIM_EXECUTION_SSH_IDENTITY_FILE: ${AIM_EXECUTION_SSH_IDENTITY_FILE:-}
     ports:
       - "50058:50058"
     depends_on:
@@ -434,8 +438,9 @@ services:
       # Keep runtime metrics off the control plane's default port; both roles
       # share one image and may share a host.
       BOT_METRICS_PORT: "9119"
-      AIM_SKILL_VALIDATION_SSH_TARGET: ${AIM_SKILL_VALIDATION_SSH_TARGET:-}
-      AIM_SKILL_VALIDATION_SSH_IDENTITY_FILE: ${AIM_SKILL_VALIDATION_SSH_IDENTITY_FILE:-}
+      AIM_EXECUTION_SOCKET: ${AIM_EXECUTION_SOCKET:-}
+      AIM_EXECUTION_SSH_TARGET: ${AIM_EXECUTION_SSH_TARGET:-}
+      AIM_EXECUTION_SSH_IDENTITY_FILE: ${AIM_EXECUTION_SSH_IDENTITY_FILE:-}
     depends_on:
       postgres:
         condition: service_healthy

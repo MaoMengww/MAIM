@@ -542,6 +542,17 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 				tools = append(tools, definition)
 			}
 		}
+		if slices.ContainsFunc(frozenSkills, func(entry skill.Frozen) bool { return entry.Executable }) {
+			definition := executionTool()
+			if slices.ContainsFunc(tools, func(t component.RunTool) bool { return t.Name == definition.Name }) {
+				return nil, status.Error(codes.FailedPrecondition, "reserved runtime tool name")
+			}
+			definition.DefinitionHash, err = hash(definition)
+			if err != nil {
+				return nil, err
+			}
+			tools = append(tools, definition)
+		}
 		slices.SortFunc(tools, func(a, b component.RunTool) int { return strings.Compare(a.Name, b.Name) })
 		prompt := bot.SystemPrompt
 		if prompt == "" {
@@ -563,6 +574,7 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 		if catalog := skillCatalogPrompt(frozenSkills); catalog != "" {
 			prompt += "\n\n" + catalog
 		}
+		prompt += "\n\nA frozen skill marked as an executable fixed capability can process exactly one currently accepted CSV file. Call run_skill_script with that skill's version_id and the accepted material file_id only when the task asks to process the file. The script, image, entry point, structured parameters and budgets are fixed by the platform; never invent, replace or pass them. The registered result.csv becomes this Run's formal file result; do not claim a container path, temporary URL or unregistered file."
 		prompt += "\n\nBrowse authorized document titles with list_knowledge_documents and read parsed fragments with read_knowledge_document when more context is needed. Preserve range and continuation information; a partial page is not the full document. read_conversation_history can read only this Run's explicit history grant, never arbitrary conversations or grants. If background or history authorization is missing, ask_for_input for explicit materials or report the gap. No automatic history grants or whole-conversation reads."
 		config = ExecutionConfig{ExecutorType: "builtin", Capabilities: model.ExecutorCapabilities{InputTypes: []string{"text"}, SupportsInput: true, SupportsStop: true, SupportsResume: true}, AssemblyVersion: assemblyVersion, BotName: bot.Name, Model: executionModel, OwnerID: bot.OwnerID, SystemPrompt: prompt, Temperature: bot.Temperature, MaxSteps: min(max(bot.MaxStep, 1), 16), MaxContextTokens: bot.MaxContextTokens, MaxOutputTokens: 2048, Streaming: bot.StreamingEnabled, Tools: tools, Skills: frozenSkills}
 		if config.MaxContextTokens <= 0 {
@@ -738,7 +750,7 @@ func (s *Service) authorizeRun(ctx context.Context, r *model.Run, sharing bool, 
 		}
 		for _, tool := range config.Tools {
 			if tool.ServerID == "runtime" {
-				if !slices.Contains([]string{"ask_for_input", "delegate_run", "delegation_result", "load_skill", "read_skill_resource"}, tool.Name) && !isRuntimeReadTool(tool.Name) {
+				if !slices.Contains([]string{"ask_for_input", "delegate_run", "delegation_result", "load_skill", "read_skill_resource", "run_skill_script"}, tool.Name) && !isRuntimeReadTool(tool.Name) {
 					return status.Error(codes.PermissionDenied, "unknown runtime tool")
 				}
 				continue
@@ -821,6 +833,9 @@ func (s *Service) Get(ctx context.Context, id, user string) (*model.Run, error) 
 		}
 	}
 	public := r.Public()
+	if err := s.attachExecution(ctx, &public); err != nil {
+		return nil, err
+	}
 	if err := s.decorateControl(ctx, &public, user); err != nil {
 		return nil, err
 	}
@@ -865,6 +880,9 @@ func (s *Service) List(ctx context.Context, convID, user string, limit int) ([]m
 			}
 		}
 		public := r.Public()
+		if err := s.attachExecution(ctx, &public); err != nil {
+			return nil, err
+		}
 		if err := s.decorateControl(ctx, &public, user); err != nil {
 			return nil, err
 		}

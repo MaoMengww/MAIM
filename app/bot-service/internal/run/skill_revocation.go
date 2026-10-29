@@ -35,7 +35,11 @@ func (s *Service) guardCandidateEvidence(parent context.Context, state *candidat
 		defer ticker.Stop()
 		for {
 			err := s.svc.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-				if err := s.candidateSourceRevocation(ctx, tx, &state.Run); err != nil {
+				if archiveCandidate(state) {
+					if err := s.archiveAuthority(tx, state); err != nil {
+						return err
+					}
+				} else if err := s.candidateSourceRevocation(ctx, tx, &state.Run); err != nil {
 					return err
 				}
 				var current governedCandidate
@@ -65,6 +69,13 @@ func (s *Service) guardCandidateEvidence(parent context.Context, state *candidat
 						var evidence reviewCandidate
 						if json.Unmarshal(row.ReviewContent, &evidence) != nil || row.PublishedVersionID == nil || evidence.ExpiresAt <= time.Now().Unix() && state.Content.baselineSample(*row.PublishedVersionID) == nil {
 							return status.Error(codes.FailedPrecondition, "baseline evidence expired")
+						}
+						if row.SourceReviewID == nil && evidence.Origin == "archive" {
+							source := &candidateState{Row: row, Content: evidence, Viewer: state.Viewer}
+							if err := s.archiveAuthority(tx, source); err != nil {
+								return err
+							}
+							continue
 						}
 						if row.SourceReviewID == nil {
 							return status.Error(codes.PermissionDenied, "baseline authority unavailable")
