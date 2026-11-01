@@ -29,6 +29,14 @@ const (
 	LLMGateway_CreateModel_FullMethodName           = "/llmgateway.LLMGateway/CreateModel"
 	LLMGateway_UpdateModel_FullMethodName           = "/llmgateway.LLMGateway/UpdateModel"
 	LLMGateway_DeleteModel_FullMethodName           = "/llmgateway.LLMGateway/DeleteModel"
+	LLMGateway_ListConnections_FullMethodName       = "/llmgateway.LLMGateway/ListConnections"
+	LLMGateway_CreateConnection_FullMethodName      = "/llmgateway.LLMGateway/CreateConnection"
+	LLMGateway_UpdateConnection_FullMethodName      = "/llmgateway.LLMGateway/UpdateConnection"
+	LLMGateway_DeleteConnection_FullMethodName      = "/llmgateway.LLMGateway/DeleteConnection"
+	LLMGateway_ListQuotaPools_FullMethodName        = "/llmgateway.LLMGateway/ListQuotaPools"
+	LLMGateway_CreateQuotaPool_FullMethodName       = "/llmgateway.LLMGateway/CreateQuotaPool"
+	LLMGateway_UpdateQuotaPool_FullMethodName       = "/llmgateway.LLMGateway/UpdateQuotaPool"
+	LLMGateway_DeleteQuotaPool_FullMethodName       = "/llmgateway.LLMGateway/DeleteQuotaPool"
 	LLMGateway_GetBillingStats_FullMethodName       = "/llmgateway.LLMGateway/GetBillingStats"
 	LLMGateway_VlmChat_FullMethodName               = "/llmgateway.LLMGateway/VlmChat"
 	LLMGateway_ListBillingRecords_FullMethodName    = "/llmgateway.LLMGateway/ListBillingRecords"
@@ -48,6 +56,14 @@ type LLMGatewayClient interface {
 	CreateModel(ctx context.Context, in *CreateModelReq, opts ...grpc.CallOption) (*ModelResp, error)
 	UpdateModel(ctx context.Context, in *UpdateModelReq, opts ...grpc.CallOption) (*ModelResp, error)
 	DeleteModel(ctx context.Context, in *DeleteModelReq, opts ...grpc.CallOption) (*DeleteModelResp, error)
+	ListConnections(ctx context.Context, in *ListConnectionsReq, opts ...grpc.CallOption) (*ListConnectionsResp, error)
+	CreateConnection(ctx context.Context, in *CreateConnectionReq, opts ...grpc.CallOption) (*ConnectionResp, error)
+	UpdateConnection(ctx context.Context, in *UpdateConnectionReq, opts ...grpc.CallOption) (*ConnectionResp, error)
+	DeleteConnection(ctx context.Context, in *DeleteConnectionReq, opts ...grpc.CallOption) (*DeleteConnectionResp, error)
+	ListQuotaPools(ctx context.Context, in *ListQuotaPoolsReq, opts ...grpc.CallOption) (*ListQuotaPoolsResp, error)
+	CreateQuotaPool(ctx context.Context, in *CreateQuotaPoolReq, opts ...grpc.CallOption) (*QuotaPoolResp, error)
+	UpdateQuotaPool(ctx context.Context, in *UpdateQuotaPoolReq, opts ...grpc.CallOption) (*QuotaPoolResp, error)
+	DeleteQuotaPool(ctx context.Context, in *DeleteQuotaPoolReq, opts ...grpc.CallOption) (*DeleteQuotaPoolResp, error)
 	GetBillingStats(ctx context.Context, in *BillingStatsReq, opts ...grpc.CallOption) (*BillingStatsResp, error)
 	VlmChat(ctx context.Context, in *VlmChatReq, opts ...grpc.CallOption) (*ChatResp, error)
 	ListBillingRecords(ctx context.Context, in *ListBillingRecordsReq, opts ...grpc.CallOption) (*ListBillingRecordsResp, error)
@@ -170,6 +186,86 @@ func (c *lLMGatewayClient) DeleteModel(ctx context.Context, in *DeleteModelReq, 
 	return out, nil
 }
 
+func (c *lLMGatewayClient) ListConnections(ctx context.Context, in *ListConnectionsReq, opts ...grpc.CallOption) (*ListConnectionsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListConnectionsResp)
+	err := c.cc.Invoke(ctx, LLMGateway_ListConnections_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMGatewayClient) CreateConnection(ctx context.Context, in *CreateConnectionReq, opts ...grpc.CallOption) (*ConnectionResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConnectionResp)
+	err := c.cc.Invoke(ctx, LLMGateway_CreateConnection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMGatewayClient) UpdateConnection(ctx context.Context, in *UpdateConnectionReq, opts ...grpc.CallOption) (*ConnectionResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConnectionResp)
+	err := c.cc.Invoke(ctx, LLMGateway_UpdateConnection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMGatewayClient) DeleteConnection(ctx context.Context, in *DeleteConnectionReq, opts ...grpc.CallOption) (*DeleteConnectionResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteConnectionResp)
+	err := c.cc.Invoke(ctx, LLMGateway_DeleteConnection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMGatewayClient) ListQuotaPools(ctx context.Context, in *ListQuotaPoolsReq, opts ...grpc.CallOption) (*ListQuotaPoolsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListQuotaPoolsResp)
+	err := c.cc.Invoke(ctx, LLMGateway_ListQuotaPools_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMGatewayClient) CreateQuotaPool(ctx context.Context, in *CreateQuotaPoolReq, opts ...grpc.CallOption) (*QuotaPoolResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QuotaPoolResp)
+	err := c.cc.Invoke(ctx, LLMGateway_CreateQuotaPool_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMGatewayClient) UpdateQuotaPool(ctx context.Context, in *UpdateQuotaPoolReq, opts ...grpc.CallOption) (*QuotaPoolResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QuotaPoolResp)
+	err := c.cc.Invoke(ctx, LLMGateway_UpdateQuotaPool_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMGatewayClient) DeleteQuotaPool(ctx context.Context, in *DeleteQuotaPoolReq, opts ...grpc.CallOption) (*DeleteQuotaPoolResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteQuotaPoolResp)
+	err := c.cc.Invoke(ctx, LLMGateway_DeleteQuotaPool_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *lLMGatewayClient) GetBillingStats(ctx context.Context, in *BillingStatsReq, opts ...grpc.CallOption) (*BillingStatsResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BillingStatsResp)
@@ -214,6 +310,14 @@ type LLMGatewayServer interface {
 	CreateModel(context.Context, *CreateModelReq) (*ModelResp, error)
 	UpdateModel(context.Context, *UpdateModelReq) (*ModelResp, error)
 	DeleteModel(context.Context, *DeleteModelReq) (*DeleteModelResp, error)
+	ListConnections(context.Context, *ListConnectionsReq) (*ListConnectionsResp, error)
+	CreateConnection(context.Context, *CreateConnectionReq) (*ConnectionResp, error)
+	UpdateConnection(context.Context, *UpdateConnectionReq) (*ConnectionResp, error)
+	DeleteConnection(context.Context, *DeleteConnectionReq) (*DeleteConnectionResp, error)
+	ListQuotaPools(context.Context, *ListQuotaPoolsReq) (*ListQuotaPoolsResp, error)
+	CreateQuotaPool(context.Context, *CreateQuotaPoolReq) (*QuotaPoolResp, error)
+	UpdateQuotaPool(context.Context, *UpdateQuotaPoolReq) (*QuotaPoolResp, error)
+	DeleteQuotaPool(context.Context, *DeleteQuotaPoolReq) (*DeleteQuotaPoolResp, error)
 	GetBillingStats(context.Context, *BillingStatsReq) (*BillingStatsResp, error)
 	VlmChat(context.Context, *VlmChatReq) (*ChatResp, error)
 	ListBillingRecords(context.Context, *ListBillingRecordsReq) (*ListBillingRecordsResp, error)
@@ -256,6 +360,30 @@ func (UnimplementedLLMGatewayServer) UpdateModel(context.Context, *UpdateModelRe
 }
 func (UnimplementedLLMGatewayServer) DeleteModel(context.Context, *DeleteModelReq) (*DeleteModelResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteModel not implemented")
+}
+func (UnimplementedLLMGatewayServer) ListConnections(context.Context, *ListConnectionsReq) (*ListConnectionsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListConnections not implemented")
+}
+func (UnimplementedLLMGatewayServer) CreateConnection(context.Context, *CreateConnectionReq) (*ConnectionResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateConnection not implemented")
+}
+func (UnimplementedLLMGatewayServer) UpdateConnection(context.Context, *UpdateConnectionReq) (*ConnectionResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateConnection not implemented")
+}
+func (UnimplementedLLMGatewayServer) DeleteConnection(context.Context, *DeleteConnectionReq) (*DeleteConnectionResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteConnection not implemented")
+}
+func (UnimplementedLLMGatewayServer) ListQuotaPools(context.Context, *ListQuotaPoolsReq) (*ListQuotaPoolsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListQuotaPools not implemented")
+}
+func (UnimplementedLLMGatewayServer) CreateQuotaPool(context.Context, *CreateQuotaPoolReq) (*QuotaPoolResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateQuotaPool not implemented")
+}
+func (UnimplementedLLMGatewayServer) UpdateQuotaPool(context.Context, *UpdateQuotaPoolReq) (*QuotaPoolResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateQuotaPool not implemented")
+}
+func (UnimplementedLLMGatewayServer) DeleteQuotaPool(context.Context, *DeleteQuotaPoolReq) (*DeleteQuotaPoolResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteQuotaPool not implemented")
 }
 func (UnimplementedLLMGatewayServer) GetBillingStats(context.Context, *BillingStatsReq) (*BillingStatsResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBillingStats not implemented")
@@ -460,6 +588,150 @@ func _LLMGateway_DeleteModel_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LLMGateway_ListConnections_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListConnectionsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMGatewayServer).ListConnections(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMGateway_ListConnections_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMGatewayServer).ListConnections(ctx, req.(*ListConnectionsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMGateway_CreateConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateConnectionReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMGatewayServer).CreateConnection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMGateway_CreateConnection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMGatewayServer).CreateConnection(ctx, req.(*CreateConnectionReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMGateway_UpdateConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateConnectionReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMGatewayServer).UpdateConnection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMGateway_UpdateConnection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMGatewayServer).UpdateConnection(ctx, req.(*UpdateConnectionReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMGateway_DeleteConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteConnectionReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMGatewayServer).DeleteConnection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMGateway_DeleteConnection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMGatewayServer).DeleteConnection(ctx, req.(*DeleteConnectionReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMGateway_ListQuotaPools_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListQuotaPoolsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMGatewayServer).ListQuotaPools(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMGateway_ListQuotaPools_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMGatewayServer).ListQuotaPools(ctx, req.(*ListQuotaPoolsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMGateway_CreateQuotaPool_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateQuotaPoolReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMGatewayServer).CreateQuotaPool(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMGateway_CreateQuotaPool_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMGatewayServer).CreateQuotaPool(ctx, req.(*CreateQuotaPoolReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMGateway_UpdateQuotaPool_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateQuotaPoolReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMGatewayServer).UpdateQuotaPool(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMGateway_UpdateQuotaPool_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMGatewayServer).UpdateQuotaPool(ctx, req.(*UpdateQuotaPoolReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMGateway_DeleteQuotaPool_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteQuotaPoolReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMGatewayServer).DeleteQuotaPool(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMGateway_DeleteQuotaPool_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMGatewayServer).DeleteQuotaPool(ctx, req.(*DeleteQuotaPoolReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LLMGateway_GetBillingStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(BillingStatsReq)
 	if err := dec(in); err != nil {
@@ -556,6 +828,38 @@ var LLMGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteModel",
 			Handler:    _LLMGateway_DeleteModel_Handler,
+		},
+		{
+			MethodName: "ListConnections",
+			Handler:    _LLMGateway_ListConnections_Handler,
+		},
+		{
+			MethodName: "CreateConnection",
+			Handler:    _LLMGateway_CreateConnection_Handler,
+		},
+		{
+			MethodName: "UpdateConnection",
+			Handler:    _LLMGateway_UpdateConnection_Handler,
+		},
+		{
+			MethodName: "DeleteConnection",
+			Handler:    _LLMGateway_DeleteConnection_Handler,
+		},
+		{
+			MethodName: "ListQuotaPools",
+			Handler:    _LLMGateway_ListQuotaPools_Handler,
+		},
+		{
+			MethodName: "CreateQuotaPool",
+			Handler:    _LLMGateway_CreateQuotaPool_Handler,
+		},
+		{
+			MethodName: "UpdateQuotaPool",
+			Handler:    _LLMGateway_UpdateQuotaPool_Handler,
+		},
+		{
+			MethodName: "DeleteQuotaPool",
+			Handler:    _LLMGateway_DeleteQuotaPool_Handler,
 		},
 		{
 			MethodName: "GetBillingStats",

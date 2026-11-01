@@ -7,17 +7,22 @@ import (
 
 type Config struct {
 	zrpc.RpcServerConf
-	Database    config.DatabaseConfig  `json:"database"`
-	AppRedis    config.RedisConfig     `json:"appRedis"`
-	Milvus      MilvusConfig           `json:"milvus"`
-	Minio       config.MinIOConfig     `json:"minio"`
-	Kafka       config.KafkaConfig     `json:"kafka"`
-	LLMGateway  LLMGatewayConfig       `json:"llmGateway"`
-	MinerU      MinerUConfig           `json:"mineru"`
-	MaxFileSize int64                  `json:"maxFileSize" default:"10485760"`
-	RetryLimit  int                    `json:"retryLimit" default:"3"`
-	RateLimit   config.RateLimitConfig `json:"rateLimit"`
-	Ingest      IngestConfig           `json:"ingest"`
+	Database    config.DatabaseConfig `json:"database"`
+	AppRedis    config.RedisConfig    `json:"appRedis"`
+	Milvus      MilvusConfig          `json:"milvus"`
+	Minio       config.MinIOConfig    `json:"minio"`
+	Kafka       config.KafkaConfig    `json:"kafka"`
+	LLMGateway  LLMGatewayConfig      `json:"llmGateway"`
+	MinerU      MinerUConfig          `json:"mineru"`
+	MaxFileSize int64                 `json:"maxFileSize" default:"10485760"`
+	RetryLimit  int                   `json:"retryLimit" default:"3"`
+	Judgment    JudgmentConfig        `json:"judgment"`
+	Ingest      IngestConfig          `json:"ingest"`
+}
+
+// JudgmentConfig controls query orchestration, not supplier quotas.
+type JudgmentConfig struct {
+	Fanout int `json:"fanout,default=8"`
 }
 
 type IngestConfig struct {

@@ -32,20 +32,15 @@ func (h *LLMGatewayHandler) Judge(ctx context.Context, req *pb.JudgeReq) (*pb.Ju
 		}
 	}
 	model := info.ModelName
-	if err := h.svcCtx.RateLimiter.Allow(ctx, model); err != nil {
+	permit, err := h.acquireCapacity(ctx, info, req)
+	if err != nil {
 		return nil, err
 	}
-	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, model); err != nil {
-		return nil, err
-	}
-	defer func() {
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if err := h.svcCtx.RateLimiter.DecrConcurrency(releaseCtx, model); err != nil {
-			h.svcCtx.Logger.Errorf("judge concurrency release failed: model_id=%s", info.ID)
-		}
-	}()
+	defer permit.Release()
+	ctx = permit.Context()
 	result, callErr := llm.Judge(ctx, info.Provider, info.APIKey, info.BaseURL, model, req)
+	callContextErr := ctx.Err()
+	finishCapacityAttempt(permit, callErr)
 	// Usage is a provider fact, independent of answer validity or downstream success.
 	if result != nil && result.Usage != nil {
 		usage := result.Usage
@@ -73,8 +68,8 @@ func (h *LLMGatewayHandler) Judge(ctx context.Context, req *pb.JudgeReq) (*pb.Ju
 			}
 		}
 	}
-	if ctx.Err() != nil {
-		return nil, status.FromContextError(ctx.Err()).Err()
+	if callContextErr != nil {
+		return nil, status.FromContextError(callContextErr).Err()
 	}
 	if callErr != nil {
 		h.svcCtx.Logger.Errorf("method=Judge model_id=%s judgment_failed=true", info.ID)

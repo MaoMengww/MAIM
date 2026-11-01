@@ -22,16 +22,12 @@ Redis:
 ModelConf:
   RefreshInterval: 300s
 
-RateLimit:
-  DefaultRPM: 100
-  DefaultConcurrency: 10
+Capacity:
+  MaxInFlight: ${LLM_CAPACITY_MAX_IN_FLIGHT}
+  LeaseDuration: ${LLM_CAPACITY_LEASE_DURATION}
+  PollInterval: ${LLM_CAPACITY_POLL_INTERVAL}
 
-EmbeddingQuota:
-  OnlineRPM: ${LLM_EMBED_ONLINE_RPM}
-  OnlineConcurrency: ${LLM_EMBED_ONLINE_CONCURRENCY}
-  IngestRPM: ${LLM_EMBED_INGEST_RPM}
-  IngestConcurrency: ${LLM_EMBED_INGEST_CONCURRENCY}
-  IngestToken: ${INGEST_EMBEDDING_TOKEN}
+IngestEmbeddingToken: ${INGEST_EMBEDDING_TOKEN}
 
 EncKey: ${ENC_KEY}
 CpuThreshold: 900

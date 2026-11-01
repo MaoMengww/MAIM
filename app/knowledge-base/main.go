@@ -112,7 +112,7 @@ func main() {
 		VectorStore: vecStore, Producer: resources.Producer,
 		RetrievePipe: &pipeline.RetrievePipeline{
 			KBRepo: resources.KBRepo, DocRepo: resources.DocRepo, Embedder: embed, VectorStore: vecStore,
-			Reranker: reranker.NewLLMGatewayReranker(resources.LLMGatewayClient, c.RateLimit.Concurrency), Logger: logger,
+			Reranker: reranker.NewLLMGatewayReranker(resources.LLMGatewayClient, reranker.JudgmentConfig{Fanout: c.Judgment.Fanout}), Logger: logger,
 		},
 		Logger: logger,
 	}

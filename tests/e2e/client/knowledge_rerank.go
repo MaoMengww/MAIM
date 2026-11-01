@@ -137,9 +137,12 @@ func (d *driver) knowledgeDualReranking(owner account, embeddingID, kbID entityI
 	var judge struct {
 		ID entityID `json:"id"`
 	}
+	judgeConnection, err := d.fixtureConnection(owner, judgeName, "typesafe", d.provider+"/native", componentKey)
+	if err != nil {
+		return err
+	}
 	if err := d.request(http.MethodPost, "/models", owner.token, map[string]any{
-		"model_name": judgeName, "provider": "typesafe", "capability": "judge", "base_url": d.provider + "/native",
-		"api_key": componentKey, "input_price_per_mtok": 2,
+		"model_name": judgeName, "connection_id": judgeConnection, "capability": "judge", "input_price_per_mtok": 2,
 	}, &judge); err != nil {
 		return err
 	}
@@ -153,8 +156,8 @@ func (d *driver) knowledgeDualReranking(owner account, embeddingID, kbID entityI
 	defer func() {
 		result = errors.Join(result, d.request(http.MethodDelete, "/models/"+nativeID.String(), owner.token, nil, nil))
 	}()
-	if err := d.request(http.MethodPut, "/models/"+nativeID.String(), owner.token,
-		map[string]string{"provider": "cohere", "base_url": d.provider + "/native"}, nil); err != nil {
+	if err := d.updateFixtureConnection(owner, nativeID,
+		map[string]any{"provider": "cohere", "base_url": d.provider + "/native"}); err != nil {
 		return err
 	}
 	var disabled struct {
@@ -484,8 +487,12 @@ func (d *driver) knowledgeRerankConfiguration(owner account, path string, judgeI
 	var foreignModel struct {
 		ID entityID `json:"id"`
 	}
+	foreignConnection, err := d.fixtureConnection(foreign, "private-judge-"+suffix, "typesafe", d.provider+"/native", componentKey)
+	if err != nil {
+		return err
+	}
 	if err := d.request(http.MethodPost, "/models", foreign.token, map[string]any{
-		"model_name": "fixture-judge-knowledge-private-" + suffix, "provider": "typesafe", "capability": "judge", "base_url": d.provider + "/native", "api_key": componentKey,
+		"model_name": "fixture-judge-knowledge-private-" + suffix, "connection_id": foreignConnection, "capability": "judge",
 	}, &foreignModel); err != nil {
 		return err
 	}
@@ -498,8 +505,12 @@ func (d *driver) knowledgeRerankConfiguration(owner account, path string, judgeI
 	var expired struct {
 		ID entityID `json:"id"`
 	}
+	expiredConnection, err := d.fixtureConnection(owner, "deleted-judge-"+suffix, "typesafe", d.provider+"/native", componentKey)
+	if err != nil {
+		return err
+	}
 	if err := d.request(http.MethodPost, "/models", owner.token, map[string]any{
-		"model_name": "fixture-judge-knowledge-deleted-" + suffix, "provider": "typesafe", "capability": "judge", "base_url": d.provider + "/native", "api_key": componentKey,
+		"model_name": "fixture-judge-knowledge-deleted-" + suffix, "connection_id": expiredConnection, "capability": "judge",
 	}, &expired); err != nil {
 		return err
 	}
@@ -669,7 +680,9 @@ func (d *driver) knowledgeRerankCancellation(owner account, path string, kbID, j
 				Path      string `json:"path"`
 				State     string `json:"state"`
 				Candidate string `json:"candidate"`
-			}) bool { return row.State != "cancelled" }), nil
+			}) bool {
+				return row.State != "cancelled"
+			}), nil
 		}); err != nil {
 			return err
 		}

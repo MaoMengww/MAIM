@@ -47,45 +47,59 @@ func chatFixtureSSE(w http.ResponseWriter, body string) {
 }
 
 type chatQuota struct {
-	mockRateLimiter
-	mu         sync.Mutex
-	active     int
-	acquired   int
-	released   int
-	releaseErr error
+	mockCapacity
+	mu       sync.Mutex
+	active   int
+	acquired int
+	released int
+	aborted  int
 }
 
-func (q *chatQuota) IncrConcurrency(ctx context.Context, _ string) error {
+func (q *chatQuota) Acquire(ctx context.Context, _ domain.AdmissionRequest) (domain.CapacityPermit, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	if q.active != 0 {
-		return errors.New(errors.CodeTooManyRequests, "fixture concurrency exhausted")
+		return nil, domain.ErrCapacityBusy
 	}
 	q.active++
 	q.acquired++
-	return nil
+	return &chatPermit{ctx: ctx, quota: q}, nil
 }
 
-func (q *chatQuota) DecrConcurrency(ctx context.Context, _ string) error {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.releaseErr = ctx.Err()
-	if q.releaseErr != nil {
-		return q.releaseErr
-	}
-	q.active--
-	q.released++
-	return nil
+type chatPermit struct {
+	ctx   context.Context
+	quota *chatQuota
+	once  sync.Once
+}
+
+func (p *chatPermit) Context() context.Context { return p.ctx }
+func (p *chatPermit) Release() {
+	p.finish(false)
+}
+
+func (p *chatPermit) Abort() {
+	p.finish(true)
+}
+
+func (p *chatPermit) finish(aborted bool) {
+	p.once.Do(func() {
+		p.quota.mu.Lock()
+		defer p.quota.mu.Unlock()
+		p.quota.active--
+		p.quota.released++
+		if aborted {
+			p.quota.aborted++
+		}
+	})
 }
 
 func (q *chatQuota) assertReleased(t *testing.T, calls int) {
 	t.Helper()
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	require.NoError(t, q.releaseErr, "quota cleanup must not inherit cancellation")
 	require.Zero(t, q.active, "quota must be available for the next invocation")
 	require.Equal(t, calls, q.acquired)
 	require.Equal(t, calls, q.released)
@@ -152,7 +166,7 @@ func newChatHandlerFixture(t *testing.T, provider http.HandlerFunc) *chatHandler
 	svcCtx := newMockServiceContext()
 	f.repo = svcCtx.ModelRepo.(*mockModelRepo)
 	f.billing = svcCtx.BillingRepo.(*mockBillingRepo)
-	svcCtx.RateLimiter, svcCtx.UserClient = f.quota, f.balance
+	svcCtx.Capacity, svcCtx.UserClient = f.quota, f.balance
 	modelID := f.repo.add(t, "fixture-chat", "openai", "chat", "active", chatFixtureKey, server.URL+"/v1", 2, 4)
 	ownerID, err := identity.New()
 	require.NoError(t, err)

@@ -14,11 +14,11 @@ import (
 	"github.com/maomeng/aim/app/llm-gateway/internal/svc"
 	pb "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	userpb "github.com/maomeng/aim/app/user-service/pb/user"
-	"github.com/maomeng/aim/pkg/crypto"
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/interceptor"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type LLMGatewayHandler struct {
@@ -38,8 +38,11 @@ func (h *LLMGatewayHandler) resolveModel(ctx context.Context, modelID string, bo
 	if err := validateInvocation(ctx, botID, ownerID); err != nil {
 		return nil, err
 	}
-	entry, err := h.svcCtx.ModelRepo.FindByID(modelID)
+	entry, err := h.svcCtx.ModelRepo.FindByID(ctx, modelID)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, status.FromContextError(ctx.Err()).Err()
+		}
 		return nil, errors.Wrap(errors.CodeDBError, "find model by id failed", err)
 	}
 	if entry == nil {
@@ -149,22 +152,13 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 		return nil, err
 	}
 	workload := "online"
-	limiter := h.svcCtx.OnlineEmbeddingLimiter
 	md, _ := metadata.FromIncomingContext(ctx)
-	markers := md.Get("x-aim-embedding-workload")
-	if len(markers) > 0 {
-		if len(markers) != 1 || markers[0] != "ingest" {
-			return nil, errors.New(errors.CodeInvalidParam, "invalid embedding workload")
-		}
-		tokens := md.Get("x-aim-ingest-token")
-		if len(tokens) != 1 || h.svcCtx.Config.EmbeddingQuota.IngestToken == "" || subtle.ConstantTimeCompare([]byte(tokens[0]), []byte(h.svcCtx.Config.EmbeddingQuota.IngestToken)) != 1 {
+	tokens := md.Get("x-aim-ingest-token")
+	if len(tokens) > 0 {
+		if len(tokens) != 1 || h.svcCtx.Config.IngestEmbeddingToken == "" || subtle.ConstantTimeCompare([]byte(tokens[0]), []byte(h.svcCtx.Config.IngestEmbeddingToken)) != 1 {
 			return nil, errors.ErrForbidden
 		}
 		workload = "ingest"
-		limiter = h.svcCtx.IngestEmbeddingLimiter
-	}
-	if limiter == nil {
-		return nil, errors.New(errors.CodeInternal, "embedding quota unavailable")
 	}
 	started := time.Now()
 	result := "failed"
@@ -181,32 +175,12 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 			return nil, err
 		}
 	}
-	if workload == "online" {
-		if err := limiter.Allow(ctx, modelName); err != nil {
-			return nil, err
-		}
-	}
-	if err := waitEmbeddingQuota(ctx, workload, func() error {
-		return limiter.IncrConcurrency(ctx, modelName)
-	}); err != nil {
+	permit, err := h.acquireCapacity(ctx, info, req)
+	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if err := limiter.DecrConcurrency(releaseCtx, modelName); err != nil {
-			log.Errorf("embedding concurrency release failed: workload=%s error=%v", workload, err)
-		}
-	}()
-	if workload == "ingest" {
-		// Hold only the reserved ingest slot while waiting for its RPM window;
-		// online has a separate pool and always rejects quota exhaustion immediately.
-		if err := waitEmbeddingQuota(ctx, workload, func() error {
-			return limiter.Allow(ctx, modelName)
-		}); err != nil {
-			return nil, err
-		}
-	}
+	defer permit.Release()
+	ctx = permit.Context()
 
 	apiKey := info.ModelEntry.APIKey
 	baseURL := info.ModelEntry.BaseURL
@@ -217,6 +191,11 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 		dim = int(d)
 	}
 	embeddings, promptTokens, err := llm.CreateEmbeddings(ctx, info.Provider, apiKey, baseURL, modelName, req.Input, dim)
+	callContextErr := ctx.Err()
+	finishCapacityAttempt(permit, err)
+	if callContextErr != nil {
+		return nil, status.FromContextError(callContextErr).Err()
+	}
 	if err != nil {
 		log.Errorf("method=Embed model=%s embeddings failed", modelName)
 		var invalid *llm.RequestError
@@ -235,7 +214,7 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 			&domain.UsageInfo{PromptTokens: *promptTokens, TotalTokens: *promptTokens})
 		if info.TrackBilling {
 			cost := h.calcCost(info, *promptTokens, 0)
-			h.deductBalance(ctx, req.OwnerId, cost)
+			h.deductBalance(context.WithoutCancel(ctx), req.OwnerId, cost)
 		}
 	}
 
@@ -254,29 +233,6 @@ func (h *LLMGatewayHandler) Embed(ctx context.Context, req *pb.EmbedReq) (*pb.Em
 	}
 	result = "success"
 	return resp, nil
-}
-
-// Retry only local quota exhaustion, never provider errors or Redis failures.
-// The enclosing RPC deadline bounds how long an ingestion batch can wait.
-func waitEmbeddingQuota(ctx context.Context, workload string, acquire func() error) error {
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		err := acquire()
-		if err == nil || workload != "ingest" {
-			return err
-		}
-		quotaErr, ok := errors.IsBizError(err)
-		if !ok || quotaErr.Code != errors.CodeTooManyRequests {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Second):
-		}
-	}
 }
 
 // ----- Rerank (direct HTTP, manual billing) -----
@@ -298,22 +254,20 @@ func (h *LLMGatewayHandler) Rerank(ctx context.Context, req *pb.RerankReq) (*pb.
 		}
 	}
 
-	if err := h.svcCtx.RateLimiter.Allow(ctx, modelName); err != nil {
+	permit, err := h.acquireCapacity(ctx, info, req)
+	if err != nil {
 		return nil, err
 	}
-	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, modelName); err != nil {
-		return nil, err
-	}
-	defer func() {
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if err := h.svcCtx.RateLimiter.DecrConcurrency(releaseCtx, modelName); err != nil {
-			log.Errorf("rerank concurrency release failed: model=%s error=%v", modelName, err)
-		}
-	}()
+	defer permit.Release()
+	ctx = permit.Context()
 
 	result, err := llm.Rerank(ctx, info.Provider, info.ModelEntry.APIKey, info.ModelEntry.BaseURL, modelName,
 		req.Query, req.Documents, int(req.TopN), req.ReturnDocuments)
+	callContextErr := ctx.Err()
+	finishCapacityAttempt(permit, err)
+	if callContextErr != nil {
+		return nil, status.FromContextError(callContextErr).Err()
+	}
 	if err != nil {
 		log.Errorf("method=Rerank model=%s error=%v", modelName, err)
 		return nil, errors.Wrap(errors.CodeRPCError, "rerank failed", err)
@@ -324,7 +278,7 @@ func (h *LLMGatewayHandler) Rerank(ctx context.Context, req *pb.RerankReq) (*pb.
 			&domain.UsageInfo{PromptTokens: result.Tokens, TotalTokens: result.Tokens})
 		if info.TrackBilling {
 			cost := h.calcCost(info, result.Tokens, 0)
-			h.deductBalance(ctx, req.OwnerId, cost)
+			h.deductBalance(context.WithoutCancel(ctx), req.OwnerId, cost)
 		}
 	}
 
@@ -350,211 +304,6 @@ type modelEntryInfo struct {
 	*domain.ModelEntry
 	Provider     string
 	TrackBilling bool
-}
-
-// ----- Model CRUD -----
-
-func (h *LLMGatewayHandler) ListModels(ctx context.Context, req *pb.ListModelsReq) (*pb.ListModelsResp, error) {
-	if err := validateInvocation(ctx, nil, req.OwnerId); err != nil {
-		return nil, err
-	}
-	entries := h.svcCtx.ModelRepo.ListAll()
-	var items []*pb.ModelResp
-	for _, e := range entries {
-		if e.Status != "active" {
-			continue
-		}
-		if req.Capability != "" && e.Capability != req.Capability {
-			continue
-		}
-		if !modelVisible(e.OwnerType, e.OwnerID, req.OwnerId) {
-			continue
-		}
-		items = append(items, &pb.ModelResp{
-			Id:                 e.ID,
-			ModelName:          e.ModelName,
-			Provider:           e.Provider,
-			Capability:         e.Capability,
-			BaseUrl:            e.BaseURL,
-			OwnerId:            e.OwnerID,
-			OwnerType:          e.OwnerType,
-			Status:             e.Status,
-			InputPricePerMtok:  e.InputPricePerMTok,
-			OutputPricePerMtok: e.OutputPricePerMTok,
-			ApiKey:             visibleAPIKey(e),
-		})
-	}
-	return &pb.ListModelsResp{Items: items, Total: int32(len(items))}, nil
-}
-
-func visibleAPIKey(entry *domain.ModelEntry) string {
-	if entry.OwnerType == "user" {
-		return entry.APIKey
-	}
-	return ""
-}
-
-func (h *LLMGatewayHandler) CreateModel(ctx context.Context, req *pb.CreateModelReq) (*pb.ModelResp, error) {
-	if req.OwnerType != "user" || req.OwnerId == nil {
-		return nil, errors.ErrForbidden
-	}
-	if err := requireOwner(ctx, *req.OwnerId); err != nil {
-		return nil, err
-	}
-	if err := validateJudgmentModel(req.Capability, req.Provider, req.ModelName, req.InputPricePerMtok, req.OutputPricePerMtok); err != nil {
-		return nil, err
-	}
-	encrypted, err := crypto.EncryptString(req.ApiKey, h.svcCtx.EncKey)
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "encrypt api key failed", err)
-	}
-	recID, err := identity.New()
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeInternal, "generate model id failed", err)
-	}
-	rec := &appModel.ModelRegistry{
-		ID:                 recID,
-		ModelName:          req.ModelName,
-		Provider:           req.Provider,
-		Capability:         req.Capability,
-		BaseURL:            req.BaseUrl,
-		APIKeyEncrypted:    encrypted,
-		InputPricePerMTok:  req.InputPricePerMtok,
-		OutputPricePerMTok: req.OutputPricePerMtok,
-		Status:             "active",
-		OwnerType:          req.OwnerType,
-		OwnerID:            req.OwnerId,
-	}
-	if err := h.svcCtx.DB.WithContext(ctx).Create(rec).Error; err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "create model failed", err)
-	}
-	if err := h.svcCtx.ModelRepo.Refresh(); err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "refresh models failed", err)
-	}
-	return &pb.ModelResp{
-		Id:                 rec.ID,
-		ModelName:          rec.ModelName,
-		Provider:           rec.Provider,
-		Capability:         rec.Capability,
-		BaseUrl:            rec.BaseURL,
-		OwnerId:            rec.OwnerID,
-		OwnerType:          rec.OwnerType,
-		Status:             rec.Status,
-		InputPricePerMtok:  rec.InputPricePerMTok,
-		OutputPricePerMtok: rec.OutputPricePerMTok,
-		ApiKey:             req.ApiKey,
-	}, nil
-}
-
-func (h *LLMGatewayHandler) UpdateModel(ctx context.Context, req *pb.UpdateModelReq) (*pb.ModelResp, error) {
-	if identity.Validate(req.ModelId) != nil {
-		return nil, errors.ErrInvalidParam
-	}
-	var current appModel.ModelRegistry
-	if err := h.svcCtx.DB.WithContext(ctx).Where("id = ?", req.ModelId).First(&current).Error; err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "model not found", err)
-	}
-	if current.OwnerType != "user" || current.OwnerID == nil {
-		return nil, errors.New(errors.CodeForbidden, "platform models cannot be modified")
-	}
-	if err := requireOwner(ctx, *current.OwnerID); err != nil {
-		return nil, err
-	}
-	capability, provider, name := current.Capability, current.Provider, current.ModelName
-	if req.Capability != "" {
-		capability = req.Capability
-	}
-	if req.Provider != "" {
-		provider = req.Provider
-	}
-	if req.ModelName != "" {
-		name = req.ModelName
-	}
-	inputPrice, outputPrice := current.InputPricePerMTok, current.OutputPricePerMTok
-	if req.InputPricePerMtok != nil {
-		inputPrice = req.GetInputPricePerMtok()
-	}
-	if req.OutputPricePerMtok != nil {
-		outputPrice = req.GetOutputPricePerMtok()
-	}
-	if err := validateJudgmentModel(capability, provider, name, inputPrice, outputPrice); err != nil {
-		return nil, err
-	}
-	updates := map[string]any{}
-	if req.ModelName != "" {
-		updates["model_name"] = req.ModelName
-	}
-	if req.Provider != "" {
-		updates["provider"] = req.Provider
-	}
-	if req.Capability != "" {
-		updates["capability"] = req.Capability
-	}
-	if req.BaseUrl != "" {
-		updates["base_url"] = req.BaseUrl
-	}
-	if req.ApiKey != "" {
-		encrypted, err := crypto.EncryptString(req.ApiKey, h.svcCtx.EncKey)
-		if err != nil {
-			return nil, errors.Wrap(errors.CodeInternal, "encrypt api key failed", err)
-		}
-		updates["api_key_encrypted"] = encrypted
-	}
-	if req.InputPricePerMtok != nil {
-		updates["input_price_per_mtok"] = req.GetInputPricePerMtok()
-	}
-	if req.OutputPricePerMtok != nil {
-		updates["output_price_per_mtok"] = req.GetOutputPricePerMtok()
-	}
-	if err := h.svcCtx.DB.WithContext(ctx).Model(&appModel.ModelRegistry{}).Where("id = ?", req.ModelId).Updates(updates).Error; err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "update model failed", err)
-	}
-	if err := h.svcCtx.ModelRepo.Refresh(); err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "refresh models failed", err)
-	}
-	entry, err := h.svcCtx.ModelRepo.FindByID(req.ModelId)
-	if err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "find model after update failed", err)
-	}
-	if entry == nil {
-		return nil, errors.New(errors.CodeNotFound, "model not found")
-	}
-	return &pb.ModelResp{
-		Id:                 entry.ID,
-		ModelName:          entry.ModelName,
-		Provider:           entry.Provider,
-		Capability:         entry.Capability,
-		BaseUrl:            entry.BaseURL,
-		OwnerId:            entry.OwnerID,
-		OwnerType:          entry.OwnerType,
-		Status:             entry.Status,
-		InputPricePerMtok:  entry.InputPricePerMTok,
-		OutputPricePerMtok: entry.OutputPricePerMTok,
-		ApiKey:             entry.APIKey,
-	}, nil
-}
-
-func (h *LLMGatewayHandler) DeleteModel(ctx context.Context, req *pb.DeleteModelReq) (*pb.DeleteModelResp, error) {
-	if identity.Validate(req.ModelId) != nil {
-		return nil, errors.ErrInvalidParam
-	}
-	var current appModel.ModelRegistry
-	if err := h.svcCtx.DB.WithContext(ctx).Where("id = ?", req.ModelId).First(&current).Error; err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "model not found", err)
-	}
-	if current.OwnerType != "user" || current.OwnerID == nil {
-		return nil, errors.New(errors.CodeForbidden, "platform models cannot be deleted")
-	}
-	if err := requireOwner(ctx, *current.OwnerID); err != nil {
-		return nil, err
-	}
-	if err := h.svcCtx.DB.WithContext(ctx).Model(&appModel.ModelRegistry{}).Where("id = ?", req.ModelId).Update("status", "disabled").Error; err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "delete model failed", err)
-	}
-	if err := h.svcCtx.ModelRepo.Refresh(); err != nil {
-		return nil, errors.Wrap(errors.CodeDBError, "refresh models failed", err)
-	}
-	return &pb.DeleteModelResp{Success: true}, nil
 }
 
 func (h *LLMGatewayHandler) GetBillingStats(ctx context.Context, req *pb.BillingStatsReq) (*pb.BillingStatsResp, error) {
@@ -689,21 +438,19 @@ func (h *LLMGatewayHandler) VlmChat(ctx context.Context, req *pb.VlmChatReq) (*p
 		}
 	}
 
-	if err := h.svcCtx.RateLimiter.Allow(ctx, modelName); err != nil {
+	permit, err := h.acquireCapacity(ctx, info, req)
+	if err != nil {
 		return nil, err
 	}
-	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, modelName); err != nil {
-		return nil, err
-	}
-	defer func() {
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if err := h.svcCtx.RateLimiter.DecrConcurrency(releaseCtx, modelName); err != nil {
-			log.Errorf("vlm concurrency release failed: model=%s", modelName)
-		}
-	}()
+	defer permit.Release()
+	ctx = permit.Context()
 
 	resp, err := llm.CompleteVLMChat(ctx, req, info.ModelEntry)
+	callContextErr := ctx.Err()
+	finishCapacityAttempt(permit, err)
+	if callContextErr != nil {
+		return nil, status.FromContextError(callContextErr).Err()
+	}
 	if err != nil {
 		log.Errorf("method=VlmChat model=%s vlm chat failed", modelName)
 		return nil, errors.New(errors.CodeRPCError, "vlm chat failed")
@@ -723,7 +470,7 @@ func (h *LLMGatewayHandler) VlmChat(ctx context.Context, req *pb.VlmChatReq) (*p
 			})
 		if info.TrackBilling {
 			cost := h.calcCost(info, int(resp.Usage.PromptTokens), int(resp.Usage.CompletionTokens))
-			h.deductBalance(ctx, req.OwnerId, cost)
+			h.deductBalance(context.WithoutCancel(ctx), req.OwnerId, cost)
 		}
 	}
 

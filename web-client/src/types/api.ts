@@ -1,4 +1,4 @@
-import type { ModelCapability, RerankMethod } from './model';
+import type { CapacityLimits, ModelCapability, RerankMethod } from './model';
 
 // ─── Auth ───
 export interface LoginReq {
@@ -353,14 +353,31 @@ export interface GetUploadURLReq {
 // ─── Model ───
 export interface CreateModelReq {
   model_name: string;
-  provider: string;
+  connection_id: string;
   capability: ModelCapability;
-  base_url: string;
-  api_key?: string;
   input_price_per_mtok?: number;
   output_price_per_mtok?: number;
-  owner_type: 'user' | 'platform';
-  owner_id?: string;
+  model_limits?: CapacityLimits;
 }
 
-export type UpdateModelReq = Partial<Omit<CreateModelReq, 'owner_type' | 'owner_id'>>;
+export type UpdateModelReq = Partial<CreateModelReq>;
+
+export interface CreateModelConnectionReq {
+  name: string;
+  provider: string;
+  base_url: string;
+  api_key?: string;
+  // Omit on creation to allocate an independent, zero-unlimited supply pool.
+  quota_pool_id?: string;
+}
+
+// An omitted API key preserves the credential; a supplied key rotates it.
+export type UpdateModelConnectionReq = Partial<CreateModelConnectionReq>;
+
+export interface CreateQuotaPoolReq {
+  name: string;
+  limits: CapacityLimits;
+}
+
+// Supplying limits replaces all four dimensions, including explicit zeros.
+export type UpdateQuotaPoolReq = Partial<CreateQuotaPoolReq>;

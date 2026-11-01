@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -228,5 +229,36 @@ func TestJudgeCancellationReachesProvider(t *testing.T) {
 	case <-stopped:
 	case <-time.After(5 * time.Second):
 		t.Fatal("provider did not observe cancellation")
+	}
+}
+
+func TestJudgeDeadlineReachesProvider(t *testing.T) {
+	for _, headersSent := range []bool{false, true} {
+		t.Run(fmt.Sprintf("headersSent=%t", headersSent), func(t *testing.T) {
+			stopped := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				if headersSent {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.(http.Flusher).Flush()
+				}
+				<-r.Context().Done()
+				close(stopped)
+			}))
+			defer server.Close()
+			defer server.CloseClientConnections()
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			response, err := Judge(ctx, "typesafe", "key", server.URL, "model", judgeBoundaryRequest())
+			if response != nil || !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("caller deadline was replaced: response=%v err=%v", response, err)
+			}
+			select {
+			case <-stopped:
+			case <-time.After(5 * time.Second):
+				t.Fatal("provider did not observe the overall caller deadline")
+			}
+		})
 	}
 }

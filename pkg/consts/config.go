@@ -24,7 +24,6 @@ const (
 // ---- Redis key templates ----
 
 const (
-	CacheKeyUserDevices    = "user:%d:devices"
-	CacheKeyTyping         = "typing:%d:%d"
-	CacheKeyLLMConcurrency = "llm:rate:conc:%s"
+	CacheKeyUserDevices = "user:%d:devices"
+	CacheKeyTyping      = "typing:%d:%d"
 )

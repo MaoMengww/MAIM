@@ -65,9 +65,12 @@ func (d *driver) fixtureModel(owner account, capability, name string) (entityID,
 		BaseURL   string    `json:"base_url"`
 	}
 	baseURL := d.provider + "/v1"
+	connectionID, err := d.fixtureConnection(owner, name, "openai", baseURL, "e2e-fixture-not-a-secret")
+	if err != nil {
+		return "", err
+	}
 	if err := d.request(http.MethodPost, "/models", owner.token, map[string]any{
-		"model_name": name, "provider": "openai", "capability": capability,
-		"base_url": baseURL, "api_key": "e2e-fixture-not-a-secret",
+		"model_name": name, "connection_id": connectionID, "capability": capability,
 		"input_price_per_mtok": 2, "output_price_per_mtok": 3,
 	}, &created); err != nil {
 		return "", fmt.Errorf("provider.model.registry: %w", err)
@@ -480,15 +483,17 @@ func (d *driver) webhookConfig(owner account, suffix string) (result error) {
 }
 
 type runtimeModel struct {
-	ID          entityID  `json:"id"`
-	OwnerID     *entityID `json:"owner_id"`
-	OwnerType   string    `json:"owner_type"`
-	Name        string    `json:"model_name"`
-	Capability  string    `json:"capability"`
-	BaseURL     string    `json:"base_url"`
-	Status      string    `json:"status"`
-	InputPrice  float64   `json:"input_price_per_mtok"`
-	OutputPrice float64   `json:"output_price_per_mtok"`
+	ID           entityID  `json:"id"`
+	ConnectionID entityID  `json:"connection_id"`
+	QuotaPoolID  entityID  `json:"quota_pool_id"`
+	OwnerID      *entityID `json:"owner_id"`
+	OwnerType    string    `json:"owner_type"`
+	Name         string    `json:"model_name"`
+	Capability   string    `json:"capability"`
+	BaseURL      string    `json:"base_url"`
+	Status       string    `json:"status"`
+	InputPrice   float64   `json:"input_price_per_mtok"`
+	OutputPrice  float64   `json:"output_price_per_mtok"`
 }
 
 func (d *driver) runtimeReject(method, path string, caller account, input any, expected int) error {
@@ -502,10 +507,10 @@ func (d *driver) runtimeReject(method, path string, caller account, input any, e
 
 func (d *driver) runtimeModelCRUD(owner, outsider account, id entityID, name string) error {
 	path := "/models/" + id.String()
-	if err := d.runtimeReject(http.MethodPut, path, outsider, map[string]string{"model_name": "stolen"}, http.StatusForbidden); err != nil {
+	if err := d.runtimeReject(http.MethodPut, path, outsider, map[string]string{"model_name": "stolen"}, http.StatusNotFound); err != nil {
 		return err
 	}
-	if err := d.runtimeReject(http.MethodDelete, path, outsider, nil, http.StatusForbidden); err != nil {
+	if err := d.runtimeReject(http.MethodDelete, path, outsider, nil, http.StatusNotFound); err != nil {
 		return err
 	}
 	if err := d.request(http.MethodPut, path, owner.token, map[string]any{"model_name": name, "input_price_per_mtok": 2, "output_price_per_mtok": 3}, nil); err != nil {

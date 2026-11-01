@@ -2943,8 +2943,16 @@ components:
         output_price_per_mtok:
           type: number
           format: double
-        api_key:
+        connection_id:
           type: string
+          format: uuid
+        quota_pool_id:
+          type: string
+          format: uuid
+        pool_limits:
+          $ref: '#/components/schemas/CapacityLimits'
+        model_limits:
+          $ref: '#/components/schemas/CapacityLimits'
         owner_type:
           type: string
           enum:
@@ -2974,13 +2982,10 @@ components:
       properties:
         model_name:
           type: string
-        provider:
+        connection_id:
           type: string
+          format: uuid
         capability:
-          type: string
-        base_url:
-          type: string
-        api_key:
           type: string
         input_price_per_mtok:
           type: number
@@ -2988,8 +2993,12 @@ components:
         output_price_per_mtok:
           type: number
           format: double
+        model_limits:
+          $ref: '#/components/schemas/CapacityLimits'
       required:
-      - provider
+      - connection_id
+      - model_name
+      - capability
       description: 公开创建入口由登录身份确定 user 所有权；禁止指定其他 owner_id 或提升为 platform
 
     UpdateModelReq:
@@ -2997,13 +3006,10 @@ components:
       properties:
         model_name:
           type: string
-        provider:
+        connection_id:
           type: string
+          format: uuid
         capability:
-          type: string
-        base_url:
-          type: string
-        api_key:
           type: string
         input_price_per_mtok:
           type: number
@@ -3011,6 +3017,8 @@ components:
         output_price_per_mtok:
           type: number
           format: double
+        model_limits:
+          $ref: '#/components/schemas/CapacityLimits'
 
     ListModelsResp:
       type: object
@@ -3022,11 +3030,66 @@ components:
         total:
           type: integer
 
-    GetModelResp:
+    CapacityLimits:
+      type: object
+      description: 显式供应限制；零为不限制，负数非法。提供对象时替换全部四维。
+      properties:
+        requests_per_minute: {type: integer, minimum: 0}
+        requests_per_second: {type: integer, minimum: 0}
+        tokens_per_second: {type: integer, minimum: 0}
+        concurrency: {type: integer, minimum: 0}
+    ProviderConnection:
       type: object
       properties:
-        model:
-          $ref: '#/components/schemas/ModelRecord'
+        id: {type: string, format: uuid}
+        name: {type: string}
+        provider: {type: string}
+        base_url: {type: string}
+        quota_pool_id: {type: string, format: uuid}
+        owner_id: {type: string, format: uuid}
+        owner_type: {type: string, enum: [user, platform]}
+    CreateConnectionReq:
+      type: object
+      required: [name, provider]
+      properties:
+        name: {type: string, maxLength: 256}
+        provider: {type: string, maxLength: 64}
+        base_url: {type: string}
+        api_key: {type: string, writeOnly: true}
+        quota_pool_id:
+          type: string
+          format: uuid
+          description: 省略时原子创建独立零限制池；只能引用自己的池
+    UpdateConnectionReq:
+      type: object
+      properties:
+        name: {type: string, maxLength: 256}
+        provider: {type: string, maxLength: 64}
+        base_url: {type: string}
+        api_key:
+          type: string
+          writeOnly: true
+          description: 省略保留；显式空字符串清除密钥
+        quota_pool_id: {type: string, format: uuid}
+    QuotaPool:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        limits: {$ref: '#/components/schemas/CapacityLimits'}
+        owner_id: {type: string, format: uuid}
+        owner_type: {type: string, enum: [user, platform]}
+    CreateQuotaPoolReq:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, maxLength: 256}
+        limits: {$ref: '#/components/schemas/CapacityLimits'}
+    UpdateQuotaPoolReq:
+      type: object
+      properties:
+        name: {type: string, maxLength: 256}
+        limits: {$ref: '#/components/schemas/CapacityLimits'}
 
     BillingStats:
       type: object
@@ -6596,6 +6659,155 @@ paths:
                 $ref: '#/components/schemas/Response'
 
   # ==================== Model Management ====================
+  /model-connections:
+    get:
+      tags: [Model]
+      summary: 列出自己的接入连接（不返回凭据）
+      operationId: connectionList
+      security: [{BearerAuth: []}]
+      parameters:
+      - {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+      - {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 100}}
+      responses:
+        "200":
+          description: 返回 data.items 和 data.total；仅当前用户所有
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Response'}
+                - properties:
+                    data:
+                      type: object
+                      properties:
+                        items: {type: array, items: {$ref: '#/components/schemas/ProviderConnection'}}
+                        total: {type: integer}
+    post:
+      tags: [Model]
+      summary: 创建自己的接入连接
+      operationId: connectionCreate
+      security: [{BearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateConnectionReq'}
+      responses:
+        "200":
+          description: 创建成功；省略 quota_pool_id 时同时创建独立的零限制供应池
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Response'}
+                - properties: {data: {$ref: '#/components/schemas/ProviderConnection'}}
+  /model-connections/{id}:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    put:
+      tags: [Model]
+      summary: 更新自己的连接或轮换写入凭据
+      operationId: connectionUpdate
+      security: [{BearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateConnectionReq'}
+      responses:
+        "200":
+          description: 返回完整连接；不返回凭据
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Response'}
+                - properties: {data: {$ref: '#/components/schemas/ProviderConnection'}}
+        "404": {description: 连接不存在或不属于当前用户}
+    delete:
+      tags: [Model]
+      summary: 删除未被模型引用的自己的连接
+      operationId: connectionDelete
+      security: [{BearerAuth: []}]
+      responses:
+        "200": {description: data.success 为 true}
+        "404": {description: 连接不存在或不属于当前用户}
+        "409": {description: 连接仍被模型引用（包含禁用模型）}
+  /quota-pools:
+    get:
+      tags: [Model]
+      summary: 列出自己的供应配额池
+      operationId: quotaPoolList
+      security: [{BearerAuth: []}]
+      parameters:
+      - {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+      - {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 100}}
+      responses:
+        "200":
+          description: 返回 data.items 和 data.total；仅当前用户所有
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Response'}
+                - properties:
+                    data:
+                      type: object
+                      properties:
+                        items: {type: array, items: {$ref: '#/components/schemas/QuotaPool'}}
+                        total: {type: integer}
+    post:
+      tags: [Model]
+      summary: 创建自己的供应配额池
+      operationId: quotaPoolCreate
+      security: [{BearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateQuotaPoolReq'}
+      responses:
+        "200":
+          description: 返回完整配额池
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Response'}
+                - properties: {data: {$ref: '#/components/schemas/QuotaPool'}}
+  /quota-pools/{id}:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    put:
+      tags: [Model]
+      summary: 更新自己的供应配额池；limits 全量替换四个维度
+      operationId: quotaPoolUpdate
+      security: [{BearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateQuotaPoolReq'}
+      responses:
+        "200":
+          description: 返回完整配额池
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/Response'}
+                - properties: {data: {$ref: '#/components/schemas/QuotaPool'}}
+        "404": {description: 配额池不存在或不属于当前用户}
+    delete:
+      tags: [Model]
+      summary: 删除未被连接引用的自己的配额池
+      operationId: quotaPoolDelete
+      security: [{BearerAuth: []}]
+      responses:
+        "200": {description: data.success 为 true}
+        "404": {description: 配额池不存在或不属于当前用户}
+        "409": {description: 配额池仍被连接引用}
+
   /models:
     get:
       tags:
@@ -6629,7 +6841,7 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateModelReq'
       responses:
-        "201":
+        "200":
           description: 创建成功
           content:
             application/json:
@@ -6638,7 +6850,7 @@ paths:
                   - $ref: '#/components/schemas/Response'
                   - properties:
                       data:
-                        $ref: '#/components/schemas/GetModelResp'
+                        $ref: '#/components/schemas/ModelRecord'
 
   /models/{id}:
     put:

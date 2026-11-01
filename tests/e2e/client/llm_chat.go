@@ -118,7 +118,7 @@ func (d *driver) llmChatScenario() (result error) {
 	}
 	apiKey := "e2e-fixture-not-a-secret"
 	setProvider := func(provider, baseURL, key string) error {
-		if err := setModel(map[string]any{"provider": provider, "base_url": baseURL, "api_key": key}); err != nil {
+		if err := d.updateFixtureConnection(owner, modelID, map[string]any{"provider": provider, "base_url": baseURL, "api_key": key}); err != nil {
 			return err
 		}
 		apiKey = key
@@ -458,7 +458,7 @@ func (d *driver) llmChatScenario() (result error) {
 	if _, err := d.requireLLMChatObservation(modelName, "LLM_SNAPSHOT_NEW_ROUTE", "completed", "/v1-changed/chat/completions", apiKey); err != nil {
 		return err
 	}
-	if err := setModel(map[string]any{"api_key": "rotated-e2e-key"}); err != nil {
+	if err := d.updateFixtureConnection(owner, modelID, map[string]any{"api_key": "rotated-e2e-key"}); err != nil {
 		return err
 	}
 	apiKey = "rotated-e2e-key"

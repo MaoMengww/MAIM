@@ -8,10 +8,9 @@ Log:
 
 CpuThreshold: 900
 
-RateLimit:
-  Enabled: true
-  RequestsPerSecond: 100
-  Concurrency: 10
+# Business fanout; supply admission is owned by LLM domain.
+Judgment:
+  Fanout: 8
 
 Ingest:
   RequestsPerSecond: ${INGEST_REQUESTS_PER_SECOND}

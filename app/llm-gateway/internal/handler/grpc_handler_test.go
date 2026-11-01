@@ -32,7 +32,10 @@ func newMockModelRepo() *mockModelRepo {
 	}
 }
 
-func (m *mockModelRepo) FindByID(id string) (*domain.ModelEntry, error) {
+func (m *mockModelRepo) FindByID(ctx context.Context, id string) (*domain.ModelEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.byID[id], nil
@@ -68,13 +71,18 @@ func (m *mockModelRepo) add(t *testing.T, name, provider, capability, status, ap
 	return id
 }
 
-type mockRateLimiter struct {
-	allowErr error
-}
+type mockCapacity struct{}
 
-func (r *mockRateLimiter) Allow(_ context.Context, _ string) error           { return r.allowErr }
-func (r *mockRateLimiter) IncrConcurrency(_ context.Context, _ string) error { return nil }
-func (r *mockRateLimiter) DecrConcurrency(_ context.Context, _ string) error { return nil }
+func (*mockCapacity) Acquire(ctx context.Context, _ domain.AdmissionRequest) (domain.CapacityPermit, error) {
+	return &mockPermit{ctx: ctx}, ctx.Err()
+}
+func (*mockCapacity) Close() error { return nil }
+
+type mockPermit struct{ ctx context.Context }
+
+func (p *mockPermit) Context() context.Context { return p.ctx }
+func (*mockPermit) Release()                   {}
+func (*mockPermit) Abort()                     {}
 
 type mockBillingRepo struct {
 	mu      sync.Mutex
@@ -94,7 +102,7 @@ func newMockServiceContext() *svc.ServiceContext {
 		EncKey:      make([]byte, 32),
 		ModelRepo:   newMockModelRepo(),
 		BillingRepo: &mockBillingRepo{},
-		RateLimiter: &mockRateLimiter{},
+		Capacity:    &mockCapacity{},
 		Logger:      logx.DefaultLogger(),
 	}
 }
@@ -115,15 +123,6 @@ func TestChat_ModelDisabled(t *testing.T) {
 	h := NewLLMGatewayHandler(svcCtx)
 	_, err := h.Chat(t.Context(), &pb.ChatReq{ModelId: id})
 	assertErrorCode(t, err, errors.CodeForbidden)
-}
-
-func TestChat_RateLimited(t *testing.T) {
-	svcCtx := newMockServiceContext()
-	id := svcCtx.ModelRepo.(*mockModelRepo).add(t, "gpt-4o", "openai", "chat", "active", "sk-test", "https://api.openai.com", 2.5, 10)
-	svcCtx.RateLimiter = &mockRateLimiter{allowErr: errors.New(errors.CodeTooManyRequests, "rate limited")}
-	h := NewLLMGatewayHandler(svcCtx)
-	_, err := h.Chat(t.Context(), &pb.ChatReq{ModelId: id})
-	assertErrorCode(t, err, errors.CodeTooManyRequests)
 }
 
 func assertErrorCode(t *testing.T, err error, code int) {

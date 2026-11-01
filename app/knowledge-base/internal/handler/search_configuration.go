@@ -51,9 +51,10 @@ func (h *KnowledgeBaseHandler) searchModelSpace(ctx context.Context, id, capabil
 		if h.DB == nil {
 			return searchModelSpace{}, errors.New(errors.CodeIncompatibleScope, "knowledge search model configuration unavailable")
 		}
-		err := h.DB.WithContext(ctx).Table("llm.model_registry").
-			Select("id", "provider", "model_name", "base_url", "capability", "status", "owner_type", "owner_id", "metadata").
-			Where("id = ?", id).Take(&entry).Error
+		err := h.DB.WithContext(ctx).Table("llm.model_registry AS m").
+			Select("m.id, c.provider, m.model_name, c.base_url, m.capability, m.status, m.owner_type, m.owner_id, m.metadata").
+			Joins("JOIN llm.provider_connections c ON c.id = m.connection_id AND c.owner_type = m.owner_type AND c.owner_id IS NOT DISTINCT FROM m.owner_id").
+			Where("m.id = ?", id).Take(&entry).Error
 		if stderrors.Is(err, gorm.ErrRecordNotFound) {
 			return searchModelSpace{}, errors.New(errors.CodeIncompatibleScope, "knowledge search model unavailable")
 		}

@@ -16,17 +16,21 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type LLMGatewayReranker struct {
-	client zrpc.Client
-	// Shared across searches in this process, not a fresh budget per request.
-	judgmentSlots chan struct{}
+// JudgmentConfig controls business orchestration, never supplier admission.
+type JudgmentConfig struct {
+	Fanout int
 }
 
-func NewLLMGatewayReranker(client zrpc.Client, capacity int) domain.Reranker {
+type LLMGatewayReranker struct {
+	client   zrpc.Client
+	judgment JudgmentConfig
+}
+
+func NewLLMGatewayReranker(client zrpc.Client, config JudgmentConfig) domain.Reranker {
 	// Keep duration/error diagnostics, but never dump candidate text or answers.
 	zrpc.DontLogClientContentForMethod(pb.LLMGateway_Judge_FullMethodName)
 	zrpc.DontLogClientContentForMethod(pb.LLMGateway_Rerank_FullMethodName)
-	return &LLMGatewayReranker{client: client, judgmentSlots: make(chan struct{}, min(4, max(1, capacity)))}
+	return &LLMGatewayReranker{client: client, judgment: config}
 }
 
 func (r *LLMGatewayReranker) Rerank(ctx context.Context, req *domain.RerankRequest) ([]domain.RerankResult, error) {
@@ -96,7 +100,6 @@ func (r *LLMGatewayReranker) Rerank(ctx context.Context, req *domain.RerankReque
 }
 
 // evidence_v1 is owned and versioned by knowledge, never by a KB or provider.
-// State contains one query and one current, authorized candidate only.
 const evidenceQuestionV1 = "evidence_v1"
 
 func evidenceQuestion() *pb.JudgeQuestion {
@@ -109,35 +112,29 @@ func evidenceQuestion() *pb.JudgeQuestion {
 }
 
 func (r *LLMGatewayReranker) judge(ctx context.Context, cli pb.LLMGatewayClient, req *domain.RerankRequest) ([]domain.RerankResult, error) {
+	batches, err := planJudgments(req)
+	if err != nil {
+		return nil, err
+	}
 	scores := make([]float64, len(req.Candidates))
-	failures := make([]error, len(req.Candidates))
+	failures := make([]error, len(batches))
 	var next atomic.Int64
 	var stopped atomic.Bool
 	var workers sync.WaitGroup
-	for range min(cap(r.judgmentSlots), len(req.Candidates)) {
+	// Per-search fanout is a finite business scheduling bound. Cross-search and
+	// cross-replica supply admission belongs exclusively to the LLM domain.
+	for range min(max(1, r.judgment.Fanout), len(batches)) {
 		workers.Go(func() {
 			for !stopped.Load() && ctx.Err() == nil {
 				i := int(next.Add(1) - 1)
-				if i >= len(req.Candidates) {
+				if i >= len(batches) {
 					return
 				}
-				select {
-				case r.judgmentSlots <- struct{}{}:
-				case <-ctx.Done():
-					return
-				}
-				if stopped.Load() || ctx.Err() != nil {
-					<-r.judgmentSlots
-					return
-				}
-				probability, err := judgeCandidate(ctx, cli, req, i)
-				<-r.judgmentSlots
-				if err != nil {
+				if err := judgeBatch(ctx, cli, req, batches[i], scores); err != nil {
 					failures[i] = err
 					stopped.Store(true)
 					return
 				}
-				scores[i] = probability
 			}
 		})
 	}
@@ -167,26 +164,28 @@ func (r *LLMGatewayReranker) judge(ctx context.Context, cli pb.LLMGatewayClient,
 	return results[:min(req.TopK, len(results))], nil
 }
 
-func judgeCandidate(ctx context.Context, cli pb.LLMGatewayClient, req *domain.RerankRequest, index int) (float64, error) {
+func judgeBatch(ctx context.Context, cli pb.LLMGatewayClient, req *domain.RerankRequest, batch judgmentBatch, scores []float64) error {
 	if req.Authorize != nil {
 		if err := req.Authorize(ctx); err != nil {
-			return 0, err
+			return err
 		}
 	}
-	response, err := cli.Judge(ctx, &pb.JudgeReq{
-		ModelId: req.ModelID, OwnerId: req.OwnerID,
-		State:     "Query:\n" + req.Query + "\n\nPassage:\n" + req.Candidates[index].Content,
-		Questions: map[string]*pb.JudgeQuestion{evidenceQuestionV1: evidenceQuestion()},
-	})
+	if ctx.Err() != nil {
+		return status.FromContextError(ctx.Err()).Err()
+	}
+	response, err := cli.Judge(ctx, batch.request)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	if response == nil || len(response.Answers) != 1 {
-		return 0, errors.New(errors.CodeRPCError, "judgment answer missing")
+	if response == nil || len(response.Answers) != len(batch.indices) {
+		return errors.New(errors.CodeRPCError, "judgment answers incomplete")
 	}
-	answer := response.Answers[evidenceQuestionV1].GetNoul()
-	if answer == nil || math.IsNaN(answer.Probability) || math.IsInf(answer.Probability, 0) || answer.Probability < 0 || answer.Probability > 1 {
-		return 0, errors.New(errors.CodeRPCError, "judgment answer invalid")
+	for name, index := range batch.indices {
+		answer := response.Answers[name].GetNoul()
+		if answer == nil || math.IsNaN(answer.Probability) || math.IsInf(answer.Probability, 0) || answer.Probability < 0 || answer.Probability > 1 {
+			return errors.New(errors.CodeRPCError, "judgment answer invalid")
+		}
+		scores[index] = answer.Probability
 	}
-	return answer.Probability, nil
+	return nil
 }

@@ -5,10 +5,12 @@ import "time"
 type ModelRegistry struct {
 	ID                 string         `gorm:"primaryKey;column:id;type:uuid" json:"id"`
 	ModelName          string         `gorm:"column:model_name" json:"model_name"`
-	Provider           string         `gorm:"column:provider" json:"provider"`
+	ConnectionID       string         `gorm:"column:connection_id;type:uuid" json:"connection_id"`
+	RequestsPerMinute  int            `gorm:"column:requests_per_minute" json:"requests_per_minute"`
+	RequestsPerSecond  int            `gorm:"column:requests_per_second" json:"requests_per_second"`
+	TokensPerSecond    int            `gorm:"column:tokens_per_second" json:"tokens_per_second"`
+	Concurrency        int            `gorm:"column:concurrency" json:"concurrency"`
 	Capability         string         `gorm:"column:capability" json:"capability"`
-	BaseURL            string         `gorm:"column:base_url" json:"base_url"`
-	APIKeyEncrypted    string         `gorm:"column:api_key_encrypted" json:"-"`
 	ContextWindow      int            `gorm:"column:context_window" json:"context_window"`
 	MaxOutputTokens    int            `gorm:"column:max_output_tokens" json:"max_output_tokens"`
 	InputPricePerMTok  float64        `gorm:"column:input_price_per_mtok;type:double precision" json:"input_price_per_mtok"`

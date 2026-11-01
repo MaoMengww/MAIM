@@ -31,8 +31,8 @@ func main() {
 		pb.LLMGateway_Rerank_FullMethodName,
 		pb.LLMGateway_Judge_FullMethodName,
 		pb.LLMGateway_VlmChat_FullMethodName,
-		pb.LLMGateway_CreateModel_FullMethodName,
-		pb.LLMGateway_UpdateModel_FullMethodName,
+		pb.LLMGateway_CreateConnection_FullMethodName,
+		pb.LLMGateway_UpdateConnection_FullMethodName,
 	)
 	ctx := svc.NewServiceContext(c)
 	defer ctx.Close()

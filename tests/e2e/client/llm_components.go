@@ -65,16 +65,16 @@ func (d *driver) llmComponentsScenario() (result error) {
 	models = append(models, cohereID)
 	// Explicit provider selection must retain the native protocol even at a
 	// configured endpoint whose URL does not contain the provider name.
-	if err := d.request(http.MethodPut, "/models/"+cohereID.String(), owner.token,
-		map[string]string{"provider": "cohere", "base_url": d.provider + "/native"}, nil); err != nil {
+	if err := d.updateFixtureConnection(owner, cohereID,
+		map[string]any{"provider": "cohere", "base_url": d.provider + "/native"}); err != nil {
 		return err
 	}
 	rerankID, rerankName, err := create("rerank")
 	if err != nil {
 		return err
 	}
-	if err := d.request(http.MethodPut, "/models/"+rerankID.String(), owner.token,
-		map[string]string{"provider": "cohere", "base_url": d.provider + "/native"}, nil); err != nil {
+	if err := d.updateFixtureConnection(owner, rerankID,
+		map[string]any{"provider": "cohere", "base_url": d.provider + "/native"}); err != nil {
 		return err
 	}
 	conn, err := grpc.NewClient(d.llmRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -375,9 +375,12 @@ func (d *driver) judgeComponentsScenario(owner, outsider account, suffix string,
 		APIKey   string `json:"api_key"`
 	}
 	var model runtimeModel
+	connectionID, err := d.fixtureConnection(owner, name, "typesafe", d.provider+"/native", componentKey)
+	if err != nil {
+		return err
+	}
 	if err := d.request(http.MethodPost, "/models", owner.token, map[string]any{
-		"model_name": name + "-initial", "provider": "typesafe", "capability": "judge",
-		"base_url": d.provider + "/native", "api_key": componentKey,
+		"model_name": name + "-initial", "connection_id": connectionID, "capability": "judge",
 		"input_price_per_mtok": 2, "output_price_per_mtok": 3,
 	}, &model); err != nil {
 		return fmt.Errorf("components.judge.register: %w", err)
@@ -405,16 +408,18 @@ func (d *driver) judgeComponentsScenario(owner, outsider account, suffix string,
 	}) {
 		return errors.New("components.judge: 创建/编辑/能力筛选/免费输出价未持久化回显")
 	}
+	unsupportedConnection, err := d.fixtureConnection(owner, name+"-unsupported", "openai", d.provider+"/native", componentKey)
+	if err != nil {
+		return err
+	}
 	if err := d.runtimeReject(http.MethodPost, "/models", owner, map[string]any{
-		"model_name": name + "-unsupported", "provider": "openai", "capability": "judge",
-		"base_url": d.provider + "/native", "api_key": componentKey,
+		"model_name": name + "-unsupported", "connection_id": unsupportedConnection, "capability": "judge",
 	}, http.StatusBadRequest); err != nil {
 		return err
 	}
 	for _, alias := range []string{"jev-latest", "jev-preview"} {
 		if err := d.runtimeReject(http.MethodPost, "/models", owner, map[string]any{
-			"model_name": alias, "provider": "typesafe", "capability": "judge",
-			"base_url": d.provider + "/native", "api_key": componentKey,
+			"model_name": alias, "connection_id": connectionID, "capability": "judge",
 		}, http.StatusBadRequest); err != nil {
 			return err
 		}
@@ -455,7 +460,7 @@ func (d *driver) judgeComponentsScenario(owner, outsider account, suffix string,
 		}
 	}
 	ctx, cancel := contextFor("not-a-user-id")
-	_, err := cli.Judge(ctx, request("COMPONENT_JUDGE_INVALID_IDENTITY"))
+	_, err = cli.Judge(ctx, request("COMPONENT_JUDGE_INVALID_IDENTITY"))
 	cancel()
 	if status.Code(err) != codes.Unauthenticated {
 		return fmt.Errorf("components.judge: 非法身份未拒绝: %v", err)
@@ -556,8 +561,8 @@ func (d *driver) judgeComponentsScenario(owner, outsider account, suffix string,
 			return err
 		}
 	}
-	// More cancellations than the model's configured admission pool can hold.
-	for i := range 11 {
+	// Repeated dispatched cancellation must release capacity for the next call.
+	for i := range 2 {
 		token := fmt.Sprintf("COMPONENT_JUDGE_CANCEL_%d", i)
 		ctx, cancel := contextFor(ownerID)
 		finished := make(chan error, 1)
@@ -575,7 +580,10 @@ func (d *driver) judgeComponentsScenario(owner, outsider account, suffix string,
 			return err
 		}
 	}
-	ctx, cancel = contextFor(ownerID)
+	// The caller deadline must expire before the provider fixture's 30s
+	// cancellation-observation guard; the scenario-wide 60s budget cannot do so.
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("user-id", ownerID))
 	_, err = cli.Judge(ctx, request("COMPONENT_JUDGE_DEADLINE"))
 	cancel()
 	if status.Code(err) != codes.DeadlineExceeded {
@@ -591,58 +599,122 @@ func (d *driver) judgeComponentsScenario(owner, outsider account, suffix string,
 	if err := requireJudgeAnswers(resp, name, false); err != nil {
 		return err
 	}
-	// The real service configuration admits ten concurrent requests per model.
-	poolCtx, cancelPool := contextFor(ownerID)
-	poolFinished := make(chan error, 10)
-	defer cancelPool()
-	for i := range 10 {
-		token := fmt.Sprintf("COMPONENT_JUDGE_CANCEL_POOL_%d", i)
-		go func() { _, err := cli.Judge(poolCtx, request(token)); poolFinished <- err }()
-		if err := d.requireComponentObservation(name, token, "received", "/native/v1/systemone"); err != nil {
+	// Explicit shared supply queues excess work; equal model names on independent
+	// connections do not share supply. Waiting ends at the caller's deadline and
+	// must not dispatch to the provider or consume a request allowance.
+	if err := d.request(http.MethodPut, "/quota-pools/"+model.QuotaPoolID.String(), owner.token,
+		map[string]any{"limits": map[string]int{"concurrency": 1}}, nil); err != nil {
+		return err
+	}
+	var sharedConnection struct {
+		ID entityID `json:"id"`
+	}
+	if err := d.request(http.MethodPost, "/model-connections", owner.token, map[string]any{
+		"name": name + "-shared", "provider": "typesafe", "base_url": d.provider + "/native", "api_key": componentKey, "quota_pool_id": model.QuotaPoolID,
+	}, &sharedConnection); err != nil {
+		return err
+	}
+	var sharedModel runtimeModel
+	if err := d.request(http.MethodPost, "/models", owner.token, map[string]any{
+		"model_name": name + "-shared", "capability": "judge", "connection_id": sharedConnection.ID,
+	}, &sharedModel); err != nil {
+		return err
+	}
+	defer func() {
+		result = errors.Join(result, d.request(http.MethodDelete, "/models/"+sharedModel.ID.String(), owner.token, nil, nil))
+	}()
+	independentConnection, err := d.fixtureConnection(owner, name+"-independent", "typesafe", d.provider+"/native", componentKey)
+	if err != nil {
+		return err
+	}
+	var independentModel runtimeModel
+	if err := d.request(http.MethodPost, "/models", owner.token, map[string]any{
+		"model_name": name, "capability": "judge", "connection_id": independentConnection,
+	}, &independentModel); err != nil {
+		return err
+	}
+	defer func() {
+		result = errors.Join(result, d.request(http.MethodDelete, "/models/"+independentModel.ID.String(), owner.token, nil, nil))
+	}()
+	invoke := func(modelID entityID, token string, timeout time.Duration) (*llmpb.JudgeResp, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("user-id", ownerID))
+		req := request(token)
+		req.ModelId = modelID.String()
+		return cli.Judge(ctx, req)
+	}
+	holdCtx, releaseHold := contextFor(ownerID)
+	defer releaseHold()
+	holdDone := make(chan error, 1)
+	go func() { _, err := cli.Judge(holdCtx, request("COMPONENT_JUDGE_CANCEL_POOL_HOLDER")); holdDone <- err }()
+	if err := d.requireComponentObservation(name, "COMPONENT_JUDGE_CANCEL_POOL_HOLDER", "received", "/native/v1/systemone"); err != nil {
+		return err
+	}
+	_, err = invoke(sharedModel.ID, "COMPONENT_JUDGE_NO_USAGE_SHARED_WAIT_DEADLINE", 300*time.Millisecond)
+	if status.Code(err) != codes.DeadlineExceeded {
+		return fmt.Errorf("components.judge: shared supply did not wait until caller deadline: %v", err)
+	}
+	isolated, err := invoke(independentModel.ID, "COMPONENT_JUDGE_NO_USAGE_INDEPENDENT_SUPPLY", d.timeout)
+	if err != nil {
+		return fmt.Errorf("components.judge: independent connection was blocked by equal model name: %w", err)
+	}
+	if err := requireJudgeAnswers(isolated, name, false); err != nil {
+		return err
+	}
+	releaseHold()
+	if err := <-holdDone; status.Code(err) != codes.Canceled {
+		return fmt.Errorf("components.judge: held supply cancellation not propagated: %v", err)
+	}
+	if err := d.requireComponentObservation(name, "COMPONENT_JUDGE_CANCEL_POOL_HOLDER", "cancelled", "/native/v1/systemone"); err != nil {
+		return err
+	}
+	recovered, err := invoke(sharedModel.ID, "COMPONENT_JUDGE_NO_USAGE_SHARED_RECOVERED", d.timeout)
+	if err != nil {
+		return fmt.Errorf("components.judge: shared supply did not recover after cancellation: %w", err)
+	}
+	if err := requireJudgeAnswers(recovered, name+"-shared", false); err != nil {
+		return err
+	}
+	// A fresh explicitly configured RPM pool is shared by both connections. Rename
+	// cannot mint new quota: pool identity, not semantic model name, owns supply.
+	var rpmPool struct {
+		ID entityID `json:"id"`
+	}
+	if err := d.request(http.MethodPost, "/quota-pools", owner.token, map[string]any{
+		"name": name + "-rpm", "limits": map[string]int{"requests_per_minute": 1},
+	}, &rpmPool); err != nil {
+		return err
+	}
+	for _, connectionID := range []entityID{model.ConnectionID, sharedConnection.ID} {
+		if err := d.request(http.MethodPut, "/model-connections/"+connectionID.String(), owner.token, map[string]any{"quota_pool_id": rpmPool.ID}, nil); err != nil {
 			return err
 		}
 	}
-	_, err = call("COMPONENT_JUDGE_CONCURRENCY_REJECTED")
-	if status.Code(err) != codes.ResourceExhausted {
-		return fmt.Errorf("components.judge: 并发超限未拒绝: %v", err)
+	rpmResponse, err := invoke(model.ID, "COMPONENT_JUDGE_NO_USAGE_RPM_FIRST", d.timeout)
+	if err != nil {
+		return err
 	}
-	cancelPool()
-	for range 10 {
-		if err := <-poolFinished; status.Code(err) != codes.Canceled {
-			return fmt.Errorf("components.judge: 并发池取消未传播: %v", err)
-		}
+	if err := requireJudgeAnswers(rpmResponse, name, false); err != nil {
+		return err
 	}
-	for i := range 10 {
-		if err := d.requireComponentObservation(name, fmt.Sprintf("COMPONENT_JUDGE_CANCEL_POOL_%d", i), "cancelled", "/native/v1/systemone"); err != nil {
-			return err
-		}
-	}
-	// A distinct current model name starts a fresh real 100-RPM budget, so
-	// cancellation/deadline work cannot move this check across an old window.
-	rpmName := name + "-rpm"
+	rpmName := name + "-renamed"
 	if err := d.request(http.MethodPut, "/models/"+model.ID.String(), owner.token, map[string]string{"model_name": rpmName}, nil); err != nil {
 		return err
 	}
-	// Unknown-usage replies do not manufacture billing facts.
-	rejectedToken := ""
-	for i := range 101 {
-		token := fmt.Sprintf("COMPONENT_JUDGE_NO_USAGE_RPM_%d", i)
-		resp, err := call(token)
-		if status.Code(err) == codes.ResourceExhausted {
-			rejectedToken = token
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("components.judge: RPM试验调用失败: %w", err)
-		}
-		if err := requireJudgeAnswers(resp, rpmName, false); err != nil {
-			return err
+	for _, queued := range []struct {
+		id    entityID
+		token string
+	}{
+		{sharedModel.ID, "COMPONENT_JUDGE_NO_USAGE_RPM_SHARED_WAIT"},
+		{model.ID, "COMPONENT_JUDGE_NO_USAGE_RPM_RENAME_WAIT"},
+	} {
+		_, err := invoke(queued.id, queued.token, 300*time.Millisecond)
+		if status.Code(err) != codes.DeadlineExceeded {
+			return fmt.Errorf("components.judge: exhausted supply did not wait without dispatch: %v", err)
 		}
 	}
-	if rejectedToken == "" {
-		return errors.New("components.judge: RPM超限未拒绝")
-	}
-	for _, observedName := range []string{name, rpmName} {
+	for _, observedName := range []string{name, name + "-shared", rpmName} {
 		var observed struct {
 			Requests []llmChatObservation `json:"requests"`
 		}
@@ -650,9 +722,9 @@ func (d *driver) judgeComponentsScenario(owner, outsider account, suffix string,
 			return err
 		}
 		if slices.ContainsFunc(observed.Requests, func(row llmChatObservation) bool {
-			return row.Token == rejectedToken || row.Token == "COMPONENT_JUDGE_CONCURRENCY_REJECTED"
+			return row.Token == "COMPONENT_JUDGE_NO_USAGE_SHARED_WAIT_DEADLINE" || row.Token == "COMPONENT_JUDGE_NO_USAGE_RPM_SHARED_WAIT" || row.Token == "COMPONENT_JUDGE_NO_USAGE_RPM_RENAME_WAIT"
 		}) {
-			return errors.New("components.judge: 超限请求仍到达供应商")
+			return errors.New("components.judge: cancelled/deadline queued work reached the provider")
 		}
 	}
 	if err := d.requireJudgeBilling(owner, model.ID, name, len(malformed)+3); err != nil {

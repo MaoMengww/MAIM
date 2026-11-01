@@ -50,7 +50,7 @@ deploy_services() {
   # versioned migrations (migrations/postgres, advisory-locked) on startup, so an
   # untracked replay would only re-apply 000 against an already-migrated database.
   echo "=== Deploying all services ==="
-  : "${INGEST_EMBEDDING_TOKEN:?Set the private ingestion quota token before deploying}"
+  : "${INGEST_EMBEDDING_TOKEN:?Set the private ingestion authentication token before deploying}"
   kubectl create secret generic aim-ingest-embedding \
     --from-literal=token="$INGEST_EMBEDDING_TOKEN" \
     --dry-run=client -o yaml | kubectl apply -f -

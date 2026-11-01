@@ -9,27 +9,21 @@ import (
 
 type Config struct {
 	zrpc.RpcServerConf
-	Database       config.DatabaseConfig `json:"database"`
-	ModelConf      ModelConf             `json:"modelConf"`
-	RateLimit      RateLimitConf         `json:"rateLimit"`
-	EncKey         string                `json:"encKey,optional"`
-	UserService    zrpc.RpcClientConf    `json:"userService"`
-	EmbeddingQuota EmbeddingQuotaConfig  `json:"embeddingQuota"`
+	Database             config.DatabaseConfig `json:"database"`
+	ModelConf            ModelConf             `json:"modelConf"`
+	Capacity             CapacityConfig        `json:"capacity"`
+	EncKey               string                `json:"encKey,optional"`
+	UserService          zrpc.RpcClientConf    `json:"userService"`
+	IngestEmbeddingToken string                `json:"ingestEmbeddingToken"`
 }
 
 type ModelConf struct {
 	RefreshInterval time.Duration `json:"refreshInterval,default=300s"`
 }
 
-type RateLimitConf struct {
-	DefaultRPM         int `json:"defaultRPM,default=100"`
-	DefaultConcurrency int `json:"defaultConcurrency,default=10"`
-}
-
-type EmbeddingQuotaConfig struct {
-	OnlineRPM         int    `json:"onlineRPM,default=80"`
-	OnlineConcurrency int    `json:"onlineConcurrency,default=8"`
-	IngestRPM         int    `json:"ingestRPM,default=20"`
-	IngestConcurrency int    `json:"ingestConcurrency,default=2"`
-	IngestToken       string `json:"ingestToken,optional"`
+// CapacityConfig protects each process; it does not invent supplier quotas.
+type CapacityConfig struct {
+	MaxInFlight   int           `json:"maxInFlight,default=64"`
+	LeaseDuration time.Duration `json:"leaseDuration,default=30s"`
+	PollInterval  time.Duration `json:"pollInterval,default=50ms"`
 }

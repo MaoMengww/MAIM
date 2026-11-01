@@ -17,6 +17,14 @@ service LLMGateway {
   rpc CreateModel(CreateModelReq) returns (ModelResp);
   rpc UpdateModel(UpdateModelReq) returns (ModelResp);
   rpc DeleteModel(DeleteModelReq) returns (DeleteModelResp);
+  rpc ListConnections(ListConnectionsReq) returns (ListConnectionsResp);
+  rpc CreateConnection(CreateConnectionReq) returns (ConnectionResp);
+  rpc UpdateConnection(UpdateConnectionReq) returns (ConnectionResp);
+  rpc DeleteConnection(DeleteConnectionReq) returns (DeleteConnectionResp);
+  rpc ListQuotaPools(ListQuotaPoolsReq) returns (ListQuotaPoolsResp);
+  rpc CreateQuotaPool(CreateQuotaPoolReq) returns (QuotaPoolResp);
+  rpc UpdateQuotaPool(UpdateQuotaPoolReq) returns (QuotaPoolResp);
+  rpc DeleteQuotaPool(DeleteQuotaPoolReq) returns (DeleteQuotaPoolResp);
   rpc GetBillingStats(BillingStatsReq) returns (BillingStatsResp);
   rpc VlmChat(VlmChatReq) returns (ChatResp);
   rpc ListBillingRecords(ListBillingRecordsReq) returns (ListBillingRecordsResp);
@@ -242,25 +250,31 @@ message ListModelsResp {
 
 message CreateModelReq {
   string model_name = 1;
-  string provider = 2;
+  reserved 2;
+  reserved "provider";
   string capability = 3;
-  string base_url = 4;
-  string api_key = 5;
+  reserved 4, 5;
+  reserved "base_url", "api_key";
   double input_price_per_mtok = 6;
   double output_price_per_mtok = 7;
   optional string owner_id = 8 [(common.entity_id) = true];
   string owner_type = 9; // platform | user；平台不提供 owner_id，用户所有必须提供有效 owner_id
+  string connection_id = 10 [(common.entity_id) = true];
+  CapacityLimits model_limits = 11;
 }
 
 message UpdateModelReq {
   string model_id = 1 [(common.entity_id) = true];
   string model_name = 2;
-  string provider = 3;
+  reserved 3;
+  reserved "provider";
   string capability = 4;
-  string base_url = 5;
-  string api_key = 6;
+  reserved 5, 6;
+  reserved "base_url", "api_key";
   optional double input_price_per_mtok = 7;
   optional double output_price_per_mtok = 8;
+  optional string connection_id = 9 [(common.entity_id) = true];
+  CapacityLimits model_limits = 10;
 }
 
 message DeleteModelReq {
@@ -281,8 +295,68 @@ message ModelResp {
   string status = 7;
   double input_price_per_mtok = 8;
   double output_price_per_mtok = 9;
-  string api_key = 10;
+  reserved 10;
+  reserved "api_key";
   string owner_type = 11; // platform | user；与 provider、model_name 专用语义键无关
+  string connection_id = 12 [(common.entity_id) = true];
+  string quota_pool_id = 13 [(common.entity_id) = true];
+  CapacityLimits pool_limits = 14;
+  CapacityLimits model_limits = 15;
+}
+
+// Zero disables a supply dimension; negative values are invalid. Omitted model
+// limits mean no model sublimit, never an implicit supplier quota.
+message CapacityLimits {
+  int32 requests_per_minute = 1;
+  int32 requests_per_second = 2;
+  int32 tokens_per_second = 3;
+  int32 concurrency = 4;
+}
+
+message ListConnectionsReq { int32 page = 1; int32 page_size = 2; }
+message ListConnectionsResp { repeated ConnectionResp items = 1; int32 total = 2; }
+message CreateConnectionReq {
+  string name = 1;
+  string provider = 2;
+  string base_url = 3;
+  string api_key = 4; // Write-only. Never returned by any management response.
+  optional string quota_pool_id = 5 [(common.entity_id) = true];
+}
+message UpdateConnectionReq {
+  string connection_id = 1 [(common.entity_id) = true];
+  optional string name = 2;
+  optional string provider = 3;
+  optional string base_url = 4;
+  optional string api_key = 5; // Present means rotate (including empty key).
+  optional string quota_pool_id = 6 [(common.entity_id) = true];
+}
+message DeleteConnectionReq { string connection_id = 1 [(common.entity_id) = true]; }
+message DeleteConnectionResp { bool success = 1; }
+message ConnectionResp {
+  string id = 1 [(common.entity_id) = true];
+  string name = 2;
+  string provider = 3;
+  string base_url = 4;
+  string quota_pool_id = 5 [(common.entity_id) = true];
+  optional string owner_id = 6 [(common.entity_id) = true];
+  string owner_type = 7;
+}
+message ListQuotaPoolsReq { int32 page = 1; int32 page_size = 2; }
+message ListQuotaPoolsResp { repeated QuotaPoolResp items = 1; int32 total = 2; }
+message CreateQuotaPoolReq { string name = 1; CapacityLimits limits = 2; }
+message UpdateQuotaPoolReq {
+  string quota_pool_id = 1 [(common.entity_id) = true];
+  optional string name = 2;
+  CapacityLimits limits = 3; // Present replaces all four dimensions.
+}
+message DeleteQuotaPoolReq { string quota_pool_id = 1 [(common.entity_id) = true]; }
+message DeleteQuotaPoolResp { bool success = 1; }
+message QuotaPoolResp {
+  string id = 1 [(common.entity_id) = true];
+  string name = 2;
+  CapacityLimits limits = 3;
+  optional string owner_id = 4 [(common.entity_id) = true];
+  string owner_type = 5;
 }
 
 message BillingStatsReq {

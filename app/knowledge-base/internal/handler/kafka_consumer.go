@@ -106,7 +106,7 @@ func (h *DocumentUploadedHandler) Handle(ctx context.Context, key, value []byte)
 	}
 	pipeCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
-	pipeCtx = metadata.AppendToOutgoingContext(pipeCtx, "x-aim-embedding-workload", "ingest", "x-aim-ingest-token", h.embeddingToken)
+	pipeCtx = metadata.AppendToOutgoingContext(pipeCtx, "x-aim-ingest-token", h.embeddingToken)
 	doc, err := h.DocRepo.Get(pipeCtx, event.DocID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil

@@ -110,26 +110,25 @@ func (h *LLMGatewayHandler) Chat(ctx context.Context, req *pb.ChatReq) (resp *pb
 			return nil, err
 		}
 	}
-	if err := h.svcCtx.RateLimiter.Allow(ctx, modelName); err != nil {
-		return nil, err
-	}
-	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, modelName); err != nil {
-		return nil, err
-	}
-	defer func() {
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if err := h.svcCtx.RateLimiter.DecrConcurrency(releaseCtx, modelName); err != nil {
-			h.svcCtx.Logger.WithContext(ctx).Errorf("chat concurrency release failed: model=%s error=%v", modelName, err)
-		}
-	}()
 	if err := h.authorizeRunRequest(ctx, req); err != nil {
 		return nil, err
 	}
-	resp, err = llm.CompleteChat(ctx, req, cfg, info.ModelEntry.APIKey)
+	permit, err := h.acquireCapacity(ctx, info, req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, status.FromContextError(ctx.Err()).Err()
+		return nil, err
+	}
+	defer permit.Release()
+	ctx = permit.Context()
+	if err := h.authorizeRunRequest(ctx, req); err != nil {
+		permit.Abort()
+		return nil, err
+	}
+	resp, err = llm.CompleteChat(ctx, req, cfg, info.ModelEntry.APIKey)
+	callContextErr := ctx.Err()
+	finishCapacityAttempt(permit, err)
+	if err != nil {
+		if callContextErr != nil {
+			return nil, status.FromContextError(callContextErr).Err()
 		}
 		var input *llm.RequestError
 		if stderrors.As(err, &input) {
@@ -137,7 +136,7 @@ func (h *LLMGatewayHandler) Chat(ctx context.Context, req *pb.ChatReq) (resp *pb
 		}
 		return nil, errors.Wrap(errors.CodeRPCError, "chat completion failed", err)
 	}
-	h.recordChatUsage(ctx, info, req, resp.Usage)
+	h.recordChatUsage(context.WithoutCancel(ctx), info, req, resp.Usage)
 	h.svcCtx.Logger.WithContext(ctx).Infof("method=Chat model=%s adapter=%s usage_reported=%t", modelName, llm.AdapterVersion, resp.Usage != nil)
 	return resp, nil
 }
@@ -173,20 +172,17 @@ func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_Cha
 			return err
 		}
 	}
-	if err := h.svcCtx.RateLimiter.Allow(ctx, modelName); err != nil {
-		return err
-	}
-	if err := h.svcCtx.RateLimiter.IncrConcurrency(ctx, modelName); err != nil {
-		return err
-	}
-	defer func() {
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if err := h.svcCtx.RateLimiter.DecrConcurrency(releaseCtx, modelName); err != nil {
-			h.svcCtx.Logger.WithContext(ctx).Errorf("chat stream concurrency release failed: model=%s error=%v", modelName, err)
-		}
-	}()
 	if err := h.authorizeRunRequest(ctx, req); err != nil {
+		return err
+	}
+	permit, err := h.acquireCapacity(ctx, info, req)
+	if err != nil {
+		return err
+	}
+	defer permit.Release()
+	ctx = permit.Context()
+	if err := h.authorizeRunRequest(ctx, req); err != nil {
+		permit.Abort()
 		return err
 	}
 	err = llm.StreamChat(ctx, req, cfg, info.ModelEntry.APIKey, func(chunk *pb.ChatStreamChunk) error {
@@ -195,9 +191,11 @@ func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_Cha
 		}
 		return stream.Send(chunk)
 	})
+	callContextErr := ctx.Err()
+	finishCapacityAttempt(permit, err)
 	if err != nil {
-		if ctx.Err() != nil {
-			return status.FromContextError(ctx.Err()).Err()
+		if callContextErr != nil {
+			return status.FromContextError(callContextErr).Err()
 		}
 		var input *llm.RequestError
 		if stderrors.As(err, &input) {

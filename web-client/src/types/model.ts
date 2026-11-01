@@ -768,6 +768,33 @@ export interface KnowledgeSearchRsp {
 // ─── Model (LLM) ───
 export type ModelCapability = 'chat' | 'embed' | 'rerank' | 'judge' | 'vlm' | 'tts';
 
+// Each supply dimension is explicit: zero means unlimited, never an implicit default.
+export interface CapacityLimits {
+  requests_per_minute: number;
+  requests_per_second: number;
+  tokens_per_second: number;
+  concurrency: number;
+}
+
+// Credentials are write-only and never part of a connection response.
+export interface ModelConnectionResp {
+  id: string;
+  name: string;
+  provider: string;
+  base_url: string;
+  quota_pool_id: string;
+  owner_type: 'user' | 'platform';
+  owner_id?: string | null;
+}
+
+export interface QuotaPoolResp {
+  id: string;
+  name: string;
+  limits: CapacityLimits;
+  owner_type: 'user' | 'platform';
+  owner_id?: string | null;
+}
+
 export interface ModelResp {
   id: string;
   model_name: string;
@@ -777,7 +804,10 @@ export interface ModelResp {
   owner_type: 'user' | 'platform';
   owner_id?: string | null;
   status: string;
-  api_key: string;
+  connection_id: string;
+  quota_pool_id: string;
+  model_limits?: CapacityLimits;
+  pool_limits?: CapacityLimits;
   input_price_per_mtok?: number;
   output_price_per_mtok?: number;
 }

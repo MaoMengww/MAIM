@@ -9,6 +9,7 @@ import (
 	"github.com/maomeng/aim/app/llm-gateway/internal/model"
 	"github.com/maomeng/aim/pkg/crypto"
 	"github.com/maomeng/aim/pkg/database"
+	"gorm.io/gorm"
 )
 
 type ModelRepo struct {
@@ -56,8 +57,8 @@ func (r *ModelRepo) refreshLoop() {
 }
 
 func (r *ModelRepo) Refresh() error {
-	var records []model.ModelRegistry
-	if err := r.db.WithContext(context.Background()).Where("status = ?", "active").Find(&records).Error; err != nil {
+	var records []resolvedModelRecord
+	if err := r.resolvedQuery(context.Background()).Where("m.status = ?", "active").Scan(&records).Error; err != nil {
 		return err
 	}
 
@@ -66,30 +67,9 @@ func (r *ModelRepo) Refresh() error {
 	newByCap := make(map[string][]*domain.ModelEntry)
 
 	for _, rec := range records {
-		var apiKey string
-		if rec.APIKeyEncrypted != "" {
-			var err error
-			apiKey, err = crypto.DecryptString(rec.APIKeyEncrypted, r.encKey)
-			if err != nil {
-				apiKey = ""
-			}
-		}
-		entry := &domain.ModelEntry{
-			ID:                 rec.ID,
-			ModelName:          rec.ModelName,
-			Provider:           rec.Provider,
-			Capability:         rec.Capability,
-			BaseURL:            rec.BaseURL,
-			APIKeyEncrypted:    rec.APIKeyEncrypted,
-			APIKey:             apiKey,
-			ContextWindow:      rec.ContextWindow,
-			MaxOutputTokens:    rec.MaxOutputTokens,
-			InputPricePerMTok:  rec.InputPricePerMTok,
-			OutputPricePerMTok: rec.OutputPricePerMTok,
-			OwnerType:          rec.OwnerType,
-			OwnerID:            rec.OwnerID,
-			Status:             rec.Status,
-			Metadata:           rec.Metadata,
+		entry, err := r.modelEntry(rec)
+		if err != nil {
+			return err
 		}
 		// Names are external semantic keys; only platform entries participate
 		// in name fallback. User entries are selected by their registry UUID.
@@ -108,14 +88,38 @@ func (r *ModelRepo) Refresh() error {
 	return nil
 }
 
-func (r *ModelRepo) FindByID(modelID string) (*domain.ModelEntry, error) {
-	var rec model.ModelRegistry
-	if err := r.db.WithContext(context.Background()).Where("id = ?", modelID).Limit(1).Find(&rec).Error; err != nil {
+func (r *ModelRepo) FindByID(ctx context.Context, modelID string) (*domain.ModelEntry, error) {
+	var rec resolvedModelRecord
+	if err := r.resolvedQuery(ctx).Where("m.id = ?", modelID).Limit(1).Scan(&rec).Error; err != nil {
 		return nil, err
 	}
 	if rec.ID == "" {
 		return nil, nil
 	}
+	return r.modelEntry(rec)
+}
+
+type resolvedModelRecord struct {
+	model.ModelRegistry
+	Provider        string
+	BaseURL         string
+	APIKeyEncrypted string
+	QuotaPoolID     string
+	PoolRPM         int
+	PoolRPS         int
+	PoolTPS         int
+	PoolConcurrency int
+	PoolUpdatedAt   time.Time
+}
+
+func (r *ModelRepo) resolvedQuery(ctx context.Context) *gorm.DB {
+	return r.db.WithContext(ctx).Table("model_registry AS m").
+		Select("m.*, c.provider, c.base_url, c.api_key_encrypted, c.quota_pool_id, p.requests_per_minute AS pool_rpm, p.requests_per_second AS pool_rps, p.tokens_per_second AS pool_tps, p.concurrency AS pool_concurrency, p.updated_at AS pool_updated_at").
+		Joins("JOIN provider_connections c ON c.id = m.connection_id AND c.owner_type = m.owner_type AND c.owner_id IS NOT DISTINCT FROM m.owner_id").
+		Joins("JOIN quota_pools p ON p.id = c.quota_pool_id AND p.owner_type = c.owner_type AND p.owner_id IS NOT DISTINCT FROM c.owner_id")
+}
+
+func (r *ModelRepo) modelEntry(rec resolvedModelRecord) (*domain.ModelEntry, error) {
 	var apiKey string
 	if rec.APIKeyEncrypted != "" {
 		var err error
@@ -125,13 +129,23 @@ func (r *ModelRepo) FindByID(modelID string) (*domain.ModelEntry, error) {
 		}
 	}
 	return &domain.ModelEntry{
-		ID: rec.ID, ModelName: rec.ModelName, Provider: rec.Provider,
-		Capability: rec.Capability, BaseURL: rec.BaseURL,
-		APIKeyEncrypted: rec.APIKeyEncrypted, APIKey: apiKey,
+		ID: rec.ID, ModelName: rec.ModelName, ConnectionID: rec.ConnectionID,
+		QuotaPoolID:  rec.QuotaPoolID,
+		PoolRevision: capacityRevision(rec.PoolUpdatedAt), ModelRevision: capacityRevision(rec.UpdatedAt),
+		PoolLimits:  domain.CapacityLimits{RequestsPerMinute: rec.PoolRPM, RequestsPerSecond: rec.PoolRPS, TokensPerSecond: rec.PoolTPS, Concurrency: rec.PoolConcurrency},
+		ModelLimits: domain.CapacityLimits{RequestsPerMinute: rec.RequestsPerMinute, RequestsPerSecond: rec.RequestsPerSecond, TokensPerSecond: rec.TokensPerSecond, Concurrency: rec.Concurrency},
+		Provider:    rec.Provider, Capability: rec.Capability, BaseURL: rec.BaseURL, APIKey: apiKey,
 		ContextWindow: rec.ContextWindow, MaxOutputTokens: rec.MaxOutputTokens,
 		InputPricePerMTok: rec.InputPricePerMTok, OutputPricePerMTok: rec.OutputPricePerMTok,
 		OwnerType: rec.OwnerType, OwnerID: rec.OwnerID, Status: rec.Status, Metadata: rec.Metadata,
 	}, nil
+}
+
+func capacityRevision(updatedAt time.Time) int64 {
+	if updatedAt.IsZero() {
+		return 0
+	}
+	return updatedAt.UnixNano()
 }
 
 func (r *ModelRepo) FindByName(modelName string) (*domain.ModelEntry, error) {

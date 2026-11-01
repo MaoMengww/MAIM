@@ -1,12 +1,19 @@
 package domain
 
+import "context"
+
 type ModelEntry struct {
 	ID                 string
 	ModelName          string
+	ConnectionID       string
+	QuotaPoolID        string
+	PoolLimits         CapacityLimits
+	ModelLimits        CapacityLimits
+	PoolRevision       int64
+	ModelRevision      int64
 	Provider           string
 	Capability         string
 	BaseURL            string
-	APIKeyEncrypted    string
 	APIKey             string
 	ContextWindow      int
 	MaxOutputTokens    int
@@ -19,7 +26,7 @@ type ModelEntry struct {
 }
 
 type ModelRegistry interface {
-	FindByID(modelID string) (*ModelEntry, error)
+	FindByID(context.Context, string) (*ModelEntry, error)
 	FindByName(modelName string) (*ModelEntry, error)
 	FindByCapability(capability string, ownerID *string) ([]*ModelEntry, error)
 	ListAll() []*ModelEntry
