@@ -10,8 +10,8 @@ type BillingRecord struct {
 	ModelID      string    `gorm:"column:model_id;type:uuid;not null" json:"model_id"`
 	ModelName    string    `gorm:"column:model_name" json:"model_name"`
 	Capability   string    `gorm:"column:capability" json:"capability"`
-	InputTokens  int       `gorm:"column:input_tokens" json:"input_tokens"`
-	OutputTokens int       `gorm:"column:output_tokens" json:"output_tokens"`
+	InputTokens  *int      `gorm:"column:input_tokens" json:"input_tokens"`
+	OutputTokens *int      `gorm:"column:output_tokens" json:"output_tokens"`
 	InputCost    float64   `gorm:"column:input_cost" json:"input_cost"`
 	OutputCost   float64   `gorm:"column:output_cost" json:"output_cost"`
 	Provider     string    `gorm:"column:provider" json:"provider"`

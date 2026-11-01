@@ -364,6 +364,460 @@ func (d *driver) llmComponentsScenario() (result error) {
 			return err
 		}
 	}
+	return d.judgeComponentsScenario(owner, outsider, suffix, cli, embedID)
+}
+
+func (d *driver) judgeComponentsScenario(owner, outsider account, suffix string, cli llmpb.LLMGatewayClient, wrongCapability entityID) (result error) {
+	name := "e2e-component-judge-" + suffix
+	type judgeModelView struct {
+		runtimeModel
+		Provider string `json:"provider"`
+		APIKey   string `json:"api_key"`
+	}
+	var model runtimeModel
+	if err := d.request(http.MethodPost, "/models", owner.token, map[string]any{
+		"model_name": name + "-initial", "provider": "typesafe", "capability": "judge",
+		"base_url": d.provider + "/native", "api_key": componentKey,
+		"input_price_per_mtok": 2, "output_price_per_mtok": 3,
+	}, &model); err != nil {
+		return fmt.Errorf("components.judge.register: %w", err)
+	}
+	if model.ID == "" {
+		return errors.New("components.judge: 注册未返回模型身份")
+	}
+	defer func() {
+		result = errors.Join(result, d.request(http.MethodDelete, "/models/"+model.ID.String(), owner.token, nil, nil))
+	}()
+	if err := d.request(http.MethodPut, "/models/"+model.ID.String(), owner.token,
+		map[string]any{"model_name": name, "output_price_per_mtok": 0}, nil); err != nil {
+		return err
+	}
+	var listed struct {
+		Items []judgeModelView `json:"items"`
+	}
+	if err := d.request(http.MethodGet, "/models?capability=judge", owner.token, nil, &listed); err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(listed.Items, func(item judgeModelView) bool {
+		return item.ID == model.ID && item.Name == name && item.Capability == "judge" && item.Provider == "typesafe" &&
+			item.BaseURL == d.provider+"/native" && item.Status == "active" && item.OwnerType == "user" &&
+			hasEntityID(item.OwnerID, owner.id) && item.InputPrice == 2 && item.OutputPrice == 0
+	}) {
+		return errors.New("components.judge: 创建/编辑/能力筛选/免费输出价未持久化回显")
+	}
+	if err := d.runtimeReject(http.MethodPost, "/models", owner, map[string]any{
+		"model_name": name + "-unsupported", "provider": "openai", "capability": "judge",
+		"base_url": d.provider + "/native", "api_key": componentKey,
+	}, http.StatusBadRequest); err != nil {
+		return err
+	}
+	for _, alias := range []string{"jev-latest", "jev-preview"} {
+		if err := d.runtimeReject(http.MethodPost, "/models", owner, map[string]any{
+			"model_name": alias, "provider": "typesafe", "capability": "judge",
+			"base_url": d.provider + "/native", "api_key": componentKey,
+		}, http.StatusBadRequest); err != nil {
+			return err
+		}
+	}
+	ownerID, outsiderID := owner.id.String(), outsider.id.String()
+	contextFor := func(user string) (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
+		return metadata.NewOutgoingContext(ctx, metadata.Pairs("user-id", user)), cancel
+	}
+	request := func(token string) *llmpb.JudgeReq {
+		falseCriteria, trueCriteria := "Unrelated", "Direct evidence"
+		return &llmpb.JudgeReq{ModelId: model.ID.String(), OwnerId: &ownerID, State: token,
+			Questions: map[string]*llmpb.JudgeQuestion{
+				"z_relevant": {Instructions: "Does this material answer the question?", Kind: &llmpb.JudgeQuestion_Noul{
+					Noul: &llmpb.NoulQuestion{FalseCriteria: &falseCriteria, TrueCriteria: &trueCriteria}}},
+				"a_irrelevant": {Instructions: "Is this material unrelated?", Kind: &llmpb.JudgeQuestion_Noul{Noul: &llmpb.NoulQuestion{}}},
+				"tone": {Instructions: "Choose the tone", Kind: &llmpb.JudgeQuestion_Choice{
+					Choice: &llmpb.ChoiceQuestion{Criteria: map[string]string{"calm": "Neutral", "angry": "Hostile"}}}},
+				"urgency": {Instructions: "Rate urgency", Kind: &llmpb.JudgeQuestion_Score{
+					Score: &llmpb.ScoreQuestion{Criteria: []string{"Can wait", "This week", "Today"}}}},
+			}}
+	}
+	call := func(token string) (*llmpb.JudgeResp, error) {
+		ctx, cancel := contextFor(ownerID)
+		defer cancel()
+		return cli.Judge(ctx, request(token))
+	}
+	for _, spoofOwner := range []bool{false, true} {
+		ctx, cancel := contextFor(outsiderID)
+		foreign := request("COMPONENT_JUDGE_FORBIDDEN")
+		if !spoofOwner {
+			foreign.OwnerId = &outsiderID
+		}
+		_, err := cli.Judge(ctx, foreign)
+		cancel()
+		if status.Code(err) != codes.PermissionDenied {
+			return fmt.Errorf("components.judge: 越权/伪造owner未拒绝: %v", err)
+		}
+	}
+	ctx, cancel := contextFor("not-a-user-id")
+	_, err := cli.Judge(ctx, request("COMPONENT_JUDGE_INVALID_IDENTITY"))
+	cancel()
+	if status.Code(err) != codes.Unauthenticated {
+		return fmt.Errorf("components.judge: 非法身份未拒绝: %v", err)
+	}
+	ctx, cancel = contextFor(ownerID)
+	ctx = metadata.AppendToOutgoingContext(ctx, "user-id", outsiderID)
+	_, err = cli.Judge(ctx, request("COMPONENT_JUDGE_DUPLICATE_IDENTITY"))
+	cancel()
+	if status.Code(err) != codes.Unauthenticated {
+		return fmt.Errorf("components.judge: 重复身份未拒绝: %v", err)
+	}
+	ctx, cancel = context.WithTimeout(context.Background(), d.timeout)
+	unowned := request("COMPONENT_JUDGE_PRIVATE_WITHOUT_OWNER")
+	unowned.OwnerId = nil
+	_, err = cli.Judge(ctx, unowned)
+	cancel()
+	if status.Code(err) != codes.PermissionDenied {
+		return fmt.Errorf("components.judge: 无owner的内部调用错误获得私有模型: %v", err)
+	}
+	for _, token := range []string{"COMPONENT_JUDGE_WRONG_CAPABILITY", "COMPONENT_JUDGE_MISSING_KIND", "COMPONENT_JUDGE_EMPTY_QUESTIONS"} {
+		req := request(token)
+		switch token {
+		case "COMPONENT_JUDGE_WRONG_CAPABILITY":
+			req.ModelId = wrongCapability.String()
+		case "COMPONENT_JUDGE_MISSING_KIND":
+			req.Questions["unsupported"] = &llmpb.JudgeQuestion{Instructions: "Unsupported kind"}
+		case "COMPONENT_JUDGE_EMPTY_QUESTIONS":
+			req.Questions = nil
+		}
+		ctx, cancel := contextFor(ownerID)
+		_, err := cli.Judge(ctx, req)
+		cancel()
+		if status.Code(err) != codes.InvalidArgument {
+			return fmt.Errorf("components.judge: 无效能力/题型/问题未拒绝 %s: %v", token, err)
+		}
+	}
+	ctx, cancel = contextFor(ownerID)
+	inactive := request("COMPONENT_JUDGE_INACTIVE")
+	inactive.ModelId = "01900000-0000-7000-8000-000000000012"
+	_, err = cli.Judge(ctx, inactive)
+	cancel()
+	if status.Code(err) != codes.PermissionDenied {
+		return fmt.Errorf("components.judge: 失效模型未拒绝: %v", err)
+	}
+	var before struct {
+		Requests []llmChatObservation `json:"requests"`
+	}
+	if err := d.executorProvider("/llm-components/observe", map[string]string{"model": name}, &before); err != nil {
+		return err
+	}
+	if len(before.Requests) != 0 {
+		return errors.New("components.judge: 被拒绝的调用到达了供应商")
+	}
+	for _, token := range []string{"COMPONENT_JUDGE_POSITIVE", "COMPONENT_JUDGE_NO_USAGE", "COMPONENT_JUDGE_INPUT_ONLY", "COMPONENT_JUDGE_OUTPUT_ONLY", "COMPONENT_JUDGE_ZERO", "COMPONENT_JUDGE_NO_CONFIDENCE"} {
+		resp, err := call(token)
+		if err != nil {
+			return fmt.Errorf("components.judge %s: %w", token, err)
+		}
+		if err := requireJudgeAnswers(resp, name, token == "COMPONENT_JUDGE_NO_CONFIDENCE"); err != nil {
+			return err
+		}
+		if token == "COMPONENT_JUDGE_NO_USAGE" {
+			if resp.Usage != nil {
+				return errors.New("components.judge: 未知用量被伪造")
+			}
+		} else {
+			if resp.Usage == nil {
+				return errors.New("components.judge: 已报告用量丢失")
+			}
+			wantInput, wantOutput := int32(13), int32(7)
+			if token == "COMPONENT_JUDGE_ZERO" {
+				wantInput, wantOutput = 0, 0
+			}
+			if !judgeTokenCount(resp.Usage.InputTokens, token != "COMPONENT_JUDGE_OUTPUT_ONLY", wantInput) ||
+				!judgeTokenCount(resp.Usage.OutputTokens, token != "COMPONENT_JUDGE_INPUT_ONLY", wantOutput) {
+				return errors.New("components.judge: 输入/输出用量未分别保留已知值和未知presence")
+			}
+		}
+		if err := d.requireComponentObservation(name, token, "completed", "/native/v1/systemone"); err != nil {
+			return err
+		}
+	}
+	malformed := []string{"MISSING_ANSWER", "EXTRA_ANSWER", "WRONG_TYPE", "BAD_PROBABILITY", "MISSING_VALUE", "BAD_CHOICE", "BAD_DISTRIBUTION", "BAD_CONFIDENCE", "BAD_SCORE", "BAD_LEGEND", "MISSING_MODEL"}
+	for _, mode := range append(slices.Clone(malformed), "HTTP_ERROR") {
+		token := "COMPONENT_JUDGE_" + mode
+		resp, err := call(token)
+		if err == nil || resp != nil {
+			return fmt.Errorf("components.judge: 畸形/失败响应被接受 %s", mode)
+		}
+		if err := requireProviderErrorRedaction(err, token, componentKey); err != nil {
+			return err
+		}
+		state := "completed"
+		if mode == "HTTP_ERROR" {
+			state = "http_error"
+		}
+		if err := d.requireComponentObservation(name, token, state, "/native/v1/systemone"); err != nil {
+			return err
+		}
+	}
+	// More cancellations than the model's configured admission pool can hold.
+	for i := range 11 {
+		token := fmt.Sprintf("COMPONENT_JUDGE_CANCEL_%d", i)
+		ctx, cancel := contextFor(ownerID)
+		finished := make(chan error, 1)
+		go func() { _, err := cli.Judge(ctx, request(token)); finished <- err }()
+		observed := d.requireComponentObservation(name, token, "received", "/native/v1/systemone")
+		cancel()
+		callErr := <-finished
+		if observed != nil {
+			return observed
+		}
+		if status.Code(callErr) != codes.Canceled {
+			return fmt.Errorf("components.judge: 取消未返回Canceled: %v", callErr)
+		}
+		if err := d.requireComponentObservation(name, token, "cancelled", "/native/v1/systemone"); err != nil {
+			return err
+		}
+	}
+	ctx, cancel = contextFor(ownerID)
+	_, err = cli.Judge(ctx, request("COMPONENT_JUDGE_DEADLINE"))
+	cancel()
+	if status.Code(err) != codes.DeadlineExceeded {
+		return fmt.Errorf("components.judge: 总体截止未返回DeadlineExceeded: %v", err)
+	}
+	if err := d.requireComponentObservation(name, "COMPONENT_JUDGE_DEADLINE", "cancelled", "/native/v1/systemone"); err != nil {
+		return err
+	}
+	resp, err := call("COMPONENT_JUDGE_RECOVERED")
+	if err != nil {
+		return fmt.Errorf("components.judge: 取消后限流配额未释放: %w", err)
+	}
+	if err := requireJudgeAnswers(resp, name, false); err != nil {
+		return err
+	}
+	// The real service configuration admits ten concurrent requests per model.
+	poolCtx, cancelPool := contextFor(ownerID)
+	poolFinished := make(chan error, 10)
+	defer cancelPool()
+	for i := range 10 {
+		token := fmt.Sprintf("COMPONENT_JUDGE_CANCEL_POOL_%d", i)
+		go func() { _, err := cli.Judge(poolCtx, request(token)); poolFinished <- err }()
+		if err := d.requireComponentObservation(name, token, "received", "/native/v1/systemone"); err != nil {
+			return err
+		}
+	}
+	_, err = call("COMPONENT_JUDGE_CONCURRENCY_REJECTED")
+	if status.Code(err) != codes.ResourceExhausted {
+		return fmt.Errorf("components.judge: 并发超限未拒绝: %v", err)
+	}
+	cancelPool()
+	for range 10 {
+		if err := <-poolFinished; status.Code(err) != codes.Canceled {
+			return fmt.Errorf("components.judge: 并发池取消未传播: %v", err)
+		}
+	}
+	for i := range 10 {
+		if err := d.requireComponentObservation(name, fmt.Sprintf("COMPONENT_JUDGE_CANCEL_POOL_%d", i), "cancelled", "/native/v1/systemone"); err != nil {
+			return err
+		}
+	}
+	// A distinct current model name starts a fresh real 100-RPM budget, so
+	// cancellation/deadline work cannot move this check across an old window.
+	rpmName := name + "-rpm"
+	if err := d.request(http.MethodPut, "/models/"+model.ID.String(), owner.token, map[string]string{"model_name": rpmName}, nil); err != nil {
+		return err
+	}
+	// Unknown-usage replies do not manufacture billing facts.
+	rejectedToken := ""
+	for i := range 101 {
+		token := fmt.Sprintf("COMPONENT_JUDGE_NO_USAGE_RPM_%d", i)
+		resp, err := call(token)
+		if status.Code(err) == codes.ResourceExhausted {
+			rejectedToken = token
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("components.judge: RPM试验调用失败: %w", err)
+		}
+		if err := requireJudgeAnswers(resp, rpmName, false); err != nil {
+			return err
+		}
+	}
+	if rejectedToken == "" {
+		return errors.New("components.judge: RPM超限未拒绝")
+	}
+	for _, observedName := range []string{name, rpmName} {
+		var observed struct {
+			Requests []llmChatObservation `json:"requests"`
+		}
+		if err := d.executorProvider("/llm-components/observe", map[string]string{"model": observedName}, &observed); err != nil {
+			return err
+		}
+		if slices.ContainsFunc(observed.Requests, func(row llmChatObservation) bool {
+			return row.Token == rejectedToken || row.Token == "COMPONENT_JUDGE_CONCURRENCY_REJECTED"
+		}) {
+			return errors.New("components.judge: 超限请求仍到达供应商")
+		}
+	}
+	if err := d.requireJudgeBilling(owner, model.ID, name, len(malformed)+3); err != nil {
+		return err
+	}
+	platformID := entityID("01900000-0000-7000-8000-000000000011")
+	platformName := "e2e-component-judge-platform-2026-10-01"
+	if !slices.ContainsFunc(listed.Items, func(item judgeModelView) bool {
+		return item.ID == platformID && item.Name == platformName && item.OwnerType == "platform" &&
+			item.OwnerID == nil && item.Provider == "typesafe" && item.Capability == "judge" && item.APIKey == ""
+	}) {
+		return errors.New("components.judge: 平台模型不可见或泄露供应凭据")
+	}
+	platformCall := func(token string) (*llmpb.JudgeResp, error) {
+		req := request(token)
+		req.ModelId = platformID.String()
+		ctx, cancel := contextFor(ownerID)
+		defer cancel()
+		return cli.Judge(ctx, req)
+	}
+	balance := func(user account) (float64, error) {
+		var profile struct {
+			Balance float64 `json:"balance"`
+		}
+		err := d.request(http.MethodGet, "/users/me", user.token, nil, &profile)
+		return profile.Balance, err
+	}
+	if value, err := balance(owner); err != nil || value != 0 {
+		return fmt.Errorf("components.judge: 自有模型调用不应扣余额: balance=%g error=%v", value, err)
+	}
+	_, err = platformCall("COMPONENT_JUDGE_PLATFORM_INSUFFICIENT")
+	if status.Code(err) != codes.PermissionDenied {
+		return fmt.Errorf("components.judge: 平台模型余额不足未拒绝: %v", err)
+	}
+	var denied struct {
+		Requests []llmChatObservation `json:"requests"`
+	}
+	if err := d.executorProvider("/llm-components/observe", map[string]string{"model": platformName}, &denied); err != nil {
+		return err
+	}
+	if len(denied.Requests) != 0 {
+		return errors.New("components.judge: 余额不足仍向供应商发送材料")
+	}
+	if err := d.request(http.MethodPost, "/users/me/recharge", owner.token, map[string]float64{"amount": 2}, nil); err != nil {
+		return err
+	}
+	for _, mode := range []string{"POSITIVE", "INPUT_ONLY", "OUTPUT_ONLY", "ZERO", "NO_USAGE", "MISSING_ANSWER"} {
+		token := "COMPONENT_JUDGE_PLATFORM_" + mode
+		resp, err := platformCall(token)
+		if mode == "MISSING_ANSWER" {
+			if err == nil || resp != nil {
+				return errors.New("components.judge: 平台畸形判断被接受")
+			}
+		} else if err != nil {
+			return err
+		} else if err := requireJudgeAnswers(resp, platformName, false); err != nil {
+			return err
+		}
+		if err := d.requireComponentObservation(platformName, token, "completed", "/native/v1/systemone"); err != nil {
+			return err
+		}
+	}
+	if value, err := balance(owner); err != nil || math.Abs(value-(2-.000078)) > 1e-9 {
+		return fmt.Errorf("components.judge: 平台已知用量费用未扣到调用owner: balance=%g error=%v", value, err)
+	}
+	if value, err := balance(outsider); err != nil || value != 0 {
+		return fmt.Errorf("components.judge: 平台费用错误归属其他用户: balance=%g error=%v", value, err)
+	}
+	return d.requireJudgeBilling(owner, platformID, platformName, 2)
+}
+
+func judgeTokenCount(value *int32, known bool, want int32) bool {
+	if !known {
+		return value == nil
+	}
+	return value != nil && *value == want
+}
+
+func requireJudgeAnswers(resp *llmpb.JudgeResp, requestedModel string, noConfidence bool) error {
+	if resp == nil || resp.Model != requestedModel+"-actual-2026-10-01" || len(resp.Answers) != 4 {
+		return errors.New("components.judge: 实际模型版本或命名答案不匹配")
+	}
+	if resp.Answers["z_relevant"].GetNoul() == nil || resp.Answers["a_irrelevant"].GetNoul() == nil ||
+		resp.Answers["z_relevant"].GetNoul().Probability != .93 || resp.Answers["a_irrelevant"].GetNoul().Probability != .07 {
+		return errors.New("components.judge: Noul题型/概率/同名关联丢失")
+	}
+	choice, score := resp.Answers["tone"].GetChoice(), resp.Answers["urgency"].GetScore()
+	if choice == nil || choice.Choice != "calm" || len(choice.Probabilities) != 2 ||
+		choice.Probabilities["calm"] != .8 || choice.Probabilities["angry"] != .2 ||
+		len(choice.Criteria) != 2 || choice.Criteria["calm"] != "Neutral" || choice.Criteria["angry"] != "Hostile" {
+		return errors.New("components.judge: Choice选项/分布/定义丢失")
+	}
+	if score == nil || score.Score != 1.7 || len(score.Probabilities) != 3 ||
+		score.Probabilities["0"] != .1 || score.Probabilities["1"] != .1 || score.Probabilities["2"] != .8 ||
+		len(score.Legend) != 3 || score.Legend["0"] != "Can wait" || score.Legend["1"] != "This week" || score.Legend["2"] != "Today" {
+		return errors.New("components.judge: Score评分/等级/分布丢失")
+	}
+	if noConfidence {
+		if choice.Confidence != nil || score.Confidence != nil {
+			return errors.New("components.judge: 缺失/null置信信息被伪造")
+		}
+	} else if choice.Confidence == nil || *choice.Confidence != .7 || score.Confidence == nil || *score.Confidence != .55 {
+		return errors.New("components.judge: 供应商置信信息丢失")
+	}
+	return nil
+}
+
+func (d *driver) requireJudgeBilling(owner account, modelID entityID, name string, completeCount int) error {
+	var response struct {
+		Items []struct {
+			ID           entityID  `json:"id"`
+			ModelID      entityID  `json:"model_id"`
+			ModelName    string    `json:"model_name"`
+			Capability   string    `json:"capability"`
+			OwnerID      *entityID `json:"owner_id"`
+			OwnerType    string    `json:"owner_type"`
+			BotID        *entityID `json:"bot_id"`
+			InputTokens  *int32    `json:"input_tokens"`
+			OutputTokens *int32    `json:"output_tokens"`
+			InputCost    float64   `json:"input_cost"`
+			OutputCost   float64   `json:"output_cost"`
+			TotalCost    float64   `json:"total_cost"`
+		} `json:"items"`
+		Total int `json:"total"`
+	}
+	if err := d.request(http.MethodGet, "/models/billing/records?page=1&page_size=100", owner.token, nil, &response); err != nil {
+		return err
+	}
+	if response.Total != len(response.Items) {
+		return errors.New("components.judge.billing: 公开记录未完整分页")
+	}
+	complete, inputOnly, outputOnly, zero := 0, 0, 0, 0
+	seen := map[entityID]bool{}
+	for _, row := range response.Items {
+		if row.ModelID != modelID {
+			continue
+		}
+		if row.ID == "" || seen[row.ID] || row.ModelName != name || row.Capability != "judge" ||
+			!hasEntityID(row.OwnerID, owner.id) || row.OwnerType != "user" || row.BotID != nil {
+			return errors.New("components.judge.billing: 模型/归属/记录身份不匹配")
+		}
+		seen[row.ID] = true
+		wantCost := 0.0
+		switch {
+		case judgeTokenCount(row.InputTokens, true, 13) && judgeTokenCount(row.OutputTokens, true, 7):
+			complete++
+			wantCost = .000026
+		case judgeTokenCount(row.InputTokens, true, 13) && row.OutputTokens == nil:
+			inputOnly++
+			wantCost = .000026
+		case row.InputTokens == nil && judgeTokenCount(row.OutputTokens, true, 7):
+			outputOnly++
+		case judgeTokenCount(row.InputTokens, true, 0) && judgeTokenCount(row.OutputTokens, true, 0):
+			zero++
+		default:
+			return errors.New("components.judge.billing: 未知用量变成零或已知数量丢失")
+		}
+		if math.IsNaN(row.TotalCost) || math.IsInf(row.TotalCost, 0) || row.OutputCost != 0 ||
+			math.Abs(row.InputCost-wantCost) > 1e-12 || math.Abs(row.TotalCost-wantCost) > 1e-12 {
+			return errors.New("components.judge.billing: 免费输出被错误收费或真实输入费用丢失")
+		}
+	}
+	if complete != completeCount || inputOnly != 1 || outputOnly != 1 || zero != 1 {
+		return fmt.Errorf("components.judge.billing: 完整/仅输入/仅输出/已知零记录=%d/%d/%d/%d，期望%d/1/1/1；失败结果不得抹掉已知用量，未知/取消不得编造", complete, inputOnly, outputOnly, zero, completeCount)
+	}
 	return nil
 }
 
@@ -422,7 +876,7 @@ func (d *driver) requireComponentBilling(owner account, id entityID, name, capab
 			continue
 		}
 		matched++
-		if record.ModelName != name || record.Capability != capability || record.BotID != nil || record.InputTokens != input || record.OutputTokens != output || math.Abs(record.TotalCost-(float64(input)*2+float64(output)*3)/1e6) > 1e-12 {
+		if record.ModelName != name || record.Capability != capability || record.BotID != nil || record.InputTokens == nil || record.OutputTokens == nil || *record.InputTokens != input || *record.OutputTokens != output || math.Abs(record.TotalCost-(float64(input)*2+float64(output)*3)/1e6) > 1e-12 {
 			return errors.New("components.billing: 公开记录模型/owner/usage/费用失配")
 		}
 	}

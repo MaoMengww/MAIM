@@ -95,6 +95,9 @@ func (h *KnowledgeBaseHandler) CreateKB(ctx context.Context, req *pb.CreateKBReq
 		PipelineConfig:   cfg,
 		Status:           "active",
 	}
+	if err := h.validateRerankModel(ctx, kb, make(map[string]searchModel, 1)); err != nil {
+		return nil, err
+	}
 	if err := h.KBRepo.Create(ctx, kb); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "create kb failed", err)
 	}
@@ -142,6 +145,9 @@ func (h *KnowledgeBaseHandler) UpdateKB(ctx context.Context, req *pb.UpdateKBReq
 	}
 	if req.GetStatus() != "" {
 		kb.Status = req.GetStatus()
+	}
+	if err := h.validateRerankModel(ctx, kb, make(map[string]searchModel, 1)); err != nil {
+		return nil, err
 	}
 	if err := h.KBRepo.Update(ctx, kb); err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "update kb failed", err)
@@ -1113,6 +1119,10 @@ func mergePipelineConfig(pbCfg *pb.PipelineConfig, cfg domain.PipelineConfig, up
 				return domain.PipelineConfig{}, err
 			}
 			rerank.Enabled, rerank.TopN = pbRerank.Enabled, int(pbRerank.TopN)
+			rerank.Method = pbRerank.Method
+			if rerank.Method == "" {
+				rerank.Method = domain.RerankMethodRerank
+			}
 			if pbRerank.ClearModelId {
 				rerank.ModelID = nil
 			} else if pbRerank.ModelId != nil {
@@ -1135,7 +1145,7 @@ func mergePipelineConfig(pbCfg *pb.PipelineConfig, cfg domain.PipelineConfig, up
 }
 
 func pipelineConfigToProto(cfg domain.PipelineConfig) *pb.PipelineConfig {
-	if cfg.Chunking.ChunkSize == 0 && !cfg.Chunking.ParentChild.Enabled && cfg.Retrieval.Mode == "" && len(cfg.Parsing.Engines) == 0 && cfg.Parsing.MinerUPrecision == nil && cfg.Parsing.MinerUAgent == nil && cfg.Parsing.VLM == nil && cfg.Retrieval.Rerank.ModelID == nil && !cfg.Retrieval.Rerank.Enabled {
+	if cfg.Chunking.ChunkSize == 0 && !cfg.Chunking.ParentChild.Enabled && cfg.Retrieval.Mode == "" && len(cfg.Parsing.Engines) == 0 && cfg.Parsing.MinerUPrecision == nil && cfg.Parsing.MinerUAgent == nil && cfg.Parsing.VLM == nil && cfg.Retrieval.Rerank.ModelID == nil && !cfg.Retrieval.Rerank.Enabled && cfg.Retrieval.Rerank.Method == "" && cfg.Retrieval.Rerank.TopN == 0 {
 		return nil
 	}
 	pbCfg := &pb.PipelineConfig{}
@@ -1184,7 +1194,7 @@ func pipelineConfigToProto(cfg domain.PipelineConfig) *pb.PipelineConfig {
 		}
 		pbCfg.Chunking = chunkPB
 	}
-	if cfg.Retrieval.Mode != "" || cfg.Retrieval.Rerank.ModelID != nil || cfg.Retrieval.Rerank.Enabled {
+	if cfg.Retrieval.Mode != "" || cfg.Retrieval.Rerank.ModelID != nil || cfg.Retrieval.Rerank.Enabled || cfg.Retrieval.Rerank.Method != "" || cfg.Retrieval.Rerank.TopN != 0 {
 		retPB := &pb.RetrievalConfig{
 			Mode:           cfg.Retrieval.Mode,
 			CandidateTopK:  int32(cfg.Retrieval.CandidateTopK),
@@ -1192,9 +1202,10 @@ func pipelineConfigToProto(cfg domain.PipelineConfig) *pb.PipelineConfig {
 			DenseWeight:    cfg.Retrieval.DenseWeight,
 			SparseWeight:   cfg.Retrieval.SparseWeight,
 		}
-		if cfg.Retrieval.Rerank.Enabled || cfg.Retrieval.Rerank.ModelID != nil {
+		if cfg.Retrieval.Rerank.Enabled || cfg.Retrieval.Rerank.ModelID != nil || cfg.Retrieval.Rerank.Method != "" || cfg.Retrieval.Rerank.TopN != 0 {
 			retPB.Rerank = &pb.RerankConfig{
 				Enabled: cfg.Retrieval.Rerank.Enabled,
+				Method:  cfg.Retrieval.Rerank.EffectiveMethod(),
 				ModelId: cfg.Retrieval.Rerank.ModelID,
 				TopN:    int32(cfg.Retrieval.Rerank.TopN),
 			}

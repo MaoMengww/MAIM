@@ -665,8 +665,11 @@ export interface RetrievalConfig {
   rerank: RerankConfig;
 }
 
+export type RerankMethod = 'rerank' | 'judge';
+
 export interface RerankConfig {
   enabled: boolean;
+  method?: RerankMethod;
   model_id?: string | null;
   top_n: number;
 }
@@ -763,11 +766,13 @@ export interface KnowledgeSearchRsp {
 }
 
 // ─── Model (LLM) ───
+export type ModelCapability = 'chat' | 'embed' | 'rerank' | 'judge' | 'vlm' | 'tts';
+
 export interface ModelResp {
   id: string;
   model_name: string;
   provider: string;
-  capability: string;
+  capability: ModelCapability;
   base_url: string;
   owner_type: 'user' | 'platform';
   owner_id?: string | null;
@@ -801,8 +806,9 @@ export interface BillingRecordItem {
   model_id: string;
   model_name: string;
   capability: string;
-  input_tokens: number;
-  output_tokens: number;
+  // Missing/null is unreported usage, not a reported zero.
+  input_tokens?: number | null;
+  output_tokens?: number | null;
   input_cost: number;
   output_cost: number;
   total_cost: number;

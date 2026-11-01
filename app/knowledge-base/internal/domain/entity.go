@@ -183,13 +183,31 @@ type RetrievalConfig struct {
 	Rerank         RerankConfig `json:"rerank"`
 }
 
+const (
+	RerankMethodRerank = "rerank"
+	RerankMethodJudge  = "judge"
+)
+
 type RerankConfig struct {
 	Enabled bool    `json:"enabled"`
+	Method  string  `json:"method"`
 	ModelID *string `json:"model_id,omitempty"`
 	TopN    int     `json:"top_n"`
 }
 
+func (cfg RerankConfig) EffectiveMethod() string {
+	if cfg.Method == "" {
+		return RerankMethodRerank
+	}
+	return cfg.Method
+}
+
 func (cfg PipelineConfig) ValidateModelReferences() error {
+	switch cfg.Retrieval.Rerank.EffectiveMethod() {
+	case RerankMethodRerank, RerankMethodJudge:
+	default:
+		return fmt.Errorf("invalid rerank method")
+	}
 	var vlmID *string
 	if cfg.Parsing.VLM != nil {
 		vlmID = cfg.Parsing.VLM.ModelID

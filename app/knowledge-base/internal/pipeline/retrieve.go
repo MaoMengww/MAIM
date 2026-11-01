@@ -7,6 +7,7 @@ import (
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/knowledgecontract"
 	"github.com/maomeng/aim/pkg/logx"
+	"google.golang.org/grpc/status"
 )
 
 type RetrievePipeline struct {
@@ -82,34 +83,44 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs, docIDs []string,
 			return nil, err
 		}
 	}
-	if retrievalCfg.Rerank.Enabled && p.Reranker != nil && len(results) > limit {
-		if retrievalCfg.Rerank.ModelID == nil {
-			return nil, errors.New(errors.CodeInvalidParam, "rerank model is not configured")
+	if retrievalCfg.Rerank.Enabled && len(results) >= 2 {
+		if p.Reranker == nil {
+			return nil, errors.New(errors.CodeServiceDown, "knowledge reranking unavailable")
 		}
 		candidates := make([]domain.RerankCandidate, len(results))
 		for i, result := range results {
 			candidates[i] = domain.RerankCandidate{Index: i, Content: result.Content}
 		}
 		reranked, err := p.Reranker.Rerank(ctx, &domain.RerankRequest{
+			Method: retrievalCfg.Rerank.Method, Authorize: p.Authorize,
 			ModelID: *retrievalCfg.Rerank.ModelID, OwnerID: ownerID,
 			Query: query, Candidates: candidates, TopK: retrievalCfg.Rerank.TopN,
 		})
+		if ctx.Err() != nil {
+			return nil, status.FromContextError(ctx.Err()).Err()
+		}
+		if err != nil && domain.RerankMustAbort(err) {
+			return nil, err
+		}
 		if err == nil {
 			ordered := make([]domain.SearchResult, 0, len(reranked))
-			seen := make(map[int]struct{}, len(reranked))
+			seen := make([]bool, len(results))
 			for _, result := range reranked {
-				if result.Index < 0 || result.Index >= len(results) {
-					continue
+				if result.Index < 0 || result.Index >= len(results) || seen[result.Index] {
+					err = errors.New(errors.CodeRPCError, "rerank candidate mapping invalid")
+					break
 				}
-				if _, exists := seen[result.Index]; exists {
-					continue
-				}
-				seen[result.Index] = struct{}{}
+				seen[result.Index] = true
 				ordered = append(ordered, results[result.Index])
 			}
-			results = ordered
+			if err == nil {
+				results = ordered
+			}
 		}
-		// On rerank failure, retain the original ordering of valid children.
+		if err != nil {
+			// Never log inference materials or provider errors, which may echo them.
+			logger.Errorf("rerank: method=%s candidates=%d scoring_failed=true fallback=original_order", retrievalCfg.Rerank.Method, len(results))
+		}
 	}
 
 	items, err := p.expandParentChunks(ctx, results, chunks)
@@ -120,6 +131,9 @@ func (p *RetrievePipeline) Retrieve(ctx context.Context, kbIDs, docIDs []string,
 		if err := p.Authorize(ctx); err != nil {
 			return nil, err
 		}
+	}
+	if ctx.Err() != nil {
+		return nil, status.FromContextError(ctx.Err()).Err()
 	}
 	if len(items) > limit {
 		items = items[:limit]

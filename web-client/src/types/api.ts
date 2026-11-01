@@ -1,3 +1,5 @@
+import type { ModelCapability, RerankMethod } from './model';
+
 // ─── Auth ───
 export interface LoginReq {
   account: string;
@@ -321,6 +323,7 @@ export interface RetrievalConfigReq {
 
 export interface RerankConfigReq {
   enabled?: boolean;
+  method?: RerankMethod;
   model_id?: string;
   clear_model_id?: boolean;
   top_n?: number;
@@ -351,9 +354,13 @@ export interface GetUploadURLReq {
 export interface CreateModelReq {
   model_name: string;
   provider: string;
-  capability: string;
+  capability: ModelCapability;
   base_url: string;
   api_key?: string;
+  input_price_per_mtok?: number;
+  output_price_per_mtok?: number;
   owner_type: 'user' | 'platform';
   owner_id?: string;
 }
+
+export type UpdateModelReq = Partial<Omit<CreateModelReq, 'owner_type' | 'owner_id'>>;

@@ -12,6 +12,7 @@ const providerNameMap: Record<string, string> = {
   spark: '讯飞星火',
   hunyuan: '腾讯混元',
   doubao: '豆包',
+  typesafe: 'TypeSafe AI',
 };
 
 export function displayProvider(key: string): string {

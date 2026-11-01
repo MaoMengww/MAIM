@@ -646,5 +646,5 @@ func (d *driver) knowledgeModelPipeline(owner account, embeddingID entityID, suf
 		return errors.New("knowledge.models: 未观测到知识VLM/rerank UUID配置对应的外部模型调用")
 	}
 	fmt.Println("E2E evidence: knowledge VLM image transcription and rerank model selection through real local storage PASS")
-	return nil
+	return d.knowledgeDualReranking(owner, embeddingID, kb.ID, known, vision, suffix)
 }

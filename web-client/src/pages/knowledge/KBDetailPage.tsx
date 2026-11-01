@@ -8,7 +8,7 @@ import { botApi } from '@/services/bot';
 import { convApi } from '@/services/conversation';
 import { modelApi } from '@/services/model';
 import { wsOn } from '@/services/ws';
-import type { DocumentRsp, KBRsp, ChunkingConfig, RetrievalConfig } from '@/types/model';
+import type { DocumentRsp, KBRsp, ChunkingConfig, RetrievalConfig, RerankMethod } from '@/types/model';
 import { modelOptionLabel } from '@/utils/provider';
 import type { UpdateKBReq, PipelineConfig } from '@/types/api';
 
@@ -31,6 +31,7 @@ interface EditKBFormValues {
   dense_weight?: number;
   sparse_weight?: number;
   rerank_enabled?: boolean;
+  rerank_method?: RerankMethod;
   rerank_top_n?: number;
 }
 
@@ -369,6 +370,7 @@ function RagView({ kb, uploadMutation, deleteKBMutation }: {
               dense_weight: rc.dense_weight,
               sparse_weight: rc.sparse_weight,
               rerank_enabled: rc.rerank?.enabled || false,
+              rerank_method: rc.rerank?.method ?? 'rerank',
               rerank_model_id: rc.rerank?.model_id ?? undefined,
               rerank_top_n: rc.rerank?.top_n,
             });
@@ -495,7 +497,14 @@ function RagView({ kb, uploadMutation, deleteKBMutation }: {
       </div>
 
       <Modal title="编辑知识库" open={editOpen}
-        onOk={() => editForm.validateFields().then((vals) => {
+        onOk={() => editForm.submit()}
+        onCancel={() => setEditOpen(false)} confirmLoading={editMutation.isPending}
+        okText="保存" cancelText="取消" width={640}
+      >
+        <Form form={editForm} layout="vertical" style={{ paddingTop: 16 }} onValuesChange={(changed: Record<string, unknown>) => {
+          setChangedModelFields((previous) => new Set([...previous, ...Object.keys(changed)]));
+        }} onFinish={() => {
+          const vals: EditKBFormValues = editForm.getFieldsValue(true);
           const payload: UpdateKBReq = { name: vals.name, description: vals.description };
           const pipelineConfig: PipelineConfig = {};
           pipelineConfig.parsing = {
@@ -525,6 +534,7 @@ function RagView({ kb, uploadMutation, deleteKBMutation }: {
             sparse_weight: vals.sparse_weight != null ? Number(vals.sparse_weight) : undefined,
             rerank: {
               enabled: !!vals.rerank_enabled,
+              method: vals.rerank_method ?? 'rerank',
               ...(changedModelFields.has('rerank_model_id')
                 ? vals.rerank_model_id != null ? { model_id: vals.rerank_model_id } : { clear_model_id: true }
                 : {}),
@@ -541,12 +551,6 @@ function RagView({ kb, uploadMutation, deleteKBMutation }: {
             }
           }
           editMutation.mutate(payload);
-        })}
-        onCancel={() => setEditOpen(false)} confirmLoading={editMutation.isPending}
-        okText="保存" cancelText="取消" width={640}
-      >
-        <Form form={editForm} layout="vertical" style={{ paddingTop: 16 }} onValuesChange={(changed: Record<string, unknown>) => {
-          setChangedModelFields((previous) => new Set([...previous, ...Object.keys(changed)]));
         }}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]} style={{ marginBottom: 12 }}><Input /></Form.Item>
           <Form.Item name="description" label="描述" style={{ marginBottom: 12 }}><Input.TextArea rows={2} /></Form.Item>
@@ -643,16 +647,27 @@ function RagView({ kb, uploadMutation, deleteKBMutation }: {
               <Switch />
             </Form.Item>
           </div>
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.rerank_enabled !== cur.rerank_enabled}>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.rerank_enabled !== cur.rerank_enabled || prev.rerank_method !== cur.rerank_method}>
             {({ getFieldValue }) => getFieldValue('rerank_enabled') ? (
-              <div style={{ display: 'flex', gap: 16 }}>
-                <Form.Item name="rerank_model_id" label="Rerank 模型" style={{ flex: 1, marginBottom: 12 }}>
-                  <Select allowClear placeholder="未配置" options={(modelsData?.list ?? []).filter((model) => model.capability === 'rerank').map((model) => ({ value: model.id, label: modelOptionLabel(model) }))} />
+              <>
+                <Form.Item name="rerank_method" label="重排方式" style={{ marginBottom: 12 }}>
+                  <Select options={[
+                    { value: 'rerank', label: '常规 Rerank' },
+                    { value: 'judge', label: '结构化判断重排' },
+                  ]} onChange={() => {
+                    editForm.setFieldsValue({ rerank_model_id: undefined });
+                    setChangedModelFields((previous) => new Set([...previous, 'rerank_model_id']));
+                  }} />
                 </Form.Item>
-                <Form.Item name="rerank_top_n" label="重排数量" style={{ flex: 1, marginBottom: 12 }}>
-                  <InputNumber min={1} max={50} style={{ width: '100%' }} />
-                </Form.Item>
-              </div>
+                <div style={{ display: 'flex', gap: 16 }}>
+                  <Form.Item name="rerank_model_id" label="重排序模型" rules={[{ required: true, message: '请选择重排序模型' }]} style={{ flex: 1, marginBottom: 12 }}>
+                    <Select allowClear placeholder="选择模型" options={(modelsData?.list ?? []).filter((model) => model.capability === (getFieldValue('rerank_method') ?? 'rerank')).map((model) => ({ value: model.id, label: modelOptionLabel(model) }))} />
+                  </Form.Item>
+                  <Form.Item name="rerank_top_n" label="重排数量" style={{ flex: 1, marginBottom: 12 }}>
+                    <InputNumber min={1} max={50} style={{ width: '100%' }} />
+                  </Form.Item>
+                </div>
+              </>
             ) : null}
           </Form.Item>
         </Form>

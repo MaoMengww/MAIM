@@ -1126,6 +1126,719 @@ func (x *RerankResp) GetUsage() *UsageInfo {
 	return nil
 }
 
+// Text-only structured judgment. Names correlate answers, independent of ordering.
+type JudgeReq struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	ModelId       string                    `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	State         string                    `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	Questions     map[string]*JudgeQuestion `protobuf:"bytes,3,rep,name=questions,proto3" json:"questions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	BotId         *string                   `protobuf:"bytes,4,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	OwnerId       *string                   `protobuf:"bytes,5,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JudgeReq) Reset() {
+	*x = JudgeReq{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JudgeReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JudgeReq) ProtoMessage() {}
+
+func (x *JudgeReq) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JudgeReq.ProtoReflect.Descriptor instead.
+func (*JudgeReq) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *JudgeReq) GetModelId() string {
+	if x != nil {
+		return x.ModelId
+	}
+	return ""
+}
+
+func (x *JudgeReq) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *JudgeReq) GetQuestions() map[string]*JudgeQuestion {
+	if x != nil {
+		return x.Questions
+	}
+	return nil
+}
+
+func (x *JudgeReq) GetBotId() string {
+	if x != nil && x.BotId != nil {
+		return *x.BotId
+	}
+	return ""
+}
+
+func (x *JudgeReq) GetOwnerId() string {
+	if x != nil && x.OwnerId != nil {
+		return *x.OwnerId
+	}
+	return ""
+}
+
+type JudgeQuestion struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Instructions string                 `protobuf:"bytes,1,opt,name=instructions,proto3" json:"instructions,omitempty"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*JudgeQuestion_Noul
+	//	*JudgeQuestion_Choice
+	//	*JudgeQuestion_Score
+	Kind          isJudgeQuestion_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JudgeQuestion) Reset() {
+	*x = JudgeQuestion{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JudgeQuestion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JudgeQuestion) ProtoMessage() {}
+
+func (x *JudgeQuestion) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JudgeQuestion.ProtoReflect.Descriptor instead.
+func (*JudgeQuestion) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *JudgeQuestion) GetInstructions() string {
+	if x != nil {
+		return x.Instructions
+	}
+	return ""
+}
+
+func (x *JudgeQuestion) GetKind() isJudgeQuestion_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *JudgeQuestion) GetNoul() *NoulQuestion {
+	if x != nil {
+		if x, ok := x.Kind.(*JudgeQuestion_Noul); ok {
+			return x.Noul
+		}
+	}
+	return nil
+}
+
+func (x *JudgeQuestion) GetChoice() *ChoiceQuestion {
+	if x != nil {
+		if x, ok := x.Kind.(*JudgeQuestion_Choice); ok {
+			return x.Choice
+		}
+	}
+	return nil
+}
+
+func (x *JudgeQuestion) GetScore() *ScoreQuestion {
+	if x != nil {
+		if x, ok := x.Kind.(*JudgeQuestion_Score); ok {
+			return x.Score
+		}
+	}
+	return nil
+}
+
+type isJudgeQuestion_Kind interface {
+	isJudgeQuestion_Kind()
+}
+
+type JudgeQuestion_Noul struct {
+	Noul *NoulQuestion `protobuf:"bytes,2,opt,name=noul,proto3,oneof"`
+}
+
+type JudgeQuestion_Choice struct {
+	Choice *ChoiceQuestion `protobuf:"bytes,3,opt,name=choice,proto3,oneof"`
+}
+
+type JudgeQuestion_Score struct {
+	Score *ScoreQuestion `protobuf:"bytes,4,opt,name=score,proto3,oneof"`
+}
+
+func (*JudgeQuestion_Noul) isJudgeQuestion_Kind() {}
+
+func (*JudgeQuestion_Choice) isJudgeQuestion_Kind() {}
+
+func (*JudgeQuestion_Score) isJudgeQuestion_Kind() {}
+
+type NoulQuestion struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FalseCriteria *string                `protobuf:"bytes,1,opt,name=false_criteria,json=falseCriteria,proto3,oneof" json:"false_criteria,omitempty"`
+	TrueCriteria  *string                `protobuf:"bytes,2,opt,name=true_criteria,json=trueCriteria,proto3,oneof" json:"true_criteria,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NoulQuestion) Reset() {
+	*x = NoulQuestion{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NoulQuestion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NoulQuestion) ProtoMessage() {}
+
+func (x *NoulQuestion) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NoulQuestion.ProtoReflect.Descriptor instead.
+func (*NoulQuestion) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *NoulQuestion) GetFalseCriteria() string {
+	if x != nil && x.FalseCriteria != nil {
+		return *x.FalseCriteria
+	}
+	return ""
+}
+
+func (x *NoulQuestion) GetTrueCriteria() string {
+	if x != nil && x.TrueCriteria != nil {
+		return *x.TrueCriteria
+	}
+	return ""
+}
+
+type ChoiceQuestion struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Criteria      map[string]string      `protobuf:"bytes,1,rep,name=criteria,proto3" json:"criteria,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChoiceQuestion) Reset() {
+	*x = ChoiceQuestion{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChoiceQuestion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChoiceQuestion) ProtoMessage() {}
+
+func (x *ChoiceQuestion) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChoiceQuestion.ProtoReflect.Descriptor instead.
+func (*ChoiceQuestion) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ChoiceQuestion) GetCriteria() map[string]string {
+	if x != nil {
+		return x.Criteria
+	}
+	return nil
+}
+
+type ScoreQuestion struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Criteria      []string               `protobuf:"bytes,1,rep,name=criteria,proto3" json:"criteria,omitempty"` // Ordered levels, indexed from zero.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScoreQuestion) Reset() {
+	*x = ScoreQuestion{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScoreQuestion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScoreQuestion) ProtoMessage() {}
+
+func (x *ScoreQuestion) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScoreQuestion.ProtoReflect.Descriptor instead.
+func (*ScoreQuestion) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ScoreQuestion) GetCriteria() []string {
+	if x != nil {
+		return x.Criteria
+	}
+	return nil
+}
+
+type JudgeAnswer struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*JudgeAnswer_Noul
+	//	*JudgeAnswer_Choice
+	//	*JudgeAnswer_Score
+	Kind          isJudgeAnswer_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JudgeAnswer) Reset() {
+	*x = JudgeAnswer{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JudgeAnswer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JudgeAnswer) ProtoMessage() {}
+
+func (x *JudgeAnswer) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JudgeAnswer.ProtoReflect.Descriptor instead.
+func (*JudgeAnswer) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *JudgeAnswer) GetKind() isJudgeAnswer_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *JudgeAnswer) GetNoul() *NoulAnswer {
+	if x != nil {
+		if x, ok := x.Kind.(*JudgeAnswer_Noul); ok {
+			return x.Noul
+		}
+	}
+	return nil
+}
+
+func (x *JudgeAnswer) GetChoice() *ChoiceAnswer {
+	if x != nil {
+		if x, ok := x.Kind.(*JudgeAnswer_Choice); ok {
+			return x.Choice
+		}
+	}
+	return nil
+}
+
+func (x *JudgeAnswer) GetScore() *ScoreAnswer {
+	if x != nil {
+		if x, ok := x.Kind.(*JudgeAnswer_Score); ok {
+			return x.Score
+		}
+	}
+	return nil
+}
+
+type isJudgeAnswer_Kind interface {
+	isJudgeAnswer_Kind()
+}
+
+type JudgeAnswer_Noul struct {
+	Noul *NoulAnswer `protobuf:"bytes,1,opt,name=noul,proto3,oneof"`
+}
+
+type JudgeAnswer_Choice struct {
+	Choice *ChoiceAnswer `protobuf:"bytes,2,opt,name=choice,proto3,oneof"`
+}
+
+type JudgeAnswer_Score struct {
+	Score *ScoreAnswer `protobuf:"bytes,3,opt,name=score,proto3,oneof"`
+}
+
+func (*JudgeAnswer_Noul) isJudgeAnswer_Kind() {}
+
+func (*JudgeAnswer_Choice) isJudgeAnswer_Kind() {}
+
+func (*JudgeAnswer_Score) isJudgeAnswer_Kind() {}
+
+type NoulAnswer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Probability   float64                `protobuf:"fixed64,1,opt,name=probability,proto3" json:"probability,omitempty"` // Probability of yes/true, in [0,1].
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NoulAnswer) Reset() {
+	*x = NoulAnswer{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NoulAnswer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NoulAnswer) ProtoMessage() {}
+
+func (x *NoulAnswer) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NoulAnswer.ProtoReflect.Descriptor instead.
+func (*NoulAnswer) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *NoulAnswer) GetProbability() float64 {
+	if x != nil {
+		return x.Probability
+	}
+	return 0
+}
+
+type ChoiceAnswer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Choice        string                 `protobuf:"bytes,1,opt,name=choice,proto3" json:"choice,omitempty"`
+	Probabilities map[string]float64     `protobuf:"bytes,2,rep,name=probabilities,proto3" json:"probabilities,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"`
+	Confidence    *float64               `protobuf:"fixed64,3,opt,name=confidence,proto3,oneof" json:"confidence,omitempty"`
+	Criteria      map[string]string      `protobuf:"bytes,4,rep,name=criteria,proto3" json:"criteria,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChoiceAnswer) Reset() {
+	*x = ChoiceAnswer{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChoiceAnswer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChoiceAnswer) ProtoMessage() {}
+
+func (x *ChoiceAnswer) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChoiceAnswer.ProtoReflect.Descriptor instead.
+func (*ChoiceAnswer) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ChoiceAnswer) GetChoice() string {
+	if x != nil {
+		return x.Choice
+	}
+	return ""
+}
+
+func (x *ChoiceAnswer) GetProbabilities() map[string]float64 {
+	if x != nil {
+		return x.Probabilities
+	}
+	return nil
+}
+
+func (x *ChoiceAnswer) GetConfidence() float64 {
+	if x != nil && x.Confidence != nil {
+		return *x.Confidence
+	}
+	return 0
+}
+
+func (x *ChoiceAnswer) GetCriteria() map[string]string {
+	if x != nil {
+		return x.Criteria
+	}
+	return nil
+}
+
+type ScoreAnswer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Score         float64                `protobuf:"fixed64,1,opt,name=score,proto3" json:"score,omitempty"` // Probability-weighted zero-based level index.
+	Probabilities map[string]float64     `protobuf:"bytes,2,rep,name=probabilities,proto3" json:"probabilities,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"`
+	Legend        map[string]string      `protobuf:"bytes,3,rep,name=legend,proto3" json:"legend,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Confidence    *float64               `protobuf:"fixed64,4,opt,name=confidence,proto3,oneof" json:"confidence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScoreAnswer) Reset() {
+	*x = ScoreAnswer{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScoreAnswer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScoreAnswer) ProtoMessage() {}
+
+func (x *ScoreAnswer) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScoreAnswer.ProtoReflect.Descriptor instead.
+func (*ScoreAnswer) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ScoreAnswer) GetScore() float64 {
+	if x != nil {
+		return x.Score
+	}
+	return 0
+}
+
+func (x *ScoreAnswer) GetProbabilities() map[string]float64 {
+	if x != nil {
+		return x.Probabilities
+	}
+	return nil
+}
+
+func (x *ScoreAnswer) GetLegend() map[string]string {
+	if x != nil {
+		return x.Legend
+	}
+	return nil
+}
+
+func (x *ScoreAnswer) GetConfidence() float64 {
+	if x != nil && x.Confidence != nil {
+		return *x.Confidence
+	}
+	return 0
+}
+
+type JudgeUsage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	InputTokens   *int32                 `protobuf:"varint,1,opt,name=input_tokens,json=inputTokens,proto3,oneof" json:"input_tokens,omitempty"` // Absence means unknown, never zero.
+	OutputTokens  *int32                 `protobuf:"varint,2,opt,name=output_tokens,json=outputTokens,proto3,oneof" json:"output_tokens,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JudgeUsage) Reset() {
+	*x = JudgeUsage{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JudgeUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JudgeUsage) ProtoMessage() {}
+
+func (x *JudgeUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JudgeUsage.ProtoReflect.Descriptor instead.
+func (*JudgeUsage) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *JudgeUsage) GetInputTokens() int32 {
+	if x != nil && x.InputTokens != nil {
+		return *x.InputTokens
+	}
+	return 0
+}
+
+func (x *JudgeUsage) GetOutputTokens() int32 {
+	if x != nil && x.OutputTokens != nil {
+		return *x.OutputTokens
+	}
+	return 0
+}
+
+type JudgeResp struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Model         string                  `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"` // Actual provider-reported version.
+	Answers       map[string]*JudgeAnswer `protobuf:"bytes,2,rep,name=answers,proto3" json:"answers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Usage         *JudgeUsage             `protobuf:"bytes,3,opt,name=usage,proto3" json:"usage,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JudgeResp) Reset() {
+	*x = JudgeResp{}
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JudgeResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JudgeResp) ProtoMessage() {}
+
+func (x *JudgeResp) ProtoReflect() protoreflect.Message {
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JudgeResp.ProtoReflect.Descriptor instead.
+func (*JudgeResp) Descriptor() ([]byte, []int) {
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *JudgeResp) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *JudgeResp) GetAnswers() map[string]*JudgeAnswer {
+	if x != nil {
+		return x.Answers
+	}
+	return nil
+}
+
+func (x *JudgeResp) GetUsage() *JudgeUsage {
+	if x != nil {
+		return x.Usage
+	}
+	return nil
+}
+
 type ListModelsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Capability    string                 `protobuf:"bytes,1,opt,name=capability,proto3" json:"capability,omitempty"`
@@ -1136,7 +1849,7 @@ type ListModelsReq struct {
 
 func (x *ListModelsReq) Reset() {
 	*x = ListModelsReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[14]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1148,7 +1861,7 @@ func (x *ListModelsReq) String() string {
 func (*ListModelsReq) ProtoMessage() {}
 
 func (x *ListModelsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[14]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1161,7 +1874,7 @@ func (x *ListModelsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListModelsReq.ProtoReflect.Descriptor instead.
 func (*ListModelsReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{14}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ListModelsReq) GetCapability() string {
@@ -1188,7 +1901,7 @@ type ListModelsResp struct {
 
 func (x *ListModelsResp) Reset() {
 	*x = ListModelsResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[15]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1200,7 +1913,7 @@ func (x *ListModelsResp) String() string {
 func (*ListModelsResp) ProtoMessage() {}
 
 func (x *ListModelsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[15]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1213,7 +1926,7 @@ func (x *ListModelsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListModelsResp.ProtoReflect.Descriptor instead.
 func (*ListModelsResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{15}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListModelsResp) GetItems() []*ModelResp {
@@ -1247,7 +1960,7 @@ type CreateModelReq struct {
 
 func (x *CreateModelReq) Reset() {
 	*x = CreateModelReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[16]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1259,7 +1972,7 @@ func (x *CreateModelReq) String() string {
 func (*CreateModelReq) ProtoMessage() {}
 
 func (x *CreateModelReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[16]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1272,7 +1985,7 @@ func (x *CreateModelReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateModelReq.ProtoReflect.Descriptor instead.
 func (*CreateModelReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{16}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *CreateModelReq) GetModelName() string {
@@ -1346,15 +2059,15 @@ type UpdateModelReq struct {
 	Capability         string                 `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
 	BaseUrl            string                 `protobuf:"bytes,5,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
 	ApiKey             string                 `protobuf:"bytes,6,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
-	InputPricePerMtok  float64                `protobuf:"fixed64,7,opt,name=input_price_per_mtok,json=inputPricePerMtok,proto3" json:"input_price_per_mtok,omitempty"`
-	OutputPricePerMtok float64                `protobuf:"fixed64,8,opt,name=output_price_per_mtok,json=outputPricePerMtok,proto3" json:"output_price_per_mtok,omitempty"`
+	InputPricePerMtok  *float64               `protobuf:"fixed64,7,opt,name=input_price_per_mtok,json=inputPricePerMtok,proto3,oneof" json:"input_price_per_mtok,omitempty"`
+	OutputPricePerMtok *float64               `protobuf:"fixed64,8,opt,name=output_price_per_mtok,json=outputPricePerMtok,proto3,oneof" json:"output_price_per_mtok,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UpdateModelReq) Reset() {
 	*x = UpdateModelReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[17]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1366,7 +2079,7 @@ func (x *UpdateModelReq) String() string {
 func (*UpdateModelReq) ProtoMessage() {}
 
 func (x *UpdateModelReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[17]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1379,7 +2092,7 @@ func (x *UpdateModelReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateModelReq.ProtoReflect.Descriptor instead.
 func (*UpdateModelReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{17}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *UpdateModelReq) GetModelId() string {
@@ -1425,15 +2138,15 @@ func (x *UpdateModelReq) GetApiKey() string {
 }
 
 func (x *UpdateModelReq) GetInputPricePerMtok() float64 {
-	if x != nil {
-		return x.InputPricePerMtok
+	if x != nil && x.InputPricePerMtok != nil {
+		return *x.InputPricePerMtok
 	}
 	return 0
 }
 
 func (x *UpdateModelReq) GetOutputPricePerMtok() float64 {
-	if x != nil {
-		return x.OutputPricePerMtok
+	if x != nil && x.OutputPricePerMtok != nil {
+		return *x.OutputPricePerMtok
 	}
 	return 0
 }
@@ -1447,7 +2160,7 @@ type DeleteModelReq struct {
 
 func (x *DeleteModelReq) Reset() {
 	*x = DeleteModelReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[18]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1459,7 +2172,7 @@ func (x *DeleteModelReq) String() string {
 func (*DeleteModelReq) ProtoMessage() {}
 
 func (x *DeleteModelReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[18]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1472,7 +2185,7 @@ func (x *DeleteModelReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteModelReq.ProtoReflect.Descriptor instead.
 func (*DeleteModelReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{18}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *DeleteModelReq) GetModelId() string {
@@ -1491,7 +2204,7 @@ type DeleteModelResp struct {
 
 func (x *DeleteModelResp) Reset() {
 	*x = DeleteModelResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[19]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1503,7 +2216,7 @@ func (x *DeleteModelResp) String() string {
 func (*DeleteModelResp) ProtoMessage() {}
 
 func (x *DeleteModelResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[19]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1516,7 +2229,7 @@ func (x *DeleteModelResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteModelResp.ProtoReflect.Descriptor instead.
 func (*DeleteModelResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{19}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *DeleteModelResp) GetSuccess() bool {
@@ -1545,7 +2258,7 @@ type ModelResp struct {
 
 func (x *ModelResp) Reset() {
 	*x = ModelResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[20]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1557,7 +2270,7 @@ func (x *ModelResp) String() string {
 func (*ModelResp) ProtoMessage() {}
 
 func (x *ModelResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[20]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1570,7 +2283,7 @@ func (x *ModelResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelResp.ProtoReflect.Descriptor instead.
 func (*ModelResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{20}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ModelResp) GetId() string {
@@ -1660,7 +2373,7 @@ type BillingStatsReq struct {
 
 func (x *BillingStatsReq) Reset() {
 	*x = BillingStatsReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[21]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1672,7 +2385,7 @@ func (x *BillingStatsReq) String() string {
 func (*BillingStatsReq) ProtoMessage() {}
 
 func (x *BillingStatsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[21]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1685,7 +2398,7 @@ func (x *BillingStatsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BillingStatsReq.ProtoReflect.Descriptor instead.
 func (*BillingStatsReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{21}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *BillingStatsReq) GetOwnerId() string {
@@ -1714,7 +2427,7 @@ type BillingStatsResp struct {
 
 func (x *BillingStatsResp) Reset() {
 	*x = BillingStatsResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[22]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1726,7 +2439,7 @@ func (x *BillingStatsResp) String() string {
 func (*BillingStatsResp) ProtoMessage() {}
 
 func (x *BillingStatsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[22]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1739,7 +2452,7 @@ func (x *BillingStatsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BillingStatsResp.ProtoReflect.Descriptor instead.
 func (*BillingStatsResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{22}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *BillingStatsResp) GetTotalInputTokens() int64 {
@@ -1783,7 +2496,7 @@ type BillingModelStat struct {
 
 func (x *BillingModelStat) Reset() {
 	*x = BillingModelStat{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[23]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1795,7 +2508,7 @@ func (x *BillingModelStat) String() string {
 func (*BillingModelStat) ProtoMessage() {}
 
 func (x *BillingModelStat) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[23]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1808,7 +2521,7 @@ func (x *BillingModelStat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BillingModelStat.ProtoReflect.Descriptor instead.
 func (*BillingModelStat) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{23}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *BillingModelStat) GetModelName() string {
@@ -1857,7 +2570,7 @@ type ListBillingRecordsReq struct {
 
 func (x *ListBillingRecordsReq) Reset() {
 	*x = ListBillingRecordsReq{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[24]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1869,7 +2582,7 @@ func (x *ListBillingRecordsReq) String() string {
 func (*ListBillingRecordsReq) ProtoMessage() {}
 
 func (x *ListBillingRecordsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[24]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1882,7 +2595,7 @@ func (x *ListBillingRecordsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBillingRecordsReq.ProtoReflect.Descriptor instead.
 func (*ListBillingRecordsReq) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{24}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ListBillingRecordsReq) GetOwnerId() string {
@@ -1907,28 +2620,29 @@ func (x *ListBillingRecordsReq) GetPageSize() int32 {
 }
 
 type BillingRecordItem struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	BotId         *string                `protobuf:"bytes,2,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
-	ModelName     string                 `protobuf:"bytes,3,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
-	Capability    string                 `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
-	InputTokens   int32                  `protobuf:"varint,5,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
-	OutputTokens  int32                  `protobuf:"varint,6,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
-	InputCost     float64                `protobuf:"fixed64,7,opt,name=input_cost,json=inputCost,proto3" json:"input_cost,omitempty"`
-	OutputCost    float64                `protobuf:"fixed64,8,opt,name=output_cost,json=outputCost,proto3" json:"output_cost,omitempty"`
-	TotalCost     float64                `protobuf:"fixed64,9,opt,name=total_cost,json=totalCost,proto3" json:"total_cost,omitempty"`
-	Provider      string                 `protobuf:"bytes,10,opt,name=provider,proto3" json:"provider,omitempty"`
-	CreatedAt     string                 `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	ModelId       string                 `protobuf:"bytes,12,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	OwnerId       *string                `protobuf:"bytes,13,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
-	OwnerType     string                 `protobuf:"bytes,14,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	BotId      *string                `protobuf:"bytes,2,opt,name=bot_id,json=botId,proto3,oneof" json:"bot_id,omitempty"`
+	ModelName  string                 `protobuf:"bytes,3,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
+	Capability string                 `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
+	// Absent means the provider did not report this count; explicit zero is known.
+	InputTokens   *int32  `protobuf:"varint,5,opt,name=input_tokens,json=inputTokens,proto3,oneof" json:"input_tokens,omitempty"`
+	OutputTokens  *int32  `protobuf:"varint,6,opt,name=output_tokens,json=outputTokens,proto3,oneof" json:"output_tokens,omitempty"`
+	InputCost     float64 `protobuf:"fixed64,7,opt,name=input_cost,json=inputCost,proto3" json:"input_cost,omitempty"`
+	OutputCost    float64 `protobuf:"fixed64,8,opt,name=output_cost,json=outputCost,proto3" json:"output_cost,omitempty"`
+	TotalCost     float64 `protobuf:"fixed64,9,opt,name=total_cost,json=totalCost,proto3" json:"total_cost,omitempty"`
+	Provider      string  `protobuf:"bytes,10,opt,name=provider,proto3" json:"provider,omitempty"`
+	CreatedAt     string  `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ModelId       string  `protobuf:"bytes,12,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	OwnerId       *string `protobuf:"bytes,13,opt,name=owner_id,json=ownerId,proto3,oneof" json:"owner_id,omitempty"`
+	OwnerType     string  `protobuf:"bytes,14,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BillingRecordItem) Reset() {
 	*x = BillingRecordItem{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[25]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1940,7 +2654,7 @@ func (x *BillingRecordItem) String() string {
 func (*BillingRecordItem) ProtoMessage() {}
 
 func (x *BillingRecordItem) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[25]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1953,7 +2667,7 @@ func (x *BillingRecordItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BillingRecordItem.ProtoReflect.Descriptor instead.
 func (*BillingRecordItem) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{25}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *BillingRecordItem) GetId() string {
@@ -1985,15 +2699,15 @@ func (x *BillingRecordItem) GetCapability() string {
 }
 
 func (x *BillingRecordItem) GetInputTokens() int32 {
-	if x != nil {
-		return x.InputTokens
+	if x != nil && x.InputTokens != nil {
+		return *x.InputTokens
 	}
 	return 0
 }
 
 func (x *BillingRecordItem) GetOutputTokens() int32 {
-	if x != nil {
-		return x.OutputTokens
+	if x != nil && x.OutputTokens != nil {
+		return *x.OutputTokens
 	}
 	return 0
 }
@@ -2064,7 +2778,7 @@ type ListBillingRecordsResp struct {
 
 func (x *ListBillingRecordsResp) Reset() {
 	*x = ListBillingRecordsResp{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[26]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2076,7 +2790,7 @@ func (x *ListBillingRecordsResp) String() string {
 func (*ListBillingRecordsResp) ProtoMessage() {}
 
 func (x *ListBillingRecordsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[26]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2089,7 +2803,7 @@ func (x *ListBillingRecordsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBillingRecordsResp.ProtoReflect.Descriptor instead.
 func (*ListBillingRecordsResp) Descriptor() ([]byte, []int) {
-	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{26}
+	return file_llm_gateway_llm_gateway_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ListBillingRecordsResp) GetItems() []*BillingRecordItem {
@@ -2116,7 +2830,7 @@ type ToolCall_Function struct {
 
 func (x *ToolCall_Function) Reset() {
 	*x = ToolCall_Function{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[27]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2128,7 +2842,7 @@ func (x *ToolCall_Function) String() string {
 func (*ToolCall_Function) ProtoMessage() {}
 
 func (x *ToolCall_Function) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[27]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2169,7 +2883,7 @@ type ChatResp_Choice struct {
 
 func (x *ChatResp_Choice) Reset() {
 	*x = ChatResp_Choice{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[28]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2181,7 +2895,7 @@ func (x *ChatResp_Choice) String() string {
 func (*ChatResp_Choice) ProtoMessage() {}
 
 func (x *ChatResp_Choice) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[28]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2229,7 +2943,7 @@ type ChatStreamChunk_Choice struct {
 
 func (x *ChatStreamChunk_Choice) Reset() {
 	*x = ChatStreamChunk_Choice{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[29]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2241,7 +2955,7 @@ func (x *ChatStreamChunk_Choice) String() string {
 func (*ChatStreamChunk_Choice) ProtoMessage() {}
 
 func (x *ChatStreamChunk_Choice) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[29]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2288,7 +3002,7 @@ type EmbedResp_Embedding struct {
 
 func (x *EmbedResp_Embedding) Reset() {
 	*x = EmbedResp_Embedding{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[30]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2300,7 +3014,7 @@ func (x *EmbedResp_Embedding) String() string {
 func (*EmbedResp_Embedding) ProtoMessage() {}
 
 func (x *EmbedResp_Embedding) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[30]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2341,7 +3055,7 @@ type RerankResp_Result struct {
 
 func (x *RerankResp_Result) Reset() {
 	*x = RerankResp_Result{}
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[31]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2353,7 +3067,7 @@ func (x *RerankResp_Result) String() string {
 func (*RerankResp_Result) ProtoMessage() {}
 
 func (x *RerankResp_Result) ProtoReflect() protoreflect.Message {
-	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[31]
+	mi := &file_llm_gateway_llm_gateway_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2531,7 +3245,85 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\x06Result\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\x05R\x05index\x12'\n" +
 	"\x0frelevance_score\x18\x02 \x01(\x02R\x0erelevanceScore\x12\x1a\n" +
-	"\bdocument\x18\x03 \x01(\tR\bdocument\"d\n" +
+	"\bdocument\x18\x03 \x01(\tR\bdocument\"\xc3\x02\n" +
+	"\bJudgeReq\x12!\n" +
+	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12A\n" +
+	"\tquestions\x18\x03 \x03(\v2#.llmgateway.JudgeReq.QuestionsEntryR\tquestions\x12\"\n" +
+	"\x06bot_id\x18\x04 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12&\n" +
+	"\bowner_id\x18\x05 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01\x1aW\n" +
+	"\x0eQuestionsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12/\n" +
+	"\x05value\x18\x02 \x01(\v2\x19.llmgateway.JudgeQuestionR\x05value:\x028\x01B\t\n" +
+	"\a_bot_idB\v\n" +
+	"\t_owner_id\"\xd4\x01\n" +
+	"\rJudgeQuestion\x12\"\n" +
+	"\finstructions\x18\x01 \x01(\tR\finstructions\x12.\n" +
+	"\x04noul\x18\x02 \x01(\v2\x18.llmgateway.NoulQuestionH\x00R\x04noul\x124\n" +
+	"\x06choice\x18\x03 \x01(\v2\x1a.llmgateway.ChoiceQuestionH\x00R\x06choice\x121\n" +
+	"\x05score\x18\x04 \x01(\v2\x19.llmgateway.ScoreQuestionH\x00R\x05scoreB\x06\n" +
+	"\x04kind\"\x89\x01\n" +
+	"\fNoulQuestion\x12*\n" +
+	"\x0efalse_criteria\x18\x01 \x01(\tH\x00R\rfalseCriteria\x88\x01\x01\x12(\n" +
+	"\rtrue_criteria\x18\x02 \x01(\tH\x01R\ftrueCriteria\x88\x01\x01B\x11\n" +
+	"\x0f_false_criteriaB\x10\n" +
+	"\x0e_true_criteria\"\x93\x01\n" +
+	"\x0eChoiceQuestion\x12D\n" +
+	"\bcriteria\x18\x01 \x03(\v2(.llmgateway.ChoiceQuestion.CriteriaEntryR\bcriteria\x1a;\n" +
+	"\rCriteriaEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"+\n" +
+	"\rScoreQuestion\x12\x1a\n" +
+	"\bcriteria\x18\x01 \x03(\tR\bcriteria\"\xa8\x01\n" +
+	"\vJudgeAnswer\x12,\n" +
+	"\x04noul\x18\x01 \x01(\v2\x16.llmgateway.NoulAnswerH\x00R\x04noul\x122\n" +
+	"\x06choice\x18\x02 \x01(\v2\x18.llmgateway.ChoiceAnswerH\x00R\x06choice\x12/\n" +
+	"\x05score\x18\x03 \x01(\v2\x17.llmgateway.ScoreAnswerH\x00R\x05scoreB\x06\n" +
+	"\x04kind\".\n" +
+	"\n" +
+	"NoulAnswer\x12 \n" +
+	"\vprobability\x18\x01 \x01(\x01R\vprobability\"\xf0\x02\n" +
+	"\fChoiceAnswer\x12\x16\n" +
+	"\x06choice\x18\x01 \x01(\tR\x06choice\x12Q\n" +
+	"\rprobabilities\x18\x02 \x03(\v2+.llmgateway.ChoiceAnswer.ProbabilitiesEntryR\rprobabilities\x12#\n" +
+	"\n" +
+	"confidence\x18\x03 \x01(\x01H\x00R\n" +
+	"confidence\x88\x01\x01\x12B\n" +
+	"\bcriteria\x18\x04 \x03(\v2&.llmgateway.ChoiceAnswer.CriteriaEntryR\bcriteria\x1a@\n" +
+	"\x12ProbabilitiesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\x1a;\n" +
+	"\rCriteriaEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +
+	"\v_confidence\"\xe3\x02\n" +
+	"\vScoreAnswer\x12\x14\n" +
+	"\x05score\x18\x01 \x01(\x01R\x05score\x12P\n" +
+	"\rprobabilities\x18\x02 \x03(\v2*.llmgateway.ScoreAnswer.ProbabilitiesEntryR\rprobabilities\x12;\n" +
+	"\x06legend\x18\x03 \x03(\v2#.llmgateway.ScoreAnswer.LegendEntryR\x06legend\x12#\n" +
+	"\n" +
+	"confidence\x18\x04 \x01(\x01H\x00R\n" +
+	"confidence\x88\x01\x01\x1a@\n" +
+	"\x12ProbabilitiesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\x1a9\n" +
+	"\vLegendEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +
+	"\v_confidence\"\x81\x01\n" +
+	"\n" +
+	"JudgeUsage\x12&\n" +
+	"\finput_tokens\x18\x01 \x01(\x05H\x00R\vinputTokens\x88\x01\x01\x12(\n" +
+	"\routput_tokens\x18\x02 \x01(\x05H\x01R\foutputTokens\x88\x01\x01B\x0f\n" +
+	"\r_input_tokensB\x10\n" +
+	"\x0e_output_tokens\"\xe2\x01\n" +
+	"\tJudgeResp\x12\x14\n" +
+	"\x05model\x18\x01 \x01(\tR\x05model\x12<\n" +
+	"\aanswers\x18\x02 \x03(\v2\".llmgateway.JudgeResp.AnswersEntryR\aanswers\x12,\n" +
+	"\x05usage\x18\x03 \x01(\v2\x16.llmgateway.JudgeUsageR\x05usage\x1aS\n" +
+	"\fAnswersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.llmgateway.JudgeAnswerR\x05value:\x028\x01\"d\n" +
 	"\rListModelsReq\x12\x1e\n" +
 	"\n" +
 	"capability\x18\x01 \x01(\tR\n" +
@@ -2555,7 +3347,7 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\bowner_id\x18\b \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\aownerId\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"owner_type\x18\t \x01(\tR\townerTypeB\v\n" +
-	"\t_owner_id\"\xa6\x02\n" +
+	"\t_owner_id\"\xe3\x02\n" +
 	"\x0eUpdateModelReq\x12!\n" +
 	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12\x1d\n" +
 	"\n" +
@@ -2565,9 +3357,11 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"capability\x18\x04 \x01(\tR\n" +
 	"capability\x12\x19\n" +
 	"\bbase_url\x18\x05 \x01(\tR\abaseUrl\x12\x17\n" +
-	"\aapi_key\x18\x06 \x01(\tR\x06apiKey\x12/\n" +
-	"\x14input_price_per_mtok\x18\a \x01(\x01R\x11inputPricePerMtok\x121\n" +
-	"\x15output_price_per_mtok\x18\b \x01(\x01R\x12outputPricePerMtok\"3\n" +
+	"\aapi_key\x18\x06 \x01(\tR\x06apiKey\x124\n" +
+	"\x14input_price_per_mtok\x18\a \x01(\x01H\x00R\x11inputPricePerMtok\x88\x01\x01\x126\n" +
+	"\x15output_price_per_mtok\x18\b \x01(\x01H\x01R\x12outputPricePerMtok\x88\x01\x01B\x17\n" +
+	"\x15_input_price_per_mtokB\x18\n" +
+	"\x16_output_price_per_mtok\"3\n" +
 	"\x0eDeleteModelReq\x12!\n" +
 	"\bmodel_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\"+\n" +
 	"\x0fDeleteModelResp\x12\x18\n" +
@@ -2613,7 +3407,7 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\x15ListBillingRecordsReq\x12!\n" +
 	"\bowner_id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\aownerId\x12\x12\n" +
 	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"\xf2\x03\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"\x9f\x04\n" +
 	"\x11BillingRecordItem\x12\x16\n" +
 	"\x02id\x18\x01 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\x02id\x12\"\n" +
 	"\x06bot_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\x05botId\x88\x01\x01\x12\x1d\n" +
@@ -2621,9 +3415,9 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"model_name\x18\x03 \x01(\tR\tmodelName\x12\x1e\n" +
 	"\n" +
 	"capability\x18\x04 \x01(\tR\n" +
-	"capability\x12!\n" +
-	"\finput_tokens\x18\x05 \x01(\x05R\vinputTokens\x12#\n" +
-	"\routput_tokens\x18\x06 \x01(\x05R\foutputTokens\x12\x1d\n" +
+	"capability\x12&\n" +
+	"\finput_tokens\x18\x05 \x01(\x05H\x01R\vinputTokens\x88\x01\x01\x12(\n" +
+	"\routput_tokens\x18\x06 \x01(\x05H\x02R\foutputTokens\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"input_cost\x18\a \x01(\x01R\tinputCost\x12\x1f\n" +
 	"\voutput_cost\x18\b \x01(\x01R\n" +
@@ -2635,14 +3429,16 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\v \x01(\tR\tcreatedAt\x12!\n" +
 	"\bmodel_id\x18\f \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01R\amodelId\x12&\n" +
-	"\bowner_id\x18\r \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x01R\aownerId\x88\x01\x01\x12\x1d\n" +
+	"\bowner_id\x18\r \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x03R\aownerId\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"owner_type\x18\x0e \x01(\tR\townerTypeB\t\n" +
-	"\a_bot_idB\v\n" +
+	"\a_bot_idB\x0f\n" +
+	"\r_input_tokensB\x10\n" +
+	"\x0e_output_tokensB\v\n" +
 	"\t_owner_id\"c\n" +
 	"\x16ListBillingRecordsResp\x123\n" +
 	"\x05items\x18\x01 \x03(\v2\x1d.llmgateway.BillingRecordItemR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total2\xc6\x06\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total2\xfc\x06\n" +
 	"\n" +
 	"LLMGateway\x121\n" +
 	"\x04Chat\x12\x13.llmgateway.ChatReq\x1a\x14.llmgateway.ChatResp\x12@\n" +
@@ -2650,7 +3446,8 @@ const file_llm_gateway_llm_gateway_proto_rawDesc = "" +
 	"ChatStream\x12\x13.llmgateway.ChatReq\x1a\x1b.llmgateway.ChatStreamChunk0\x01\x12_\n" +
 	"\x15ResolveExecutionModel\x12$.llmgateway.ResolveExecutionModelReq\x1a .llmgateway.ModelExecutionConfig\x124\n" +
 	"\x05Embed\x12\x14.llmgateway.EmbedReq\x1a\x15.llmgateway.EmbedResp\x127\n" +
-	"\x06Rerank\x12\x15.llmgateway.RerankReq\x1a\x16.llmgateway.RerankResp\x12C\n" +
+	"\x06Rerank\x12\x15.llmgateway.RerankReq\x1a\x16.llmgateway.RerankResp\x124\n" +
+	"\x05Judge\x12\x14.llmgateway.JudgeReq\x1a\x15.llmgateway.JudgeResp\x12C\n" +
 	"\n" +
 	"ListModels\x12\x19.llmgateway.ListModelsReq\x1a\x1a.llmgateway.ListModelsResp\x12@\n" +
 	"\vCreateModel\x12\x1a.llmgateway.CreateModelReq\x1a\x15.llmgateway.ModelResp\x12@\n" +
@@ -2672,7 +3469,7 @@ func file_llm_gateway_llm_gateway_proto_rawDescGZIP() []byte {
 	return file_llm_gateway_llm_gateway_proto_rawDescData
 }
 
-var file_llm_gateway_llm_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_llm_gateway_llm_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_llm_gateway_llm_gateway_proto_goTypes = []any{
 	(*VlmChatReq)(nil),               // 0: llmgateway.VlmChatReq
 	(*ToolDef)(nil),                  // 1: llmgateway.ToolDef
@@ -2688,73 +3485,109 @@ var file_llm_gateway_llm_gateway_proto_goTypes = []any{
 	(*EmbedResp)(nil),                // 11: llmgateway.EmbedResp
 	(*RerankReq)(nil),                // 12: llmgateway.RerankReq
 	(*RerankResp)(nil),               // 13: llmgateway.RerankResp
-	(*ListModelsReq)(nil),            // 14: llmgateway.ListModelsReq
-	(*ListModelsResp)(nil),           // 15: llmgateway.ListModelsResp
-	(*CreateModelReq)(nil),           // 16: llmgateway.CreateModelReq
-	(*UpdateModelReq)(nil),           // 17: llmgateway.UpdateModelReq
-	(*DeleteModelReq)(nil),           // 18: llmgateway.DeleteModelReq
-	(*DeleteModelResp)(nil),          // 19: llmgateway.DeleteModelResp
-	(*ModelResp)(nil),                // 20: llmgateway.ModelResp
-	(*BillingStatsReq)(nil),          // 21: llmgateway.BillingStatsReq
-	(*BillingStatsResp)(nil),         // 22: llmgateway.BillingStatsResp
-	(*BillingModelStat)(nil),         // 23: llmgateway.BillingModelStat
-	(*ListBillingRecordsReq)(nil),    // 24: llmgateway.ListBillingRecordsReq
-	(*BillingRecordItem)(nil),        // 25: llmgateway.BillingRecordItem
-	(*ListBillingRecordsResp)(nil),   // 26: llmgateway.ListBillingRecordsResp
-	(*ToolCall_Function)(nil),        // 27: llmgateway.ToolCall.Function
-	(*ChatResp_Choice)(nil),          // 28: llmgateway.ChatResp.Choice
-	(*ChatStreamChunk_Choice)(nil),   // 29: llmgateway.ChatStreamChunk.Choice
-	(*EmbedResp_Embedding)(nil),      // 30: llmgateway.EmbedResp.Embedding
-	(*RerankResp_Result)(nil),        // 31: llmgateway.RerankResp.Result
+	(*JudgeReq)(nil),                 // 14: llmgateway.JudgeReq
+	(*JudgeQuestion)(nil),            // 15: llmgateway.JudgeQuestion
+	(*NoulQuestion)(nil),             // 16: llmgateway.NoulQuestion
+	(*ChoiceQuestion)(nil),           // 17: llmgateway.ChoiceQuestion
+	(*ScoreQuestion)(nil),            // 18: llmgateway.ScoreQuestion
+	(*JudgeAnswer)(nil),              // 19: llmgateway.JudgeAnswer
+	(*NoulAnswer)(nil),               // 20: llmgateway.NoulAnswer
+	(*ChoiceAnswer)(nil),             // 21: llmgateway.ChoiceAnswer
+	(*ScoreAnswer)(nil),              // 22: llmgateway.ScoreAnswer
+	(*JudgeUsage)(nil),               // 23: llmgateway.JudgeUsage
+	(*JudgeResp)(nil),                // 24: llmgateway.JudgeResp
+	(*ListModelsReq)(nil),            // 25: llmgateway.ListModelsReq
+	(*ListModelsResp)(nil),           // 26: llmgateway.ListModelsResp
+	(*CreateModelReq)(nil),           // 27: llmgateway.CreateModelReq
+	(*UpdateModelReq)(nil),           // 28: llmgateway.UpdateModelReq
+	(*DeleteModelReq)(nil),           // 29: llmgateway.DeleteModelReq
+	(*DeleteModelResp)(nil),          // 30: llmgateway.DeleteModelResp
+	(*ModelResp)(nil),                // 31: llmgateway.ModelResp
+	(*BillingStatsReq)(nil),          // 32: llmgateway.BillingStatsReq
+	(*BillingStatsResp)(nil),         // 33: llmgateway.BillingStatsResp
+	(*BillingModelStat)(nil),         // 34: llmgateway.BillingModelStat
+	(*ListBillingRecordsReq)(nil),    // 35: llmgateway.ListBillingRecordsReq
+	(*BillingRecordItem)(nil),        // 36: llmgateway.BillingRecordItem
+	(*ListBillingRecordsResp)(nil),   // 37: llmgateway.ListBillingRecordsResp
+	(*ToolCall_Function)(nil),        // 38: llmgateway.ToolCall.Function
+	(*ChatResp_Choice)(nil),          // 39: llmgateway.ChatResp.Choice
+	(*ChatStreamChunk_Choice)(nil),   // 40: llmgateway.ChatStreamChunk.Choice
+	(*EmbedResp_Embedding)(nil),      // 41: llmgateway.EmbedResp.Embedding
+	(*RerankResp_Result)(nil),        // 42: llmgateway.RerankResp.Result
+	nil,                              // 43: llmgateway.JudgeReq.QuestionsEntry
+	nil,                              // 44: llmgateway.ChoiceQuestion.CriteriaEntry
+	nil,                              // 45: llmgateway.ChoiceAnswer.ProbabilitiesEntry
+	nil,                              // 46: llmgateway.ChoiceAnswer.CriteriaEntry
+	nil,                              // 47: llmgateway.ScoreAnswer.ProbabilitiesEntry
+	nil,                              // 48: llmgateway.ScoreAnswer.LegendEntry
+	nil,                              // 49: llmgateway.JudgeResp.AnswersEntry
 }
 var file_llm_gateway_llm_gateway_proto_depIdxs = []int32{
 	3,  // 0: llmgateway.ChatReq.messages:type_name -> llmgateway.Message
 	1,  // 1: llmgateway.ChatReq.tools:type_name -> llmgateway.ToolDef
 	9,  // 2: llmgateway.ChatReq.execution_model:type_name -> llmgateway.ModelExecutionConfig
 	4,  // 3: llmgateway.Message.tool_calls:type_name -> llmgateway.ToolCall
-	27, // 4: llmgateway.ToolCall.function:type_name -> llmgateway.ToolCall.Function
-	28, // 5: llmgateway.ChatResp.choices:type_name -> llmgateway.ChatResp.Choice
+	38, // 4: llmgateway.ToolCall.function:type_name -> llmgateway.ToolCall.Function
+	39, // 5: llmgateway.ChatResp.choices:type_name -> llmgateway.ChatResp.Choice
 	7,  // 6: llmgateway.ChatResp.usage:type_name -> llmgateway.UsageInfo
-	29, // 7: llmgateway.ChatStreamChunk.choices:type_name -> llmgateway.ChatStreamChunk.Choice
+	40, // 7: llmgateway.ChatStreamChunk.choices:type_name -> llmgateway.ChatStreamChunk.Choice
 	7,  // 8: llmgateway.ChatStreamChunk.usage:type_name -> llmgateway.UsageInfo
-	30, // 9: llmgateway.EmbedResp.data:type_name -> llmgateway.EmbedResp.Embedding
+	41, // 9: llmgateway.EmbedResp.data:type_name -> llmgateway.EmbedResp.Embedding
 	7,  // 10: llmgateway.EmbedResp.usage:type_name -> llmgateway.UsageInfo
-	31, // 11: llmgateway.RerankResp.results:type_name -> llmgateway.RerankResp.Result
+	42, // 11: llmgateway.RerankResp.results:type_name -> llmgateway.RerankResp.Result
 	7,  // 12: llmgateway.RerankResp.usage:type_name -> llmgateway.UsageInfo
-	20, // 13: llmgateway.ListModelsResp.items:type_name -> llmgateway.ModelResp
-	23, // 14: llmgateway.BillingStatsResp.by_model:type_name -> llmgateway.BillingModelStat
-	25, // 15: llmgateway.ListBillingRecordsResp.items:type_name -> llmgateway.BillingRecordItem
-	3,  // 16: llmgateway.ChatResp.Choice.message:type_name -> llmgateway.Message
-	3,  // 17: llmgateway.ChatStreamChunk.Choice.delta:type_name -> llmgateway.Message
-	2,  // 18: llmgateway.LLMGateway.Chat:input_type -> llmgateway.ChatReq
-	2,  // 19: llmgateway.LLMGateway.ChatStream:input_type -> llmgateway.ChatReq
-	8,  // 20: llmgateway.LLMGateway.ResolveExecutionModel:input_type -> llmgateway.ResolveExecutionModelReq
-	10, // 21: llmgateway.LLMGateway.Embed:input_type -> llmgateway.EmbedReq
-	12, // 22: llmgateway.LLMGateway.Rerank:input_type -> llmgateway.RerankReq
-	14, // 23: llmgateway.LLMGateway.ListModels:input_type -> llmgateway.ListModelsReq
-	16, // 24: llmgateway.LLMGateway.CreateModel:input_type -> llmgateway.CreateModelReq
-	17, // 25: llmgateway.LLMGateway.UpdateModel:input_type -> llmgateway.UpdateModelReq
-	18, // 26: llmgateway.LLMGateway.DeleteModel:input_type -> llmgateway.DeleteModelReq
-	21, // 27: llmgateway.LLMGateway.GetBillingStats:input_type -> llmgateway.BillingStatsReq
-	0,  // 28: llmgateway.LLMGateway.VlmChat:input_type -> llmgateway.VlmChatReq
-	24, // 29: llmgateway.LLMGateway.ListBillingRecords:input_type -> llmgateway.ListBillingRecordsReq
-	5,  // 30: llmgateway.LLMGateway.Chat:output_type -> llmgateway.ChatResp
-	6,  // 31: llmgateway.LLMGateway.ChatStream:output_type -> llmgateway.ChatStreamChunk
-	9,  // 32: llmgateway.LLMGateway.ResolveExecutionModel:output_type -> llmgateway.ModelExecutionConfig
-	11, // 33: llmgateway.LLMGateway.Embed:output_type -> llmgateway.EmbedResp
-	13, // 34: llmgateway.LLMGateway.Rerank:output_type -> llmgateway.RerankResp
-	15, // 35: llmgateway.LLMGateway.ListModels:output_type -> llmgateway.ListModelsResp
-	20, // 36: llmgateway.LLMGateway.CreateModel:output_type -> llmgateway.ModelResp
-	20, // 37: llmgateway.LLMGateway.UpdateModel:output_type -> llmgateway.ModelResp
-	19, // 38: llmgateway.LLMGateway.DeleteModel:output_type -> llmgateway.DeleteModelResp
-	22, // 39: llmgateway.LLMGateway.GetBillingStats:output_type -> llmgateway.BillingStatsResp
-	5,  // 40: llmgateway.LLMGateway.VlmChat:output_type -> llmgateway.ChatResp
-	26, // 41: llmgateway.LLMGateway.ListBillingRecords:output_type -> llmgateway.ListBillingRecordsResp
-	30, // [30:42] is the sub-list for method output_type
-	18, // [18:30] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	43, // 13: llmgateway.JudgeReq.questions:type_name -> llmgateway.JudgeReq.QuestionsEntry
+	16, // 14: llmgateway.JudgeQuestion.noul:type_name -> llmgateway.NoulQuestion
+	17, // 15: llmgateway.JudgeQuestion.choice:type_name -> llmgateway.ChoiceQuestion
+	18, // 16: llmgateway.JudgeQuestion.score:type_name -> llmgateway.ScoreQuestion
+	44, // 17: llmgateway.ChoiceQuestion.criteria:type_name -> llmgateway.ChoiceQuestion.CriteriaEntry
+	20, // 18: llmgateway.JudgeAnswer.noul:type_name -> llmgateway.NoulAnswer
+	21, // 19: llmgateway.JudgeAnswer.choice:type_name -> llmgateway.ChoiceAnswer
+	22, // 20: llmgateway.JudgeAnswer.score:type_name -> llmgateway.ScoreAnswer
+	45, // 21: llmgateway.ChoiceAnswer.probabilities:type_name -> llmgateway.ChoiceAnswer.ProbabilitiesEntry
+	46, // 22: llmgateway.ChoiceAnswer.criteria:type_name -> llmgateway.ChoiceAnswer.CriteriaEntry
+	47, // 23: llmgateway.ScoreAnswer.probabilities:type_name -> llmgateway.ScoreAnswer.ProbabilitiesEntry
+	48, // 24: llmgateway.ScoreAnswer.legend:type_name -> llmgateway.ScoreAnswer.LegendEntry
+	49, // 25: llmgateway.JudgeResp.answers:type_name -> llmgateway.JudgeResp.AnswersEntry
+	23, // 26: llmgateway.JudgeResp.usage:type_name -> llmgateway.JudgeUsage
+	31, // 27: llmgateway.ListModelsResp.items:type_name -> llmgateway.ModelResp
+	34, // 28: llmgateway.BillingStatsResp.by_model:type_name -> llmgateway.BillingModelStat
+	36, // 29: llmgateway.ListBillingRecordsResp.items:type_name -> llmgateway.BillingRecordItem
+	3,  // 30: llmgateway.ChatResp.Choice.message:type_name -> llmgateway.Message
+	3,  // 31: llmgateway.ChatStreamChunk.Choice.delta:type_name -> llmgateway.Message
+	15, // 32: llmgateway.JudgeReq.QuestionsEntry.value:type_name -> llmgateway.JudgeQuestion
+	19, // 33: llmgateway.JudgeResp.AnswersEntry.value:type_name -> llmgateway.JudgeAnswer
+	2,  // 34: llmgateway.LLMGateway.Chat:input_type -> llmgateway.ChatReq
+	2,  // 35: llmgateway.LLMGateway.ChatStream:input_type -> llmgateway.ChatReq
+	8,  // 36: llmgateway.LLMGateway.ResolveExecutionModel:input_type -> llmgateway.ResolveExecutionModelReq
+	10, // 37: llmgateway.LLMGateway.Embed:input_type -> llmgateway.EmbedReq
+	12, // 38: llmgateway.LLMGateway.Rerank:input_type -> llmgateway.RerankReq
+	14, // 39: llmgateway.LLMGateway.Judge:input_type -> llmgateway.JudgeReq
+	25, // 40: llmgateway.LLMGateway.ListModels:input_type -> llmgateway.ListModelsReq
+	27, // 41: llmgateway.LLMGateway.CreateModel:input_type -> llmgateway.CreateModelReq
+	28, // 42: llmgateway.LLMGateway.UpdateModel:input_type -> llmgateway.UpdateModelReq
+	29, // 43: llmgateway.LLMGateway.DeleteModel:input_type -> llmgateway.DeleteModelReq
+	32, // 44: llmgateway.LLMGateway.GetBillingStats:input_type -> llmgateway.BillingStatsReq
+	0,  // 45: llmgateway.LLMGateway.VlmChat:input_type -> llmgateway.VlmChatReq
+	35, // 46: llmgateway.LLMGateway.ListBillingRecords:input_type -> llmgateway.ListBillingRecordsReq
+	5,  // 47: llmgateway.LLMGateway.Chat:output_type -> llmgateway.ChatResp
+	6,  // 48: llmgateway.LLMGateway.ChatStream:output_type -> llmgateway.ChatStreamChunk
+	9,  // 49: llmgateway.LLMGateway.ResolveExecutionModel:output_type -> llmgateway.ModelExecutionConfig
+	11, // 50: llmgateway.LLMGateway.Embed:output_type -> llmgateway.EmbedResp
+	13, // 51: llmgateway.LLMGateway.Rerank:output_type -> llmgateway.RerankResp
+	24, // 52: llmgateway.LLMGateway.Judge:output_type -> llmgateway.JudgeResp
+	26, // 53: llmgateway.LLMGateway.ListModels:output_type -> llmgateway.ListModelsResp
+	31, // 54: llmgateway.LLMGateway.CreateModel:output_type -> llmgateway.ModelResp
+	31, // 55: llmgateway.LLMGateway.UpdateModel:output_type -> llmgateway.ModelResp
+	30, // 56: llmgateway.LLMGateway.DeleteModel:output_type -> llmgateway.DeleteModelResp
+	33, // 57: llmgateway.LLMGateway.GetBillingStats:output_type -> llmgateway.BillingStatsResp
+	5,  // 58: llmgateway.LLMGateway.VlmChat:output_type -> llmgateway.ChatResp
+	37, // 59: llmgateway.LLMGateway.ListBillingRecords:output_type -> llmgateway.ListBillingRecordsResp
+	47, // [47:60] is the sub-list for method output_type
+	34, // [34:47] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_llm_gateway_llm_gateway_proto_init() }
@@ -2772,17 +3605,33 @@ func file_llm_gateway_llm_gateway_proto_init() {
 	file_llm_gateway_llm_gateway_proto_msgTypes[10].OneofWrappers = []any{}
 	file_llm_gateway_llm_gateway_proto_msgTypes[12].OneofWrappers = []any{}
 	file_llm_gateway_llm_gateway_proto_msgTypes[14].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[15].OneofWrappers = []any{
+		(*JudgeQuestion_Noul)(nil),
+		(*JudgeQuestion_Choice)(nil),
+		(*JudgeQuestion_Score)(nil),
+	}
 	file_llm_gateway_llm_gateway_proto_msgTypes[16].OneofWrappers = []any{}
-	file_llm_gateway_llm_gateway_proto_msgTypes[20].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[19].OneofWrappers = []any{
+		(*JudgeAnswer_Noul)(nil),
+		(*JudgeAnswer_Choice)(nil),
+		(*JudgeAnswer_Score)(nil),
+	}
 	file_llm_gateway_llm_gateway_proto_msgTypes[21].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[22].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[23].OneofWrappers = []any{}
 	file_llm_gateway_llm_gateway_proto_msgTypes[25].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[27].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[28].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[31].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[32].OneofWrappers = []any{}
+	file_llm_gateway_llm_gateway_proto_msgTypes[36].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_llm_gateway_llm_gateway_proto_rawDesc), len(file_llm_gateway_llm_gateway_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   32,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

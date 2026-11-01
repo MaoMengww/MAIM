@@ -1,9 +1,9 @@
 import client, { unwrap } from './client';
-import type { CreateModelReq } from '@/types/api';
-import type { APIResponse, ModelResp, BillingStatsResp, BillingRecordItem, PageData } from '@/types/model';
+import type { CreateModelReq, UpdateModelReq } from '@/types/api';
+import type { APIResponse, ModelResp, ModelCapability, BillingStatsResp, BillingRecordItem } from '@/types/model';
 
 export const modelApi = {
-  list: (capability?: string) =>
+  list: (capability?: ModelCapability) =>
     client.get<APIResponse<{ items: ModelResp[]; total: number }>>('/models', {
       params: capability ? { capability } : undefined,
     }).then((r) => ({ list: r.data.data.items ?? [], total: r.data.data.total ?? 0 })),
@@ -11,8 +11,8 @@ export const modelApi = {
   create: (data: CreateModelReq) =>
     client.post<APIResponse<ModelResp>>('/models', data).then(unwrap),
 
-  update: (id: string, data: Record<string, unknown>) =>
-    client.put<APIResponse<ModelResp>>(`/models/${id}`, data).then(unwrap),
+  update: (id: string, data: UpdateModelReq) =>
+    client.put<APIResponse<{ id: string }>>(`/models/${id}`, data).then(unwrap),
 
   delete: (id: string) =>
     client.delete<APIResponse<null>>(`/models/${id}`).then(unwrap),

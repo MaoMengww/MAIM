@@ -24,6 +24,7 @@ const (
 	LLMGateway_ResolveExecutionModel_FullMethodName = "/llmgateway.LLMGateway/ResolveExecutionModel"
 	LLMGateway_Embed_FullMethodName                 = "/llmgateway.LLMGateway/Embed"
 	LLMGateway_Rerank_FullMethodName                = "/llmgateway.LLMGateway/Rerank"
+	LLMGateway_Judge_FullMethodName                 = "/llmgateway.LLMGateway/Judge"
 	LLMGateway_ListModels_FullMethodName            = "/llmgateway.LLMGateway/ListModels"
 	LLMGateway_CreateModel_FullMethodName           = "/llmgateway.LLMGateway/CreateModel"
 	LLMGateway_UpdateModel_FullMethodName           = "/llmgateway.LLMGateway/UpdateModel"
@@ -42,6 +43,7 @@ type LLMGatewayClient interface {
 	ResolveExecutionModel(ctx context.Context, in *ResolveExecutionModelReq, opts ...grpc.CallOption) (*ModelExecutionConfig, error)
 	Embed(ctx context.Context, in *EmbedReq, opts ...grpc.CallOption) (*EmbedResp, error)
 	Rerank(ctx context.Context, in *RerankReq, opts ...grpc.CallOption) (*RerankResp, error)
+	Judge(ctx context.Context, in *JudgeReq, opts ...grpc.CallOption) (*JudgeResp, error)
 	ListModels(ctx context.Context, in *ListModelsReq, opts ...grpc.CallOption) (*ListModelsResp, error)
 	CreateModel(ctx context.Context, in *CreateModelReq, opts ...grpc.CallOption) (*ModelResp, error)
 	UpdateModel(ctx context.Context, in *UpdateModelReq, opts ...grpc.CallOption) (*ModelResp, error)
@@ -112,6 +114,16 @@ func (c *lLMGatewayClient) Rerank(ctx context.Context, in *RerankReq, opts ...gr
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RerankResp)
 	err := c.cc.Invoke(ctx, LLMGateway_Rerank_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lLMGatewayClient) Judge(ctx context.Context, in *JudgeReq, opts ...grpc.CallOption) (*JudgeResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(JudgeResp)
+	err := c.cc.Invoke(ctx, LLMGateway_Judge_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -197,6 +209,7 @@ type LLMGatewayServer interface {
 	ResolveExecutionModel(context.Context, *ResolveExecutionModelReq) (*ModelExecutionConfig, error)
 	Embed(context.Context, *EmbedReq) (*EmbedResp, error)
 	Rerank(context.Context, *RerankReq) (*RerankResp, error)
+	Judge(context.Context, *JudgeReq) (*JudgeResp, error)
 	ListModels(context.Context, *ListModelsReq) (*ListModelsResp, error)
 	CreateModel(context.Context, *CreateModelReq) (*ModelResp, error)
 	UpdateModel(context.Context, *UpdateModelReq) (*ModelResp, error)
@@ -228,6 +241,9 @@ func (UnimplementedLLMGatewayServer) Embed(context.Context, *EmbedReq) (*EmbedRe
 }
 func (UnimplementedLLMGatewayServer) Rerank(context.Context, *RerankReq) (*RerankResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Rerank not implemented")
+}
+func (UnimplementedLLMGatewayServer) Judge(context.Context, *JudgeReq) (*JudgeResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method Judge not implemented")
 }
 func (UnimplementedLLMGatewayServer) ListModels(context.Context, *ListModelsReq) (*ListModelsResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListModels not implemented")
@@ -350,6 +366,24 @@ func _LLMGateway_Rerank_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LLMGatewayServer).Rerank(ctx, req.(*RerankReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LLMGateway_Judge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JudgeReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMGatewayServer).Judge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMGateway_Judge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMGatewayServer).Judge(ctx, req.(*JudgeReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -502,6 +536,10 @@ var LLMGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Rerank",
 			Handler:    _LLMGateway_Rerank_Handler,
+		},
+		{
+			MethodName: "Judge",
+			Handler:    _LLMGateway_Judge_Handler,
 		},
 		{
 			MethodName: "ListModels",

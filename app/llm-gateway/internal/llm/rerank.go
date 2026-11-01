@@ -36,6 +36,11 @@ func dashscopeRerank(ctx context.Context, apiKey, baseURL, model, query string, 
 	if err != nil {
 		return nil, err
 	}
+	// DashScope serves two documented rerank shapes: the native text-rerank
+	// response nests results under "output", while the OpenAI-compatible
+	// /reranks response returns them at the top level. Both carry the same
+	// index and relevance score, so accept either without translating the
+	// request into a second protocol.
 	var result struct {
 		Output struct {
 			Results []struct {
@@ -43,6 +48,10 @@ func dashscopeRerank(ctx context.Context, apiKey, baseURL, model, query string, 
 				RelevanceScore float64 `json:"relevance_score"`
 			} `json:"results"`
 		} `json:"output"`
+		Results []struct {
+			Index          int     `json:"index"`
+			RelevanceScore float64 `json:"relevance_score"`
+		} `json:"results"`
 		Usage struct {
 			TotalTokens int `json:"total_tokens"`
 		} `json:"usage"`
@@ -50,8 +59,12 @@ func dashscopeRerank(ctx context.Context, apiKey, baseURL, model, query string, 
 	if err := json.Unmarshal(respBytes, &result); err != nil {
 		return nil, fmt.Errorf("rerank response invalid")
 	}
+	items := result.Output.Results
+	if result.Results != nil {
+		items = result.Results
+	}
 	out := &RerankResult{Tokens: result.Usage.TotalTokens}
-	for _, r := range result.Output.Results {
+	for _, r := range items {
 		if r.Index < 0 || r.Index >= len(docs) {
 			return nil, fmt.Errorf("rerank response index invalid")
 		}

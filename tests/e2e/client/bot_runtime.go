@@ -735,8 +735,8 @@ type runtimeBillingRecord struct {
 	OwnerType    string    `json:"owner_type"`
 	ModelName    string    `json:"model_name"`
 	Capability   string    `json:"capability"`
-	InputTokens  int32     `json:"input_tokens"`
-	OutputTokens int32     `json:"output_tokens"`
+	InputTokens  *int32    `json:"input_tokens"`
+	OutputTokens *int32    `json:"output_tokens"`
 	InputCost    float64   `json:"input_cost"`
 	OutputCost   float64   `json:"output_cost"`
 	TotalCost    float64   `json:"total_cost"`
@@ -757,11 +757,11 @@ func (d *driver) runtimeBillingRecords(owner account) ([]runtimeBillingRecord, e
 	seen := make(map[entityID]bool, len(response.Items))
 	for _, record := range response.Items {
 		_, dateErr := time.Parse(time.RFC3339, record.CreatedAt)
-		if record.ID == "" || record.ModelID == "" || seen[record.ID] || !hasEntityID(record.OwnerID, owner.id) || record.OwnerType != "user" || record.InputTokens <= 0 || record.OutputTokens < 0 || dateErr != nil {
+		if record.ID == "" || record.ModelID == "" || seen[record.ID] || !hasEntityID(record.OwnerID, owner.id) || record.OwnerType != "user" || record.InputTokens == nil || record.OutputTokens == nil || *record.InputTokens <= 0 || *record.OutputTokens < 0 || dateErr != nil {
 			return nil, errors.New("billing.records: UUID/所有权/数字token/时间戳契约不匹配")
 		}
 		seen[record.ID] = true
-		if math.IsNaN(record.TotalCost) || math.IsInf(record.TotalCost, 0) || math.Abs(record.InputCost-float64(record.InputTokens)*2/1_000_000) > 1e-12 || math.Abs(record.OutputCost-float64(record.OutputTokens)*3/1_000_000) > 1e-12 || math.Abs(record.TotalCost-record.InputCost-record.OutputCost) > 1e-12 {
+		if math.IsNaN(record.TotalCost) || math.IsInf(record.TotalCost, 0) || math.Abs(record.InputCost-float64(*record.InputTokens)*2/1_000_000) > 1e-12 || math.Abs(record.OutputCost-float64(*record.OutputTokens)*3/1_000_000) > 1e-12 || math.Abs(record.TotalCost-record.InputCost-record.OutputCost) > 1e-12 {
 			return nil, errors.New("billing.records: 数字价格、token和费用不一致")
 		}
 	}
@@ -802,8 +802,8 @@ func (d *driver) runtimeBilling(owner, outsider account, botID, modelID entityID
 				return errors.New("billing.bot: model/bot/user三个UUID未指向同一次实际调用")
 			}
 			count++
-			input += int64(record.InputTokens)
-			output += int64(record.OutputTokens)
+			input += int64(*record.InputTokens)
+			output += int64(*record.OutputTokens)
 			cost += record.TotalCost
 		}
 	}

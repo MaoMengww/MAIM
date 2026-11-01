@@ -6,6 +6,7 @@ import { modelApi } from '@/services/model';
 import { authApi } from '@/services/auth';
 import { useAuthStore } from '@/stores/auth';
 import type { BillingModelStat, BillingRecordItem } from '@/types/model';
+import { displayCapability } from '@/utils/capability';
 
 const PRESET_AMOUNTS = [10, 50, 100, 500];
 
@@ -43,6 +44,7 @@ const capabilityColor: Record<string, string> = {
   chat: '#1677ff',
   embed: '#52c41a',
   rerank: '#fa8c16',
+  judge: 'cyan',
   vlm: '#eb2f96',
   tts: '#722ed1',
 };
@@ -120,7 +122,7 @@ export function BillingPage() {
         <Flex align="center" gap={8}>
           {name}
           <Tag color={capabilityColor[r.capability] || '#666'} style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
-            {r.capability}
+            {displayCapability(r.capability)}
           </Tag>
         </Flex>
       ),
@@ -157,18 +159,18 @@ export function BillingPage() {
         <Flex align="center" gap={6}>
           {name}
           <Tag color={capabilityColor[r.capability] || '#666'} style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>
-            {r.capability}
+            {displayCapability(r.capability)}
           </Tag>
         </Flex>
       ),
     },
     {
       title: '输入 Tokens', dataIndex: 'input_tokens', key: 'input_tokens', width: 110,
-      render: (v: number) => fmtTokens(v),
+      render: (v: number | null | undefined) => fmtTokens(v),
     },
     {
       title: '输出 Tokens', dataIndex: 'output_tokens', key: 'output_tokens', width: 110,
-      render: (v: number) => fmtTokens(v),
+      render: (v: number | null | undefined) => fmtTokens(v),
     },
     {
       title: '输入费用', dataIndex: 'input_cost', key: 'input_cost', width: 100,

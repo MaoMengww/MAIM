@@ -7,8 +7,6 @@ import (
 
 	"github.com/maomeng/aim/app/knowledge-base/internal/domain"
 	"github.com/maomeng/aim/pkg/errors"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 )
 
@@ -42,6 +40,7 @@ type searchCompatibility struct {
 	DenseWeight    float32
 	SparseWeight   float32
 	RerankEnabled  bool
+	RerankMethod   string
 	RerankModel    searchModelSpace
 	RerankTopN     int
 }
@@ -50,13 +49,13 @@ func (h *KnowledgeBaseHandler) searchModelSpace(ctx context.Context, id, capabil
 	entry, exists := cache[id]
 	if !exists {
 		if h.DB == nil {
-			return searchModelSpace{}, status.Error(codes.FailedPrecondition, "knowledge search model configuration unavailable")
+			return searchModelSpace{}, errors.New(errors.CodeIncompatibleScope, "knowledge search model configuration unavailable")
 		}
 		err := h.DB.WithContext(ctx).Table("llm.model_registry").
 			Select("id", "provider", "model_name", "base_url", "capability", "status", "owner_type", "owner_id", "metadata").
 			Where("id = ?", id).Take(&entry).Error
 		if stderrors.Is(err, gorm.ErrRecordNotFound) {
-			return searchModelSpace{}, status.Error(codes.FailedPrecondition, "knowledge search model unavailable")
+			return searchModelSpace{}, errors.New(errors.CodeIncompatibleScope, "knowledge search model unavailable")
 		}
 		if err != nil {
 			return searchModelSpace{}, errors.Wrap(errors.CodeDBError, "resolve knowledge search model failed", err)
@@ -64,19 +63,19 @@ func (h *KnowledgeBaseHandler) searchModelSpace(ctx context.Context, id, capabil
 		cache[id] = entry
 	}
 	if entry.Status != "active" || entry.Capability != capability || entry.ModelName == "" {
-		return searchModelSpace{}, status.Error(codes.FailedPrecondition, "knowledge search model unavailable")
+		return searchModelSpace{}, errors.New(errors.CodeIncompatibleScope, "knowledge search model unavailable")
 	}
 	switch entry.OwnerType {
 	case "platform":
 		if entry.OwnerID != nil {
-			return searchModelSpace{}, status.Error(codes.FailedPrecondition, "knowledge search model unavailable")
+			return searchModelSpace{}, errors.New(errors.CodeIncompatibleScope, "knowledge search model unavailable")
 		}
 	case "user":
 		if entry.OwnerID == nil || kb.OwnerID == nil || *entry.OwnerID != *kb.OwnerID {
-			return searchModelSpace{}, status.Error(codes.FailedPrecondition, "knowledge search model unavailable")
+			return searchModelSpace{}, errors.New(errors.CodeIncompatibleScope, "knowledge search model unavailable")
 		}
 	default:
-		return searchModelSpace{}, status.Error(codes.FailedPrecondition, "knowledge search model unavailable")
+		return searchModelSpace{}, errors.New(errors.CodeIncompatibleScope, "knowledge search model unavailable")
 	}
 	endpoint := strings.TrimRight(entry.BaseURL, "/")
 	// The current embedding adapter uses the OpenAI default for all non-Cohere
@@ -94,6 +93,20 @@ func (h *KnowledgeBaseHandler) searchModelSpace(ctx context.Context, id, capabil
 	return space, nil
 }
 
+// Validate retained references too: disabling does not authorize an otherwise
+// invalid model, while an explicit clear can remove a stale reference.
+func (h *KnowledgeBaseHandler) validateRerankModel(ctx context.Context, kb *domain.KnowledgeBase, cache map[string]searchModel) error {
+	cfg := kb.PipelineConfig.Retrieval.Rerank
+	if cfg.ModelID == nil {
+		if cfg.Enabled {
+			return errors.New(errors.CodeIncompatibleScope, "knowledge search rerank model is not configured")
+		}
+		return nil
+	}
+	_, err := h.searchModelSpace(ctx, *cfg.ModelID, cfg.EffectiveMethod(), kb, cache)
+	return err
+}
+
 func (h *KnowledgeBaseHandler) resolveSearchConfiguration(ctx context.Context, kbs []*domain.KnowledgeBase, limit int) (domain.RetrievalConfig, string, *string, error) {
 	var configured domain.RetrievalConfig
 	var embeddingID string
@@ -103,11 +116,14 @@ func (h *KnowledgeBaseHandler) resolveSearchConfiguration(ctx context.Context, k
 	for i, kb := range kbs {
 		cfg, err := domain.EffectiveRetrievalConfig(kb.PipelineConfig.Retrieval, limit)
 		if err != nil {
-			return domain.RetrievalConfig{}, "", nil, status.Error(codes.FailedPrecondition, "knowledge search configuration unavailable")
+			return domain.RetrievalConfig{}, "", nil, errors.New(errors.CodeIncompatibleScope, "knowledge search configuration unavailable")
+		}
+		if err := h.validateRerankModel(ctx, kb, cache); err != nil {
+			return domain.RetrievalConfig{}, "", nil, err
 		}
 		modelID, err := kb.ResolveEmbeddingModelID(ctx, h.KBRepo)
 		if err != nil {
-			return domain.RetrievalConfig{}, "", nil, status.Error(codes.FailedPrecondition, "knowledge search embedding model unavailable")
+			return domain.RetrievalConfig{}, "", nil, errors.New(errors.CodeIncompatibleScope, "knowledge search embedding model unavailable")
 		}
 		space, err := h.searchModelSpace(ctx, modelID, "embed", kb, cache)
 		if err != nil {
@@ -119,7 +135,8 @@ func (h *KnowledgeBaseHandler) resolveSearchConfiguration(ctx context.Context, k
 			RerankEnabled: cfg.Rerank.Enabled, RerankTopN: cfg.Rerank.TopN,
 		}
 		if cfg.Rerank.Enabled {
-			compatibility.RerankModel, err = h.searchModelSpace(ctx, *cfg.Rerank.ModelID, "rerank", kb, cache)
+			compatibility.RerankMethod = cfg.Rerank.Method
+			compatibility.RerankModel, err = h.searchModelSpace(ctx, *cfg.Rerank.ModelID, cfg.Rerank.Method, kb, cache)
 			if err != nil {
 				return domain.RetrievalConfig{}, "", nil, err
 			}

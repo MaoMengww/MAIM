@@ -207,6 +207,13 @@ class Runner:
             for volume in service.get("volumes", []):
                 if volume.get("type") == "bind" and not Path(volume["source"]).exists():
                     raise LayerFailure(f"configuration: missing bind source for {name}: {volume['source']}")
+        if self.args.scenario in {"llm-components", "all"}:
+            # Platform registration is an operator DB operation, not user CRUD.
+            # Seed before service startup; all calls and billing remain real.
+            services["postgres"]["volumes"].append({
+                "type": "bind", "source": str(self.repo / "tests/e2e/judge-platform.sql"),
+                "target": "/docker-entrypoint-initdb.d/999_e2e_judge_platform.sql", "read_only": True,
+            })
         # config expands resource names from its project name. Explicitly remove
         # those names so every volume/network belongs to this unique project.
         for section in ("volumes", "networks"):
@@ -391,7 +398,8 @@ class Runner:
                     "-realtime-b", "ws://realtime-b:8081/ws",
                     "-timeout", f"{self.args.timeout:g}s",
                     "-provider", "http://e2e-provider:8099",
-                    "-ingest-timeout", "10m", "-query-deadline", "5s"]
+                    "-ingest-timeout", "10m", "-query-deadline", "5s",
+                    "-knowledge-rpc", "knowledge-base:50057"]
         if self.args.scenario in ("all", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-run-reviews", "bot-file-processing"):
             scenario.extend(["-control-dir", "/control"])
         scenario.extend(["-scenario", self.args.scenario])
@@ -681,7 +689,7 @@ def parse_states(raw):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cross-instance", action="store_true", help="also require real A/B delivery")
-    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-skills", "bot-run-reviews", "bot-file-processing", "bot-runtime", "bot-runtime-cross-instance", "llm-chat", "llm-components", "knowledge-ingest", "stage-p5", "stage-p6", "user-sync"),
+    parser.add_argument("--scenario", choices=("all", "attachments", "messaging", "user-identity", "relationships", "stage-p3", "conversations", "stage-p4", "conversation-unread", "broadcasts", "same-instance-a", "same-instance-b", "cross-instance", "bot-identity", "bot-runs", "bot-interactions", "bot-executor-runs", "bot-run-controls", "bot-authorizations", "bot-compaction", "bot-collaboration", "bot-recovery", "bot-cutover", "bot-knowledge-tools", "bot-skills", "bot-run-reviews", "bot-file-processing", "bot-runtime", "bot-runtime-cross-instance", "llm-chat", "llm-components", "knowledge-ingest", "knowledge-rerank", "stage-p5", "stage-p6", "user-sync"),
                         default="all", help="select an acceptance scenario; default keeps both-replica coverage")
     parser.add_argument("--timeout", type=duration, default=20, help="per client interaction, e.g. 20s")
     parser.add_argument("--readiness-timeout", type=int, default=300, help="seconds per readiness layer")

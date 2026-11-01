@@ -159,6 +159,7 @@ type driver struct {
 	controlDir      string
 	fileRPC         string
 	llmRPC          string
+	knowledgeRPC    string
 	workerPath      string
 	executionPolicy string
 }
@@ -195,7 +196,7 @@ func run(args []string) error {
 	realtimeB := flags.String("realtime-b", "ws://realtime-b:8081/ws", "realtime B WebSocket 地址")
 	cross := flags.Bool("cross-instance", false, "额外验收两个用户分别连接 A/B 的双向投递；失败返回非零")
 	failFast := flags.Bool("fail-fast", false, "首个场景失败立即返回，不继续等待后续生命周期检查点")
-	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-run-reviews|bot-authorizations|bot-runtime|bot-runtime-cross-instance|bot-file-processing|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+	selected := flags.String("scenario", "all", "选择 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-run-reviews|bot-authorizations|bot-runtime|bot-runtime-cross-instance|bot-file-processing|llm-chat|llm-components|knowledge-ingest|knowledge-rerank|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	timeout := flags.Duration("timeout", 20*time.Second, "每次 HTTP/WS 操作的超时时间")
 	provider := flags.String("provider", "http://e2e-provider:8099", "外部 OpenAI/MCP fixture HTTP 根地址")
 	ingestTimeout := flags.Duration("ingest-timeout", 10*time.Minute, "异步入库完成的总截止时间")
@@ -205,6 +206,7 @@ func run(args []string) error {
 	userRPC := flags.String("user-rpc", "user-service:50051", "现有用户domain gRPC入口")
 	fileRPC := flags.String("file-rpc", "file-service:50054", "文件domain批量删除 gRPC入口")
 	llmRPC := flags.String("llm-rpc", "llm-gateway:50056", "真实模型domain gRPC入口")
+	knowledgeRPC := flags.String("knowledge-rpc", "knowledge-base:50057", "真实知识检索domain gRPC入口")
 	workerPath := flags.String("worker-path", "", "人工审查冻结的固定 worker.py 源文件")
 	executionPolicy := flags.String("execution-policy", "", "执行节点 root 安装的策略 JSON")
 	if err := flags.Parse(args); err != nil {
@@ -310,6 +312,8 @@ func run(args []string) error {
 		scenarios = []scenarioSpec{{"llm-components", "", ""}}
 	case "knowledge-ingest":
 		scenarios = []scenarioSpec{{"knowledge-ingest", "", ""}}
+	case "knowledge-rerank":
+		scenarios = []scenarioSpec{{"knowledge-rerank", "", ""}}
 	case "conversations", "conversation-unread":
 		scenarios = []scenarioSpec{{*selected, *realtimeA, *realtimeA}}
 	case "broadcasts":
@@ -327,7 +331,7 @@ func run(args []string) error {
 	case "cross-instance":
 		scenarios = []scenarioSpec{{"cross-instance", *realtimeA, *realtimeB}}
 	default:
-		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-run-reviews|bot-authorizations|bot-runtime|bot-runtime-cross-instance|bot-file-processing|llm-chat|llm-components|knowledge-ingest|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
+		return errors.New("scenario 必须为 all|attachments|messaging|user-identity|stage-p3|stage-p4|stage-p5|stage-p6|bot-identity|bot-runs|bot-interactions|bot-compaction|bot-collaboration|bot-recovery|bot-cutover|bot-executor-runs|bot-run-controls|bot-run-reviews|bot-authorizations|bot-runtime|bot-runtime-cross-instance|bot-file-processing|llm-chat|llm-components|knowledge-ingest|knowledge-rerank|relationships|conversations|conversation-unread|broadcasts|user-sync|same-instance-a|same-instance-b|cross-instance")
 	}
 	if *cross && *selected == "bot-runtime" {
 		scenarios = append(scenarios, scenarioSpec{"bot-runtime-cross-instance", *realtimeA, *realtimeB})
@@ -340,12 +344,12 @@ func run(args []string) error {
 				return fmt.Errorf("配置复盘 provider: %w", err)
 			}
 		}
-		if scenario.name == "bot-cutover" || scenario.name == "bot-collaboration" || scenario.name == "bot-recovery" || scenario.name == "bot-compaction" || scenario.name == "bot-authorizations" || scenario.name == "llm-components" || scenario.name == "llm-chat" || scenario.name == "bot-run-controls" || scenario.name == "bot-interactions" || scenario.name == "bot-executor-runs" || scenario.name == "bot-runs" || scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "stage-p6" {
+		if scenario.name == "bot-cutover" || scenario.name == "bot-collaboration" || scenario.name == "bot-recovery" || scenario.name == "bot-compaction" || scenario.name == "bot-authorizations" || scenario.name == "llm-components" || scenario.name == "llm-chat" || scenario.name == "bot-run-controls" || scenario.name == "bot-interactions" || scenario.name == "bot-executor-runs" || scenario.name == "bot-runs" || scenario.name == "bot-identity" || scenario.name == "bot-runtime" || scenario.name == "bot-runtime-cross-instance" || scenario.name == "knowledge-ingest" || scenario.name == "knowledge-rerank" || scenario.name == "stage-p6" {
 			if _, err := endpoint(*provider, "http", "https"); err != nil {
 				return fmt.Errorf("配置外部 provider: %w", err)
 			}
 		}
-		if scenario.name == "llm-components" || scenario.name == "llm-chat" || scenario.name == "relationships" || scenario.name == "knowledge-ingest" {
+		if scenario.name == "llm-components" || scenario.name == "llm-chat" || scenario.name == "relationships" || scenario.name == "knowledge-ingest" || scenario.name == "knowledge-rerank" {
 			continue
 		}
 		for _, address := range []string{scenario.a, scenario.b} {
@@ -359,7 +363,7 @@ func run(args []string) error {
 	}
 	d := driver{gateway: strings.TrimRight(*gateway, "/"), client: newHTTPClient(*timeout), timeout: *timeout,
 		provider: strings.TrimRight(*provider, "/"), ingestTimeout: *ingestTimeout, queryDeadline: *queryDeadline, controlDir: *controlDir,
-		realtimeRPC: *realtimeRPC, userRPC: *userRPC, fileRPC: *fileRPC, llmRPC: *llmRPC,
+		realtimeRPC: *realtimeRPC, userRPC: *userRPC, fileRPC: *fileRPC, llmRPC: *llmRPC, knowledgeRPC: *knowledgeRPC,
 		workerPath: *workerPath, executionPolicy: *executionPolicy}
 	defer d.client.CloseIdleConnections()
 	var failures []error
@@ -413,6 +417,8 @@ func run(args []string) error {
 			err = d.botRuntime(scenario.a, scenario.b)
 		case "knowledge-ingest":
 			err = d.knowledgeIngest()
+		case "knowledge-rerank":
+			err = d.knowledgeRerankScenario()
 		case "llm-chat":
 			err = d.llmChatScenario()
 		case "llm-components":
@@ -473,6 +479,8 @@ func run(args []string) error {
 			fmt.Println("E2E PASS: llm-components 真实VLM PNG/system/user/参数与usage → OpenAI index顺序/维度/float32/usage → 畸形/HTTP400/凭据安全 → 取消与额度释放 → Cohere原生HTTP协议 → 公开计费记录")
 		} else if scenario.name == "knowledge-ingest" {
 			fmt.Printf("E2E PASS: knowledge-ingest multipart上传 → 异步ready → 精确内容检索 → 大文档并发入库时每次查询 <=%s → 失败入库不伤查询\n", d.queryDeadline)
+		} else if scenario.name == "knowledge-rerank" {
+			fmt.Println("E2E PASS: knowledge-rerank 真实上传入库 → off/native/judge → 排序/回退/来源/用量 → 权限/失效配置 → 取消/总体截止")
 		} else if scenario.name == "conversations" || scenario.name == "conversation-unread" {
 			fmt.Printf("E2E PASS: %s 建群 → 邀请/列成员 → 权限 → 群聊 WS → 精确 ID 读取/补拉 → 会话列表 → 已读回执 → 移除后拒绝读取\n", scenario.name)
 			if scenario.name == "conversation-unread" {

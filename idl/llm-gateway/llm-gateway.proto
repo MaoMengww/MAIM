@@ -12,6 +12,7 @@ service LLMGateway {
   rpc ResolveExecutionModel(ResolveExecutionModelReq) returns (ModelExecutionConfig);
   rpc Embed(EmbedReq) returns (EmbedResp);
   rpc Rerank(RerankReq) returns (RerankResp);
+  rpc Judge(JudgeReq) returns (JudgeResp);
   rpc ListModels(ListModelsReq) returns (ListModelsResp);
   rpc CreateModel(CreateModelReq) returns (ModelResp);
   rpc UpdateModel(UpdateModelReq) returns (ModelResp);
@@ -161,6 +162,74 @@ message RerankResp {
   UsageInfo usage = 3;
 }
 
+// Text-only structured judgment. Names correlate answers, independent of ordering.
+message JudgeReq {
+  string model_id = 1 [(common.entity_id) = true];
+  string state = 2;
+  map<string, JudgeQuestion> questions = 3;
+  optional string bot_id = 4 [(common.entity_id) = true];
+  optional string owner_id = 5 [(common.entity_id) = true];
+}
+
+message JudgeQuestion {
+  string instructions = 1;
+  oneof kind {
+    NoulQuestion noul = 2;
+    ChoiceQuestion choice = 3;
+    ScoreQuestion score = 4;
+  }
+}
+
+message NoulQuestion {
+  optional string false_criteria = 1;
+  optional string true_criteria = 2;
+}
+
+message ChoiceQuestion {
+  map<string, string> criteria = 1;
+}
+
+message ScoreQuestion {
+  repeated string criteria = 1; // Ordered levels, indexed from zero.
+}
+
+message JudgeAnswer {
+  oneof kind {
+    NoulAnswer noul = 1;
+    ChoiceAnswer choice = 2;
+    ScoreAnswer score = 3;
+  }
+}
+
+message NoulAnswer {
+  double probability = 1; // Probability of yes/true, in [0,1].
+}
+
+message ChoiceAnswer {
+  string choice = 1;
+  map<string, double> probabilities = 2;
+  optional double confidence = 3;
+  map<string, string> criteria = 4;
+}
+
+message ScoreAnswer {
+  double score = 1; // Probability-weighted zero-based level index.
+  map<string, double> probabilities = 2;
+  map<string, string> legend = 3;
+  optional double confidence = 4;
+}
+
+message JudgeUsage {
+  optional int32 input_tokens = 1; // Absence means unknown, never zero.
+  optional int32 output_tokens = 2;
+}
+
+message JudgeResp {
+  string model = 1; // Actual provider-reported version.
+  map<string, JudgeAnswer> answers = 2;
+  JudgeUsage usage = 3;
+}
+
 message ListModelsReq {
   string capability = 1;
   optional string owner_id = 2 [(common.entity_id) = true];
@@ -190,8 +259,8 @@ message UpdateModelReq {
   string capability = 4;
   string base_url = 5;
   string api_key = 6;
-  double input_price_per_mtok = 7;
-  double output_price_per_mtok = 8;
+  optional double input_price_per_mtok = 7;
+  optional double output_price_per_mtok = 8;
 }
 
 message DeleteModelReq {
@@ -247,8 +316,9 @@ message BillingRecordItem {
   optional string bot_id = 2 [(common.entity_id) = true];
   string model_name = 3;
   string capability = 4;
-  int32 input_tokens = 5;
-  int32 output_tokens = 6;
+  // Absent means the provider did not report this count; explicit zero is known.
+  optional int32 input_tokens = 5;
+  optional int32 output_tokens = 6;
   double input_cost = 7;
   double output_cost = 8;
   double total_cost = 9;

@@ -401,6 +401,9 @@ func (h *LLMGatewayHandler) CreateModel(ctx context.Context, req *pb.CreateModel
 	if err := requireOwner(ctx, *req.OwnerId); err != nil {
 		return nil, err
 	}
+	if err := validateJudgmentModel(req.Capability, req.Provider, req.ModelName, req.InputPricePerMtok, req.OutputPricePerMtok); err != nil {
+		return nil, err
+	}
 	encrypted, err := crypto.EncryptString(req.ApiKey, h.svcCtx.EncKey)
 	if err != nil {
 		return nil, errors.Wrap(errors.CodeInternal, "encrypt api key failed", err)
@@ -457,6 +460,26 @@ func (h *LLMGatewayHandler) UpdateModel(ctx context.Context, req *pb.UpdateModel
 	if err := requireOwner(ctx, *current.OwnerID); err != nil {
 		return nil, err
 	}
+	capability, provider, name := current.Capability, current.Provider, current.ModelName
+	if req.Capability != "" {
+		capability = req.Capability
+	}
+	if req.Provider != "" {
+		provider = req.Provider
+	}
+	if req.ModelName != "" {
+		name = req.ModelName
+	}
+	inputPrice, outputPrice := current.InputPricePerMTok, current.OutputPricePerMTok
+	if req.InputPricePerMtok != nil {
+		inputPrice = req.GetInputPricePerMtok()
+	}
+	if req.OutputPricePerMtok != nil {
+		outputPrice = req.GetOutputPricePerMtok()
+	}
+	if err := validateJudgmentModel(capability, provider, name, inputPrice, outputPrice); err != nil {
+		return nil, err
+	}
 	updates := map[string]any{}
 	if req.ModelName != "" {
 		updates["model_name"] = req.ModelName
@@ -477,11 +500,11 @@ func (h *LLMGatewayHandler) UpdateModel(ctx context.Context, req *pb.UpdateModel
 		}
 		updates["api_key_encrypted"] = encrypted
 	}
-	if req.InputPricePerMtok > 0 {
-		updates["input_price_per_mtok"] = req.InputPricePerMtok
+	if req.InputPricePerMtok != nil {
+		updates["input_price_per_mtok"] = req.GetInputPricePerMtok()
 	}
-	if req.OutputPricePerMtok > 0 {
-		updates["output_price_per_mtok"] = req.OutputPricePerMtok
+	if req.OutputPricePerMtok != nil {
+		updates["output_price_per_mtok"] = req.GetOutputPricePerMtok()
 	}
 	if err := h.svcCtx.DB.WithContext(ctx).Model(&appModel.ModelRegistry{}).Where("id = ?", req.ModelId).Updates(updates).Error; err != nil {
 		return nil, errors.Wrap(errors.CodeDBError, "update model failed", err)
@@ -606,6 +629,15 @@ func (h *LLMGatewayHandler) ListBillingRecords(ctx context.Context, req *pb.List
 
 	items := make([]*pb.BillingRecordItem, 0, len(records))
 	for _, r := range records {
+		var inputTokens, outputTokens *int32
+		if r.InputTokens != nil {
+			value := int32(*r.InputTokens)
+			inputTokens = &value
+		}
+		if r.OutputTokens != nil {
+			value := int32(*r.OutputTokens)
+			outputTokens = &value
+		}
 		items = append(items, &pb.BillingRecordItem{
 			Id:           r.ID,
 			BotId:        r.BotID,
@@ -614,8 +646,8 @@ func (h *LLMGatewayHandler) ListBillingRecords(ctx context.Context, req *pb.List
 			OwnerType:    r.OwnerType,
 			ModelName:    r.ModelName,
 			Capability:   r.Capability,
-			InputTokens:  int32(r.InputTokens),
-			OutputTokens: int32(r.OutputTokens),
+			InputTokens:  inputTokens,
+			OutputTokens: outputTokens,
 			InputCost:    r.InputCost,
 			OutputCost:   r.OutputCost,
 			TotalCost:    r.InputCost + r.OutputCost,

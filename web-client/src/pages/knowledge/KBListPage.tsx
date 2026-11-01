@@ -7,6 +7,7 @@ import { kbApi } from '@/services/knowledge';
 import { modelOptionLabel } from '@/utils/provider';
 import { FolderIcon } from '@/components/common/Icons';
 import type { PipelineConfig, ParsingConfigReq } from '@/types/api';
+import type { RerankMethod } from '@/types/model';
 import './KBPage.css';
 
 interface CreateKBFormValues {
@@ -31,6 +32,7 @@ interface CreateKBFormValues {
   dense_weight?: number;
   sparse_weight?: number;
   rerank_enabled?: boolean;
+  rerank_method?: RerankMethod;
   rerank_top_n?: number;
 }
 
@@ -132,9 +134,14 @@ export function KBListPage() {
     .filter((m) => m.capability === 'vlm')
     .map((m) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
 
-  const rerankModelOptions = (modelsData?.list ?? [])
-    .filter((m) => m.capability === 'rerank')
-    .map((m) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name }));
+  const rerankModelOptions: Record<RerankMethod, ModelOption[]> = {
+    rerank: (modelsData?.list ?? [])
+      .filter((m) => m.capability === 'rerank')
+      .map((m) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name })),
+    judge: (modelsData?.list ?? [])
+      .filter((m) => m.capability === 'judge')
+      .map((m) => ({ value: m.id, label: modelOptionLabel(m), model_name: m.model_name })),
+  };
 
   const modelMap = Object.fromEntries((modelsData?.list ?? []).map((m) => [m.id, m.model_name]));
 
@@ -175,9 +182,12 @@ export function KBListPage() {
       if (vals.score_threshold != null) pipelineConfig.retrieval.score_threshold = Number(vals.score_threshold);
       if (vals.dense_weight != null) pipelineConfig.retrieval.dense_weight = Number(vals.dense_weight);
       if (vals.sparse_weight != null) pipelineConfig.retrieval.sparse_weight = Number(vals.sparse_weight);
-      if (vals.rerank_enabled) {
-        pipelineConfig.retrieval.rerank = { enabled: true, model_id: vals.rerank_model ?? undefined, top_n: Number(vals.rerank_top_n) || 20 };
-      }
+      pipelineConfig.retrieval.rerank = {
+        enabled: !!vals.rerank_enabled,
+        method: vals.rerank_method ?? 'rerank',
+        model_id: vals.rerank_model ?? undefined,
+        top_n: Number(vals.rerank_top_n) || 20,
+      };
       if (Object.keys(pipelineConfig.retrieval).length === 0) delete pipelineConfig.retrieval;
       if (Object.keys(pipelineConfig.chunking || {}).length === 0) delete pipelineConfig.chunking;
 
@@ -278,7 +288,7 @@ export function KBListPage() {
         width={640}
         styles={{ body: { paddingTop: 16 } }}
       >
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" initialValues={{ rerank_method: 'rerank' }}>
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]} style={FM}>
             <Input placeholder="知识库名称" />
           </Form.Item>
@@ -295,7 +305,7 @@ export function KBListPage() {
 
 /* ─── RAG ─── */
 
-function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModelOptions }: { form: FormInstance<CreateKBFormValues>; embedModelOptions: ModelOption[]; vlmModelOptions: ModelOption[]; rerankModelOptions: ModelOption[] }) {
+function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModelOptions }: { form: FormInstance<CreateKBFormValues>; embedModelOptions: ModelOption[]; vlmModelOptions: ModelOption[]; rerankModelOptions: Record<RerankMethod, ModelOption[]> }) {
   const collapseItems = [
     {
       key: 'parsing',
@@ -439,17 +449,25 @@ function renderRagConfig({ form, embedModelOptions, vlmModelOptions, rerankModel
           </div>
           <div style={{ borderTop: '1px solid var(--aim-border)', paddingTop: 8, marginTop: 0 }}>
             <Form.Item name="rerank_enabled" label="启用重排序" valuePropName="checked" style={FM}><Switch /></Form.Item>
-            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.rerank_enabled !== cur.rerank_enabled}>
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.rerank_enabled !== cur.rerank_enabled || prev.rerank_method !== cur.rerank_method}>
               {({ getFieldValue }) => getFieldValue('rerank_enabled') ? (
-                <div style={{ display: 'flex', gap: 16 }}>
-                  <Form.Item name="rerank_model" label="重排序模型" style={{ flex: 1, marginBottom: 0 }}>
-                    <Select placeholder="选择模型" allowClear options={rerankModelOptions} showSearch
-                      filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())} />
+                <>
+                  <Form.Item name="rerank_method" label="重排方式" style={FM}>
+                    <Select options={[
+                      { value: 'rerank', label: '常规 Rerank' },
+                      { value: 'judge', label: '结构化判断重排' },
+                    ]} onChange={() => form.setFieldsValue({ rerank_model: undefined })} />
                   </Form.Item>
-                  <Form.Item name="rerank_top_n" label="Top N" style={{ width: 120, marginBottom: 0 }}>
-                    <InputNumber min={1} max={100} placeholder="20" style={{ width: '100%' }} />
-                  </Form.Item>
-                </div>
+                  <div style={{ display: 'flex', gap: 16 }}>
+                    <Form.Item name="rerank_model" label="重排序模型" rules={[{ required: true, message: '请选择重排序模型' }]} style={{ flex: 1, marginBottom: 0 }}>
+                      <Select placeholder="选择模型" allowClear options={rerankModelOptions[(getFieldValue('rerank_method') ?? 'rerank') as RerankMethod]} showSearch
+                        filterOption={(input, option) => (option?.model_name ?? '').toLowerCase().includes(input.toLowerCase())} />
+                    </Form.Item>
+                    <Form.Item name="rerank_top_n" label="Top N" style={{ width: 120, marginBottom: 0 }}>
+                      <InputNumber min={1} max={100} placeholder="20" style={{ width: '100%' }} />
+                    </Form.Item>
+                  </div>
+                </>
               ) : null}
             </Form.Item>
           </div>

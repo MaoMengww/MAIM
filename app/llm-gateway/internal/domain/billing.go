@@ -22,10 +22,11 @@ func NewBillingRecord(entry *ModelEntry, botID, ownerID *string, capability stri
 	if ownerID != nil {
 		ownerType = "user"
 	}
+	promptTokens, completionTokens := usage.PromptTokens, usage.CompletionTokens
 	return &model.BillingRecord{
 		ID: id, BotID: botID, OwnerType: ownerType, OwnerID: ownerID,
 		ModelID: entry.ID, ModelName: entry.ModelName, Capability: capability,
-		InputTokens: usage.PromptTokens, OutputTokens: usage.CompletionTokens,
+		InputTokens: &promptTokens, OutputTokens: &completionTokens,
 		InputCost:  float64(usage.PromptTokens) / 1_000_000 * entry.InputPricePerMTok,
 		OutputCost: float64(usage.CompletionTokens) / 1_000_000 * entry.OutputPricePerMTok,
 		Provider:   entry.Provider, CreatedAt: time.Now(),

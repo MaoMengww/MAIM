@@ -29,6 +29,7 @@ func main() {
 		pb.LLMGateway_ChatStream_FullMethodName,
 		pb.LLMGateway_Embed_FullMethodName,
 		pb.LLMGateway_Rerank_FullMethodName,
+		pb.LLMGateway_Judge_FullMethodName,
 		pb.LLMGateway_VlmChat_FullMethodName,
 		pb.LLMGateway_CreateModel_FullMethodName,
 		pb.LLMGateway_UpdateModel_FullMethodName,

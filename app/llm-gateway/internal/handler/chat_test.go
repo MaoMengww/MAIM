@@ -377,8 +377,10 @@ func TestChatHandlersUsagePresenceAndBilling(t *testing.T) {
 					require.Nil(t, usage.CacheWriteTokens, "unsupported cache writes must stay absent")
 					require.Len(t, f.billing.records, 1, "explicit zero still records a reported usage")
 					record := f.billing.records[0]
-					require.Equal(t, int(tc.prompt), record.InputTokens)
-					require.Equal(t, int(tc.completion), record.OutputTokens)
+					require.NotNil(t, record.InputTokens)
+					require.NotNil(t, record.OutputTokens)
+					require.Equal(t, int(tc.prompt), *record.InputTokens)
+					require.Equal(t, int(tc.completion), *record.OutputTokens)
 					require.Equal(t, *f.req.OwnerId, *record.OwnerID)
 					cost := float64(tc.prompt)*2/1_000_000 + float64(tc.completion)*4/1_000_000
 					require.InDelta(t, cost, record.InputCost+record.OutputCost, 1e-12)

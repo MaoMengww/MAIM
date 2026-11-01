@@ -173,10 +173,12 @@ message RetrievalConfig {
 message RerankConfig {
     bool enabled = 1;
     optional string model_id = 2 [(common.entity_id) = true];
-    int32 top_n = 3;                  // candidates to rerank, default: 20
+    int32 top_n = 3;                  // successful rerank output cap, default: 20; independent of search limit
     // 更新时缺失且 clear=false 保持，clear=true 解除；同时提供引用与 clear=true 拒绝。
     // 创建配置时不提供 clear_model_id。
     bool clear_model_id = 4;
+    // "rerank" | "judge"；省略时有效方式为 rerank。模型能力必须与方式一致。
+    string method = 5;
 }
 
 // ============================================================

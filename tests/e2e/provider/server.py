@@ -32,7 +32,207 @@ OBSERVATIONS = {"mcp_lists": 0, "tool_texts": [], "chat_models": [], "embed_mode
                 "tool_call_ids": [], "chat_requests": [], "executor_requests": [], "executor_activities": []}
 LLM_CHAT_OBSERVATIONS = []
 COMPONENT_OBSERVATIONS = []
+KNOWLEDGE_RERANK_PLANS = {}
+
+
+def knowledge_rerank_control(path, body):
+    model = body.get("model", "")
+    with LOCK:
+        if path.endswith("/arm"):
+            KNOWLEDGE_RERANK_PLANS[model] = {
+                "mode": body.get("mode", "ordered"), "query": body["query"],
+                "candidates": body["candidates"], "first": body.get("first", ""), "requests": [], "completed": [],
+                "event": threading.Event(), "released": False,
+            }
+        plan = KNOWLEDGE_RERANK_PLANS.get(model)
+        if plan is None:
+            return {"requests": [], "completed": []}
+        if path.endswith("/release"):
+            plan["released"] = True
+            plan["event"].set()
+        return json.loads(json.dumps({"requests": plan["requests"], "completed": plan["completed"]}))
+
+
+def knowledge_rerank(body, handler, path):
+    model = body.get("model", "")
+    if not model.startswith(("fixture-judge-knowledge-", "fixture-native-knowledge-")):
+        return False
+    native = model.startswith("fixture-native-")
+    with LOCK:
+        plan = KNOWLEDGE_RERANK_PLANS.get(model)
+        if plan is not None:
+            row = {"body": body, "path": path, "state": "received", "candidate": ""}
+            plan["requests"].append(row)
+    if plan is None:
+        handler._json(400, {"detail": "knowledge provider plan not armed"})
+        return True
+
+    def state(value):
+        with LOCK:
+            row["state"] = value
+
+    candidates = plan["candidates"]
+    if native:
+        documents = body.get("documents", [])
+        valid = (path == "/native/v2/rerank" and body.get("query") == plan["query"]
+                 and len(documents) == len(candidates) and set(documents) == set(candidates)
+                 and "state" not in body and "return_documents" not in body)
+        if not valid:
+            state("invalid_request")
+            handler._json(400, {"detail": "native knowledge rerank protocol mismatch"})
+            return True
+        ranked = sorted(range(len(documents)), key=lambda i: candidates[documents[i]], reverse=True)
+        results = [{"index": i, "relevance_score": candidates[documents[i]]}
+                   for i in ranked[:body.get("top_n", len(documents))]]
+        state("completed")
+        handler._json(200, {"results": results, "meta": {"billed_units": {"search_units": len(documents)}}})
+        return True
+    material = body.get("state", "")
+    matches = [text for text in candidates if text in material]
+    questions = body.get("questions", {})
+    valid = (path == "/native/v1/systemone" and len(matches) == 1 and plan["query"] in material
+             and len(questions) == 1 and all(question.get("type") == "noul" for question in questions.values())
+             and "messages" not in body and "assets" not in body)
+    if not valid:
+        state("invalid_request")
+        handler._json(400, {"detail": "pointwise knowledge judgment protocol mismatch"})
+        return True
+    candidate = matches[0]
+    with LOCK:
+        row["candidate"] = candidate
+    mode = plan["mode"]
+    first = candidate == plan["first"]
+    # A completion gate, not a wall-clock delay, forces reverse arrival and
+    # proves independent candidates are not evaluated serially.
+    gated = mode == "hold" or first and mode in ("reverse", "http_error", "malformed", "missing", "wrong_type", "probability", "mapping")
+    if gated:
+        deadline = time.monotonic() + 90
+        while not plan["event"].wait(.02):
+            if run_control.disconnected(handler):
+                state("cancelled")
+                handler.close_connection = True
+                return True
+            if time.monotonic() > deadline:
+                state("gate_timeout")
+                handler._json(504, {"detail": "knowledge judgment gate timed out"})
+                return True
+    if first and mode == "http_error":
+        state("http_error")
+        handler._json(503, {"detail": "controlled knowledge judgment outage"})
+        return True
+    name = next(iter(questions))  # Echo the public request key; no private prompt/name coupling.
+    answer = {"type": "noul", "noul": candidates[candidate]}
+    answers = {name: answer}
+    if first:
+        if mode == "missing":
+            answers = {}
+        elif mode == "wrong_type":
+            answers = {name: {"type": "choice", "choice": "yes", "probabilities": {"yes": 1}}}
+        elif mode == "probability":
+            answer["noul"] = 1.1
+        elif mode == "mapping":
+            answers = {name + "_unrequested": answer}
+    response = {"model": model + "-actual-2026-10-01", "answers": answers,
+                "usage": {"input_tokens": 13, "output_tokens": 7}}
+    state("completed")
+    with LOCK:
+        plan["completed"].append(candidate)
+    if first and mode == "malformed":
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", "1")
+        handler.end_headers()
+        handler.wfile.write(b"{")
+        handler.wfile.flush()
+    else:
+        handler._json(200, response)
+    with LOCK:
+        if not first:
+            plan["event"].set()
+    return True
+
+
 COMPONENT_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jfWQAAAAASUVORK5CYII="
+
+
+def component_judge(body, handler, path, token, state):
+    questions = body.get("questions", {})
+    expected = {
+        "z_relevant": {"type": "noul", "instructions": "Does this material answer the question?",
+                       "criteria": {"false": "Unrelated", "true": "Direct evidence"}},
+        "a_irrelevant": {"type": "noul", "instructions": "Is this material unrelated?"},
+        "tone": {"type": "choice", "instructions": "Choose the tone",
+                 "criteria": {"calm": "Neutral", "angry": "Hostile"}},
+        "urgency": {"type": "score", "instructions": "Rate urgency",
+                    "criteria": ["Can wait", "This week", "Today"]},
+    }
+    if path != "/native/v1/systemone" or questions != expected or "messages" in body or "assets" in body:
+        state("invalid_request")
+        handler._json(400, {"detail": "structured judgment protocol mismatch"})
+        return True
+    if "CANCEL" in token or "DEADLINE" in token:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if run_control.disconnected(handler):
+                state("cancelled")
+                handler.close_connection = True
+                return True
+        state("cancel_not_observed")
+        handler._json(504, {"detail": "judgment cancellation not observed"})
+        return True
+    if "HTTP_ERROR" in token:
+        state("http_error")
+        handler._json(503, {"detail": "LLM_PROVIDER_PRIVATE_BODY|" + token + "|" + handler.headers.get("Authorization", "")})
+        return True
+    # Reverse question order and use two distinct Noul answers: association must
+    # follow the public names, not iteration order or the result's type alone.
+    answers = {
+        "urgency": {"type": "score", "score": 1.7, "confidence": .55,
+                    "legend": {"0": "Can wait", "1": "This week", "2": "Today"},
+                    "probabilities": {"0": .1, "1": .1, "2": .8}},
+        "tone": {"type": "choice", "choice": "calm", "confidence": .7,
+                 "probabilities": {"angry": .2, "calm": .8}},
+        "a_irrelevant": {"type": "noul", "noul": .07},
+        "z_relevant": {"type": "noul", "noul": .93},
+    }
+    response = {"model": body["model"] + "-actual-2026-10-01", "answers": answers,
+                "usage": {"input_tokens": 13, "output_tokens": 7}}
+    if "NO_USAGE" in token:
+        response.pop("usage")
+    elif "INPUT_ONLY" in token:
+        response["usage"].pop("output_tokens")
+    elif "OUTPUT_ONLY" in token:
+        response["usage"].pop("input_tokens")
+    elif "ZERO" in token:
+        response["usage"] = {"input_tokens": 0, "output_tokens": 0}
+    if "NO_CONFIDENCE" in token:
+        answers["tone"].pop("confidence")
+        answers["urgency"]["confidence"] = None
+    if "MISSING_ANSWER" in token:
+        answers.pop("a_irrelevant")
+    elif "EXTRA_ANSWER" in token:
+        answers["unknown"] = {"type": "noul", "noul": .5}
+    elif "WRONG_TYPE" in token:
+        answers["z_relevant"] = answers["tone"]
+    elif "BAD_PROBABILITY" in token:
+        answers["z_relevant"]["noul"] = 1.1
+    elif "MISSING_VALUE" in token:
+        answers["z_relevant"].pop("noul")
+    elif "BAD_CHOICE" in token:
+        answers["tone"]["choice"] = "angry"
+    elif "BAD_DISTRIBUTION" in token:
+        answers["tone"]["probabilities"] = {"calm": .8}
+    elif "BAD_CONFIDENCE" in token:
+        answers["tone"]["confidence"] = 1.1
+    elif "BAD_SCORE" in token:
+        answers["urgency"]["score"] = .2
+    elif "BAD_LEGEND" in token:
+        answers["urgency"]["legend"]["2"] = "Different rubric"
+    elif "MISSING_MODEL" in token:
+        response.pop("model")
+    state("completed")
+    handler._json(200, response)
+    return True
 
 
 def llm_component(body, handler, path):
@@ -42,11 +242,12 @@ def llm_component(body, handler, path):
         return False
     vision = model.startswith("e2e-component-vlm-")
     rerank = model.startswith("e2e-component-rerank-")
+    judge = model.startswith("e2e-component-judge-")
     messages = body.get("messages", [])
     parts = messages[-1].get("content", []) if messages else []
     cohere = model.startswith("e2e-component-cohere-")
     inputs = body.get("texts" if cohere else "input", [])
-    token = body.get("query", "") if rerank else (next((part.get("text", "") for part in parts if isinstance(part, dict)), "") if vision else (inputs[0] if inputs else ""))
+    token = body.get("state", "") if judge else (body.get("query", "") if rerank else (next((part.get("text", "") for part in parts if isinstance(part, dict)), "") if vision else (inputs[0] if inputs else "")))
     row = {"model": model, "token": token, "path": path, "body": body,
            "auth_digest": hashlib.sha256(handler.headers.get("Authorization", "").encode()).hexdigest(),
            "state": "received"}
@@ -57,6 +258,8 @@ def llm_component(body, handler, path):
         with LOCK:
             row["state"] = value
 
+    if judge:
+        return component_judge(body, handler, path, token, state)
     if rerank:
         documents = body.get("documents", [])
         if (path != "/native/v2/rerank" or len(documents) != 2
@@ -595,6 +798,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
         path = urlparse(self.path).path
+        if path in ("/knowledge-rerank/arm", "/knowledge-rerank/stats", "/knowledge-rerank/release"):
+            self._json(200, knowledge_rerank_control(path, body))
+            return
+        if path in ("/native/v1/systemone", "/native/v2/rerank") and knowledge_rerank(body, self, path):
+            return
         if path.startswith("/run-reviews/"):
             self._json(200, run_reviews.command(path, body))
             return
@@ -623,7 +831,7 @@ class Handler(BaseHTTPRequestHandler):
                 COMPONENT_OBSERVATIONS.append({"model": body.get("model", ""), "token": "redirect-target", "state": "redirect_followed", "path": path})
             self._json(400, {"error": {"message": "redirect must not be followed"}})
             return
-        if path in ("/v1/chat/completions", "/v1/embeddings", "/native/v2/embed", "/native/v2/rerank") and llm_component(body, self, path):
+        if path in ("/v1/chat/completions", "/v1/embeddings", "/native/v2/embed", "/native/v2/rerank", "/native/v1/systemone") and llm_component(body, self, path):
             return
         if path == "/llm-chat/observe":
             with LOCK:

@@ -8,9 +8,12 @@ import (
 )
 
 // EffectiveRetrievalConfig applies the same defaults before comparison and search.
-// The request limit controls output only; candidate and reranking budgets remain
-// server-managed, but cannot be smaller than the requested output boundary.
+// The request limit bounds output. Candidate recall covers that boundary, while
+// the configured rerank top_n may deliberately return fewer results.
 func EffectiveRetrievalConfig(cfg RetrievalConfig, limit int) (RetrievalConfig, error) {
+	if err := (PipelineConfig{Retrieval: cfg}).ValidateModelReferences(); err != nil {
+		return RetrievalConfig{}, err
+	}
 	if limit <= 0 {
 		limit = knowledgecontract.DefaultSearchLimit
 	}
@@ -40,13 +43,13 @@ func EffectiveRetrievalConfig(cfg RetrievalConfig, limit int) (RetrievalConfig, 
 		cfg.DenseWeight, cfg.SparseWeight = 0, 0
 	}
 	if cfg.Rerank.Enabled {
+		cfg.Rerank.Method = cfg.Rerank.EffectiveMethod()
 		if cfg.Rerank.ModelID == nil {
 			return RetrievalConfig{}, fmt.Errorf("rerank model is not configured")
 		}
 		if cfg.Rerank.TopN <= 0 {
 			cfg.Rerank.TopN = 20
 		}
-		cfg.Rerank.TopN = max(cfg.Rerank.TopN, limit)
 	} else {
 		cfg.Rerank = RerankConfig{}
 	}

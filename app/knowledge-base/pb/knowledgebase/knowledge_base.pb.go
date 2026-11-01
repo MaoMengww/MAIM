@@ -1160,10 +1160,12 @@ type RerankConfig struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Enabled bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	ModelId *string                `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3,oneof" json:"model_id,omitempty"`
-	TopN    int32                  `protobuf:"varint,3,opt,name=top_n,json=topN,proto3" json:"top_n,omitempty"` // candidates to rerank, default: 20
+	TopN    int32                  `protobuf:"varint,3,opt,name=top_n,json=topN,proto3" json:"top_n,omitempty"` // successful rerank output cap, default: 20; independent of search limit
 	// 更新时缺失且 clear=false 保持，clear=true 解除；同时提供引用与 clear=true 拒绝。
 	// 创建配置时不提供 clear_model_id。
-	ClearModelId  bool `protobuf:"varint,4,opt,name=clear_model_id,json=clearModelId,proto3" json:"clear_model_id,omitempty"`
+	ClearModelId bool `protobuf:"varint,4,opt,name=clear_model_id,json=clearModelId,proto3" json:"clear_model_id,omitempty"`
+	// "rerank" | "judge"；省略时有效方式为 rerank。模型能力必须与方式一致。
+	Method        string `protobuf:"bytes,5,opt,name=method,proto3" json:"method,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1224,6 +1226,13 @@ func (x *RerankConfig) GetClearModelId() bool {
 		return x.ClearModelId
 	}
 	return false
+}
+
+func (x *RerankConfig) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
 }
 
 type UploadDocumentReq struct {
@@ -3131,12 +3140,13 @@ const file_knowledge_base_knowledge_base_proto_rawDesc = "" +
 	"\x0fscore_threshold\x18\x04 \x01(\x02R\x0escoreThreshold\x12!\n" +
 	"\fdense_weight\x18\x05 \x01(\x02R\vdenseWeight\x12#\n" +
 	"\rsparse_weight\x18\x06 \x01(\x02R\fsparseWeight\x123\n" +
-	"\x06rerank\x18\a \x01(\v2\x1b.knowledgebase.RerankConfigR\x06rerankJ\x04\b\x02\x10\x03\"\x98\x01\n" +
+	"\x06rerank\x18\a \x01(\v2\x1b.knowledgebase.RerankConfigR\x06rerankJ\x04\b\x02\x10\x03\"\xb0\x01\n" +
 	"\fRerankConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12&\n" +
 	"\bmodel_id\x18\x02 \x01(\tB\x06\x90\xb8\xbf\x99\x0f\x01H\x00R\amodelId\x88\x01\x01\x12\x13\n" +
 	"\x05top_n\x18\x03 \x01(\x05R\x04topN\x12$\n" +
-	"\x0eclear_model_id\x18\x04 \x01(\bR\fclearModelIdB\v\n" +
+	"\x0eclear_model_id\x18\x04 \x01(\bR\fclearModelId\x12\x16\n" +
+	"\x06method\x18\x05 \x01(\tR\x06methodB\v\n" +
 	"\t_model_id\"\x8f\x03\n" +
 	"\x11UploadDocumentReq\x12@\n" +
 	"\x04meta\x18\x01 \x01(\v2*.knowledgebase.UploadDocumentReq.MetaChunkH\x00R\x04meta\x12\x1a\n" +
