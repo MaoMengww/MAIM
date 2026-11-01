@@ -88,24 +88,29 @@ def knowledge_rerank(body, handler, path):
         handler._json(200, {"results": results, "meta": {"billed_units": {"search_units": len(documents)}}})
         return True
     material = body.get("state", "")
-    matches = [text for text in candidates if text in material]
+    try:
+        shared = json.loads(material)
+    except ValueError:
+        shared = None
+    passages = shared.get("passages", []) if isinstance(shared, dict) else []
+    passage_map = {item.get("candidate_id"): item.get("passage") for item in passages if isinstance(item, dict)}
     questions = body.get("questions", {})
-    valid = (path == "/native/v1/systemone" and len(matches) == 1 and plan["query"] in material
-             and len(questions) == 1 and all(question.get("type") == "noul" for question in questions.values())
+    valid = (path == "/native/v1/systemone" and isinstance(shared, dict)
+             and shared.get("query") == plan["query"]
+             and len(passages) == len(candidates) and len(passage_map) == len(passages)
+             and set(passage_map.values()) == set(candidates)
+             and set(passage_map) == set(questions)
+             and all(question.get("type") == "noul" for question in questions.values())
              and "messages" not in body and "assets" not in body)
     if not valid:
         state("invalid_request")
-        handler._json(400, {"detail": "pointwise knowledge judgment protocol mismatch"})
+        handler._json(400, {"detail": "shared-state knowledge judgment protocol mismatch"})
         return True
-    candidate = matches[0]
+    names = list(questions)
     with LOCK:
-        row["candidate"] = candidate
+        row["candidate"] = passage_map[names[0]]
     mode = plan["mode"]
-    first = candidate == plan["first"]
-    # A completion gate, not a wall-clock delay, forces reverse arrival and
-    # proves independent candidates are not evaluated serially.
-    gated = mode == "hold" or first and mode in ("reverse", "http_error", "malformed", "missing", "wrong_type", "probability", "mapping")
-    if gated:
+    if mode == "hold":
         deadline = time.monotonic() + 90
         while not plan["event"].wait(.02):
             if run_control.disconnected(handler):
@@ -116,28 +121,25 @@ def knowledge_rerank(body, handler, path):
                 state("gate_timeout")
                 handler._json(504, {"detail": "knowledge judgment gate timed out"})
                 return True
-    if first and mode == "http_error":
+    if mode == "http_error":
         state("http_error")
         handler._json(503, {"detail": "controlled knowledge judgment outage"})
         return True
-    name = next(iter(questions))  # Echo the public request key; no private prompt/name coupling.
-    answer = {"type": "noul", "noul": candidates[candidate]}
-    answers = {name: answer}
-    if first:
-        if mode == "missing":
-            answers = {}
-        elif mode == "wrong_type":
-            answers = {name: {"type": "choice", "choice": "yes", "probabilities": {"yes": 1}}}
-        elif mode == "probability":
-            answer["noul"] = 1.1
-        elif mode == "mapping":
-            answers = {name + "_unrequested": answer}
+    answers = {name: {"type": "noul", "noul": candidates[passage_map[name]]} for name in names}
+    if mode == "missing":
+        answers.pop(names[0], None)
+    elif mode == "wrong_type":
+        answers[names[0]] = {"type": "choice", "choice": "yes", "probabilities": {"yes": 1}}
+    elif mode == "probability":
+        answers[names[0]]["noul"] = 1.1
+    elif mode == "mapping":
+        answers = {names[0] + "_unrequested": answers[names[0]]}
     response = {"model": model + "-actual-2026-10-01", "answers": answers,
                 "usage": {"input_tokens": 13, "output_tokens": 7}}
     state("completed")
     with LOCK:
-        plan["completed"].append(candidate)
-    if first and mode == "malformed":
+        plan["completed"].extend(passage_map.values())
+    if mode == "malformed":
         handler.send_response(200)
         handler.send_header("Content-Type", "application/json")
         handler.send_header("Content-Length", "1")
@@ -146,9 +148,6 @@ def knowledge_rerank(body, handler, path):
         handler.wfile.flush()
     else:
         handler._json(200, response)
-    with LOCK:
-        if not first:
-            plan["event"].set()
     return True
 
 

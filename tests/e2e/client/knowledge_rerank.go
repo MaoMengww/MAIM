@@ -275,7 +275,7 @@ func (d *driver) knowledgeDualReranking(owner account, embeddingID, kbID entityI
 		if err := requireKnowledgeRerankSources(items, scenario.want); err != nil {
 			return fmt.Errorf("knowledge.judge.%s: %w", scenario.name, err)
 		}
-		if err := d.requireKnowledgeRerankCalls(judgeName, 2, ""); err != nil {
+		if err := d.requireKnowledgeRerankCalls(judgeName, 1, ""); err != nil {
 			return err
 		}
 		stats, err := d.knowledgeRerankStats(judgeName)
@@ -284,14 +284,26 @@ func (d *driver) knowledgeDualReranking(owner account, embeddingID, kbID entityI
 		}
 		for _, row := range stats.Requests {
 			if row.Path != "/native/v1/systemone" || row.State == "invalid_request" || row.State == "gate_timeout" {
-				return errors.New("knowledge.judge: 没有使用有效的逐候选原生协议")
+				return errors.New("knowledge.judge: 没有使用有效的共享 state 判断协议")
 			}
 		}
-		if scenario.name == "reverse" && (len(stats.Completed) != 2 || stats.Completed[0] != baseline[1].Content) {
-			return errors.New("knowledge.judge: 乱序完成没有实际发生")
+		if scenario.name == "reverse" && len(stats.Completed) != 2 {
+			return errors.New("knowledge.judge: 单批没有包含两个候选")
 		}
 		if scenario.name == "http_error" {
+			// Shared-state failure is whole-request: the provider returned no usage,
+			// so the fallback must not invent a billing record.
 			if err := d.broadcastPoll("knowledge.judge.fallback-billing", func(bounded *driver) (bool, error) {
+				afterBills, err := bounded.knowledgeJudgeBilling(owner, judge.ID, judgeName)
+				return afterBills == beforeBills, err
+			}); err != nil {
+				return err
+			}
+		}
+		if scenario.name == "missing" {
+			// A malformed answer still carries provider usage; the consumed call
+			// must remain billable even though the whole ranking falls back.
+			if err := d.broadcastPoll("knowledge.judge.partial-usage-billing", func(bounded *driver) (bool, error) {
 				afterBills, err := bounded.knowledgeJudgeBilling(owner, judge.ID, judgeName)
 				return afterBills == beforeBills+1, err
 			}); err != nil {
@@ -649,7 +661,7 @@ func (d *driver) knowledgeRerankCancellation(owner account, path string, kbID, j
 		}()
 		observed := d.broadcastPoll("knowledge.judge.in-flight", func(bounded *driver) (bool, error) {
 			stats, err := bounded.knowledgeRerankStats(model)
-			return len(stats.Requests) >= 2, err
+			return len(stats.Requests) >= 1, err
 		})
 		if observed != nil {
 			cancel()
@@ -673,8 +685,8 @@ func (d *driver) knowledgeRerankCancellation(owner account, path string, kbID, j
 			if err != nil {
 				return false, err
 			}
-			if len(stats.Requests) == 0 || len(stats.Requests) > 10 || len(stats.Requests) >= len(candidates) {
-				return false, errors.New("knowledge.judge: 未受现有容量约束或取消后仍启动全部候选")
+			if len(stats.Requests) == 0 {
+				return false, errors.New("knowledge.judge: 取消前没有派发判断请求")
 			}
 			return !slices.ContainsFunc(stats.Requests, func(row struct {
 				Path      string `json:"path"`

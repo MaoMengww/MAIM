@@ -2,6 +2,8 @@ package reranker_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"math"
 	"net"
 	"slices"
@@ -54,25 +56,57 @@ func judgeRequest(n int) *domain.RerankRequest {
 	return &domain.RerankRequest{Method: domain.RerankMethodJudge, ModelID: "01932d40-6380-7000-8000-000000000001", Query: "query", Candidates: candidates, TopK: n}
 }
 
-func TestJudgmentBusinessFanoutIsNotHardFourSupplySlots(t *testing.T) {
+func equalAnswers(req *pb.JudgeReq) *pb.JudgeResp {
+	answers := make(map[string]*pb.JudgeAnswer, len(req.Questions))
+	for name := range req.Questions {
+		answers[name] = &pb.JudgeAnswer{Kind: &pb.JudgeAnswer_Noul{Noul: &pb.NoulAnswer{Probability: 0.5}}}
+	}
+	return &pb.JudgeResp{Answers: answers}
+}
+
+func sharedState(t *testing.T, req *pb.JudgeReq) (string, []struct {
+	ID      string `json:"candidate_id"`
+	Passage string `json:"passage"`
+}) {
+	t.Helper()
+	var shared struct {
+		Query    string `json:"query"`
+		Passages []struct {
+			ID      string `json:"candidate_id"`
+			Passage string `json:"passage"`
+		} `json:"passages"`
+	}
+	if err := json.Unmarshal([]byte(req.State), &shared); err != nil {
+		t.Fatalf("state is not shared-state JSON: %v", err)
+	}
+	if len(shared.Passages) != len(req.Questions) {
+		t.Fatalf("passages=%d questions=%d", len(shared.Passages), len(req.Questions))
+	}
+	return shared.Query, shared.Passages
+}
+
+func TestJudgmentSharedStateFanoutRunsBatchesInParallel(t *testing.T) {
 	entered := make(chan struct{}, 8)
 	release := make(chan struct{})
 	client := gatewayClient(t, func(ctx context.Context, req *pb.JudgeReq) (*pb.JudgeResp, error) {
-		entered <- struct{}{}
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
 		select {
 		case <-release:
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
-		answers := make(map[string]*pb.JudgeAnswer, len(req.Questions))
-		for name := range req.Questions {
-			answers[name] = &pb.JudgeAnswer{Kind: &pb.JudgeAnswer_Noul{Noul: &pb.NoulAnswer{Probability: 0.5}}}
-		}
-		return &pb.JudgeResp{Answers: answers}, nil
+		return equalAnswers(req), nil
 	})
 	r := reranker.NewLLMGatewayReranker(client, reranker.JudgmentConfig{Fanout: 8})
+	req := judgeRequest(32)
+	for i := range req.Candidates {
+		req.Candidates[i].Content = strings.Repeat("x", 20000)
+	}
 	done := make(chan error, 1)
-	go func() { _, err := r.Rerank(t.Context(), judgeRequest(8)); done <- err }()
+	go func() { _, err := r.Rerank(t.Context(), req); done <- err }()
 	timer := time.NewTimer(2 * time.Second)
 	defer timer.Stop()
 	started := 0
@@ -83,7 +117,7 @@ func TestJudgmentBusinessFanoutIsNotHardFourSupplySlots(t *testing.T) {
 		case <-timer.C:
 			close(release)
 			<-done
-			t.Fatalf("configured business fanout 8 started only %d judgments; supply admission belongs to LLM domain", started)
+			t.Fatalf("configured business fanout 8 started only %d judgment batches; supply admission belongs to LLM domain", started)
 		}
 	}
 	close(release)
@@ -92,24 +126,17 @@ func TestJudgmentBusinessFanoutIsNotHardFourSupplySlots(t *testing.T) {
 	}
 }
 
-func equalAnswers(req *pb.JudgeReq) *pb.JudgeResp {
-	answers := make(map[string]*pb.JudgeAnswer, len(req.Questions))
-	for name := range req.Questions {
-		answers[name] = &pb.JudgeAnswer{Kind: &pb.JudgeAnswer_Noul{Noul: &pb.NoulAnswer{Probability: 0.5}}}
-	}
-	return &pb.JudgeResp{Answers: answers}
-}
-
 func TestJudgmentRanksEveryCandidateWithStableTies(t *testing.T) {
 	var calls atomic.Int32
 	client := gatewayClient(t, func(_ context.Context, req *pb.JudgeReq) (*pb.JudgeResp, error) {
 		calls.Add(1)
-		if len(req.Questions) != 1 {
-			return nil, status.Error(codes.Internal, "expected one independent question")
+		query, passages := sharedState(t, req)
+		if query != "query" || len(passages) != 3 {
+			return nil, status.Error(codes.Internal, "expected one shared-state request with three passages")
 		}
 		resp := equalAnswers(req)
-		if strings.HasSuffix(req.State, "Passage:\nthird") {
-			resp.Answers["evidence_v1"].GetNoul().Probability = 0.9
+		if passages[2].Passage == "third" {
+			resp.Answers["evidence_v1_000002"].GetNoul().Probability = 0.9
 		}
 		return resp, nil
 	})
@@ -122,7 +149,7 @@ func TestJudgmentRanksEveryCandidateWithStableTies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 3 || len(results) != 3 || results[0].Content != "third" || results[1].Content != "first" || results[2].Content != "second" {
+	if calls.Load() != 1 || len(results) != 3 || results[0].Content != "third" || results[1].Content != "first" || results[2].Content != "second" {
 		t.Fatalf("unexpected ranking: calls=%d results=%v", calls.Load(), results)
 	}
 }
@@ -132,12 +159,23 @@ func TestJudgmentPreservesFullUTF8Evidence(t *testing.T) {
 	for i := range req.Candidates {
 		req.Candidates[i].Content = strings.Repeat("证据", 1500) + "\"\\\n"
 	}
-	var calls atomic.Int32
+	var calls, questions atomic.Int32
 	client := gatewayClient(t, func(_ context.Context, work *pb.JudgeReq) (*pb.JudgeResp, error) {
 		calls.Add(1)
-		if work.State != "Query:\n"+req.Query+"\n\nPassage:\n"+req.Candidates[0].Content || len(work.Questions) != 1 {
-			return nil, status.Error(codes.Internal, "evidence truncated or combined")
+		query, passages := sharedState(t, work)
+		if query != req.Query {
+			return nil, status.Error(codes.Internal, "query changed")
 		}
+		for _, passage := range passages {
+			var index int
+			if _, err := fmt.Sscanf(passage.ID, "evidence_v1_%06d", &index); err != nil {
+				return nil, status.Error(codes.Internal, "invalid candidate id")
+			}
+			if passage.Passage != req.Candidates[index].Content {
+				return nil, status.Error(codes.Internal, "evidence truncated or mapped incorrectly")
+			}
+		}
+		questions.Add(int32(len(work.Questions)))
 		return equalAnswers(work), nil
 	})
 	r := reranker.NewLLMGatewayReranker(client, reranker.JudgmentConfig{Fanout: 3})
@@ -145,12 +183,41 @@ func TestJudgmentPreservesFullUTF8Evidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 8 || len(results) != 8 {
-		t.Fatalf("incomplete scores: calls=%d results=%d", calls.Load(), len(results))
+	if calls.Load() < 2 || questions.Load() != 8 || len(results) != 8 {
+		t.Fatalf("incomplete chunks: calls=%d questions=%d results=%d", calls.Load(), questions.Load(), len(results))
 	}
 	for i, result := range results {
 		if result.Index != i || result.Content != req.Candidates[i].Content {
 			t.Fatal("completion reordered tied evidence")
+		}
+	}
+}
+
+func TestJudgmentPacksBudgetedBatchesInCandidateOrder(t *testing.T) {
+	var calls atomic.Int32
+	client := gatewayClient(t, func(_ context.Context, req *pb.JudgeReq) (*pb.JudgeResp, error) {
+		calls.Add(1)
+		_, passages := sharedState(t, req)
+		if len(passages) > 3 {
+			return nil, status.Error(codes.Internal, "batch exceeded budget packing")
+		}
+		return equalAnswers(req), nil
+	})
+	req := judgeRequest(5)
+	for i := range req.Candidates {
+		req.Candidates[i].Content = strings.Repeat("x", 10000)
+	}
+	r := reranker.NewLLMGatewayReranker(client, reranker.JudgmentConfig{Fanout: 2})
+	results, err := r.Rerank(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 || len(results) != 5 {
+		t.Fatalf("unexpected packing: calls=%d results=%d", calls.Load(), len(results))
+	}
+	for i, result := range results {
+		if result.Index != i || result.Content != req.Candidates[i].Content {
+			t.Fatal("packing changed candidate order")
 		}
 	}
 }
@@ -162,16 +229,16 @@ func TestJudgmentNeverReturnsPartialRanking(t *testing.T) {
 				resp := equalAnswers(req)
 				switch fault {
 				case "missing":
-					delete(resp.Answers, "evidence_v1")
+					delete(resp.Answers, "evidence_v1_000001")
 				case "unknown":
-					resp.Answers["unrequested"] = resp.Answers["evidence_v1"]
-					delete(resp.Answers, "evidence_v1")
+					resp.Answers["unrequested"] = resp.Answers["evidence_v1_000001"]
+					delete(resp.Answers, "evidence_v1_000001")
 				case "wrong_kind":
-					resp.Answers["evidence_v1"] = &pb.JudgeAnswer{}
+					resp.Answers["evidence_v1_000001"] = &pb.JudgeAnswer{}
 				case "nan":
-					resp.Answers["evidence_v1"].GetNoul().Probability = math.NaN()
+					resp.Answers["evidence_v1_000001"].GetNoul().Probability = math.NaN()
 				case "out_of_range":
-					resp.Answers["evidence_v1"].GetNoul().Probability = 1.1
+					resp.Answers["evidence_v1_000001"].GetNoul().Probability = 1.1
 				case "rpc":
 					return nil, status.Error(codes.Unavailable, "provider unavailable")
 				}
@@ -229,7 +296,7 @@ func TestJudgmentUsesAllCandidatesOrFails(t *testing.T) {
 	var calls atomic.Int32
 	client := gatewayClient(t, func(_ context.Context, req *pb.JudgeReq) (*pb.JudgeResp, error) {
 		if calls.Add(1) == 2 {
-			return nil, status.Error(codes.Unavailable, "second candidate failed")
+			return nil, status.Error(codes.Unavailable, "second batch failed")
 		}
 		return equalAnswers(req), nil
 	})
