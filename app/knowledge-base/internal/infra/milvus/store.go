@@ -49,6 +49,39 @@ func NewMilvusStore(cfg config.MilvusConfig) (*MilvusStore, error) {
 	return &MilvusStore{cli: cli}, nil
 }
 
+// chunkCollectionSchema pins the retrieval contract: dense vectors plus a
+// server-generated BM25 sparse vector. The content field must be segmented
+// into Chinese words; the default analyzer keeps an unbroken CJK run as one
+// token, which makes natural-language queries match nothing.
+func chunkCollectionSchema() *entity.Schema {
+	schema := &entity.Schema{
+		CollectionName: collectionName,
+		Description:    "AIM knowledge chunks with shared relational UUID identity",
+		AutoID:         false,
+		Fields: []*entity.Field{
+			entity.NewField().WithName("id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36).WithIsPrimaryKey(true),
+			entity.NewField().WithName("kb_id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36),
+			entity.NewField().WithName("doc_id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36),
+			entity.NewField().WithName("chunk_index").WithDataType(entity.FieldTypeInt32),
+			entity.NewField().WithName("content").WithDataType(entity.FieldTypeVarChar).WithMaxLength(65535).
+				WithEnableAnalyzer(true).
+				WithAnalyzerParams(map[string]any{"type": "chinese"}).
+				WithEnableMatch(true),
+			entity.NewField().WithName(denseField).WithDataType(entity.FieldTypeFloatVector).WithDim(defaultDim),
+			entity.NewField().WithName(sparseField).WithDataType(entity.FieldTypeSparseVector),
+			entity.NewField().WithName("chunk_meta").WithDataType(entity.FieldTypeVarChar).WithMaxLength(65535),
+			entity.NewField().WithName("created_at").WithDataType(entity.FieldTypeInt64),
+		},
+	}
+	schema.WithFunction(entity.NewFunction().
+		WithName("bm25_fn").
+		WithType(entity.FunctionTypeBM25).
+		WithInputFields("content").
+		WithOutputFields(sparseField),
+	)
+	return schema
+}
+
 func (s *MilvusStore) ensureCollection(ctx context.Context) error {
 	s.collectionMu.Lock()
 	defer s.collectionMu.Unlock()
@@ -61,28 +94,7 @@ func (s *MilvusStore) ensureCollection(ctx context.Context) error {
 		return err
 	}
 	if !has {
-		schema := &entity.Schema{
-			CollectionName: collectionName,
-			Description:    "AIM knowledge chunks with shared relational UUID identity",
-			AutoID:         false,
-			Fields: []*entity.Field{
-				entity.NewField().WithName("id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36).WithIsPrimaryKey(true),
-				entity.NewField().WithName("kb_id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36),
-				entity.NewField().WithName("doc_id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36),
-				entity.NewField().WithName("chunk_index").WithDataType(entity.FieldTypeInt32),
-				entity.NewField().WithName("content").WithDataType(entity.FieldTypeVarChar).WithMaxLength(65535).WithEnableAnalyzer(true).WithEnableMatch(true),
-				entity.NewField().WithName(denseField).WithDataType(entity.FieldTypeFloatVector).WithDim(defaultDim),
-				entity.NewField().WithName(sparseField).WithDataType(entity.FieldTypeSparseVector),
-				entity.NewField().WithName("chunk_meta").WithDataType(entity.FieldTypeVarChar).WithMaxLength(65535),
-				entity.NewField().WithName("created_at").WithDataType(entity.FieldTypeInt64),
-			},
-		}
-		schema.WithFunction(entity.NewFunction().
-			WithName("bm25_fn").
-			WithType(entity.FunctionTypeBM25).
-			WithInputFields("content").
-			WithOutputFields(sparseField),
-		)
+		schema := chunkCollectionSchema()
 		createOpt := client.NewCreateCollectionOption(collectionName, schema).
 			WithConsistencyLevel(entity.ClStrong).
 			WithIndexOptions(
