@@ -36,9 +36,6 @@ func (s *Service) retrieveResources(ctx context.Context, input Input, args knowl
 	if err != nil {
 		return nil, err
 	}
-	if err := resourcegrant.CheckIDs(s.svc.DB.WithContext(ctx), access, input.Visibility != "personal", false); err != nil {
-		return nil, err
-	}
 	if result == nil || len(result.Items) > int(args.Limit) || result.Limit != args.Limit || result.Exhaustive {
 		return nil, status.Error(codes.Unavailable, "invalid knowledge result boundary")
 	}
@@ -237,24 +234,4 @@ func (s *Service) manageResource(ctx context.Context, user, kind string, body []
 		return nil, err
 	}
 	return result.Body, nil
-}
-
-func (s *Service) currentRunTools(ctx context.Context, r *model.Run) error {
-	if err := s.checkScopedRunSkills(ctx, r, r.RequesterID); err != nil {
-		return err
-	}
-	var stored int64
-	if err := s.svc.DB.WithContext(ctx).Model(&model.Run{}).Where("id = ?", r.ID).Count(&stored).Error; err != nil {
-		return err
-	}
-	if stored == 0 {
-		var config struct {
-			Tools []resourcegrant.ToolRef `json:"tools"`
-		}
-		if err := json.Unmarshal(r.Config, &config); err != nil {
-			return err
-		}
-		return resourcegrant.CheckToolPermissions(s.svc.DB.WithContext(ctx), resourceAccess(r), config.Tools, false)
-	}
-	return resourcegrant.CheckRunToolPermissions(s.svc.DB.WithContext(ctx), resourceAccess(r), r.ID, false)
 }

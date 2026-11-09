@@ -48,9 +48,6 @@ func (h *KnowledgeBaseHandler) checkRunKnowledgeAccess(ctx context.Context) (res
 	if h.DB == nil {
 		return access, domain.ErrForbidden
 	}
-	if err := resourcegrant.CheckIDs(h.DB.WithContext(ctx), access, access.Visibility != "personal", false); err != nil {
-		return access, err
-	}
 	return access, nil
 }
 
@@ -71,6 +68,9 @@ func (h *KnowledgeBaseHandler) runKnowledgeBases(ctx context.Context) ([]*domain
 	for _, id := range ids {
 		kb, err := h.loadKnowledgeBase(ctx, id, false)
 		if err != nil {
+			if status.Code(err) == codes.PermissionDenied || stderrors.Is(err, domain.ErrForbidden) || stderrors.Is(err, domain.ErrKBNotFound) {
+				continue
+			}
 			return nil, err
 		}
 		if kb.Status == "active" && kb.Mode == "rag" {

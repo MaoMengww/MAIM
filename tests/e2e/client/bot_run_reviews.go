@@ -82,7 +82,6 @@ type runReviewFixture struct {
 	recoveryFixture
 	sources        map[entityID]string
 	revisions      map[entityID]runReviewView
-	hiddenSources  map[entityID]bool
 	reviewBrowser  map[string]any
 	approvalServer entityID
 }
@@ -934,9 +933,6 @@ func (f *runReviewFixture) complete() error {
 			return err
 		}
 		for _, review := range rows {
-			if f.hiddenSources[review.RunID] {
-				return errors.New("run-reviews: revoked source reappeared in public reviews")
-			}
 			if expected, ok := f.revisions[review.ID]; ok {
 				if seenRevisions[review.ID] || review.RunID != expected.RunID || review.Revision != expected.Revision || review.TriggerKind != expected.TriggerKind ||
 					f.sources[review.RunID] != visibility || !reviewTerminal(review.Status) || review.ModelCalls > 2 {
@@ -951,17 +947,11 @@ func (f *runReviewFixture) complete() error {
 			seen[review.RunID] = true
 		}
 	}
-	visibleRevisions := 0
-	for _, revision := range f.revisions {
-		if !f.hiddenSources[revision.RunID] {
-			visibleRevisions++
-		}
+	if len(seenRevisions) != len(f.revisions) {
+		return fmt.Errorf("run-reviews: explicit revisions=%d listed=%d", len(f.revisions), len(seenRevisions))
 	}
-	if len(seenRevisions) != visibleRevisions {
-		return fmt.Errorf("run-reviews: visible explicit revisions=%d listed=%d", visibleRevisions, len(seenRevisions))
-	}
-	if len(seen)+len(f.hiddenSources) != len(f.sources) {
-		return fmt.Errorf("run-reviews: terminal sources=%d visible reviews=%d hidden sources=%d", len(f.sources), len(seen), len(f.hiddenSources))
+	if len(seen) != len(f.sources) {
+		return fmt.Errorf("run-reviews: terminal sources=%d visible reviews=%d", len(f.sources), len(seen))
 	}
 	for _, label := range []string{"valuable", "original-failed", "script", "personal", "waiting-stopped", "modify"} {
 		if err := f.calls("RUN_REVIEW_"+label+"_"+f.suffix, "assess", "extract"); err != nil {

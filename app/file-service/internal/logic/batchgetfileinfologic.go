@@ -49,9 +49,6 @@ func (l *BatchGetFileInfoLogic) BatchGetFileInfo(in *filepb.BatchGetFileInfoReq)
 				}
 			}
 		}
-		if _, err := resourcegrant.CheckFileOutputSources(l.svcCtx.DB.WithContext(l.ctx), f.ID, false); err != nil {
-			continue
-		}
 		items = append(items, toProtoFileInfo(&f))
 	}
 

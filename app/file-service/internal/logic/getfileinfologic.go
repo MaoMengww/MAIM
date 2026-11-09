@@ -47,9 +47,6 @@ func (l *GetFileInfoLogic) GetFileInfo(in *filepb.GetFileInfoReq) (*filepb.GetFi
 			}
 		}
 	}
-	if _, err := resourcegrant.CheckFileOutputSources(l.svcCtx.DB.WithContext(l.ctx), f.ID, false); err != nil {
-		return nil, err
-	}
 
 	return &filepb.GetFileInfoResp{File: toProtoFileInfo(f)}, nil
 }

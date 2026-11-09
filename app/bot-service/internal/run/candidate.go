@@ -12,10 +12,7 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"github.com/maomeng/aim/app/bot-service/internal/skill"
 	"github.com/maomeng/aim/app/bot-service/internal/skillvalidation"
-	filepb "github.com/maomeng/aim/app/file-service/pb/file"
-	kb "github.com/maomeng/aim/app/knowledge-base/pb/knowledgebase"
 	"github.com/maomeng/aim/pkg/identity"
-	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -519,10 +516,6 @@ func candidateMaintainer(tx *gorm.DB, state *candidateState, user string) error 
 }
 
 func (s *Service) candidatePrincipal(ctx context.Context, tx *gorm.DB, state *candidateState, user string, maintain bool) error {
-	return s.candidatePrincipalVisit(ctx, tx, state, user, maintain, make(map[string]bool))
-}
-
-func (s *Service) candidatePrincipalVisit(ctx context.Context, tx *gorm.DB, state *candidateState, user string, maintain bool, versions map[string]bool) error {
 	if identity.Validate(user) != nil {
 		return status.Error(codes.PermissionDenied, "candidate principal unavailable")
 	}
@@ -534,124 +527,25 @@ func (s *Service) candidatePrincipalVisit(ctx context.Context, tx *gorm.DB, stat
 			return err
 		}
 	}
-	if state.Run.AccessRevoked || state.Run.ResultInvalidated || state.Bot.Status != "active" {
+	if state.Run.AccessRevoked || state.Bot.Status != "active" {
 		return status.Error(codes.PermissionDenied, "source authority revoked")
 	}
 	if state.Bot.OwnerID == nil || *state.Bot.OwnerID != state.Content.PublisherID {
 		return status.Error(codes.PermissionDenied, "source publisher changed")
 	}
-	if state.Content.EvidenceID != "" || !candidateEvidenceCurrent(state) {
-		if err := s.candidateRetainedAuthority(ctx, tx, &state.Run, user, make(map[string]bool)); err != nil {
-			return err
-		}
-		return s.candidateIntegratedSources(ctx, tx, state, user, versions)
-	}
-	if err := repo.LockRunAuthority(tx, &state.Run); err != nil {
-		return err
-	}
-	if err := s.candidateMaterialAccess(ctx, tx, &state.Run, user, make(map[string]bool)); err != nil {
-		return err
-	}
-	if err := s.candidateFrozenSources(ctx, tx, &state.Run, user, make(map[string]bool)); err != nil {
-		return err
-	}
-	return s.candidateIntegratedSources(ctx, tx, state, user, versions)
+	return candidateScopeAuthority(tx, &state.Run, user)
 }
 
-// Check each viewer's actual source permissions recursively. Keeping the
-// original requester's grants alone would let a Bot owner read private inputs.
-func (s *Service) candidateMaterialAccess(ctx context.Context, tx *gorm.DB, r *model.Run, user string, visited map[string]bool) error {
-	if visited[r.ID] {
-		return status.Error(codes.PermissionDenied, "cyclic source ancestry")
-	}
-	visited[r.ID] = true
-	defer delete(visited, r.ID)
+// Accepted evidence is an independent snapshot scoped to this conversation.
+// The viewer needs current participation, not access to every original resource.
+func candidateScopeAuthority(tx *gorm.DB, r *model.Run, user string) error {
 	if r.Visibility == "personal" && (r.PersonalUserID == nil || *r.PersonalUserID != user) {
-		return status.Error(codes.PermissionDenied, "personal source materials are private")
+		return status.Error(codes.PermissionDenied, "personal evidence is private")
 	}
 	if _, _, err := repo.RunMember(tx, r.ConvID, user); err != nil {
 		return err
 	}
-	access := resourceAccess(r)
-	access.RequesterID = user
-	if err := resourcegrant.CheckIDs(tx, access, r.Visibility != "personal", true); err != nil {
-		return err
-	}
-	var materials []Material
-	if err := json.Unmarshal(r.Materials, &materials); err != nil {
-		return err
-	}
-	for _, material := range materials {
-		if material.FileID != "" {
-			if _, err := resourcegrant.Check(tx, access, "file", material.FileID, r.Visibility != "personal", true); err != nil {
-				return err
-			}
-			if s.files == nil {
-				return status.Error(codes.Unavailable, "file permission service unavailable")
-			}
-			// This call verifies the human viewer, not a delegated Bot identity.
-			if _, err := s.files.GetFileInfo(userContext(ctx, user), &filepb.GetFileInfoReq{FileId: material.FileID, UserId: user}); err != nil {
-				return err
-			}
-		}
-		if material.KnowledgeID != "" {
-			if err := s.candidateKnowledgeAccess(ctx, tx, access, user, material.KnowledgeID); err != nil {
-				return err
-			}
-		}
-		if material.HistoryGrantID != "" {
-			source := resourcegrant.HistorySource{MessageID: material.MessageID, AcceptedEditCount: material.EditCount, HistoryGrantID: material.HistoryGrantID, HistorySeq: material.Seq}
-			if err := resourcegrant.CheckHistorySource(tx, access, source, true); err != nil {
-				return err
-			}
-		}
-		if material.ParentRunID != "" {
-			var parent model.Run
-			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", material.ParentRunID).Take(&parent).Error; err != nil {
-				return err
-			}
-			if err := s.candidateMaterialAccess(ctx, tx, &parent, user, visited); err != nil {
-				return err
-			}
-		}
-	}
-	var provenance []model.SourceVersion
-	if len(r.Provenance) > 0 {
-		if err := json.Unmarshal(r.Provenance, &provenance); err != nil {
-			return err
-		}
-	}
-	for _, source := range provenance {
-		if err := resourcegrant.CheckHistorySource(tx, access, source.HistorySource(), true); err != nil {
-			return err
-		}
-		if source.KnowledgeID != "" {
-			if err := s.candidateKnowledgeAccess(ctx, tx, access, user, source.KnowledgeID); err != nil {
-				return err
-			}
-		}
-		if source.ParentRunID != "" {
-			var parent model.Run
-			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", source.ParentRunID).Take(&parent).Error; err != nil {
-				return err
-			}
-			if err := s.candidateMaterialAccess(ctx, tx, &parent, user, visited); err != nil {
-				return err
-			}
-		}
-	}
-	return repo.CheckRunSources(tx, r)
-}
-
-func (s *Service) candidateKnowledgeAccess(ctx context.Context, tx *gorm.DB, access resourcegrant.Access, user, id string) error {
-	if _, err := resourcegrant.Check(tx, access, "knowledge", id, access.Visibility != "personal", true); err != nil {
-		return err
-	}
-	if s.kb == nil {
-		return status.Error(codes.Unavailable, "knowledge permission service unavailable")
-	}
-	_, err := s.kb.GetKB(userContext(ctx, user), &kb.GetKBReq{KbId: id})
-	return err
+	return repo.LockRunAuthority(tx, r)
 }
 
 func candidateFresh(tx *gorm.DB, state *candidateState) error {

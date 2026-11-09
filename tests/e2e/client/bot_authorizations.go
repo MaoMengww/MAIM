@@ -535,25 +535,19 @@ func (f *authorizationFixture) inflightResourceRevocation(kind string, id entity
 	time.Sleep(150 * time.Millisecond)
 	final, err := f.d.waitRun(f.requester, run.ID)
 	if err != nil {
-		var api *apiError
-		if !errors.As(err, &api) || api.status != http.StatusForbidden {
-			return err
-		}
-		final = publicRun{ID: run.ID}
-	}
-	if final.MessageID != nil || strings.Contains(final.ResultText, canary) {
-		return errors.New("in-flight revoke leaked restricted result to shared output")
-	}
-	if err = f.groupNoCanary(canary); err != nil {
 		return err
 	}
-	socket.mu.Lock()
-	raw, _ := json.Marshal(socket.events)
-	socket.mu.Unlock()
-	if strings.Contains(string(raw), canary) {
-		return errors.New("revoked resource streamed to shared WS")
+	if final.Status != "succeeded" || final.MessageID == nil || !strings.Contains(final.ResultText, canary) {
+		return errors.New("source revocation invalidated already accepted resource snapshot")
 	}
-	if err = f.sideEffects(token, 0); err != nil {
+	published, err := f.d.identityMessage(f.member, *final.MessageID)
+	if err != nil {
+		return err
+	}
+	if published.Text.Text != final.ResultText {
+		return errors.New("accepted snapshot result was hidden from conversation member")
+	}
+	if err = f.sideEffects(token, 1); err != nil {
 		return err
 	}
 	row, err := f.observe(token)
@@ -563,10 +557,16 @@ func (f *authorizationFixture) inflightResourceRevocation(kind string, id entity
 	if len(row.Requests) == 0 {
 		return errors.New("inflight model boundary was not actually exercised")
 	}
+	if len(row.Requests) <= len(beforeRevoke.Requests) {
+		return errors.New("accepted snapshot did not continue through the actual tool/model boundary")
+	}
 	for _, request := range row.Requests[len(beforeRevoke.Requests):] {
-		if strings.Contains(string(request.Body), canary) {
-			return errors.New("revoked source reused in later actual model input")
+		if !strings.Contains(string(request.Body), canary) {
+			return errors.New("source revocation rewrote accepted model history")
 		}
+	}
+	if err = f.d.authorizationReject("/bot-authorizations/resources", f.requester.token, map[string]any{"op": "read", "run_id": run.ID, "grant_id": grant.ID}); err != nil {
+		return err
 	}
 	return f.record("inflight_revoked_"+kind, final, nil, token)
 }

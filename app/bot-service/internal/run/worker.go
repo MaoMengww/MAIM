@@ -18,7 +18,6 @@ import (
 	"github.com/maomeng/aim/pkg/delivery"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/protocol"
-	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -346,9 +345,6 @@ func (s *Service) waitForInput(ctx context.Context, r *model.Run, generation int
 }
 
 func (s *Service) queueOutput(ctx context.Context, r *model.Run, generation int64) error {
-	if err := s.refreshAuthorizations(ctx, r); err != nil {
-		return err
-	}
 	if err := s.authorize(ctx, r, r.Visibility != "personal"); err != nil {
 		return err
 	}
@@ -385,15 +381,10 @@ func (s *Service) messagesFor(ctx context.Context, id string) ([]*llm.Message, e
 	return messages, nil
 }
 func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64, config ExecutionConfig) error {
-	if err := s.refreshAuthorizations(ctx, r); err != nil {
-		return err
-	}
-	if err := s.checkSkills(ctx, r, config); err != nil {
-		return err
-	}
 	var call model.RunModelCall
 	err := s.svc.DB.WithContext(ctx).Where("run_id = ? AND status = 'requested'", r.ID).Order("created_at DESC").First(&call).Error
 	var request *llm.ChatReq
+	finalDelivery := false
 	if err == nil {
 		request = &llm.ChatReq{}
 		if err := protojson.Unmarshal(call.Request, request); err != nil {
@@ -403,6 +394,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 			return status.Error(codes.FailedPrecondition, "pending request snapshot does not match the trajectory")
 		}
 		request.RunId, request.ExecutionGeneration, request.InputVersion = &r.ID, generation, call.InputUpperBound
+		finalDelivery = deliveryRequested(request.Messages)
 	} else {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -414,7 +406,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		if calls >= int64(config.MaxSteps) {
 			return status.Error(codes.ResourceExhausted, "model round limit exceeded")
 		}
-		finalDelivery := calls >= int64(config.MaxSteps-1)
+		finalDelivery = calls >= int64(config.MaxSteps-1)
 		var messages []*llm.Message
 		maxTokens := config.MaxOutputTokens
 		if !finalDelivery {
@@ -422,9 +414,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 			if err != nil && status.Code(err) != codes.ResourceExhausted {
 				return err
 			}
-			if err != nil {
-				finalDelivery = true
-			}
+			finalDelivery = err != nil || deliveryRequested(messages)
 		}
 		if finalDelivery {
 			messages, maxTokens, err = s.deliveryModelView(ctx, r, config)
@@ -433,10 +423,8 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 			}
 		}
 		request = &llm.ChatReq{ModelId: config.Model.ModelId, ExecutionModel: config.Model, OwnerId: config.OwnerID, BotId: &r.BotID, RunId: &r.ID, ExecutionGeneration: generation, InputVersion: r.AppliedInputVersion, Messages: messages, Temperature: config.Temperature, MaxTokens: maxTokens, CacheScope: config.CacheScope}
-		if !finalDelivery {
-			for _, tool := range config.Tools {
-				request.Tools = append(request.Tools, &llm.ToolDef{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
-			}
+		for _, tool := range config.Tools {
+			request.Tools = append(request.Tools, &llm.ToolDef{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 		}
 		raw, err := requestJSON.Marshal(request)
 		if err != nil {
@@ -456,9 +444,6 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		}
 		call = model.RunModelCall{ID: id, RunID: r.ID, InteractionID: r.InteractionID, InputUpperBound: r.AppliedInputVersion, TrajectoryVersion: r.TrajectoryVersion, ExecutionGeneration: generation, BranchVersion: r.BranchVersion, SourceRevision: r.SourceRevision, CheckpointID: checkpointID, AssemblyVersion: assemblyVersion, Provenance: r.Provenance, Request: raw, Status: "requested"}
 		if _, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-			if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
-				return err
-			}
 			var active model.RunCompactionCheckpoint
 			checkpointErr := tx.Where("run_id = ? AND status = 'valid' AND branch_version = ? AND source_revision = ?", current.ID, current.BranchVersion, current.SourceRevision).Order("version DESC").First(&active).Error
 			if checkpointErr != nil && !errors.Is(checkpointErr, gorm.ErrRecordNotFound) {
@@ -504,7 +489,7 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 		return status.Error(codes.ResourceExhausted, "too many tool calls in one model round")
 	}
 	output := response.Choices[0].Message
-	if len(request.Tools) == 0 && len(output.ToolCalls) != 0 {
+	if (finalDelivery || len(request.Tools) == 0) && len(output.ToolCalls) != 0 {
 		return status.Error(codes.ResourceExhausted, "final delivery round cannot start tools")
 	}
 	if output.Role != "assistant" {
@@ -559,14 +544,8 @@ func (s *Service) modelRound(ctx context.Context, r *model.Run, generation int64
 			return err
 		}
 	}
-	if err := s.refreshAuthorizations(ctx, r); err != nil {
-		return err
-	}
 	now := time.Now()
 	_, err = s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-		if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
-			return err
-		}
 		if current.BranchVersion != call.BranchVersion {
 			return status.Error(codes.Aborted, "model response source view superseded")
 		}
@@ -772,9 +751,6 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	if err != nil {
 		return err
 	}
-	if err := s.refreshAuthorizations(ctx, r); err != nil {
-		return err
-	}
 	if repo.TerminalRun(r) {
 		return nil
 	}
@@ -791,13 +767,7 @@ func (s *Service) publishOutput(ctx context.Context, item *model.RunOutbox) erro
 	}
 	if r.Visibility == "personal" {
 		_, err = s.repo.ChangeLifecycle(ctx, r.ID, 0, func(tx *gorm.DB, current *model.Run) error {
-			if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
-				return err
-			}
 			if err := s.actionAuthorityFence(tx, current, current.ExecutionGeneration, current.InputVersion); err != nil {
-				return err
-			}
-			if err := resourcegrant.CheckIDs(tx, resourceAccess(current), false, true); err != nil {
 				return err
 			}
 			current.Status, current.Stage, current.OutputStatus = "succeeded", "committed", "committed"

@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
-	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -21,70 +19,6 @@ func (s *Service) reviewRetentionDeadline(created time.Time) (time.Time, error) 
 		return time.Time{}, status.Error(codes.FailedPrecondition, "finite review retention between 1 and 30 days required")
 	}
 	return created.Add(time.Duration(days) * 24 * time.Hour), nil
-}
-
-// reviewExpiry follows actual accepted source dependencies, including inherited
-// work. It only shortens retention; reads/retries never renew source permission.
-func (s *Service) reviewExpiry(ctx context.Context, r *model.Run, expires time.Time, visited map[string]bool) (time.Time, error) {
-	if visited[r.ID] {
-		return expires, nil
-	}
-	visited[r.ID] = true
-	for _, kind := range []string{"file", "knowledge"} {
-		if len(r.ResourceGrantIDs) == 0 {
-			break
-		}
-		var grants []resourcegrant.Grant
-		if err := s.svc.DB.WithContext(ctx).Table(resourcegrant.Table(kind)).Where("id IN ?", r.ResourceGrantIDs).Find(&grants).Error; err != nil {
-			return expires, err
-		}
-		for _, grant := range grants {
-			if grant.ExpiresAt.Before(expires) {
-				expires = grant.ExpiresAt
-			}
-		}
-	}
-	var versions []model.SourceVersion
-	if len(r.Provenance) > 0 {
-		if err := json.Unmarshal(r.Provenance, &versions); err != nil {
-			return expires, err
-		}
-	}
-	var materials []Material
-	if len(r.Materials) > 0 {
-		if err := json.Unmarshal(r.Materials, &materials); err != nil {
-			return expires, err
-		}
-	}
-	for _, material := range materials {
-		if material.ParentRunID != "" {
-			versions = append(versions, model.SourceVersion{ParentRunID: material.ParentRunID})
-		}
-	}
-	for _, source := range versions {
-		if source.ParentRunID == "" {
-			continue
-		}
-		parent, err := s.repo.Get(ctx, source.ParentRunID)
-		if err != nil {
-			return expires, err
-		}
-		expires, err = s.reviewExpiry(ctx, parent, expires, visited)
-		if err != nil {
-			return expires, err
-		}
-	}
-	if r.ParentRunID != nil {
-		parent, err := s.repo.Get(ctx, *r.ParentRunID)
-		if err != nil {
-			return expires, err
-		}
-		expires, err = s.reviewExpiry(ctx, parent, expires, visited)
-		if err != nil {
-			return expires, err
-		}
-	}
-	return expires, nil
 }
 
 // A bounded durable scan is safe to resume after process failure. Neither the
@@ -131,7 +65,7 @@ func (s *Service) cleanupReviewCopies(ctx context.Context, review *runReview) er
 	if err != nil {
 		return err
 	}
-	expires, err := s.reviewEffectiveExpiry(ctx, r, review)
+	expires, err := s.reviewEffectiveExpiry(ctx, review)
 	if err != nil {
 		return err
 	}
@@ -151,26 +85,10 @@ func (s *Service) cleanupReviewCopies(ctx context.Context, review *runReview) er
 			current.ExpiresAt = expires
 			updates["expires_at"] = expires
 		}
-		revoked := current.EvidenceRevokedAt != nil
-		if !revoked {
-			err := s.candidateSourceRevocation(ctx, tx, r)
-			if err != nil {
-				if status.Code(err) != codes.PermissionDenied && status.Code(err) != codes.NotFound {
-					return err
-				}
-				revoked = true
-			}
-		}
 		now := time.Now()
-		if revoked && current.EvidenceRevokedAt == nil {
-			updates["evidence_revoked_at"] = now
-		}
-		if (revoked || !current.ExpiresAt.After(now)) && current.MaterialsClearedAt == nil {
+		if !current.ExpiresAt.After(now) && current.MaterialsClearedAt == nil {
 			updates["feedback"], updates["assessment"], updates["evidence"] = "", json.RawMessage(`{}`), json.RawMessage(`{}`)
 			updates["reason"] = "evidence retention expired; new authorized evidence required"
-			if revoked {
-				updates["reason"] = "source authorization revoked; materials removed"
-			}
 			updates["materials_cleared_at"] = now
 			if !reviewFinished(current.Status) {
 				updates["status"] = "cancelled"
@@ -203,7 +121,7 @@ func (s *Service) cleanupReviewCopies(ctx context.Context, review *runReview) er
 					return err
 				}
 			}
-			if !revoked && content.ExpiresAt > now.Unix() && (content.EvidenceID == "" || content.EvidenceLicenseExpiresAt > now.Unix()) && (content.EvidenceID != "" || current.ExpiresAt.After(now)) {
+			if content.ExpiresAt > now.Unix() && (content.EvidenceID == "" || content.EvidenceLicenseExpiresAt > now.Unix()) && (content.EvidenceID != "" || current.ExpiresAt.After(now)) {
 				continue
 			}
 			if err := clearCandidateCopies(tx, row, &content); err != nil {
@@ -216,7 +134,7 @@ func (s *Service) cleanupReviewCopies(ctx context.Context, review *runReview) er
 
 // Initial evidence may have a shorter candidate deadline. A later independently
 // authorized evidence identity does not renew or depend on the original archive.
-func (s *Service) reviewEffectiveExpiry(ctx context.Context, r *model.Run, review *runReview) (time.Time, error) {
+func (s *Service) reviewEffectiveExpiry(ctx context.Context, review *runReview) (time.Time, error) {
 	expires := review.ExpiresAt
 	configured, err := s.reviewRetentionDeadline(review.CreatedAt)
 	if err != nil {
@@ -224,10 +142,6 @@ func (s *Service) reviewEffectiveExpiry(ctx context.Context, r *model.Run, revie
 	}
 	if configured.Before(expires) {
 		expires = configured
-	}
-	expires, err = s.reviewExpiry(ctx, r, expires, make(map[string]bool))
-	if err != nil {
-		return expires, err
 	}
 	var candidates []governedCandidate
 	if err := s.svc.DB.WithContext(ctx).Select("review_content").Where("source_review_id = ?", review.ID).Find(&candidates).Error; err != nil {

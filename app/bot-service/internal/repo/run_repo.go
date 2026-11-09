@@ -1,11 +1,9 @@
 package repo
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
-	"maps"
 	"slices"
 	"time"
 
@@ -13,7 +11,6 @@ import (
 	"github.com/maomeng/aim/pkg/botpolicy"
 	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/identity"
-	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -64,15 +61,6 @@ func RunController(tx *gorm.DB, run *model.Run, user string) error {
 }
 
 func lockRunPermissions(tx *gorm.DB, run *model.Run) error {
-	if err := CheckDelegationSource(tx, run); err != nil {
-		return err
-	}
-	if run.Origin != nil {
-		member, role, err := RunMember(tx, run.ConvID, run.Origin.AuthorizationUserID)
-		if err != nil || member != run.Origin.AuthorizationMemberID || (run.Origin.Kind == "rule" && role > 2) {
-			return status.Error(codes.PermissionDenied, "origin authorization revoked")
-		}
-	}
 	var binding model.ConvBot
 	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND revoked_at IS NULL", run.BindingID, run.BotID, run.ConvID).First(&binding).Error; err != nil {
 		return status.Error(codes.PermissionDenied, "binding revoked")
@@ -100,17 +88,11 @@ func lockRunPermissions(tx *gorm.DB, run *model.Run) error {
 			return status.Error(codes.PermissionDenied, "executor authorization or route changed")
 		}
 	}
-	if err := resourcegrant.CheckIDs(tx, resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}, run.Visibility != "personal", true); err != nil {
-		return err
-	}
 	return nil
 }
 
 func lockRunAuthority(tx *gorm.DB, run *model.Run, controller bool) error {
 	if err := lockRunPermissions(tx, run); err != nil {
-		return err
-	}
-	if err := CheckRunSources(tx, run); err != nil {
 		return err
 	}
 	if controller {
@@ -478,40 +460,6 @@ func AppendRunBlock(tx *gorm.DB, run *model.Run, kind string, value any) error {
 	return tx.Create(&model.RunTrajectory{ID: id, RunID: run.ID, Version: run.TrajectoryVersion, Kind: kind, Block: raw, Provenance: provenance}).Error
 }
 
-// ReconcileAuthorizations scrubs revoked resource copies even in terminal work.
-// durable facts remain; only dependent copies are removed by the callback.
-func (r *RunRepo) ReconcileAuthorizations(ctx context.Context, id string, version int64, apply func(*gorm.DB, *model.Run) error) (*model.Run, error) {
-	prior, err := r.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	var run model.Run
-	err = r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := lockRunConversation(tx, prior.ConvID); err != nil {
-			return err
-		}
-		if err := LockDelegationTree(tx, prior); err != nil {
-			return err
-		}
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&run).Error; err != nil {
-			return err
-		}
-		if run.Version != version {
-			return status.Error(codes.Aborted, "Run changed during source reconciliation")
-		}
-		if err := apply(tx, &run); err != nil {
-			return err
-		}
-		run.Version++
-		run.UpdatedAt = time.Now()
-		if err := tx.Save(&run).Error; err != nil {
-			return err
-		}
-		return queueRun(tx, &run, "updated")
-	})
-	return &run, err
-}
-
 // CheckMaterialHistory checks the live grant against the frozen accepted seq,
 // without requiring the original message to remain present or visible.
 func CheckMaterialHistory(tx *gorm.DB, run *model.Run, grant string, seq int64) error {
@@ -596,103 +544,6 @@ func CheckAcceptedMessages(tx *gorm.DB, run *model.Run, raw json.RawMessage) err
 	return nil
 }
 
-// CheckRunSources fences live authorization of accepted work. Original explicit
-// inputs remain facts; on-demand history versions also require current messages.
-func CheckRunSources(tx *gorm.DB, run *model.Run) error {
-	var materials []acceptedMessage
-	if err := json.Unmarshal(run.Materials, &materials); err != nil {
-		return err
-	}
-	delegated := make(map[string]bool)
-	for _, material := range materials {
-		if material.Kind == "delegation_result" {
-			if material.ParentRunID == "" {
-				return status.Error(codes.PermissionDenied, "delegated result has no source")
-			}
-			delegated[material.ParentRunID] = true
-		}
-		if material.Kind == "conversation_history" {
-			if material.HistoryGrantID == "" || material.Seq <= 0 {
-				return status.Error(codes.PermissionDenied, "history material has no authorization provenance")
-			}
-			access := resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID}
-			if err := resourcegrant.CheckHistorySource(tx, access, resourcegrant.HistorySource{MessageID: material.MessageID, AcceptedEditCount: material.EditCount, HistoryGrantID: material.HistoryGrantID, HistorySeq: material.Seq}, true); err != nil {
-				return err
-			}
-			continue
-		}
-		if material.HistoryGrantID != "" {
-			if err := CheckMaterialHistory(tx, run, material.HistoryGrantID, material.Seq); err != nil {
-				return err
-			}
-		}
-	}
-	var versions []model.SourceVersion
-	checked := make(map[string]bool)
-	if len(run.Provenance) > 0 {
-		if err := json.Unmarshal(run.Provenance, &versions); err != nil {
-			return err
-		}
-	}
-	slices.SortFunc(versions, func(a, b model.SourceVersion) int {
-		return cmp.Compare(a.ParentRunID, b.ParentRunID)
-	})
-	access := resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}
-	for _, version := range versions {
-		if err := resourcegrant.CheckHistorySource(tx, access, version.HistorySource(), true); err != nil {
-			return err
-		}
-		if version.KnowledgeID == "" {
-			continue
-		}
-		var bot model.Bot
-		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND enable_knowledge = true", run.BotID).Take(&bot).Error; err != nil {
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
-			}
-			return status.Error(codes.PermissionDenied, "knowledge capability revoked")
-		}
-		if _, err := resourcegrant.Check(tx, access, "knowledge", version.KnowledgeID, run.Visibility != "personal", true); err != nil {
-			return err
-		}
-		if err := resourcegrant.CheckKnowledgeSource(tx, version.KnowledgeSource(), true); err != nil {
-			return err
-		}
-	}
-	for _, version := range versions {
-		if version.ParentRunID == "" {
-			continue
-		}
-		var parent model.Run
-		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", version.ParentRunID).Take(&parent).Error; err != nil {
-			return status.Error(codes.PermissionDenied, "parent source unavailable")
-		}
-		if parent.BranchVersion != version.SourceRevision || parent.AccessRevoked {
-			return status.Error(codes.Aborted, "parent source validity changed")
-		}
-		if delegated[parent.ID] {
-			if err := CheckDelegationResult(tx, run, &parent); err != nil {
-				return err
-			}
-			checked[parent.ID] = true
-		} else if parent.BotID != run.BotID || parent.ConvID != run.ConvID || parent.BindingID != run.BindingID || parent.InteractionID != run.InteractionID {
-			return status.Error(codes.PermissionDenied, "parent source is outside this interaction")
-		}
-	}
-	for _, id := range slices.Sorted(maps.Keys(delegated)) {
-		if checked[id] {
-			continue
-		}
-		var child model.Run
-		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", id).Take(&child).Error; err != nil {
-			return status.Error(codes.PermissionDenied, "delegated result source unavailable")
-		}
-		if err := CheckDelegationResult(tx, run, &child); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 func QueueRunOutput(tx *gorm.DB, run *model.Run) error    { return queueRun(tx, run, "output") }
 func QueueRunDelivery(tx *gorm.DB, run *model.Run) error  { return queueRun(tx, run, "deliver") }
 func QueueRunExecution(tx *gorm.DB, run *model.Run) error { return queueRun(tx, run, "execute") }

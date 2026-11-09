@@ -178,9 +178,7 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 		return nil, err
 	}
 	receipt, err := s.repo.Report(ctx, update.RunID, "executor:"+update.UpdateKey, digest, repo.ReportAuthority{StopConfirmation: confirmation, Generation: update.Generation, InputVersion: update.InputVersion, AllowUnclaimed: update.Type == "run.claim" || update.Type == "run.delivery_ack"}, func(r *model.Run) error {
-		if err := s.refreshAuthorizations(ctx, r); err != nil {
-			return err
-		}
+
 		if r.BotID != botID || r.ExecutorType != "third_party" {
 			return status.Error(codes.PermissionDenied, "executor does not own this Run")
 		}
@@ -315,13 +313,12 @@ func (s *Service) ExecutorUpdate(ctx context.Context, botID string, body []byte)
 					update.Content = canonical
 					update.ResultText = file.Name
 				}
-				r.ResultInvalidated = false
 				r.ResultText = update.ResultText
 				r.ResultType = update.MsgType
 				r.ResultContent = update.Content
 				r.ExecutorStatus = "completed"
 				// Completion is authoritative even when a stop closed transient output.
-				// Final publication still checks current binding and resource authority.
+				// Final publication still checks current binding and output-file authority.
 				r.Status = "running"
 				r.OutputStatus = "pending"
 				r.Stage = "pending"
@@ -409,9 +406,7 @@ func (s *Service) Control(ctx context.Context, id, user string, command ControlI
 	var materials []Material
 	var sources []map[string]any
 	authorize := func(r *model.Run) error {
-		if err := s.refreshAuthorizations(ctx, r); err != nil {
-			return err
-		}
+
 		if r.Visibility == "personal" {
 			if r.PersonalUserID == nil || *r.PersonalUserID != user {
 				return status.Error(codes.PermissionDenied, "personal Run belongs to another principal")

@@ -211,7 +211,7 @@ func (f *runReviewFixture) feedbackAndHistorical() error {
 		return err
 	}
 	for _, revoke := range []bool{false, true} {
-		if err := f.cancelRevision(revoke); err != nil {
+		if err := f.revisionAuthorityChange(revoke); err != nil {
 			return err
 		}
 	}
@@ -463,7 +463,7 @@ func (f *runReviewFixture) privateRevisions() error {
 	return f.unchanged(run)
 }
 
-func (f *runReviewFixture) cancelRevision(revoke bool) error {
+func (f *runReviewFixture) revisionAuthorityChange(revoke bool) error {
 	label := "feedback-disable"
 	if revoke {
 		label = "feedback-revoke"
@@ -475,6 +475,7 @@ func (f *runReviewFixture) cancelRevision(revoke bool) error {
 	defer f.observe(token, "release")
 	var run publicRun
 	var grant resourceAuthorization
+	var sourceFile entityID
 	if revoke {
 		file, err := f.d.attachmentUpload(f.requester, label+"-"+f.suffix+".txt", "text/plain", []byte("Synthetic authorized row-count source"), 1)
 		if err != nil {
@@ -484,6 +485,7 @@ func (f *runReviewFixture) cancelRevision(revoke bool) error {
 		if err != nil {
 			return err
 		}
+		sourceFile = file.info.FileID
 		err = f.d.request(http.MethodPost, f.path("runs"), f.requester.token, map[string]any{
 			"conv_id": f.conv, "visibility": "conversation", "submission_key": uuid.NewString(), "message": token,
 			"file_ids": []entityID{file.info.FileID}, "resource_grant_ids": []entityID{grant.ID},
@@ -525,48 +527,67 @@ func (f *runReviewFixture) cancelRevision(revoke bool) error {
 		return err
 	}
 	if revoke {
-		// Current authorization intentionally hides the revision and original
-		// Run; do not demand private terminal state through a forbidden read.
-		settleUntil := time.Now().Add(600 * time.Millisecond)
-		for time.Now().Before(settleUntil) {
-			for _, caller := range []account{f.requester, f.owner} {
-				for _, id := range []entityID{original.ID, review.ID} {
-					_, err = f.detail(caller, id)
-					if err = f.d.expectStatus(err, http.StatusForbidden, "revoked revision materials"); err != nil {
-						return err
-					}
-				}
-			}
-			rows, err := f.list(f.requester, "conversation")
-			if err != nil {
-				return err
-			}
-			for _, row := range rows {
-				if row.RunID == run.ID {
-					return errors.New("run-review revisions: revoked Run leaked into public list")
-				}
-			}
-			if err = f.revisionCalls(token, "assess", "extract", "assess"); err != nil {
-				return err
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-		_, err = f.submitRevision(f.requester, run, "historical", "", uuid.NewString(), nil)
-		if err = f.reject(err, "historical review after source grant revocation"); err != nil {
+		// held("assess") proves the provider already received this revision's
+		// evidence before revocation; release must allow extraction to finish.
+		completed, err := f.waitRevision(run, "conversation", review.ID, "candidate_generated")
+		if err != nil {
 			return err
 		}
-		if f.hiddenSources == nil {
-			f.hiddenSources = make(map[entityID]bool)
+		if err = f.revisionIdentity(completed, run, original, "feedback", feedback); err != nil {
+			return err
 		}
-		f.hiddenSources[run.ID] = true
-		return nil
+		if completed.Assessment == nil || completed.Candidate == nil || completed.ModelCalls != 2 || !strings.Contains(completed.Candidate.Instructions, feedback) {
+			return errors.New("run-review revisions: source revocation blocked or stripped the already-read feedback revision")
+		}
+		if err = f.feedbackEvidence(token, completed); err != nil {
+			return err
+		}
+		for _, caller := range []account{f.requester, f.owner} {
+			archived, err := f.detail(caller, original.ID)
+			if err != nil || !reflect.DeepEqual(archived, original) {
+				return fmt.Errorf("run-review revisions: source revocation changed original review history: %v", err)
+			}
+			current, err := f.detail(caller, completed.ID)
+			if err != nil || !reflect.DeepEqual(current, completed) {
+				return fmt.Errorf("run-review revisions: source revocation hid completed feedback history: %v", err)
+			}
+		}
+		historical, err := f.submitRevision(f.requester, run, "historical", "", uuid.NewString(), &completed.ID)
+		if err != nil {
+			return fmt.Errorf("run-review revisions: source revocation blocked a fresh authorized history review: %w", err)
+		}
+		historical, err = f.waitRevision(run, "conversation", historical.ID, "candidate_generated")
+		if err != nil {
+			return err
+		}
+		if err = f.revisionIdentity(historical, run, completed, "historical", ""); err != nil {
+			return err
+		}
+		if err = f.candidate(historical, run, "create", token); err != nil {
+			return err
+		}
+		if err = f.revisionRows(run, "conversation", original, completed, historical); err != nil {
+			return err
+		}
+		var fresh publicRun
+		err = f.d.request(http.MethodPost, f.path("runs"), f.requester.token, map[string]any{
+			"conv_id": f.conv, "visibility": "conversation", "submission_key": uuid.NewString(), "message": token,
+			"file_ids": []entityID{sourceFile}, "resource_grant_ids": []entityID{grant.ID},
+		}, &fresh)
+		if err = f.d.expectStatus(err, http.StatusForbidden, "new source acquisition after grant revocation"); err != nil {
+			return err
+		}
+		if err = f.revisionCalls(token, "assess", "extract", "assess", "extract", "assess", "extract"); err != nil {
+			return err
+		}
+		return f.unchanged(run)
 	}
 	cancelled, err := f.waitRevision(run, "conversation", review.ID, "cancelled")
 	if err != nil {
 		return err
 	}
 	if cancelled.CandidateID != nil || cancelled.Candidate != nil || cancelled.ModelCalls > 1 {
-		return errors.New("run-review revisions: revoked/disabled revision extracted or committed a candidate")
+		return errors.New("run-review revisions: disabled revision extracted or committed a candidate")
 	}
 	settleUntil := time.Now().Add(600 * time.Millisecond)
 	for time.Now().Before(settleUntil) {

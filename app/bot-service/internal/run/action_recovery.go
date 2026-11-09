@@ -74,9 +74,7 @@ func (s *Service) recoverActions(ctx context.Context, r *model.Run) (*model.Run,
 					a.Status, a.ClaimedAt, a.CompletedAt, a.Result = "approved", nil, nil, ""
 				} else {
 					a.Status = "unknown"
-					if !a.SourceInvalidated {
-						a.Result = `{"status":"unknown","error":"executor lost before durable outcome receipt; human reconciliation required"}`
-					}
+					a.Result = `{"status":"unknown","error":"executor lost before durable outcome receipt; human reconciliation required"}`
 				}
 				if err := tx.Save(a).Error; err != nil {
 					return err
@@ -105,25 +103,9 @@ func (s *Service) recoverActions(ctx context.Context, r *model.Run) (*model.Run,
 // input, principal, provenance, deadline, denial or approval decision.
 func (s *Service) rebindAction(tx *gorm.DB, r *model.Run, a *model.RunAction, frozen component.RunTool, server model.McpServer, digest string) error {
 	priorStatus, priorGeneration := a.Status, a.Generation
-	if err := s.actionSourcesCurrent(tx, r, a); err != nil {
-		return err
-	}
+
 	if !actionPrincipalMatches(a, r) || a.RunID != r.ID || a.BotID != r.BotID || a.BindingID != r.BindingID || a.RequesterID != r.RequesterID || a.InputVersion != r.InputVersion {
 		return status.Error(codes.PermissionDenied, "action input or principal changed")
-	}
-	var provenance, current []model.SourceVersion
-	if json.Unmarshal(a.Provenance, &provenance) != nil || json.Unmarshal(r.Provenance, &current) != nil {
-		return status.Error(codes.PermissionDenied, "action provenance changed")
-	}
-	completedKnowledgeRead := frozen.ServerID == "runtime" && isRuntimeReadTool(frozen.Name) && a.Risk == "read" && slices.Contains([]string{"succeeded", "failed"}, a.Status)
-	if completedKnowledgeRead {
-		for _, source := range provenance {
-			if !slices.Contains(current, source) {
-				return status.Error(codes.PermissionDenied, "completed knowledge source is outside current work")
-			}
-		}
-	} else if !slices.Equal(provenance, current) {
-		return status.Error(codes.PermissionDenied, "action provenance changed")
 	}
 	var definition component.RunTool
 	if json.Unmarshal(a.ToolDefinition, &definition) != nil || a.ServerID != frozen.ServerID || a.ToolName != frozen.Name || a.Risk != frozen.Risk || a.DefinitionHash != frozen.DefinitionHash || a.ParametersHash != digest || definition.ServerID != frozen.ServerID || definition.Name != frozen.Name || definition.DefinitionHash != frozen.DefinitionHash || definition.Risk != frozen.Risk || definition.Transport != frozen.Transport || definition.URL != frozen.URL || definition.TargetParameter != frozen.TargetParameter || definition.CanShare != frozen.CanShare || !slices.Equal(definition.ConversationIDs, frozen.ConversationIDs) {

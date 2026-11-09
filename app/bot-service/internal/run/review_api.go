@@ -95,9 +95,7 @@ func (s *Service) ReviewOperation(ctx context.Context, caller, botID, operation 
 				if err := repo.RunController(tx, &current, caller); err != nil {
 					return err
 				}
-				if err := repo.CheckRunSources(tx, &current); err != nil {
-					return err
-				}
+
 				return tx.Model(&runReview{}).Where("id = ? AND status IN ?", review.ID, []string{"queued", "assessing", "generating"}).Updates(map[string]any{"status": "cancelled", "reason": "cancelled by authorized user", "updated_at": time.Now()}).Error
 			})
 			if err != nil {
@@ -227,13 +225,13 @@ func (s *Service) reviewViewer(ctx context.Context, caller string, r *model.Run,
 	// After expiry, a current scope maintainer can inspect safe identities even
 	// when the old grant's natural TTL prevents reading its former materials.
 	if review.ID != "" {
-		expires, err := s.reviewEffectiveExpiry(ctx, r, review)
+		expires, err := s.reviewEffectiveExpiry(ctx, review)
 		if err != nil {
 			return err
 		}
 		if !expires.After(time.Now()) || review.MaterialsClearedAt != nil {
 			return s.svc.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-				if err := s.candidateSourceRevocation(ctx, tx, r); err != nil {
+				if err := repo.LockRunAuthority(tx, r); err != nil {
 					return err
 				}
 				_, role, err := repo.RunMember(tx, r.ConvID, caller)
@@ -254,31 +252,25 @@ func (s *Service) reviewViewer(ctx context.Context, caller string, r *model.Run,
 	if err := s.visible(ctx, caller, r); err != nil {
 		return err
 	}
-	// Current source authorization, not Bot ownership, gates derived content too.
+	// Current participation, not Bot ownership, gates derived content too.
 	if err := s.authorize(ctx, r, false); err != nil {
 		return err
 	}
-	if err := repo.CheckRunSources(s.svc.DB.WithContext(ctx), r); err != nil {
-		return err
-	}
+
 	if r.Visibility == "personal" && (review.PersonalUserID == nil || *review.PersonalUserID != caller) {
 		return status.Error(codes.PermissionDenied, "personal review is private")
 	}
 	return s.svc.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return s.candidateMaterialAccess(ctx, tx, r, caller, make(map[string]bool))
+		return candidateScopeAuthority(tx, r, caller)
 	})
 }
 
 func (s *Service) reviewView(ctx context.Context, caller string, review *runReview, detail bool) (*reviewView, error) {
-	r, err := s.repo.Get(ctx, review.RunID)
+	expires, err := s.reviewEffectiveExpiry(ctx, review)
 	if err != nil {
 		return nil, err
 	}
-	expires, err := s.reviewEffectiveExpiry(ctx, r, review)
-	if err != nil {
-		return nil, err
-	}
-	current := expires.After(time.Now()) && review.MaterialsClearedAt == nil && review.EvidenceRevokedAt == nil
+	current := expires.After(time.Now()) && review.MaterialsClearedAt == nil
 	view := &reviewView{ID: review.ID, RunID: review.RunID, BotID: review.BotID, ConvID: review.ConvID, ScopeKey: review.ScopeKey, Status: review.Status, Reason: review.Reason, ModelCalls: review.ModelCalls, ModelVersion: review.ModelVersion, CandidateID: review.CandidateID, CreatedAt: review.CreatedAt.Unix(), UpdatedAt: review.UpdatedAt.Unix(), ExpiresAt: review.ExpiresAt.Unix()}
 	view.Revision, view.TriggerKind, view.SubmittedBy, view.ParentReviewID = review.Revision, review.TriggerKind, review.SubmittedBy, review.ParentReviewID
 	view.ExpiresAt = expires.Unix()
@@ -344,11 +336,11 @@ func (s *Service) reviewBoundary(ctx context.Context, r *model.Run, review *runR
 	if err == nil && !policy.Enabled {
 		return status.Error(codes.Canceled, "scope review disabled")
 	}
-	expires, err := s.reviewEffectiveExpiry(ctx, r, &current)
+	expires, err := s.reviewEffectiveExpiry(ctx, &current)
 	if err != nil {
 		return err
 	}
-	if !expires.After(time.Now()) || current.MaterialsClearedAt != nil || current.EvidenceRevokedAt != nil {
+	if !expires.After(time.Now()) || current.MaterialsClearedAt != nil {
 		return status.Error(codes.PermissionDenied, "review evidence expired")
 	}
 	if !repo.TerminalRun(r) || strings.EqualFold(r.TriggerKind, "review") || r.TriggerKind == "validation" {
@@ -357,9 +349,7 @@ func (s *Service) reviewBoundary(ctx context.Context, r *model.Run, review *runR
 	if err := s.authorize(ctx, r, false); err != nil {
 		return err
 	}
-	if err := repo.CheckRunSources(s.svc.DB.WithContext(ctx), r); err != nil {
-		return err
-	}
+
 	if review.SubmittedBy != nil {
 		return s.reviewViewer(ctx, *review.SubmittedBy, r, review)
 	}

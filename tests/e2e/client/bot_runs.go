@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -369,44 +370,83 @@ func (d *driver) botRuns(address, secondAddress string) error {
 			return err
 		}
 	}
-	budgetToken := "RUN_BUDGET_WAIT_" + suffix
-	budget, err := d.startRun(member, bots[0].ID, conv.ID, budgetToken, uuid.NewString(), nil)
-	if err != nil {
-		return err
-	}
-	// The five-call cumulative budget survives four input interrupts and reserves
-	// its final call for delivery, without resetting on Runner resume.
-	for round := range 4 {
-		if _, err = d.interactionWait(member, budget.ID, "waiting_input"); err != nil {
+	for _, refuseTool := range []bool{false, true} {
+		budgetToken := "RUN_BUDGET_WAIT_" + suffix
+		if refuseTool {
+			budgetToken += "_REFUSE_TOOL"
+		}
+		budget, err := d.startRun(member, bots[0].ID, conv.ID, budgetToken, uuid.NewString(), nil)
+		if err != nil {
 			return err
 		}
-		if _, err = d.interactionControl(member, budget.ID, "input", fmt.Sprintf("BUDGET_CONTINUE_%d", round), uuid.NewString(), nil); err != nil {
+		// Four input interrupts consume the working calls. Delivery retains the
+		// same Tools and appends a durable instruction, never rewriting history.
+		for round := range 4 {
+			if _, err = d.interactionWait(member, budget.ID, "waiting_input"); err != nil {
+				return err
+			}
+			if _, err = d.interactionControl(member, budget.ID, "input", fmt.Sprintf("BUDGET_CONTINUE_%d", round), uuid.NewString(), nil); err != nil {
+				return err
+			}
+		}
+		budget, err = d.waitRun(member, budget.ID)
+		if err != nil {
 			return err
 		}
-	}
-	budget, err = d.waitRun(member, budget.ID)
-	if err != nil {
-		return err
-	}
-	var boundedAnswer struct {
-		Unfinished bool `json:"unfinished"`
-	}
-	if budget.Status != "succeeded" || budget.MessageID == nil || json.Unmarshal([]byte(budget.ResultText), &boundedAnswer) != nil || !boundedAnswer.Unfinished {
-		return errors.New("bot-runs.budget: 恢复未按累计预算交付明确未完成范围")
-	}
-	budgetObservation, err := d.observeProvider()
-	if err != nil {
-		return err
-	}
-	budgetCalls := 0
-	for _, request := range budgetObservation.ChatRequests {
-		encoded, _ := json.Marshal(request["messages"])
-		if strings.Contains(string(encoded), budgetToken) {
-			budgetCalls++
+		if refuseTool {
+			if budget.Status != "failed" || budget.MessageID != nil {
+				return errors.New("bot-runs.budget: 最终交付响应的tool_calls未被拒绝，或仍提交了结果")
+			}
+		} else {
+			var boundedAnswer struct {
+				Unfinished bool `json:"unfinished"`
+			}
+			if budget.Status != "succeeded" || budget.MessageID == nil || json.Unmarshal([]byte(budget.ResultText), &boundedAnswer) != nil || !boundedAnswer.Unfinished {
+				return errors.New("bot-runs.budget: 恢复未按累计预算交付明确未完成范围")
+			}
 		}
-	}
-	if budgetCalls != 5 {
-		return fmt.Errorf("bot-runs.budget: 真实供应商调用越过累计预算 calls=%d", budgetCalls)
+		observation, err := d.observeProvider()
+		if err != nil {
+			return err
+		}
+		var previous []map[string]json.RawMessage
+		var frozenTools json.RawMessage
+		calls, deliveries := 0, 0
+		for _, request := range observation.ChatRequests {
+			inputs, _, err := interactionInputs(request)
+			if err != nil {
+				return err
+			}
+			if len(inputs) == 0 || inputs[0].Content != budgetToken {
+				continue
+			}
+			var messages []map[string]json.RawMessage
+			if err = json.Unmarshal(request["messages"], &messages); err != nil {
+				return err
+			}
+			if calls == 0 {
+				frozenTools = request["tools"]
+				if len(frozenTools) == 0 || string(frozenTools) == "[]" || string(frozenTools) == "null" {
+					return errors.New("bot-runs.budget: 初始请求缺少真实工具定义")
+				}
+			}
+			if string(request["tools"]) != string(frozenTools) || len(messages) < len(previous) || previous != nil && !reflect.DeepEqual(previous, messages[:len(previous)]) {
+				return errors.New("bot-runs.budget: 普通多轮、补充输入或最终交付改写了完整消息前缀或Tools")
+			}
+			for _, message := range messages {
+				var role, content string
+				_ = json.Unmarshal(message["role"], &role)
+				_ = json.Unmarshal(message["content"], &content)
+				if role == "system" && strings.HasPrefix(content, "Execution budget requires final delivery now.") {
+					deliveries++
+				}
+			}
+			previous = messages
+			calls++
+		}
+		if calls != 5 || deliveries != 1 {
+			return fmt.Errorf("bot-runs.budget: 累计五次调用与单一持久收尾指令不符 calls=%d deliveries=%d", calls, deliveries)
+		}
 	}
 	failed, err := d.startRun(member, bots[0].ID, conv.ID, "RUN_FAIL_PROVIDER_"+suffix, uuid.NewString(), nil)
 	if err != nil {

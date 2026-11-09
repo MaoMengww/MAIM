@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
@@ -126,9 +125,15 @@ func (d *driver) collaborationRevokedResult(admin, requester account, conv entit
 	if _, err = d.publishedRun(admin, child.ID); err != nil {
 		return err
 	}
-	var result json.RawMessage
+	var result struct {
+		Run        publicRun `json:"run"`
+		ResultText string    `json:"result_text"`
+	}
 	if err = d.request(http.MethodPost, "/bot-app/delegations", x.token, map[string]any{"operation": "result", "run_id": parent.ID, "generation": parent.Generation, "input_version": parent.InputVersion, "child_run_id": child.ID}, &result); err != nil {
 		return err
+	}
+	if result.Run.ID != child.ID || result.ResultText != "CHILD_RESULT_DEPENDENCY_CANARY" {
+		return errors.New("parent did not consume the exact delegated child result")
 	}
 	output := executorPayload(pr, "run.update", "completed", 1)
 	output["result_text"] = "parent-derived:CHILD_RESULT_DEPENDENCY_CANARY"
@@ -145,9 +150,22 @@ func (d *driver) collaborationRevokedResult(admin, requester account, conv entit
 	if err != nil {
 		return err
 	}
-	if current.ResultText != "" {
-		return errors.New("terminal parent exposed child-derived result after only child share grant revoked")
+	if current.ResultText != "parent-derived:CHILD_RESULT_DEPENDENCY_CANARY" || current.Status != "succeeded" || current.MessageID == nil {
+		return errors.New("child-only source revocation changed the committed parent-derived result")
 	}
-	fmt.Println("E2E PASS: current child-only resource sharing revocation invalidates consumed terminal parent-derived REST result")
+	for _, caller := range []account{admin, requester} {
+		archived, err := d.readRun(caller, child.ID)
+		if err != nil {
+			return fmt.Errorf("child-only source revocation hid delegated child history: %w", err)
+		}
+		if archived.ResultText != result.ResultText || archived.Status != "succeeded" || archived.MessageID == nil {
+			return errors.New("child-only source revocation changed the child result snapshot")
+		}
+	}
+	_, err = d.interactionStart(requester, bots[1].ID, conv, "fresh revoked child source acquisition", map[string]any{"file_ids": []entityID{file.info.FileID}, "resource_grant_ids": []entityID{b.ID}})
+	if err = d.expectStatus(err, http.StatusForbidden, "fresh source acquisition cannot reuse revoked child grant"); err != nil {
+		return err
+	}
+	fmt.Println("E2E PASS: child-only source revocation preserves consumed terminal parent and child result snapshots while denying fresh source acquisition")
 	return nil
 }

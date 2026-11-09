@@ -6,10 +6,8 @@ import (
 	"slices"
 
 	"github.com/maomeng/aim/app/message-service/internal/model"
-	"github.com/maomeng/aim/app/message-service/internal/repo"
 	"github.com/maomeng/aim/app/message-service/internal/svc"
 	"github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/database"
 	"github.com/maomeng/aim/pkg/errors"
 	"gorm.io/gorm"
 
@@ -109,11 +107,6 @@ func (l *GetMessageByIDLogic) getBotSource(in *message.GetMessageByIDReq) (*mess
 				return errors.New(errors.CodeForbidden, "message does not mention this bot")
 			}
 		}
-		projected := []model.Message{source}
-		if err := repo.NewMessageRepo(&database.DB{DB: tx}).ForUser(in.GetRequesterId()).ProjectKnowledgeResults(l.ctx, projected); err != nil {
-			return err
-		}
-		source = projected[0]
 		return nil
 	})
 	if err != nil {

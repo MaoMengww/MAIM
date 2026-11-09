@@ -96,9 +96,29 @@ func (d *driver) collaborationSourceGrant(admin, requester account, conv entityI
 	if err = d.request(http.MethodPost, "/bot-authorizations/resources", admin.token, map[string]any{"op": "revoke", "grant_id": a.ID}, nil); err != nil {
 		return err
 	}
-	if err = d.runtimeReject(http.MethodGet, "/runs/"+child.ID.String(), admin, nil, http.StatusForbidden); err != nil {
+	for _, caller := range []account{admin, requester} {
+		current, err := d.readRun(caller, child.ID)
+		if err != nil {
+			return fmt.Errorf("source-only revocation hid delegated child history: %w", err)
+		}
+		if current.ResultText != "SOURCE_SHARE_REVOKE_CANARY" || current.Status != "succeeded" || current.MessageID == nil {
+			return errors.New("source-only revocation changed the committed delegated child result")
+		}
+	}
+	var consumed struct {
+		Run        publicRun `json:"run"`
+		ResultText string    `json:"result_text"`
+	}
+	if err = d.request(http.MethodPost, "/bot-app/delegations", x.token, map[string]any{"operation": "result", "run_id": parent.ID, "generation": parent.Generation, "input_version": parent.InputVersion, "child_run_id": child.ID}, &consumed); err != nil {
+		return fmt.Errorf("source-only revocation blocked authorized delegated result history: %w", err)
+	}
+	if consumed.Run.ID != child.ID || consumed.ResultText != "SOURCE_SHARE_REVOKE_CANARY" {
+		return errors.New("source-only revocation stripped the delegated result snapshot")
+	}
+	_, err = d.interactionStart(requester, bots[0].ID, conv, "fresh revoked source acquisition", map[string]any{"file_ids": []entityID{file.info.FileID}, "resource_grant_ids": []entityID{a.ID}})
+	if err = d.expectStatus(err, http.StatusForbidden, "fresh source acquisition cannot reuse revoked parent grant"); err != nil {
 		return err
 	}
-	fmt.Println("E2E PASS: source-only sharing revoke denies terminal delegated child despite independent target read/share grant")
+	fmt.Println("E2E PASS: source-only sharing revoke preserves delegated child and explicit result history while denying fresh source acquisition")
 	return nil
 }

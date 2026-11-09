@@ -943,7 +943,12 @@ class Handler(BaseHTTPRequestHandler):
                     return
             elif any((accepted_input(item) or {}).get("content", "").startswith("RUN_BUDGET_WAIT_") for item in messages):
                 inputs = [value for item in messages if (value := accepted_input(item)) is not None]
-                if body.get("tools"):
+                if not body.get("tools"):
+                    self._json(400, {"error": {"message": "budget delivery must retain the frozen tool catalog"}})
+                    return
+                delivery = any(item.get("role") == "system" and str(item.get("content", "")).startswith(
+                    "Execution budget requires final delivery now.") for item in messages)
+                if not delivery or "REFUSE_TOOL" in inputs[0]["content"]:
                     message = {"role": "assistant", "content": None, "tool_calls": [{
                         "id": "budget-ask-" + str(len(inputs)), "type": "function", "function": {
                             "name": "ask_for_input", "arguments": json.dumps({"reason": "Supply the next budget input"})}}]}

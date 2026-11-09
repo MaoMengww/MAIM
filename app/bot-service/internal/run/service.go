@@ -361,9 +361,6 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 		if parent.Visibility != input.Visibility || (parent.Visibility == "personal" && (parent.PersonalUserID == nil || *parent.PersonalUserID != input.RequesterID)) {
 			return nil, status.Error(codes.PermissionDenied, "personal interaction cannot transfer visibility")
 		}
-		input.ResourceGrantIDs = append(input.ResourceGrantIDs, parent.ResourceGrantIDs...)
-		slices.Sort(input.ResourceGrantIDs)
-		input.ResourceGrantIDs = slices.Compact(input.ResourceGrantIDs)
 		if err := s.authorize(ctx, parent, false); err != nil {
 			return nil, err
 		}
@@ -412,12 +409,14 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 			}
 		}
 		result := Material{Kind: "parent_run", ParentRunID: parent.ID, RequesterID: input.RequesterID, SenderID: &parent.BotID, SenderType: "bot", Content: parent.ResultText, ResultType: parent.ResultType, ResultContent: parent.ResultContent, CreatedAt: parent.UpdatedAt.Unix()}
-		if !parent.ResultInvalidated && parent.ResultType == "file" {
+		if parent.ResultType == "file" {
 			var file msg.FileContent
 			if err := protocol.Unmarshal(parent.ResultContent, &file); err != nil {
 				return nil, err
 			}
-			material, err := s.readFileMaterial(ctx, input, file.FileId)
+			fileInput := input
+			fileInput.ResourceGrantIDs = parent.ResourceGrantIDs
+			material, err := s.readFileMaterial(ctx, fileInput, file.FileId)
 			if err != nil {
 				return nil, err
 			}
@@ -427,9 +426,7 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !parent.ResultInvalidated {
-			materials = append(materials, result)
-		}
+		materials = append(materials, result)
 		sources = append(sources, inheritedSources...)
 		sources = append(sources, map[string]any{"type": "parent_run", "kind": "parent_run", "parent_run_id": parent.ID, "sender_type": "bot", "sender_id": parent.BotID, "requester_id": input.RequesterID})
 	}
@@ -695,14 +692,6 @@ func (s *Service) Accept(ctx context.Context, input Input) (*model.Run, error) {
 }
 
 func (s *Service) authorize(ctx context.Context, r *model.Run, sharing bool) error {
-	return s.authorizeRun(ctx, r, sharing, make(map[string]bool))
-}
-
-func (s *Service) authorizeRun(ctx context.Context, r *model.Run, sharing bool, visited map[string]bool) error {
-	if visited[r.ID] {
-		return nil
-	}
-	visited[r.ID] = true
 	if reason, err := s.authorityState(ctx, r); err != nil {
 		return err
 	} else if reason != "" {
@@ -710,15 +699,6 @@ func (s *Service) authorizeRun(ctx context.Context, r *model.Run, sharing bool, 
 	}
 	if sharing && r.Visibility == "personal" {
 		return status.Error(codes.PermissionDenied, "personal Run cannot publish to conversation")
-	}
-	if err := resourcegrant.CheckIDs(s.svc.DB.WithContext(ctx), resourceAccess(r), r.Visibility != "personal" || sharing, false); err != nil {
-		return err
-	}
-	if err := s.currentRunTools(ctx, r); err != nil {
-		return err
-	}
-	if err := s.authorizeMaterials(ctx, r, visited); err != nil {
-		return err
 	}
 	var config ExecutionConfig
 	if err := json.Unmarshal(r.Config, &config); err != nil {
@@ -733,72 +713,11 @@ func (s *Service) authorizeRun(ctx context.Context, r *model.Run, sharing bool, 
 			return status.Error(codes.PermissionDenied, "executor authorization or routing changed")
 		}
 	}
-	if len(config.Tools) > 0 {
-		servers, err := s.svc.BotRepo.ListEnabledMcpServers(ctx, r.BotID)
-		if err != nil {
-			return err
-		}
-		frozenServers := make([]model.McpServer, 0)
-		for _, server := range servers {
-			if slices.ContainsFunc(config.Tools, func(t component.RunTool) bool { return t.ServerID == server.ID }) {
-				frozenServers = append(frozenServers, server)
-			}
-		}
-		currentTools, err := component.DiscoverRunTools(ctx, frozenServers)
-		if err != nil {
-			return err
-		}
-		for _, tool := range config.Tools {
-			if tool.ServerID == "runtime" {
-				if !slices.Contains([]string{"ask_for_input", "delegate_run", "delegation_result", "load_skill", "read_skill_resource", "run_skill_script"}, tool.Name) && !isRuntimeReadTool(tool.Name) {
-					return status.Error(codes.PermissionDenied, "unknown runtime tool")
-				}
-				continue
-			}
-			if tool.ServerID == "builtin" {
-				current, err := s.svc.BotRepo.GetBot(ctx, r.BotID)
-				if err != nil {
-					return err
-				}
-				var capabilities struct {
-					BuiltinTools []string `json:"builtin_tools"`
-				}
-				if err := json.Unmarshal(current.Capabilities, &capabilities); err != nil || !slices.Contains(capabilities.BuiltinTools, tool.Name) {
-					return status.Error(codes.PermissionDenied, "builtin tool authorization revoked")
-				}
-				continue
-			}
-			if !slices.ContainsFunc(servers, func(server model.McpServer) bool {
-				return server.ID == tool.ServerID && server.URL == tool.URL && server.Transport == tool.Transport
-			}) {
-				return status.Error(codes.PermissionDenied, "tool authorization or routing changed")
-			}
-			if !slices.ContainsFunc(currentTools, func(t component.RunTool) bool {
-				return t.ServerID == tool.ServerID && t.Name == tool.Name && t.DefinitionHash == tool.DefinitionHash
-			}) {
-				return status.Error(codes.PermissionDenied, "tool definition or risk authorization changed")
-			}
-		}
-	}
 	return nil
 }
 func (s *Service) visible(ctx context.Context, user string, r *model.Run) error {
 	if r.Visibility == "personal" && (r.PersonalUserID == nil || *r.PersonalUserID != user) {
 		return status.Error(codes.PermissionDenied, "personal Run is not visible")
-	}
-	if reason, err := s.originAuthorityState(ctx, r); err != nil {
-		return err
-	} else if reason != "" {
-		return status.Error(codes.PermissionDenied, reason)
-	}
-	if err := resourcegrant.CheckIDs(s.svc.DB.WithContext(ctx), resourceAccess(r), r.Visibility != "personal", false); err != nil {
-		return err
-	}
-	if err := s.checkScopedRunSkills(ctx, r, user); err != nil {
-		return err
-	}
-	if err := s.currentRunTools(ctx, r); err != nil {
-		return err
 	}
 	if err := s.RequireMember(ctx, user, r.ConvID); err != nil {
 		return err
@@ -945,21 +864,6 @@ func (s *Service) collectMaterials(ctx context.Context, input Input, historyLimi
 		if err != nil {
 			return err
 		}
-		if m.SenderType == "bot" && m.RawPayload != "" {
-			var payload struct {
-				RunID string `json:"run_id"`
-			}
-			if json.Unmarshal([]byte(m.RawPayload), &payload) == nil && identity.Validate(payload.RunID) == nil {
-				origin, err := s.Get(ctx, payload.RunID, input.RequesterID)
-				if err != nil {
-					return err
-				}
-				if origin.ConvID != input.ConvID || origin.MessageID == nil || *origin.MessageID != m.MessageId || origin.ResultInvalidated {
-					return status.Error(codes.PermissionDenied, "cited result source is unavailable")
-				}
-				material.Provenance = origin.Provenance
-			}
-		}
 		material.RequesterID, material.HistoryGrantID, material.SourceExplicit = input.RequesterID, grant, explicit
 		var binding model.ConvBot
 		if err := s.svc.DB.WithContext(ctx).Where("id = ?", input.BindingID).First(&binding).Error; err != nil {
@@ -1094,66 +998,6 @@ func (s *Service) readFileMaterial(ctx context.Context, input Input, id string) 
 		return Material{}, err
 	}
 	return Material{Kind: "file", FileID: id, FileName: info.Name, MimeType: info.MimeType, RequesterID: input.RequesterID, SenderID: &info.UploaderId, SenderType: "user", Content: string(content), CreatedAt: info.CreatedAt, Shared: input.Visibility != "personal"}, nil
-}
-
-func (s *Service) authorizeMaterials(ctx context.Context, r *model.Run, visited map[string]bool) error {
-	var materials []Material
-	if err := json.Unmarshal(r.Materials, &materials); err != nil {
-		return err
-	}
-	parents := make(map[string]bool)
-	for _, material := range materials {
-		requester := material.RequesterID
-		if requester == "" {
-			requester = r.RequesterID
-		}
-		input := Input{BotID: r.BotID, ConvID: r.ConvID, BindingID: r.BindingID, RequesterID: requester, Visibility: r.Visibility, ResourceGrantIDs: r.ResourceGrantIDs}
-		// Historical and personal grants retain the original principal.
-		if material.Shared {
-			input.RequesterID = r.ControllerID
-		}
-		if material.HistoryGrantID != "" {
-			if err := repo.CheckMaterialHistory(s.svc.DB.WithContext(ctx), r, material.HistoryGrantID, material.Seq); err != nil {
-				return err
-			}
-		}
-		if material.FileID != "" {
-			if _, err := s.filePermission(ctx, input, material.FileID); err != nil {
-				return err
-			}
-		}
-		if material.ParentRunID != "" && !parents[material.ParentRunID] {
-			parent, err := s.repo.Get(ctx, material.ParentRunID)
-			if err != nil {
-				return err
-			}
-			if err := s.refreshAuthorizations(ctx, parent); err != nil {
-				return err
-			}
-			if material.Kind == "delegation_result" {
-				if err := repo.CheckDelegationResult(s.svc.DB.WithContext(ctx), r, parent); err != nil {
-					return err
-				}
-			} else if parent.BotID != r.BotID || parent.ConvID != r.ConvID || parent.BindingID != r.BindingID || parent.InteractionID != r.InteractionID {
-				return status.Error(codes.PermissionDenied, "parent material is outside this interaction")
-			}
-			if repo.TerminalRun(parent) && sharedMaterials(parent) {
-				// A completed shared result is material, not live work owned by
-				// its former controller. Check it under the child's current member
-				// while retaining every original personal/resource grant and epoch.
-				member, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, r.ControllerID)
-				if err != nil {
-					return err
-				}
-				parent.ControllerID, parent.ControllerMemberID = r.ControllerID, &member
-			}
-			if err := s.authorizeRun(ctx, parent, material.Kind == "delegation_result", visited); err != nil {
-				return err
-			}
-			parents[parent.ID] = true
-		}
-	}
-	return nil
 }
 
 // ReplyInput routes only an explicit reply to this binding's published Run card.

@@ -114,7 +114,7 @@ func (s *Service) currentCompaction(ctx context.Context, r *model.Run, config Ex
 	return &checkpoint, nil
 }
 
-func compactionView(blocks []model.RunTrajectory, checkpoint *model.RunCompactionCheckpoint, config ExecutionConfig) ([]*llm.Message, []string, error) {
+func compactionView(blocks []model.RunTrajectory, checkpoint *model.RunCompactionCheckpoint, _ ExecutionConfig) ([]*llm.Message, []string, error) {
 	messages := make([]*llm.Message, 0, len(blocks)+2)
 	omissions := make([]string, 0)
 	for _, block := range blocks {
@@ -141,11 +141,7 @@ func compactionView(blocks []model.RunTrajectory, checkpoint *model.RunCompactio
 			}
 			continue
 		}
-		bounded, notice := boundedWorkMessage(&message, block.Version, max(256, config.MaxContextTokens/4))
-		messages = append(messages, bounded)
-		if notice != "" {
-			omissions = append(omissions, notice)
-		}
+		messages = append(messages, &message)
 	}
 	return messages, omissions, nil
 }
@@ -201,11 +197,6 @@ func (s *Service) workingModelView(ctx context.Context, r *model.Run, generation
 			*r = *updated
 		}
 	}
-	if checkpoint != nil {
-		if constraint := s.skillConstraints(ctx, r, config); constraint != nil {
-			messages = append(messages, constraint)
-		}
-	}
 	cost, err := modelInputCost(messages, config)
 	if err != nil {
 		return nil, err
@@ -227,30 +218,22 @@ func (s *Service) workingModelView(ctx context.Context, r *model.Run, generation
 		return nil, err
 	}
 	if mandatoryCost+workHeadroom(config) > config.MaxContextTokens {
-		return nil, status.Error(codes.ResourceExhausted, "fixed instructions, legal tools and current request exceed context budget; deliver without tools")
+		return nil, status.Error(codes.ResourceExhausted, "fixed instructions, tools and current request exceed context budget")
 	}
 	checkpoint, err = s.compactWork(ctx, r, generation, config, blocks, checkpoint)
 	if err != nil {
-		if status.Code(err) == codes.Aborted {
-			if refreshErr := s.refreshAuthorizations(ctx, r); refreshErr != nil {
-				return nil, refreshErr
-			}
-		}
 		return nil, err
 	}
 	messages, _, err = compactionView(blocks, checkpoint, config)
 	if err != nil {
 		return nil, err
 	}
-	if constraint := s.skillConstraints(ctx, r, config); constraint != nil {
-		messages = append(messages, constraint)
-	}
 	cost, err = modelInputCost(messages, config)
 	if err != nil {
 		return nil, err
 	}
 	if cost+workHeadroom(config) > config.MaxContextTokens {
-		return nil, status.Error(codes.ResourceExhausted, "fixed instructions, legal tools and current request exceed context budget; submit a bounded request")
+		return nil, status.Error(codes.ResourceExhausted, "compacted work exceeds context budget")
 	}
 	return messages, nil
 }
@@ -457,9 +440,6 @@ func (s *Service) compactWork(ctx context.Context, r *model.Run, generation int6
 		}
 		call := model.RunCompactionCall{ID: id, RunID: r.ID, InteractionID: r.InteractionID, ExecutionGeneration: generation, BranchVersion: branch, SourceRevision: revision, CoveredFrom: cursor, CoveredThrough: end, InputUpperBound: upper, PriorCheckpointID: priorID, Request: raw, Status: "requested"}
 		if _, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-			if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
-				return err
-			}
 			if current.BranchVersion != branch || current.SourceRevision != revision {
 				return status.Error(codes.Aborted, "summary source snapshot changed")
 			}
@@ -501,9 +481,6 @@ func (s *Service) compactWork(ctx context.Context, r *model.Run, generation int6
 			}
 		}
 		if _, err := s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-			if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
-				return err
-			}
 			if current.BranchVersion != branch || current.SourceRevision != revision {
 				return status.Error(codes.Aborted, "summary source snapshot changed")
 			}
@@ -561,6 +538,13 @@ func (s *Service) compactWork(ctx context.Context, r *model.Run, generation int6
 	if err != nil {
 		return nil, err
 	}
+	constraint, err := skillConstraints(blocks, config)
+	if err != nil {
+		return nil, err
+	}
+	if constraint != nil {
+		pinned = append(pinned, constraint)
+	}
 	pinnedRaw, err := json.Marshal(pinned)
 	if err != nil {
 		return nil, err
@@ -571,9 +555,6 @@ func (s *Service) compactWork(ctx context.Context, r *model.Run, generation int6
 	}
 	checkpoint := &model.RunCompactionCheckpoint{ID: id, RunID: r.ID, InteractionID: r.InteractionID, Version: version + 1, BranchVersion: branch, SourceRevision: revision, CoveredFrom: 2, CoveredThrough: cut, InputUpperBound: upper, PriorCheckpointID: priorID, SourceVersions: sourceVersions, InstructionVersion: instructionVersion, ToolsVersion: toolsVersion, AssemblyVersion: config.AssemblyVersion, Summary: summary, PinnedMessages: pinnedRaw, Omissions: omissionRaw, Status: "valid"}
 	_, err = s.repo.Change(ctx, r.ID, generation, func(tx *gorm.DB, current *model.Run) error {
-		if err := s.recheckAuthorizations(ctx, tx, current); err != nil {
-			return err
-		}
 		if current.InteractionID != r.InteractionID || current.BranchVersion != branch || current.SourceRevision != revision || current.AppliedInputVersion < upper || current.TrajectoryVersion < cut {
 			return status.Error(codes.Aborted, "compaction watermarks superseded")
 		}

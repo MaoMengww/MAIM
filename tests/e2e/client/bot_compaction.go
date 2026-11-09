@@ -408,6 +408,9 @@ func (f *compactionFixture) vertical(address string) (retErr error) {
 		return err
 	}
 	seenSummary := false
+	var previous []map[string]json.RawMessage
+	var previousSummary string
+	var frozenTools json.RawMessage
 	for _, row := range observed.Requests {
 		if row.Kind != "work" {
 			continue
@@ -426,6 +429,19 @@ func (f *compactionFixture) vertical(address string) (retErr error) {
 		if err != nil {
 			return err
 		}
+		if previous == nil {
+			frozenTools = row.Body["tools"]
+		}
+		if string(row.Body["tools"]) != string(frozenTools) {
+			return errors.New("compaction changed the frozen work tool catalog")
+		}
+		if previous != nil && current == previousSummary && (len(messages) < len(previous) || !reflect.DeepEqual(previous, messages[:len(previous)])) {
+			return errors.New("non-compaction work request rewrote its complete input prefix")
+		}
+		if previousSummary != "" && current == "" {
+			return errors.New("compaction dropped its established summary prefix")
+		}
+		previous, previousSummary = messages, current
 		if current != "" {
 			seenSummary = true
 		}
@@ -1065,14 +1081,18 @@ func (f *compactionFixture) resourceRevocation() (result error) {
 	if _, err = f.gate(token, "release", ""); err != nil {
 		return err
 	}
-	if _, err = f.d.interactionWait(f.owner, run.ID, "stopped"); err != nil {
-		var api *apiError
-		if !errors.As(err, &api) || api.status != http.StatusForbidden {
-			return err
-		}
-	}
-	if err = f.d.authorizationReject("/bots/"+f.bot.ID.String()+"/runs", f.owner.token, map[string]any{"conv_id": f.conv, "submission_key": uuid.NewString(), "message": token + " forbidden continuation", "parent_run_id": run.ID}); err != nil {
+	if _, err = f.d.interactionWait(f.owner, run.ID, "waiting_input"); err != nil {
 		return err
+	}
+	if _, err = f.input(f.owner, run.ID, "COMPLETE VALUE=7", nil); err != nil {
+		return err
+	}
+	done, err := f.d.interactionWait(f.owner, run.ID, "succeeded")
+	if err != nil {
+		return err
+	}
+	if done.MessageID == nil || !strings.Contains(done.ResultText, "CANARY_RESOURCE_REVOKED") {
+		return errors.New("source revocation invalidated the compacted accepted file snapshot")
 	}
 	if err = f.d.authorizationReject("/bot-authorizations/resources", f.owner.token, map[string]any{"op": "read", "run_id": run.ID, "grant_id": grant.ID}); err != nil {
 		return err
@@ -1087,10 +1107,12 @@ func (f *compactionFixture) resourceRevocation() (result error) {
 	if err != nil {
 		return err
 	}
+	retained := false
 	for _, row := range after.Requests[len(held.Requests):] {
-		if strings.Contains(string(row.Body["messages"]), "CANARY_RESOURCE_REVOKED") {
-			return errors.New("revoked resource leaked to subsequent request")
-		}
+		retained = retained || strings.Contains(string(row.Body["messages"]), "CANARY_RESOURCE_REVOKED")
+	}
+	if !retained {
+		return errors.New("compaction lost accepted source facts after revocation")
 	}
 	return nil
 }
@@ -1112,29 +1134,21 @@ func (f *compactionFixture) omittedMaterial() error {
 	if err != nil {
 		return err
 	}
-	if _, err = f.d.interactionWait(f.owner, run.ID, "succeeded"); err != nil {
-		return err
-	}
-	public, err := f.read(f.owner, run.ID)
+	failedMaterial, err := f.wait(f.owner, run.ID, func(r compactionRun) bool { return r.Status == "failed" })
 	if err != nil {
 		return err
 	}
-	if public.ContextNotice == "" {
-		return errors.New("oversized omitted material lacked public not-analyzed notice")
+	if failedMaterial.Error == "" || failedMaterial.MessageID != nil || failedMaterial.OutputStatus != "none" {
+		return errors.New("oversized initial material was silently clipped or published as analyzed")
 	}
 	rows, err := f.gate(token, "observe", "")
 	if err != nil {
 		return err
 	}
-	if len(rows.Requests) == 0 {
-		return errors.New("omission never exercised actual model boundary")
+	if len(rows.Requests) != 0 {
+		return errors.New("oversized initial material was truncated into an ordinary model request")
 	}
-	for _, row := range rows.Requests {
-		if strings.Contains(string(row.Body["messages"]), "CANARY_OVERSIZED_UNANALYZED") {
-			return errors.New("oversized material silently included despite omission")
-		}
-	}
-	if err = f.save("oversized_material_notice", run, token); err != nil {
+	if err = f.save("oversized_material_rejected", run, token); err != nil {
 		return err
 	}
 	largeToken := "CP_LARGE_" + f.suffix
@@ -1281,27 +1295,30 @@ func (f *compactionFixture) historyAuthorization() error {
 	if strings.Contains(fresh.ResultText, "CANARY_HISTORY_ACCEPTED") {
 		return errors.New("new historical read resurrected removed original")
 	}
-	// The author leaving is actual history-grant revocation, unlike IM deletion.
+	// The grant issuer leaving blocks new reads, not the owner's accepted snapshot.
 	if err = f.d.request(http.MethodPost, "/convs/"+f.conv.String()+"/members/kick", f.owner.token, map[string]any{"user_ids": []entityID{f.member.id}}, nil); err != nil {
 		return err
 	}
-	if err = f.d.authorizationReject("/bots/"+f.bot.ID.String()+"/runs", f.owner.token, map[string]any{"conv_id": f.conv, "submission_key": uuid.NewString(), "message": token + " COMPLETE VALUE=2", "parent_run_id": run.ID}); err != nil {
+	if err = f.d.authorizationReject("/bots/"+f.bot.ID.String()+"/runs", f.owner.token, map[string]any{"conv_id": f.conv, "submission_key": uuid.NewString(), "message": freshToken + " COMPLETE VALUE=2", "history_grant_id": grant}); err != nil {
 		return err
 	}
-	revoked, err := f.read(f.owner, run.ID)
-	if err == nil {
-		raw, err := json.Marshal(revoked)
-		if err != nil {
-			return err
-		}
-		if strings.Contains(string(raw), "CANARY_HISTORY_ACCEPTED") {
-			return errors.New("revoked historical content remained disclosed")
-		}
-	} else {
-		var denied *apiError
-		if !errors.As(err, &denied) || denied.status != http.StatusForbidden {
-			return err
-		}
+	retained, err := f.read(f.owner, run.ID)
+	if err != nil {
+		return err
+	}
+	if retained.ResultText != done.ResultText || !strings.Contains(retained.ResultText, "CANARY_HISTORY_ACCEPTED") {
+		return errors.New("history grant issuer departure rewrote independent historical result")
+	}
+	continued, err := f.d.interactionStart(f.owner, f.bot.ID, f.conv, token+" COMPLETE VALUE=2", map[string]any{"parent_run_id": run.ID})
+	if err != nil {
+		return err
+	}
+	continued, err = f.d.interactionWait(f.owner, continued.ID, "succeeded")
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(continued.ResultText, "CANARY_HISTORY_ACCEPTED") {
+		return errors.New("authorized continuation lost independent accepted history")
 	}
 	return nil
 }

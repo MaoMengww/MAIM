@@ -450,7 +450,7 @@ func run(args []string) error {
 		} else if scenario.name == "bot-identity" {
 			fmt.Println("E2E PASS: bot-identity 独立owner/inviter/requester → 两群binding与纯人类计数 → WS/Webhook Run text/file/result显式Bot身份 → 当前撤绑/重入拒绝旧Run重试 → 指定seq授权/无grant/越界/跨群/个人删除/旧grant拒读 → search/引用/用户sync身份一致")
 		} else if scenario.name == "bot-runs" {
-			fmt.Println("E2E PASS: bot-runs 明确操作/目标mention → 独立交互Run → 幂等/冲突 → 真实工具/追加前缀 → 失败/消息历史 → WS版本与重连恢复")
+			fmt.Println("E2E PASS: bot-runs 明确操作/目标mention → 独立交互Run → 幂等/冲突 → 真实工具与完整追加前缀 → 累计预算收尾保留Tools且拒绝tool_calls → 失败/消息历史 → WS版本与重连恢复")
 		} else if scenario.name == "bot-interactions" {
 			fmt.Println("E2E PASS: bot-interactions 实际ask_for_input/多人并发receipt → in-flight不可变prefix与后续输入 → 同Bot并行隔离 → 终态/显式parent/close/clear历史保留 → 消息/history/file/其他Bot来源与授权拒绝 → WS/Webhook有序补充/unsupported明确拒绝")
 		} else if scenario.name == "bot-executor-runs" {
@@ -458,15 +458,15 @@ func run(args []string) error {
 		} else if scenario.name == "bot-run-controls" {
 			fmt.Println("E2E PASS: bot-run-controls 当前控制权限/重放 → 实际模型及工具取消 → 第三方工作循环确认/未确认/拒绝/完成竞态 → 接手来源与个人许可隔离 → 退群暂停/明确接手/新成员历史 → Bot撤绑停用许可撤销即刻拒读输出/无材料确认/重入不复活")
 		} else if scenario.name == "bot-authorizations" {
-			fmt.Println("E2E PASS: bot-authorizations public REST/WS resource read/share/private/revocation and exact external action authority")
+			fmt.Println("E2E PASS: bot-authorizations public resource read/share/private boundaries, revoked fresh reads denied, accepted snapshots and published results retained, exact external action authority")
 		} else if scenario.name == "bot-run-reviews" {
 			fmt.Println("E2E PASS: bot-run-reviews 公开客户端确定性合同回归；不代表真实模型提炼质量")
 		} else if scenario.name == "bot-file-processing" {
-			fmt.Println("E2E PASS: bot-file-processing 公开客户端上传CSV → 固定脚本skill发布 → 真实Docker执行 → 正式文件/唯一消息 → 回收后下载与撤权边界")
+			fmt.Println("E2E PASS: bot-file-processing 公开客户端上传CSV → 固定脚本skill发布 → 真实Docker执行 → 正式文件/唯一消息 → 源撤权拒绝新读取但原Run/消息/派生产物继续可读下载")
 		} else if scenario.name == "bot-collaboration" {
 			fmt.Println("E2E PASS: bot-collaboration explicit activity rules and independent delegated Run outcomes")
 		} else if scenario.name == "bot-compaction" {
-			fmt.Println("E2E PASS: bot-compaction actual provider prefix/summary/tail/tools -> IM mutations preserve accepted work + watermark/concurrent input -> runtime restart -> independent parent/child results + original-only sync -> live resource/history revocation; no simulated KV-hit claim")
+			fmt.Println("E2E PASS: bot-compaction actual append-only provider prefix/summary/tail/tools -> IM mutations and source revocation preserve accepted snapshots + watermark/concurrent input -> runtime restart -> independent results and authorized continuation; fresh source reads still denied; no simulated KV-hit claim")
 		} else if scenario.name == "bot-recovery" {
 			fmt.Println("E2E PASS: bot-recovery real SIGKILL/restart, expiring third-party claims, durable fences, external ledger counts and unique pending publication")
 		} else if scenario.name == "bot-cutover" {

@@ -31,8 +31,8 @@ const (
 
 // RegisterBotOutputLogic writes a bot-owned Run result into the file domain's
 // own contract. The trusted runtime supplies exact accepted Run identity and
-// bytes; this layer independently rechecks current participation, material,
-// tool-sharing and lifecycle authority before creating a formal file resource.
+// bytes; this layer independently rechecks current participation and execution
+// lifecycle authority before creating a formal, independently authorized file.
 type RegisterBotOutputLogic struct {
 	ctx    context.Context
 	svcCtx *svc.ServiceContext
@@ -87,14 +87,6 @@ func (l *RegisterBotOutputLogic) RegisterBotOutput(in *filepb.RegisterBotOutputR
 		if err != nil {
 			return err
 		}
-		// Snapshot authoritative accepted grants, never a caller-pruned list. A
-		// newly generated output grant is not yet present and cannot depend on itself.
-		sources := access
-		sources.GrantIDs = run.ResourceGrantIDs
-		sourceExpiry, err := resourcegrant.CheckIDsUntil(tx, sources, sources.Visibility != "personal", true)
-		if err != nil {
-			return err
-		}
 		var existing struct{ FileID string }
 		err = tx.Table("file.output_registrations").Where("run_id = ? AND generation = ?", in.GetRunId(), in.GetGeneration()).Take(&existing).Error
 		if err == nil {
@@ -106,17 +98,10 @@ func (l *RegisterBotOutputLogic) RegisterBotOutput(in *filepb.RegisterBotOutputR
 			if err := tx.Table(resourcegrant.Table("file")).Select("id").Where("resource_id = ? AND owner_id = ? AND subject_id = ? AND revoked_at IS NULL AND expires_at > ?", prior.ID, access.BotID, subject, time.Now()).Take(&priorGrant).Error; err != nil {
 				return status.Error(codes.PermissionDenied, "registered output grant is no longer current")
 			}
-			if _, err := resourcegrant.CheckFileOutputSources(tx, prior.ID, true); err != nil {
-				return err
-			}
 			file, grantID = &prior, priorGrant.ID
 			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		tools, err := resourcegrant.RunToolRefs(tx, sources, in.GetRunId())
-		if err != nil {
 			return err
 		}
 		id, err := identity.New()
@@ -125,9 +110,6 @@ func (l *RegisterBotOutputLogic) RegisterBotOutput(in *filepb.RegisterBotOutputR
 		}
 		now := time.Now()
 		expiresAt := now.Add(botOutputGrantTTL)
-		if !sourceExpiry.IsZero() && sourceExpiry.Before(expiresAt) {
-			expiresAt = sourceExpiry
-		}
 		record := &model.File{
 			ID: id, Name: in.GetName(), Key: upload.Key, Size: int64(len(data)), MimeType: in.GetMimeType(),
 			Ext: ".csv", Purpose: int32(filepb.FilePurpose_FILE_PURPOSE_DOCUMENT),
@@ -159,7 +141,7 @@ func (l *RegisterBotOutputLogic) RegisterBotOutput(in *filepb.RegisterBotOutputR
 		if err := tx.Create(&resourcegrant.OutputRegistration{
 			RunID: in.GetRunId(), Generation: in.GetGeneration(), BotID: run.BotID,
 			ConvID: run.ConvID, BindingID: run.BindingID, FileID: record.ID,
-			SourceAccess: &sources, SourceTools: tools, ExpiresAt: expiresAt, CreatedAt: now,
+			CreatedAt: now,
 		}).Error; err != nil {
 			return err
 		}
@@ -178,18 +160,17 @@ func (l *RegisterBotOutputLogic) RegisterBotOutput(in *filepb.RegisterBotOutputR
 type outputRun struct {
 	BotID, ConvID, BindingID                                  string
 	RequesterID, ControllerID, Visibility, Status, StopStatus string
+	ControllerMemberID                                        *string
 	ExecutionGeneration                                       int64
-	ResourceGrantIDs                                          []string `gorm:"serializer:json"`
-	AccessRevoked, ResultInvalidated                          bool
+	AccessRevoked                                             bool
 	BotAuthorizationVersion, BindingAuthorizationVersion      int64
 }
 
-// checkRun revalidates accepted Run identity, lifecycle, current sources,
-// current tool sharing and the output principal. The second return value is the
-// exact current member incarnation used by the grant.
+// checkRun revalidates accepted Run identity, current participation, execution
+// lifecycle and the output principal. Source snapshots need no renewed grant.
 func (l *RegisterBotOutputLogic) checkRun(tx *gorm.DB, in *filepb.RegisterBotOutputReq, access resourcegrant.Access, lock bool) (outputRun, string, string, error) {
 	var run outputRun
-	query := tx.Table("bot.runs").Select("bot_id, conv_id, binding_id, requester_id, controller_id, visibility, status, stop_status, execution_generation, resource_grant_ids, access_revoked, result_invalidated, bot_authorization_version, binding_authorization_version").Where("id = ?", in.GetRunId())
+	query := tx.Table("bot.runs").Select("bot_id, conv_id, binding_id, requester_id, controller_id, controller_member_id, visibility, status, stop_status, execution_generation, access_revoked, bot_authorization_version, binding_authorization_version").Where("id = ?", in.GetRunId())
 	if lock {
 		query = query.Clauses(clause.Locking{Strength: "SHARE"})
 	}
@@ -202,7 +183,7 @@ func (l *RegisterBotOutputLogic) checkRun(tx *gorm.DB, in *filepb.RegisterBotOut
 	if run.BotID != access.BotID || run.ConvID != access.ConvID || run.BindingID != access.BindingID || run.RequesterID != access.RequesterID || run.Visibility != access.Visibility {
 		return outputRun{}, "", "", status.Error(codes.PermissionDenied, "Run output identity does not match this execution")
 	}
-	if run.AccessRevoked || run.ResultInvalidated || run.Status == "stopping" || run.Status == "stopped" || run.Status == "succeeded" || run.Status == "failed" || run.StopStatus != "none" {
+	if run.AccessRevoked || run.Status == "stopping" || run.Status == "stopped" || run.Status == "succeeded" || run.Status == "failed" || run.StopStatus != "none" {
 		return outputRun{}, "", "", status.Error(codes.PermissionDenied, "Run output authorization or lifecycle revoked")
 	}
 	if in.GetWorkerGeneration() != run.ExecutionGeneration || run.ExecutionGeneration < 1 {
@@ -226,15 +207,20 @@ func (l *RegisterBotOutputLogic) checkRun(tx *gorm.DB, in *filepb.RegisterBotOut
 	if err := query.Take(&execution).Error; err != nil {
 		return outputRun{}, "", "", status.Error(codes.PermissionDenied, "verified execution output identity unavailable")
 	}
-	access.GrantIDs = run.ResourceGrantIDs
-	if len(access.GrantIDs) == 0 {
-		return outputRun{}, "", "", status.Error(codes.PermissionDenied, "execution input authorization unavailable")
+	var binding struct{ ID string }
+	query = tx.Table("messaging.conv_bots c").Select("c.id").
+		Joins("JOIN bot.bots b ON b.id = c.bot_id").
+		Where("c.id = ? AND c.conv_id = ? AND c.bot_id = ? AND c.revoked_at IS NULL AND b.status = 'active' AND c.authorization_version = ? AND b.authorization_version = ?", run.BindingID, run.ConvID, run.BotID, run.BindingAuthorizationVersion, run.BotAuthorizationVersion).
+		Where("COALESCE(c.bot_settings::jsonb->'enabled', 'true'::jsonb) = 'true'::jsonb")
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "SHARE", Table: clause.Table{Name: "c, b", Raw: true}})
 	}
-	if err := resourcegrant.CheckIDs(tx, access, access.Visibility != "personal", lock); err != nil {
-		return outputRun{}, "", "", err
+	if err := query.Take(&binding).Error; err != nil {
+		return outputRun{}, "", "", status.Error(codes.PermissionDenied, "output participation authorization unavailable")
 	}
-	if err := resourcegrant.CheckRunToolPermissions(tx, access, in.GetRunId(), lock); err != nil {
-		return outputRun{}, "", "", err
+	var controller struct{ ID string }
+	if err := tx.Table("messaging.conv_members").Where("conv_id = ? AND user_id = ? AND member_type = 'user'", run.ConvID, run.ControllerID).Take(&controller).Error; err != nil || run.ControllerMemberID == nil || controller.ID != *run.ControllerMemberID {
+		return outputRun{}, "", "", status.Error(codes.PermissionDenied, "output controller is not a current conversation member")
 	}
 	subject := run.RequesterID
 	if identity.Validate(subject) != nil {

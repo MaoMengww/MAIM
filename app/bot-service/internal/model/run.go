@@ -60,7 +60,6 @@ type Run struct {
 	SourceRevision       int64
 	BranchVersion        int64
 	Provenance           json.RawMessage `gorm:"type:jsonb"`
-	ResultInvalidated    bool
 	Version              int64
 	TrajectoryVersion    int64
 	ExecutionGeneration  int64
@@ -163,8 +162,7 @@ type InputSource struct {
 }
 
 // SourceVersion is private provenance, not material or a permission grant.
-// History fields mark on-demand reads requiring ongoing messaging visibility;
-// original explicit accepted-input versions intentionally leave them empty.
+// Source identities and versions are retained for citation and audit only.
 type SourceVersion struct {
 	MessageID             string `json:"message_id,omitempty"`
 	AcceptedEditCount     int32  `json:"accepted_edit_count"`
@@ -179,14 +177,6 @@ type SourceVersion struct {
 	KnowledgeMetadataHash string `json:"knowledge_metadata_hash,omitempty"`
 	ParentRunID           string `json:"parent_run_id,omitempty"`
 	SourceRevision        int64  `json:"source_revision,omitzero"`
-}
-
-func (version SourceVersion) KnowledgeSource() resourcegrant.KnowledgeSource {
-	return resourcegrant.KnowledgeSource{KnowledgeID: version.KnowledgeID, KnowledgeDocID: version.KnowledgeDocID, KnowledgeChunkID: version.KnowledgeChunkID, KnowledgeContentHash: version.KnowledgeContentHash, KnowledgeDocumentHash: version.KnowledgeDocumentHash, KnowledgeMetadataHash: version.KnowledgeMetadataHash}
-}
-
-func (version SourceVersion) HistorySource() resourcegrant.HistorySource {
-	return resourcegrant.HistorySource{MessageID: version.MessageID, AcceptedEditCount: version.AcceptedEditCount, HistoryGrantID: version.HistoryGrantID, HistorySeq: version.HistorySeq}
 }
 
 func KnowledgeSourceVersion(source resourcegrant.KnowledgeSource) SourceVersion {
@@ -305,9 +295,6 @@ func (r *Run) Public() PublicRun {
 		Sources: sources, FrozenSkills: publicSkills(r), Steps: steps, CreatedAt: r.CreatedAt.Unix(), UpdatedAt: r.UpdatedAt.Unix()}
 	if r.ExecutorLeaseUntil != nil {
 		public.ExecutorLeaseUntil = r.ExecutorLeaseUntil.Unix()
-	}
-	if r.ResultInvalidated {
-		public.ResultText, public.ResultType, public.ResultContent = "", "", nil
 	}
 	return public
 }

@@ -182,18 +182,11 @@ func (s *Service) executionInput(ctx context.Context, r *model.Run, fileID strin
 	if !found {
 		return nil, status.Error(codes.PermissionDenied, "file is not current accepted material of this Run")
 	}
-	fresh, err := s.readFileMaterial(ctx, Input{BotID: r.BotID, ConvID: r.ConvID, BindingID: r.BindingID, RequesterID: r.RequesterID, Visibility: r.Visibility, ResourceGrantIDs: r.ResourceGrantIDs}, fileID)
-	if err != nil {
-		return nil, err
-	}
 	var accepted string
 	for _, material := range materials {
 		if material.Kind == "file" && material.FileID == fileID {
 			accepted = material.Content
 		}
-	}
-	if fresh.Content != accepted {
-		return nil, status.Error(codes.FailedPrecondition, "accepted file material changed; start a new Run with current material")
 	}
 	content := []byte(accepted)
 	if len(content) == 0 || len(content) > maxExecutionInput || !utf8.Valid(content) || bytes.ContainsRune(content, 0) {
@@ -512,7 +505,6 @@ func (s *Service) persistExecutionToolResult(ctx context.Context, r *model.Run, 
 		note := "Historical registered artifact; newer accepted input supersedes this selection. Do not claim it as the current final result."
 		if selected {
 			current.ResultType, current.ResultText, current.ResultContent = "file", "result.csv", content
-			current.ResultInvalidated = false
 			note = "The registered file is this Run's formal result. Do not claim any other path or URL."
 		}
 		raw, err := json.Marshal(map[string]any{"status": "succeeded", "selected": selected, "file_id": fileID, "name": "result.csv", "bytes": size, "sha256": digest, "message": note})

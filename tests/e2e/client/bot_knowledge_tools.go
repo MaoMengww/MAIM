@@ -224,7 +224,7 @@ func (d *driver) botKnowledgeTools(address, secondAddress string) error {
 		{"parsed document range and neighboring chunks", f.documentReading},
 		{"non-text parsed content and bounded reading", f.documentFormats},
 		{"explicit bounded conversation history", f.conversationReading},
-		{"original file authority across Bot history", f.historyOriginalFileRevocation},
+		{"independent file-derived history snapshots", f.historyOriginalFileRevocation},
 		{"current document and directory authority", f.documentAuthority},
 		{"bounded document and history delivery", f.readingBudget},
 		{"compressed document and history sources", f.readingCompaction},
@@ -464,7 +464,9 @@ func (f *knowledgeToolsFixture) authorityBoundaries() error {
 		hold int
 	}{{"STOP", 0}, {"CAPABILITY", 0}, {"REVOKE", 1}, {"SHARE", 1}, {"EXPIRE", 1}} {
 		token := "KNOWLEDGE_" + boundary.name + "_" + f.suffix
-		if err := f.plan(token, []map[string]any{{"query": "P5_KNOWN_ANCHOR deployment"}, {"query": "P5_KNOWN_ANCHOR followup " + token}}, boundary.hold, false); err != nil {
+		// hold_at=0 precedes tool execution; hold_at=1 records a real completed
+		// tool result in the next model request before blocking its response.
+		if err := f.plan(token, []map[string]any{{"query": "P5_KNOWN_ANCHOR deployment " + token}}, boundary.hold, false); err != nil {
 			return err
 		}
 		if boundary.name == "EXPIRE" {
@@ -481,6 +483,13 @@ func (f *knowledgeToolsFixture) authorityBoundaries() error {
 		}
 		if err = f.heldKnowledge(token); err != nil {
 			return err
+		}
+		observed, err := f.observeKnowledge(token)
+		if err != nil {
+			return err
+		}
+		if len(observed.Requests) != boundary.hold+1 || boundary.hold == 1 && !strings.Contains(string(observed.Requests[1]), f.content) {
+			return errors.New("knowledge authority gate did not establish the intended source-read timing")
 		}
 		switch boundary.name {
 		case "STOP":
@@ -502,27 +511,44 @@ func (f *knowledgeToolsFixture) authorityBoundaries() error {
 			return err
 		}
 		finished, err := f.d.waitRun(f.requester, run.ID)
-		var denied *apiError
-		if err != nil && (!errors.As(err, &denied) || denied.status != http.StatusForbidden) {
-			return err
+		if boundary.hold == 0 {
+			var denied *apiError
+			if err != nil && !(errors.As(err, &denied) && denied.status == http.StatusForbidden) {
+				return err
+			}
+			if boundary.name == "STOP" && finished.Status != "stopped" {
+				return errors.New("stop was downgraded to ordinary recoverable tool failure")
+			}
+			if finished.MessageID != nil || strings.Contains(finished.ResultText, f.content) {
+				return errors.New("stop or disabled capability allowed a new source read to publish")
+			}
+		} else {
+			if err != nil {
+				return err
+			}
+			var answer knowledgeToolsAnswer
+			if finished.Status != "succeeded" || finished.OutputStatus != "committed" || json.Unmarshal([]byte(finished.ResultText), &answer) != nil {
+				return errors.New("source grant change stopped delivery of an already-read knowledge snapshot")
+			}
+			if err = f.evidence(finished, answer); err != nil {
+				return err
+			}
+			if err = f.retainedKnowledgeReview(finished); err != nil {
+				return err
+			}
+			if err = f.uniqueMessage(finished); err != nil {
+				return err
+			}
+			if err = f.deniedKnowledgeRead(token+"_NEW_READ", map[string]any{"query": "P5_KNOWN_ANCHOR deployment", "kb_ids": []entityID{f.kb}}); err != nil {
+				return err
+			}
 		}
-		if boundary.name == "STOP" && finished.Status != "stopped" {
-			return errors.New("stop was downgraded to ordinary recoverable tool failure")
-		}
-		if finished.MessageID != nil || strings.Contains(finished.ResultText, f.content) {
-			return errors.New("current authority/capability failure leaked evidence into group result")
-		}
-		observed, err := f.observeKnowledge(token)
+		observed, err = f.observeKnowledge(token)
 		if err != nil {
 			return err
 		}
-		if len(observed.Embeddings) != 0 {
-			return errors.New("stop or revoked authority still initiated a subsequent search")
-		}
-		for _, body := range observed.Requests[boundary.hold+1:] {
-			if strings.Contains(string(body), f.content) {
-				return errors.New("invalidated tool evidence was consumed by later model request")
-			}
+		if len(observed.Embeddings) != boundary.hold {
+			return errors.New("authority boundary initiated or replayed an unexpected source search")
 		}
 		if err = f.d.request(http.MethodPut, "/bots/"+f.bot.ID.String(), f.owner.token, map[string]bool{"enable_knowledge": true}, nil); err != nil {
 			return err
@@ -579,7 +605,7 @@ func (f *knowledgeToolsFixture) restoreSearch() error {
 	return f.uniqueMessage(finished)
 }
 
-func (f *knowledgeToolsFixture) reviewAndReplacement() error {
+func (f *knowledgeToolsFixture) reviewAndReplacement() (result error) {
 	run, answer, err := f.searchRun("REVIEW", []map[string]any{{"query": "P5_KNOWN_ANCHOR deployment"}})
 	if err != nil {
 		return err
@@ -597,7 +623,32 @@ func (f *knowledgeToolsFixture) reviewAndReplacement() error {
 	if err = f.revokeKnowledge(); err != nil {
 		return err
 	}
-	if err = f.redactedReview(run); err != nil {
+	if err = f.retainedKnowledgeReview(run); err != nil {
+		return err
+	}
+	if err = f.deniedKnowledgeRead("KNOWLEDGE_REVIEW_NEW_READ_"+f.suffix, map[string]any{"query": "P5_KNOWN_ANCHOR deployment", "kb_ids": []entityID{f.kb}}); err != nil {
+		return err
+	}
+	message, err := f.d.identityMessage(f.requester, *run.MessageID)
+	if err != nil {
+		return err
+	}
+	binding, err := f.d.identityBinding(f.admin, f.conv, f.bot.ID)
+	if err != nil {
+		return err
+	}
+	history, err := f.d.identityGrant(f.requester, f.conv, f.bot.ID, binding.BindingID, message.Seq, message.Seq)
+	if err != nil {
+		return err
+	}
+	derived, direct, err := f.historyRun("KNOWLEDGE_AFTER_REVOKE", history, []map[string]any{{"tool": "read_conversation_history", "limit": 1}})
+	if err != nil {
+		return err
+	}
+	if len(direct.HistoryReads) != 1 || len(direct.HistoryReads[0].Items) != 1 || direct.HistoryReads[0].Items[0].MessageID != message.MessageID || !strings.Contains(direct.HistoryReads[0].Items[0].Content, f.content) {
+		return errors.New("direct history read recursively required the revoked original knowledge grant")
+	}
+	if err = f.retainedHistoryReview(derived, f.content); err != nil {
 		return err
 	}
 	if _, err = f.d.resourceGrant(f.requester, f.bot.ID, f.conv, "knowledge", f.kb, "conversation", true); err != nil {
@@ -613,10 +664,30 @@ func (f *knowledgeToolsFixture) reviewAndReplacement() error {
 	if err = f.d.runtimeReject(http.MethodGet, "/knowledge/documents/"+f.doc.ID.String()+"/chunks", f.member, nil, http.StatusForbidden); err != nil {
 		return err
 	}
+	oldRun, oldContent := run, f.content
+	token := "KNOWLEDGE_REVIEW_REPLACEMENT_INFLIGHT_" + f.suffix
+	if err = f.plan(token, []map[string]any{{"query": "P5_KNOWN_ANCHOR deployment"}}, 1, false); err != nil {
+		return err
+	}
+	inflight, err := f.startKnowledge(token, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { result = errors.Join(result, f.releaseKnowledge(token)) }()
+	if err = f.heldKnowledge(token); err != nil {
+		return err
+	}
+	observed, err := f.observeKnowledge(token)
+	if err != nil {
+		return err
+	}
+	if len(observed.Requests) != 2 || !strings.Contains(string(observed.Requests[1]), oldContent) {
+		return errors.New("knowledge replacement gate did not follow a real old-version read")
+	}
 	if err = f.d.request(http.MethodDelete, "/knowledge/documents/"+f.doc.ID.String(), f.requester.token, nil, nil); err != nil {
 		return err
 	}
-	if err = f.redactedReview(run); err != nil {
+	if err = f.retainedKnowledgeReview(run); err != nil {
 		return err
 	}
 	old := f.doc
@@ -643,6 +714,25 @@ func (f *knowledgeToolsFixture) reviewAndReplacement() error {
 			return item.DocID == f.doc.ID
 		}), nil
 	}); err != nil {
+		return err
+	}
+	if err = f.releaseKnowledge(token); err != nil {
+		return err
+	}
+	retained, err := f.d.waitRun(f.requester, inflight.ID)
+	if err != nil {
+		return err
+	}
+	if err = f.retainedHistoryReview(retained, oldContent); err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(retained.Sources, func(source runtimeKnowledgeSource) bool { return source.DocID == old.ID }) || strings.Contains(retained.ResultText, f.content) {
+		return errors.New("knowledge replacement rewrote an already-read snapshot or its original citation")
+	}
+	if err = f.uniqueMessage(retained); err != nil {
+		return err
+	}
+	if err = f.retainedHistoryReview(oldRun, oldContent); err != nil {
 		return err
 	}
 	run, answer, err = f.searchRun("REPLACEMENT", []map[string]any{{"query": "P5_KNOWN_ANCHOR deployment"}})
@@ -703,37 +793,25 @@ func (f *knowledgeToolsFixture) privateKnowledge() error {
 	return err
 }
 
-func (f *knowledgeToolsFixture) redactedReview(run publicRun) error {
-	current, err := f.d.readRun(f.requester, run.ID)
-	var rejected *apiError
-	if err != nil && !(errors.As(err, &rejected) && rejected.status == http.StatusForbidden) {
+func (f *knowledgeToolsFixture) retainedKnowledgeReview(run publicRun) error {
+	if err := f.retainedHistoryReview(run, f.content); err != nil {
 		return err
-	}
-	if err == nil && (strings.Contains(current.ResultText, f.content) || slices.ContainsFunc(current.Sources, func(source runtimeKnowledgeSource) bool { return source.DocID == f.doc.ID })) {
-		return errors.New("invalidated completed Run retained evidence or citation")
-	}
-	if run.MessageID == nil {
-		return errors.New("review requires a real committed message")
-	}
-	message, err := f.d.identityMessage(f.requester, *run.MessageID)
-	if err != nil {
-		return err
-	}
-	if strings.Contains(message.Text.Text, f.content) || strings.Contains(message.RawPayload, f.doc.ID.String()) {
-		return errors.New("message-by-ID exposed invalidated knowledge body or sources")
 	}
 	var history struct {
 		Messages []storedMessage `json:"messages"`
 	}
-	if err = f.d.request(http.MethodGet, "/convs/"+f.conv.String()+"/messages?limit=100", f.requester.token, nil, &history); err != nil {
+	if err := f.d.request(http.MethodGet, "/convs/"+f.conv.String()+"/messages?limit=100", f.requester.token, nil, &history); err != nil {
 		return err
 	}
 	for _, item := range history.Messages {
-		if item.MessageID == *run.MessageID && (strings.Contains(item.Text.Text, f.content) || strings.Contains(item.RawPayload, f.doc.ID.String())) {
-			return errors.New("history exposed invalidated knowledge body or sources")
+		if item.MessageID == *run.MessageID {
+			if item.Text.Text != run.ResultText || !strings.Contains(item.Text.Text, f.content) {
+				return errors.New("conversation history hid an independent knowledge result after source invalidation")
+			}
+			return nil
 		}
 	}
-	return nil
+	return errors.New("conversation history omitted the independently retained knowledge result")
 }
 
 func (f *knowledgeToolsFixture) contextBoundary() error {
@@ -777,4 +855,57 @@ func (f *knowledgeToolsFixture) contextBoundary() error {
 		return err
 	}
 	return f.d.request(http.MethodPut, "/bots/"+f.bot.ID.String(), f.owner.token, map[string]any{"max_context_tokens": 32768, "enable_knowledge": true, "streaming_enabled": true}, nil)
+}
+
+// A new source read still needs current authority. An empty success is not a
+// rejection: require a denied Run or an explicit tool error with no source data.
+func (f *knowledgeToolsFixture) deniedKnowledgeRead(token string, call map[string]any) error {
+	if err := f.plan(token, []map[string]any{call}, -1, false); err != nil {
+		return err
+	}
+	started, err := f.startKnowledge(token, nil)
+	var denied *apiError
+	if err != nil {
+		if errors.As(err, &denied) && denied.status == http.StatusForbidden {
+			return nil
+		}
+		return err
+	}
+	finished, err := f.d.waitRun(f.requester, started.ID)
+	if err != nil && !(errors.As(err, &denied) && denied.status == http.StatusForbidden) {
+		return err
+	}
+	if strings.Contains(finished.ResultText, f.content) || strings.Contains(finished.ResultText, f.doc.Title) || len(finished.Sources) != 0 {
+		return errors.New("new unauthorized source read disclosed knowledge facts or citations")
+	}
+	if finished.Status == "failed" && (finished.MessageID != nil || finished.OutputStatus == "committed") {
+		return errors.New("denied source read nevertheless committed a group result")
+	}
+	if err == nil && finished.Status != "failed" {
+		var answer readingAnswer
+		if finished.Status != "succeeded" || json.Unmarshal([]byte(finished.ResultText), &answer) != nil || len(answer.Errors) == 0 || !answer.Gap || len(answer.DocumentPages) != 0 || len(answer.DocumentReads) != 0 {
+			return errors.New("new unauthorized source read was not explicitly rejected")
+		}
+	}
+	observed, err := f.observeKnowledge(token)
+	if err != nil {
+		return err
+	}
+	for _, request := range observed.Requests {
+		var body struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err = json.Unmarshal(request, &body); err != nil {
+			return err
+		}
+		for _, message := range body.Messages {
+			if message.Role == "tool" && (strings.Contains(message.Content, f.content) || strings.Contains(message.Content, f.doc.Title)) {
+				return errors.New("new unauthorized source read sent source facts to external reasoning")
+			}
+		}
+	}
+	return nil
 }

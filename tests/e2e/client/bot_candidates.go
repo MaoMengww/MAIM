@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -467,8 +468,8 @@ func (f *runReviewFixture) candidateFileViewer() error {
 		if view.Instructions == "" || view.SourceRunID != run.ID {
 			return errors.New("candidate governance: authorized file viewer lost candidate material")
 		}
-		if review.ExpiresAt != grant.ExpiresAt.Unix() || view.ExpiresAt != grant.ExpiresAt.Unix() {
-			return errors.New("candidate retention: shorter source license did not cap archived review and candidate")
+		if review.ExpiresAt <= grant.ExpiresAt.Unix() || view.ExpiresAt <= grant.ExpiresAt.Unix() {
+			return errors.New("candidate retention: independent review and candidate evidence inherited the source grant deadline")
 		}
 		_, ownerErr := f.governed(f.owner, review.Candidate.ID)
 		if visibility == "personal" {
@@ -485,17 +486,41 @@ func (f *runReviewFixture) candidateFileViewer() error {
 			if err = f.d.request(http.MethodPost, "/bot-authorizations/resources", f.requester.token, map[string]any{"op": "revoke", "grant_id": grant.ID}, nil); err != nil {
 				return err
 			}
-			f.hiddenSources[run.ID] = true
+			// The source grant controls fresh reads, not this archived candidate or review.
 			for _, caller := range []account{f.owner, f.requester} {
-				_, denied := f.governed(caller, view.ID)
-				if err = f.d.expectStatus(denied, http.StatusForbidden, "revoked source candidate read"); err != nil {
+				current, err := f.governed(caller, view.ID)
+				if err != nil {
+					return fmt.Errorf("candidate governance: source revocation hid archived candidate: %w", err)
+				}
+				if current.ID != view.ID || current.Digest != view.Digest || current.Instructions != view.Instructions || current.Evidence != view.Evidence || current.ExpiresAt != view.ExpiresAt || !current.CanViewMaterials {
+					return errors.New("candidate governance: source revocation changed archived candidate material or evidence lifetime")
+				}
+				archived, err := f.detail(caller, review.ID)
+				if err != nil || !reflect.DeepEqual(archived, review) {
+					return fmt.Errorf("candidate governance: source revocation changed archived review: %v", err)
+				}
+			}
+			if err = f.d.expectStatus(f.govern(f.requester, view, "approve", uuid.NewString(), nil, nil), http.StatusForbidden, "snapshot read does not grant candidate maintenance"); err != nil {
+				return err
+			}
+			for _, operation := range []string{"approve", "publish"} {
+				if err = f.d.expectStatus(f.govern(f.owner, view, operation, uuid.NewString(), nil, nil), http.StatusConflict, "archived candidate still requires evaluation and approval"); err != nil {
 					return err
 				}
-				for _, operation := range []string{"evaluate", "approve", "publish", "revise"} {
-					if err = f.d.expectStatus(f.govern(caller, view, operation, uuid.NewString(), map[string]any{"evidence_authorized": true, "source_license_expires_at": time.Now().Add(time.Hour).Unix()}, nil), http.StatusForbidden, "revoked source "+operation); err != nil {
-						return err
-					}
-				}
+			}
+			if _, err = f.readyGoverned(view, token); err != nil {
+				return fmt.Errorf("candidate governance: source revocation blocked independent revision/evaluation/approval: %w", err)
+			}
+			var fresh publicRun
+			err = f.d.request(http.MethodPost, f.path("runs"), f.requester.token, map[string]any{
+				"conv_id": f.conv, "visibility": visibility, "submission_key": uuid.NewString(), "message": token,
+				"file_ids": []entityID{file.info.FileID}, "resource_grant_ids": []entityID{grant.ID},
+			}, &fresh)
+			if err = f.d.expectStatus(err, http.StatusForbidden, "fresh source acquisition after grant revocation"); err != nil {
+				return err
+			}
+			if err = f.unchanged(run); err != nil {
+				return err
 			}
 			f.browser["retention"].(map[string]any)["revoked_candidate_id"] = view.ID
 		}

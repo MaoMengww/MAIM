@@ -62,7 +62,7 @@ func (s *Service) submitRunReview(ctx context.Context, caller, botID string, req
 		if err := repo.LockRunAuthority(tx, &current); err != nil {
 			return err
 		}
-		if err := s.candidateMaterialAccess(ctx, tx, &current, caller, make(map[string]bool)); err != nil {
+		if err := candidateScopeAuthority(tx, &current, caller); err != nil {
 			return err
 		}
 		var policy reviewPolicy
@@ -120,10 +120,6 @@ func (s *Service) submitRunReview(ctx context.Context, caller, botID string, req
 		}
 		if !oldest.ExpiresAt.IsZero() && oldest.ExpiresAt.Before(expires) {
 			expires = oldest.ExpiresAt
-		}
-		expires, err = s.reviewExpiry(ctx, &current, expires, make(map[string]bool))
-		if err != nil {
-			return err
 		}
 		var publisher model.Bot
 		if err := tx.Where("id = ?", botID).Take(&publisher).Error; err != nil {

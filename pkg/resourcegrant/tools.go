@@ -45,8 +45,8 @@ func TrustedToolPolicy(ownerType string, policies map[string]ToolPolicy, name st
 	return ToolPolicy{}, false
 }
 
-// CheckToolPermissions supplies the current MCP manager/assignment row barrier
-// for model and output commits. It performs no external MCP network operations.
+// CheckToolPermissions authorizes the tools involved in a new invocation against
+// current manager configuration and assignment. It performs no MCP network I/O.
 func CheckToolPermissions(tx *gorm.DB, a Access, refs []ToolRef, lock bool) error {
 	for _, ref := range refs {
 		if ref.ServerID == "runtime" {
@@ -124,47 +124,4 @@ func CheckToolPermissions(tx *gorm.DB, a Access, refs []ToolRef, lock bool) erro
 }
 func toolDenial() error {
 	return status.Error(codes.PermissionDenied, "current tool capability or sharing scope unavailable")
-}
-
-// CheckRunToolPermissions derives private refs from platform-owned state, never
-// from executor output or request-body claims. Caller already owns the Run lock.
-func CheckRunToolPermissions(tx *gorm.DB, a Access, runID string, lock bool) error {
-	refs, err := RunToolRefs(tx, a, runID)
-	if err != nil {
-		return err
-	}
-	return CheckToolPermissions(tx, a, refs, lock)
-}
-
-// RunToolRefs reads only platform-owned tool definitions for an atomic output
-// dependency snapshot. It never accepts capability claims from the executor.
-func RunToolRefs(tx *gorm.DB, a Access, runID string) ([]ToolRef, error) {
-	var run struct {
-		Config                                            json.RawMessage
-		BotID, ConvID, BindingID, RequesterID, Visibility string
-	}
-	if err := tx.Table("bot.runs").Select("config,bot_id,conv_id,binding_id,requester_id,visibility").Where("id = ?", runID).Take(&run).Error; err != nil {
-		return nil, err
-	}
-	if run.BotID != a.BotID || run.ConvID != a.ConvID || run.BindingID != a.BindingID || run.RequesterID != a.RequesterID || run.Visibility != a.Visibility {
-		return nil, toolDenial()
-	}
-	var config struct {
-		Tools []ToolRef `json:"tools"`
-	}
-	if err := json.Unmarshal(run.Config, &config); err != nil {
-		return nil, err
-	}
-	var actions []struct{ ToolDefinition json.RawMessage }
-	if err := tx.Table("bot.run_actions").Select("tool_definition").Where("run_id = ? AND status = 'succeeded'", runID).Order("id").Find(&actions).Error; err != nil {
-		return nil, err
-	}
-	for _, action := range actions {
-		var ref ToolRef
-		if json.Unmarshal(action.ToolDefinition, &ref) != nil {
-			return nil, toolDenial()
-		}
-		config.Tools = append(config.Tools, ref)
-	}
-	return config.Tools, nil
 }

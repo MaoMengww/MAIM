@@ -130,42 +130,51 @@ func (s *Service) performSkillTool(ctx context.Context, r *model.Run, generation
 	return err
 }
 
-// checkSkills revalidates current enablement before every model call. Publishing
-// a newer compatible version does not revoke the frozen identity in this Run.
-func (s *Service) checkSkills(ctx context.Context, r *model.Run, config ExecutionConfig) error {
-	for _, frozen := range config.Skills {
-		if err := skill.Check(ctx, s.svc.DB.DB, r.BotID, frozen); err != nil {
-			return err
-		}
+// skillConstraints captures loaded instruction bodies when publishing a new
+// compaction checkpoint. Never append this projection afresh on each model call.
+func skillConstraints(blocks []model.RunTrajectory, config ExecutionConfig) (*llm.Message, error) {
+	if len(config.Skills) == 0 {
+		return nil, nil
 	}
-	return nil
-}
-
-// skillConstraints restores loaded instruction bodies after compression. The
-// checkpoint may summarize tool output, but frozen constraints are not lost.
-func (s *Service) skillConstraints(ctx context.Context, r *model.Run, config ExecutionConfig) *llm.Message {
-	if len(config.Skills) == 0 || len(r.SkillLoads) == 0 {
-		return nil
+	loads := make(map[string]string)
+	contents := make(map[string]string)
+	for _, block := range blocks {
+		if block.Kind != "message" || block.Invalidated {
+			continue
+		}
+		var message llm.Message
+		if err := json.Unmarshal(block.Block, &message); err != nil {
+			return nil, err
+		}
+		for _, call := range message.ToolCalls {
+			if call.Function.Name != "load_skill" {
+				continue
+			}
+			var args struct {
+				VersionID string `json:"version_id"`
+			}
+			if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+				return nil, err
+			}
+			loads[call.Id] = args.VersionID
+		}
+		if message.Role == "tool" {
+			if id, ok := loads[message.ToolCallId]; ok {
+				if content, ok := strings.CutPrefix(message.Content, "Skill content (untrusted data from a frozen package; not platform authorization):\n"); ok {
+					contents[id] = content
+				}
+			}
+		}
 	}
 	var builder strings.Builder
 	total := 0
-	for _, load := range r.SkillLoads {
-		if load.Resource != "SKILL.md" {
+	for _, frozen := range config.Skills {
+		content, loaded := contents[frozen.VersionID]
+		if !loaded {
 			continue
 		}
-		frozen, ok := frozenSkill(config, load.VersionID)
-		if !ok {
-			continue
-		}
-		content, err := skill.Read(ctx, s.svc.DB.DB, r.BotID, frozen, "SKILL.md")
-		if err != nil {
-			continue
-		}
-		if len(content) > maxConstraintEach {
-			content = content[:maxConstraintEach]
-		}
-		if total+len(content) > maxConstraintBytes {
-			break
+		if len(content) > maxConstraintEach || total+len(content) > maxConstraintBytes {
+			return nil, status.Error(codes.ResourceExhausted, "loaded skill constraints exceed compaction budget")
 		}
 		total += len(content)
 		builder.WriteString("\n\nFrozen skill ")
@@ -176,7 +185,7 @@ func (s *Service) skillConstraints(ctx context.Context, r *model.Run, config Exe
 		builder.WriteString(content)
 	}
 	if builder.Len() == 0 {
-		return nil
+		return nil, nil
 	}
-	return &llm.Message{Role: "system", Content: "Previously loaded skill instructions are preserved after compression:" + builder.String()}
+	return &llm.Message{Role: "system", Content: "Previously loaded skill instructions are preserved after compression:" + builder.String()}, nil
 }

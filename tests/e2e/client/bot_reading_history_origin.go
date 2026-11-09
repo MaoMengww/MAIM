@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 // A real private upload is consumed by A, then B reads A's published answer
-// without receiving A's file grant. Revoke only that original grant, and inspect
-// B's message first: no read of A may prime cached access_revoked flags.
+// without receiving A's file grant. Revoking that source grant cannot revoke
+// either independent result or a later direct grant to A's published message.
 func (f *knowledgeToolsFixture) historyOriginalFileRevocation() (result error) {
 	origin := f.authorizationFixture
 	model, err := f.d.fixtureModel(f.owner, "chat", "fixture-authorization-history-origin-"+f.suffix)
@@ -79,8 +81,8 @@ func (f *knowledgeToolsFixture) historyOriginalFileRevocation() (result error) {
 		return errors.New("B's independently authorized history result was prematurely redacted")
 	}
 
-	// Also leave a second B Run after its real tool read but before final model
-	// delivery, so the same grant revocation exercises the consume/publish fence.
+	// hold_at=1 observes the completed history tool payload in the second model
+	// request, then blocks its response before final delivery.
 	heldToken := "KNOWLEDGE_HISTORY_ORIGINAL_FILE_INFLIGHT_" + f.suffix
 	if err = f.plan(heldToken, []map[string]any{{"tool": "read_conversation_history", "limit": 1}}, 1, false); err != nil {
 		return err
@@ -104,32 +106,52 @@ func (f *knowledgeToolsFixture) historyOriginalFileRevocation() (result error) {
 		return err
 	}
 
-	// This MUST be the first disclosure request after revoking A's grant.
+	// Read B first: retained visibility must not depend on refreshing A.
 	projected, err := f.d.identityMessage(f.member, *derived.MessageID)
 	if err != nil {
 		return err
 	}
-	if strings.Contains(projected.Text.Text, canary) || projected.RawPayload != "" {
-		return errors.New("B message projection disclosed A's revoked file before any refresh of A")
+	if projected.Text.Text != before.Text.Text || !strings.Contains(projected.Text.Text, canary) {
+		return errors.New("B message projection recursively revoked A's independent file-derived result")
 	}
 	if err = f.releaseKnowledge(heldToken); err != nil {
 		return err
 	}
 	finished, err := f.d.waitRun(f.requester, inflight.ID)
-	var rejected *apiError
-	if err != nil && !(errors.As(err, &rejected) && rejected.status == http.StatusForbidden) {
+	if err != nil {
 		return err
 	}
-	if finished.MessageID != nil || finished.OutputStatus == "committed" {
-		return errors.New("B published already-read history after A's original file grant was revoked")
-	}
-	current, err := f.d.readRun(f.requester, derived.ID)
-	if err != nil && !(errors.As(err, &rejected) && rejected.status == http.StatusForbidden) {
+	if err = f.retainedHistoryReview(finished, canary); err != nil {
 		return err
 	}
-	if err == nil && strings.Contains(current.ResultText, canary) {
-		return errors.New("B completed Run disclosed history after A's original file grant was revoked")
+	if err = f.uniqueMessage(finished); err != nil {
+		return err
 	}
-	fmt.Printf("History original-source evidence: source=%s consumer=%s inflight=%s original_file_grant=%s; first consumer message projection redacted without refreshing source\n", source.ID, derived.ID, inflight.ID, grant.ID)
+	if err = f.retainedHistoryReview(derived, canary); err != nil {
+		return err
+	}
+	if err = f.retainedHistoryReview(source, canary); err != nil {
+		return err
+	}
+	// A newly issued grant targets B's current message only. Reading B must
+	// neither require A's history grant nor recurse to A's revoked file grant.
+	directGrant, err := f.d.identityGrant(f.requester, f.conv, f.bot.ID, binding.BindingID, projected.Seq, projected.Seq)
+	if err != nil {
+		return err
+	}
+	fresh, direct, err := f.historyRun("ORIGINAL_FILE_AFTER_REVOKE", directGrant, []map[string]any{{"tool": "read_conversation_history", "limit": 1}})
+	if err != nil {
+		return err
+	}
+	if len(direct.HistoryReads) != 1 || len(direct.HistoryReads[0].Items) != 1 || direct.HistoryReads[0].Items[0].MessageID != projected.MessageID || !strings.Contains(direct.HistoryReads[0].Items[0].Content, canary) {
+		return errors.New("direct history authorization recursively required the revoked original file grant")
+	}
+	if err = f.retainedHistoryReview(fresh, canary); err != nil {
+		return err
+	}
+	if err = f.d.authorizationReject("/bots/"+origin.bot.ID.String()+"/runs", f.requester.token, map[string]any{"conv_id": f.conv, "message": token + "_NEW_FILE_READ", "submission_key": uuid.NewString(), "file_ids": []entityID{file.info.FileID}, "resource_grant_ids": []entityID{grant.ID}}); err != nil {
+		return err
+	}
+	fmt.Printf("History snapshot evidence: source=%s consumer=%s inflight=%s fresh=%s revoked_file_grant=%s; independent results retained, direct history allowed, fresh source read denied\n", source.ID, derived.ID, inflight.ID, fresh.ID, grant.ID)
 	return nil
 }

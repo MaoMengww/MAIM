@@ -43,9 +43,6 @@ func agentMessage(m *llm.Message) *schema.Message {
 
 func (b *runAgentBridge) BeforeModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
 	r, err := b.service.executionBoundary(ctx, b.run, b.generation)
-	if err == nil {
-		err = b.service.refreshAuthorizations(ctx, r)
-	}
 	if err != nil {
 		return ctx, state, err
 	}
@@ -132,9 +129,6 @@ func (b *runAgentBridge) Generate(ctx context.Context, _ []*schema.Message, _ ..
 		return agentMessage(b.replay), nil
 	}
 	if err := b.service.modelRound(ctx, b.run, b.generation, b.config); err != nil {
-		if b.run.Status == "waiting_input" {
-			return nil, compose.Interrupt(ctx, "source changes require explicit work input")
-		}
 		return nil, err
 	}
 	messages, err := b.service.messagesFor(ctx, b.run.ID)
@@ -247,9 +241,6 @@ func (c *runAgentCheckpoint) Set(ctx context.Context, id string, data []byte) er
 		return status.Error(codes.ResourceExhausted, "agent checkpoint exceeds work budget")
 	}
 	_, err := c.bridge.service.repo.ChangeLifecycle(ctx, id, c.bridge.generation, func(tx *gorm.DB, current *model.Run) error {
-		if err := c.bridge.service.recheckAuthorizations(ctx, tx, current); err != nil {
-			return err
-		}
 		if current.Status == "stopping" || current.AccessRevoked || (current.Status == "waiting_authorization" && current.Stage != "pending_action") {
 			return status.Error(codes.FailedPrecondition, "agent checkpoint authority superseded")
 		}
@@ -360,7 +351,6 @@ func (s *Service) runAgent(ctx context.Context, r *model.Run, generation int64, 
 				}
 				current.Stage = "generated"
 				current.ExecutorStatus, current.OutputStatus = "completed", "generated"
-				current.ResultInvalidated = false
 				return nil
 			})
 			if status.Code(err) == codes.Aborted {
@@ -388,7 +378,6 @@ func (s *Service) runAgent(ctx context.Context, r *model.Run, generation int64, 
 			}
 			current.Stage, current.ResultText, current.ResultType = "generated", last.Content, "text"
 			current.ExecutorStatus, current.OutputStatus = "completed", "generated"
-			current.ResultInvalidated = false
 			return nil
 		})
 		if status.Code(err) == codes.Aborted {

@@ -6,7 +6,6 @@ import (
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	msg "github.com/maomeng/aim/app/message-service/pb/message"
-	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -93,20 +92,6 @@ func (s *Service) executeHistoryRead(ctx context.Context, r *model.Run, argument
 		}
 		material.HistoryGrantID, material.RequesterID, material.SourceExplicit = grant, r.RequesterID, true
 		versions := []model.SourceVersion{{MessageID: material.MessageID, AcceptedEditCount: material.EditCount, HistoryGrantID: grant, HistorySeq: material.Seq}}
-		if current.SenderType == "bot" && current.RawPayload != "" {
-			var payload struct {
-				RunID string `json:"run_id"`
-			}
-			if json.Unmarshal([]byte(current.RawPayload), &payload) == nil && identity.Validate(payload.RunID) == nil {
-				origin, err := s.Get(ctx, payload.RunID, r.RequesterID)
-				if err != nil {
-					return nil, err
-				}
-				if origin.ConvID != r.ConvID || origin.MessageID == nil || *origin.MessageID != current.MessageId || origin.ResultInvalidated {
-					return nil, status.Error(codes.PermissionDenied, "history result source unavailable")
-				}
-			}
-		}
 		material.Provenance, err = json.Marshal(versions)
 		if err != nil {
 			return nil, err

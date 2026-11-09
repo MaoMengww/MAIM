@@ -16,7 +16,6 @@ import (
 	"github.com/maomeng/aim/pkg/errors"
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/interceptor"
-	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -207,8 +206,8 @@ func (h *LLMGatewayHandler) ChatStream(req *pb.ChatReq, stream pb.LLMGateway_Cha
 	return nil
 }
 
-// Resource permission is current platform state, independent of the frozen
-// model route and provider cache. Non-Run model consumers retain their contract.
+// Inference checks current execution identity and claim, not the permissions of
+// text already acquired. New resource and tool calls authorize at their owners.
 func (h *LLMGatewayHandler) authorizeRunRequest(ctx context.Context, req *pb.ChatReq) error {
 	if req.RunId == nil {
 		return nil
@@ -218,9 +217,8 @@ func (h *LLMGatewayHandler) authorizeRunRequest(ctx context.Context, req *pb.Cha
 	}
 	return h.svcCtx.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var run struct {
-			BotID, ConvID, BindingID, RequesterID, ControllerID, Visibility, Status                 string
+			BotID, ConvID, BindingID, ControllerID, Status                                          string
 			ControllerMemberID                                                                      *string
-			ResourceGrantIDs                                                                        []string `gorm:"serializer:json"`
 			AccessRevoked                                                                           bool
 			ExecutionGeneration, InputVersion, BotAuthorizationVersion, BindingAuthorizationVersion int64
 		}
@@ -253,10 +251,6 @@ func (h *LLMGatewayHandler) authorizeRunRequest(ctx context.Context, req *pb.Cha
 		if count != 1 {
 			return status.Error(codes.PermissionDenied, "Run controller membership revoked")
 		}
-		access := resourcegrant.Access{BotID: run.BotID, ConvID: run.ConvID, BindingID: run.BindingID, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}
-		if err := resourcegrant.CheckIDs(tx, access, run.Visibility != "personal", false); err != nil {
-			return err
-		}
-		return resourcegrant.CheckRunToolPermissions(tx, access, *req.RunId, false)
+		return nil
 	})
 }

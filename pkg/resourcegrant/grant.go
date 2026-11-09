@@ -104,8 +104,8 @@ func Owner(tx *gorm.DB, kind, id string) (string, error) {
 	return *row.OwnerID, nil
 }
 
-// Check revalidates every source, member incarnation and participation epoch.
-// lock=true supplies the grant commit barrier to authoritative Run/output writes.
+// Check authorizes a direct resource read against its current grant, membership
+// and participation epoch. lock=true holds the resource-domain commit barrier.
 func Check(tx *gorm.DB, a Access, kind, id string, sharing, lock bool) (*Grant, error) {
 	if a.RequesterID == "" && a.Visibility != "conversation" {
 		return nil, denial()
@@ -190,11 +190,6 @@ func Check(tx *gorm.DB, a Access, kind, id string, sharing, lock bool) (*Grant, 
 		}
 		if sharing && !g.CanShare {
 			continue
-		}
-		if kind == "file" {
-			if _, err := CheckFileOutputSources(tx, id, lock); err != nil {
-				return nil, err
-			}
 		}
 		return g, nil
 	}
@@ -291,19 +286,11 @@ func Manage(ctx context.Context, db *gorm.DB, user, kind string, body []byte) ([
 }
 
 func CheckIDs(tx *gorm.DB, a Access, sharing, lock bool) error {
-	_, err := CheckIDsUntil(tx, a, sharing, lock)
-	return err
-}
-
-// CheckIDsUntil returns the earliest current source expiry as well as checking
-// every exact grant. Derived outputs must not outlive any source permission.
-func CheckIDsUntil(tx *gorm.DB, a Access, sharing, lock bool) (time.Time, error) {
-	var expires time.Time
 	ids := slices.Clone(a.GrantIDs)
 	slices.Sort(ids)
 	for _, id := range ids {
 		if identity.Validate(id) != nil {
-			return time.Time{}, denial()
+			return denial()
 		}
 		var g Grant
 		found := false
@@ -312,84 +299,36 @@ func CheckIDsUntil(tx *gorm.DB, a Access, sharing, lock bool) (time.Time, error)
 			if err == nil {
 				exact := a
 				exact.GrantIDs = []string{id}
-				current, err := Check(tx, exact, kind, g.ResourceID, sharing, lock)
-				if err != nil {
-					return time.Time{}, err
-				}
-				if expires.IsZero() || current.ExpiresAt.Before(expires) {
-					expires = current.ExpiresAt
+				if _, err := Check(tx, exact, kind, g.ResourceID, sharing, lock); err != nil {
+					return err
 				}
 				found = true
 				break
 			}
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				return time.Time{}, err
+				return err
 			}
 		}
 		if !found {
-			return time.Time{}, denial()
+			return denial()
 		}
 	}
-	return expires, nil
+	return nil
 }
 
-// OutputRegistration belongs to the file domain. Its immutable source snapshot
-// is committed with the file/grant, before the Bot can backfill its result ID.
+// OutputRegistration records the immutable file identity for an execution's
+// idempotent registration. The file's own grant governs subsequent access.
 type OutputRegistration struct {
-	RunID        string `gorm:"type:uuid"`
-	Generation   int64
-	BotID        string    `gorm:"type:uuid"`
-	ConvID       string    `gorm:"type:uuid"`
-	BindingID    string    `gorm:"type:uuid"`
-	FileID       string    `gorm:"type:uuid"`
-	SourceAccess *Access   `gorm:"serializer:json;type:jsonb"`
-	SourceTools  []ToolRef `gorm:"serializer:json;type:jsonb"`
-	ExpiresAt    time.Time
-	CreatedAt    time.Time
+	RunID      string `gorm:"type:uuid"`
+	Generation int64
+	BotID      string `gorm:"type:uuid"`
+	ConvID     string `gorm:"type:uuid"`
+	BindingID  string `gorm:"type:uuid"`
+	FileID     string `gorm:"type:uuid"`
+	CreatedAt  time.Time
 }
 
 func (OutputRegistration) TableName() string { return "file.output_registrations" }
-
-type outputFilePathKey struct{}
-
-// CheckFileOutputSources is independent of Run projection and terminal status.
-// Each source retains its original requester, scope and exact grant identity;
-// a viewer's authority must never be substituted for the producing principal.
-func CheckFileOutputSources(tx *gorm.DB, fileID string, lock bool) (time.Time, error) {
-	var registration OutputRegistration
-	query := tx.Where("file_id = ?", fileID)
-	if lock {
-		query = query.Clauses(clause.Locking{Strength: "SHARE"})
-	}
-	if err := query.Take(&registration).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return time.Time{}, nil
-		}
-		return time.Time{}, err
-	}
-	a := registration.SourceAccess
-	if a == nil || a.BotID != registration.BotID || a.ConvID != registration.ConvID || a.BindingID != registration.BindingID || len(a.GrantIDs) == 0 || !slices.Contains([]string{"personal", "conversation"}, a.Visibility) || !registration.ExpiresAt.After(time.Now()) {
-		return time.Time{}, denial()
-	}
-	path, _ := tx.Statement.Context.Value(outputFilePathKey{}).([]string)
-	if len(path) >= 64 || slices.Contains(path, fileID) {
-		return time.Time{}, denial()
-	}
-	// Copy only when descending: sibling dependencies must not share mutations.
-	path = append(slices.Clone(path), fileID)
-	tx = tx.WithContext(context.WithValue(tx.Statement.Context, outputFilePathKey{}, path))
-	expires, err := CheckIDsUntil(tx, *a, a.Visibility != "personal", lock)
-	if err != nil {
-		return time.Time{}, err
-	}
-	if err := CheckToolPermissions(tx, *a, registration.SourceTools, lock); err != nil {
-		return time.Time{}, err
-	}
-	if registration.ExpiresAt.Before(expires) {
-		expires = registration.ExpiresAt
-	}
-	return expires, nil
-}
 
 func ForViewer(tx *gorm.DB, user, kind, id string) error {
 	var grants []Grant

@@ -140,14 +140,20 @@ func (f *skillFixture) versionLifecycle(instructions, resource, task, evaluation
 		return fmt.Errorf("skills: explicit confirmation did not adopt reviewed contract")
 	}
 	revokeToken := "REVOKE_" + uuid.NewString()
-	if err = f.d.executorProvider("/instruction-skills/arm", map[string]any{"token": revokeToken, "version_id": changed.VersionID.String(), "evaluation": evaluation, "answer": "MUST_NOT_RESUME", "body_marker": bodyMarker, "resource": "references/format.md", "resource_marker": resourceMarker, "mode": "waiting"}, nil); err != nil {
+	if err = f.d.executorProvider("/instruction-skills/arm", map[string]any{"token": revokeToken, "version_id": changed.VersionID.String(), "evaluation": evaluation, "answer": "LOADED_SNAPSHOT_SURVIVES_DISABLE", "body_marker": bodyMarker, "mode": "hold-after-load"}, nil); err != nil {
 		return err
 	}
-	active, err := f.startRun("Wait for version revocation. "+revokeToken, nil)
+	active, err := f.startRun("Finish already-loaded version after disable. "+revokeToken, nil)
 	if err != nil {
 		return err
 	}
-	if _, err = f.d.interactionWait(f.requester, active.ID, "waiting_input"); err != nil {
+	if err = f.d.broadcastPoll("skill source loaded before disable", func(*driver) (bool, error) {
+		var observation struct {
+			Held string `json:"held"`
+		}
+		err := f.d.executorProvider("/instruction-skills/observe", map[string]any{"token": revokeToken}, &observation)
+		return observation.Held == "hold-after-load", err
+	}); err != nil {
 		return err
 	}
 	if err = change(changed, "disable", uuid.NewString()); err != nil {
@@ -156,12 +162,15 @@ func (f *skillFixture) versionLifecycle(instructions, resource, task, evaluation
 	if current.EnabledVersion != nil {
 		return fmt.Errorf("skills: disabled version silently fell back")
 	}
+	if err = f.d.executorProvider("/instruction-skills/release", map[string]any{"token": revokeToken}, nil); err != nil {
+		return err
+	}
 	revoked, err := f.d.waitRun(f.requester, active.ID)
 	if err != nil {
 		return err
 	}
-	if revoked.Status != "stopped" || revoked.StopReason != "skill_version_disabled" || revoked.StopStatus != "confirmed" || revoked.ResultText != "" {
-		return fmt.Errorf("skills: disabled frozen version did not stop waiting Run: %+v", revoked)
+	if revoked.Status != "succeeded" || revoked.MessageID == nil || revoked.ResultText != "LOADED_SNAPSHOT_SURVIVES_DISABLE" || len(revoked.FrozenSkills) != 1 || !revoked.FrozenSkills[0].Loaded {
+		return fmt.Errorf("skills: disabling source invalidated already loaded snapshot: %+v", revoked)
 	}
 	old, err = f.d.getRun(f.requester, finished.ID)
 	if err != nil {

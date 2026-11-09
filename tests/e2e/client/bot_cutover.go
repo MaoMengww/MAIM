@@ -838,8 +838,8 @@ func (f *cutoverFixture) stopAndRevokeComposite() error {
 	if err = f.evidence("child_stop_refused_completed", child); err != nil {
 		return err
 	}
-	// A real resource grant is different from IM hiding: revoked reads and old
-	// result submissions must now fail at the public executor boundary.
+	// New source reads still require the live grant; an already-read snapshot
+	// may finish and publish without recursively reauthorizing that source.
 	canary := "CUTOVER_REVOKED_RESOURCE_" + f.suffix
 	file, err := d.attachmentUpload(f.requester, "cutover-revoke-"+f.suffix+".txt", "text/plain", []byte(canary), 3)
 	if err != nil {
@@ -877,21 +877,29 @@ func (f *cutoverFixture) stopAndRevokeComposite() error {
 	}
 	completion := executorPayload(rr, "run.update", "completed", 1)
 	completion["result_text"] = canary
-	if _, err = x.update(completion, true, false); err != nil {
+	if _, err = x.update(completion, false, false); err != nil {
 		return err
 	}
-	if err = f.groupNoCanary(canary); err != nil {
+	finished, err := d.waitRun(f.admin, run.ID)
+	if err != nil {
 		return err
+	}
+	if finished.Status != "succeeded" || finished.MessageID == nil || finished.ResultText != canary {
+		return errors.New("resource revocation blocked already-read executor result")
+	}
+	published, err := d.identityMessage(f.member, *finished.MessageID)
+	if err != nil {
+		return err
+	}
+	if published.Text.Text != canary {
+		return errors.New("resource revocation hid independent published result")
 	}
 	// Replays still authorize the resource, even with an already known Run key.
 	staleRead := maps.Clone(read)
 	if err = d.authorizationReject(resourcePath, x.token, staleRead); err != nil {
 		return err
 	}
-	if err = d.runtimeReject(http.MethodGet, "/runs/"+run.ID.String(), f.admin, nil, http.StatusForbidden); err != nil {
-		return err
-	}
-	fmt.Printf("CUTOVER public: phase=real_resource_revoked run=%s read_forbidden=true result_submission_rejected=true external_read_replay_rejected=true no_group_disclosure=true\n", run.ID)
+	fmt.Printf("CUTOVER public: phase=real_resource_revoked run=%s read_forbidden=true snapshot_result_committed=true external_read_replay_rejected=true published_result_visible=true\n", run.ID)
 	return nil
 }
 

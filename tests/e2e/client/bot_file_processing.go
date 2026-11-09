@@ -366,53 +366,35 @@ func (d *driver) botFileProcessing() error {
 	} else if api, ok := err.(*apiError); !ok || api.status != http.StatusForbidden {
 		return fmt.Errorf("file-processing: non-member denial was not explicit 403: %v", err)
 	}
-	// The source grant is the only authority for the derived output. Revoking it
-	// must deny new downloads; the already committed message remains a fact.
+	// Source revocation denies new source acquisition, not the independent
+	// committed Run, its formal message, or the registered result file.
 	if err = d.request(http.MethodPost, "/bot-authorizations/resources", f.requester.token, map[string]any{
 		"op": "revoke", "grant_id": f.grant.ID,
 	}, nil); err != nil {
 		return err
 	}
-	var denied struct {
-		URL string `json:"download_url"`
+	current, err := d.readRun(f.requester, run.ID)
+	if err != nil {
+		return fmt.Errorf("file-processing: source revocation hid the completed Run: %w", err)
 	}
-	if err = d.request(http.MethodGet, "/files/"+run.Execution.ResultFileID.String()+"/download", f.requester.token, nil, &denied); err == nil {
-		return errors.New("file-processing: revoked source still allowed result download")
-	} else if api, ok := err.(*apiError); !ok || api.status != http.StatusForbidden && api.status != http.StatusNotFound {
-		return fmt.Errorf("file-processing: revoked result was not explicitly denied: %v", err)
+	if err = d.assertFileExecution(current, version.VersionID, f.file.info.FileID, policy, entry, input, expected); err != nil {
+		return err
 	}
-	// Revocation closes the source-scoped Run projection as well as the derived
-	// file. An explicit denial is the required outcome, not a partial read.
-	var revoked publicRun
-	if err = d.request(http.MethodGet, "/runs/"+run.ID.String(), f.requester.token, nil, &revoked); err == nil {
-		return errors.New("file-processing: revoked source still exposed the Run")
-	} else if api, ok := err.(*apiError); !ok || api.status != http.StatusForbidden {
-		return fmt.Errorf("file-processing: revoked Run was not explicitly denied: %v", err)
+	if current.MessageID == nil || *current.MessageID != *run.MessageID || current.Execution.ResultFileID != run.Execution.ResultFileID {
+		return errors.New("file-processing: source revocation replaced the committed result identity")
 	}
-	// Keep a separately authorized Run for actual browser verification. Private
-	// fixture credentials stay in the runner's mode-0600 local control file.
+	if err = f.assertFormalDelivery(current, expected); err != nil {
+		return fmt.Errorf("file-processing: source revocation hid the independent result message or download: %w", err)
+	}
+	_, err = f.startWithFile(runToken, "conversation", f.file.info.FileID, f.grant, []entityID{version.VersionID})
+	if err = d.expectStatus(err, http.StatusForbidden, "fresh file execution cannot reuse revoked source grant"); err != nil {
+		return err
+	}
+	// The browser reads the same old result after revocation, without a new grant
+	// or replacement Run. Credentials stay in the mode-0600 local control file.
 	if d.controlDir != "" {
-		browserGrant, err := d.resourceGrant(f.requester, f.bot.ID, f.conv, "file", f.file.info.FileID, "conversation", true)
-		if err != nil {
-			return err
-		}
-		browserToken, err := f.arm("file-browser", "file-processing", version.VersionID, f.file.info.FileID, false)
-		if err != nil {
-			return err
-		}
-		browserRun, err := f.startWithFile(browserToken, "conversation", f.file.info.FileID, browserGrant, []entityID{version.VersionID})
-		if err != nil {
-			return err
-		}
-		browserRun, err = d.waitRun(f.requester, browserRun.ID)
-		if err != nil {
-			return err
-		}
-		if err = f.assertFormalDelivery(browserRun, expected); err != nil {
-			return err
-		}
 		f.browser = map[string]any{
-			"scenario": "bot-file-processing", "conv_id": f.conv, "bot_id": f.bot.ID, "run_id": browserRun.ID,
+			"scenario": "bot-file-processing", "conv_id": f.conv, "bot_id": f.bot.ID, "run_id": run.ID,
 			"requester": map[string]any{"username": f.requester.username, "password": f.requester.password},
 		}
 		if err = f.save(); err != nil {

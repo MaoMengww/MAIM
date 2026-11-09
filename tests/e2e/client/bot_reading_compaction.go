@@ -93,6 +93,13 @@ func (f *knowledgeToolsFixture) readingCompaction() (result error) {
 		if err != nil || !strings.Contains(view, canary) {
 			return fmt.Errorf("%s reading did not survive into a real summary consumed by subsequent reasoning: %w", kind, err)
 		}
+		if kind == "history" {
+			if err = f.d.request(http.MethodPut, "/messages/"+source.MessageID.String(), f.admin.token, map[string]any{"text": "replaced history source"}, nil); err != nil {
+				return err
+			}
+		} else if err = f.revokeKnowledge(); err != nil {
+			return err
+		}
 		if _, err = cp.input(f.requester, child.ID, "COMPLETE VALUE=17", nil); err != nil {
 			return err
 		}
@@ -106,14 +113,7 @@ func (f *knowledgeToolsFixture) readingCompaction() (result error) {
 		if json.Unmarshal([]byte(finished.ResultText), &answer) != nil || !slices.Contains(answer.Materials, canary) {
 			return errors.New("compressed reading final answer lost the real source fact")
 		}
-		if kind == "history" {
-			if err = f.d.request(http.MethodPut, "/messages/"+source.MessageID.String(), f.admin.token, map[string]any{"text": "replaced history source"}, nil); err != nil {
-				return err
-			}
-		} else if err = f.revokeKnowledge(); err != nil {
-			return err
-		}
-		if err = f.redactedHistoryReview(finished.publicRun, canary); err != nil {
+		if err = f.retainedHistoryReview(finished.publicRun, canary); err != nil {
 			return err
 		}
 		if kind == "document" {

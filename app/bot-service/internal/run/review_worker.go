@@ -80,7 +80,7 @@ func (s *Service) processReview(ctx context.Context, item *model.RunOutbox) erro
 	}
 	if review.StartedAt == nil {
 		now := time.Now()
-		expires, err := s.reviewEffectiveExpiry(ctx, r, &review)
+		expires, err := s.reviewEffectiveExpiry(ctx, &review)
 		if err != nil {
 			return err
 		}
@@ -165,7 +165,7 @@ Evaluate whether the terminal Run contains a reusable workflow, evidence-backed 
 			if err := s.reviewLease(tx, item); err != nil {
 				return err
 			}
-			result := tx.Model(&runReview{}).Where("id = ? AND status = 'assessing' AND expires_at > NOW() AND materials_cleared_at IS NULL AND evidence_revoked_at IS NULL", review.ID).Updates(map[string]any{"assessment": json.RawMessage(raw), "reason": assessment.Reason, "model_version": execution.Version, "updated_at": time.Now()})
+			result := tx.Model(&runReview{}).Where("id = ? AND status = 'assessing' AND expires_at > NOW() AND materials_cleared_at IS NULL", review.ID).Updates(map[string]any{"assessment": json.RawMessage(raw), "reason": assessment.Reason, "model_version": execution.Version, "updated_at": time.Now()})
 			if result.Error != nil {
 				return result.Error
 			}
@@ -264,7 +264,7 @@ func (s *Service) reviewCall(ctx context.Context, item *model.RunOutbox, r *mode
 		if reviewFinished(current.Status) || current.ModelCalls >= 2 {
 			return status.Error(codes.Canceled, "review stopped or exhausted")
 		}
-		if !current.ExpiresAt.After(time.Now()) || current.MaterialsClearedAt != nil || current.EvidenceRevokedAt != nil {
+		if !current.ExpiresAt.After(time.Now()) || current.MaterialsClearedAt != nil {
 			return status.Error(codes.Canceled, "review evidence no longer available")
 		}
 		if current.ModelCalls != review.ModelCalls {
@@ -434,7 +434,7 @@ func (s *Service) saveReviewCandidate(ctx context.Context, item *model.RunOutbox
 			return err
 		}
 		if review.SubmittedBy != nil {
-			if err := s.candidateMaterialAccess(ctx, tx, r, *review.SubmittedBy, make(map[string]bool)); err != nil {
+			if err := candidateScopeAuthority(tx, r, *review.SubmittedBy); err != nil {
 				return err
 			}
 		}

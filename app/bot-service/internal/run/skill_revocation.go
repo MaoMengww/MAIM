@@ -6,22 +6,11 @@ import (
 	"time"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
+	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 )
-
-// Ordinary publication and rollback never touch a frozen Run. A missing or
-// disabled immutable identity, however, revokes it even while the Run is waiting.
-func (s *Service) disabledRunSkill(ctx context.Context, r *model.Run) (bool, error) {
-	var disabled bool
-	err := s.svc.DB.WithContext(ctx).Raw(`SELECT EXISTS (
-		SELECT 1 FROM jsonb_array_elements(COALESCE(NULLIF(?::jsonb->'skills', 'null'::jsonb), '[]'::jsonb)) AS frozen
-		LEFT JOIN bot.skill_versions v ON v.id::text = frozen->>'version_id' AND v.bot_id = ?
-		WHERE v.id IS NULL OR v.status <> 'published'
-	)`, string(r.Config), r.BotID).Scan(&disabled).Error
-	return disabled, err
-}
 
 // Validation runs outside the publication transaction. Keep cancellation tied
 // to the exact preserved baseline identities, not to the mutable effective head.
@@ -39,7 +28,7 @@ func (s *Service) guardCandidateEvidence(parent context.Context, state *candidat
 					if err := s.archiveAuthority(tx, state); err != nil {
 						return err
 					}
-				} else if err := s.candidateSourceRevocation(ctx, tx, &state.Run); err != nil {
+				} else if err := repo.LockRunAuthority(tx, &state.Run); err != nil {
 					return err
 				}
 				var current governedCandidate
@@ -88,7 +77,7 @@ func (s *Service) guardCandidateEvidence(parent context.Context, state *candidat
 						if err := tx.Where("id = ?", review.RunID).Take(&source).Error; err != nil {
 							return err
 						}
-						if err := s.candidateSourceRevocation(ctx, tx, &source); err != nil {
+						if err := repo.LockRunAuthority(tx, &source); err != nil {
 							return err
 						}
 					}

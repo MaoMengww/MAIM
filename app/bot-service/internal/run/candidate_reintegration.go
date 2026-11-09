@@ -135,7 +135,7 @@ func (s *Service) candidateVersionContent(ctx context.Context, tx *gorm.DB, stat
 	if err != nil {
 		return nil, err
 	}
-	if err := s.candidateVersionAuthority(ctx, tx, state, state.Viewer, &version, make(map[string]bool)); err != nil {
+	if err := s.candidateVersionAuthority(ctx, tx, state, state.Viewer, &version); err != nil {
 		return nil, err
 	}
 	var contract reviewCandidate
@@ -149,20 +149,7 @@ func (s *Service) candidateVersionContent(ctx context.Context, tx *gorm.DB, stat
 	return &candidateBaselineContent{Instructions: version.Instructions, Resources: version.Resources, Scripts: scripts, ImageDigest: contract.ImageDigest, EntryPoint: contract.EntryPoint}, nil
 }
 
-func (s *Service) candidateIntegratedSources(ctx context.Context, tx *gorm.DB, state *candidateState, user string, versions map[string]bool) error {
-	for _, id := range state.Content.SourceVersionIDs {
-		var version candidateVersion
-		if err := tx.Table("bot.skill_versions").Select("id,skill_id,scope_key,status,digest").Where("id = ? AND skill_id = ? AND bot_id = ? AND scope_key IN ?", id, state.Row.SkillID, state.Row.BotID, []string{"bot", state.Content.ScopeKey}).Take(&version).Error; err != nil {
-			return status.Error(codes.PermissionDenied, "integrated source version is unavailable")
-		}
-		if err := s.candidateVersionAuthority(ctx, tx, state, user, &version, versions); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Service) candidateVersionAuthority(ctx context.Context, tx *gorm.DB, state *candidateState, user string, version *candidateVersion, versions map[string]bool) error {
+func (s *Service) candidateVersionAuthority(ctx context.Context, tx *gorm.DB, state *candidateState, user string, version *candidateVersion) error {
 	if version.Status != "published" {
 		return status.Error(codes.PermissionDenied, "comparison skill version is unavailable")
 	}
@@ -173,14 +160,6 @@ func (s *Service) candidateVersionAuthority(ctx context.Context, tx *gorm.DB, st
 	if enabled != 1 {
 		return status.Error(codes.PermissionDenied, "comparison skill enablement revoked")
 	}
-	if active, visited := versions[version.ID]; visited && !active {
-		return nil
-	}
-	if versions[version.ID] || len(versions) >= 16 {
-		return status.Error(codes.PermissionDenied, "integrated source ancestry exceeds its bounded authorization")
-	}
-	versions[version.ID] = true
-	defer func() { versions[version.ID] = false }()
 	source := &candidateState{Bot: state.Bot, Viewer: user}
 	// Do not lock another candidate after the publication advisory lock.
 	// Published execution identity is immutable; scoped authority mutations
@@ -212,7 +191,7 @@ func (s *Service) candidateVersionAuthority(ctx context.Context, tx *gorm.DB, st
 	if err := candidateLineage(tx, source); err != nil {
 		return err
 	}
-	return s.candidatePrincipalVisit(ctx, tx, source, user, false, versions)
+	return s.candidatePrincipal(ctx, tx, source, user, false)
 }
 
 func (s *Service) newReintegratedCandidate(state *candidateState, req candidateRequest, current *candidateBaselineContent) (*candidateState, error) {

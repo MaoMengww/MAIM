@@ -187,7 +187,17 @@ func (f *knowledgeToolsFixture) conversationReading() (result error) {
 	if err = f.d.request(http.MethodPut, "/messages/"+messages[0].MessageID.String(), f.admin.token, map[string]any{"text": "HISTORY_EDITED_CURRENT_" + f.suffix}, nil); err != nil {
 		return err
 	}
-	if err = f.redactedHistoryReview(run, messages[0].Content.Text); err != nil {
+	if err = f.retainedHistoryReview(run, messages[0].Content.Text); err != nil {
+		return err
+	}
+	_, edited, err := f.historyRun("EDITED", grant, []map[string]any{{"tool": "read_conversation_history", "limit": 1}})
+	if err != nil {
+		return err
+	}
+	if len(edited.HistoryReads) != 1 || len(edited.HistoryReads[0].Items) != 1 || edited.HistoryReads[0].Items[0].Content != "HISTORY_EDITED_CURRENT_"+f.suffix {
+		return errors.New("new history read did not resolve the current edited message")
+	}
+	if err = f.historySnapshotRetraction(); err != nil {
 		return err
 	}
 	if err = f.historySupplement(); err != nil {
@@ -221,14 +231,13 @@ func (f *knowledgeToolsFixture) historySourceEvidence(runID entityID, messages [
 	return nil
 }
 
-func (f *knowledgeToolsFixture) redactedHistoryReview(run publicRun, canary string) error {
+func (f *knowledgeToolsFixture) retainedHistoryReview(run publicRun, canary string) error {
 	current, err := f.d.readRun(f.requester, run.ID)
-	var rejected *apiError
-	if err != nil && !(errors.As(err, &rejected) && rejected.status == http.StatusForbidden) {
+	if err != nil {
 		return err
 	}
-	if err == nil && strings.Contains(current.ResultText, canary) {
-		return errors.New("edited live history remained disclosed by completed Run")
+	if current.Status != "succeeded" || current.OutputStatus != "committed" || current.ResultText != run.ResultText || !strings.Contains(current.ResultText, canary) || !slices.Equal(current.Sources, run.Sources) {
+		return errors.New("source mutation changed an independently retained completed Run or its citations")
 	}
 	if run.MessageID == nil {
 		return errors.New("history review requires a real committed Bot message")
@@ -237,8 +246,8 @@ func (f *knowledgeToolsFixture) redactedHistoryReview(run publicRun, canary stri
 	if err != nil {
 		return err
 	}
-	if strings.Contains(message.Text.Text, canary) {
-		return errors.New("edited live history remained disclosed by the group result projection")
+	if message.Text.Text != run.ResultText || !strings.Contains(message.Text.Text, canary) {
+		return errors.New("source mutation hid the independently published group result")
 	}
 	return nil
 }
@@ -332,4 +341,76 @@ func (f *knowledgeToolsFixture) historySupplement() error {
 		return err
 	}
 	return f.uniqueMessage(finished)
+}
+
+func (f *knowledgeToolsFixture) historySnapshotRetraction() (result error) {
+	messages, grant, err := f.historySeed("RECALLED_SNAPSHOT", 1)
+	if err != nil {
+		return err
+	}
+	token := "KNOWLEDGE_HISTORY_RECALLED_SNAPSHOT_" + f.suffix
+	if err = f.plan(token, []map[string]any{{"tool": "read_conversation_history", "limit": 1}}, 1, false); err != nil {
+		return err
+	}
+	started, err := f.d.interactionStart(f.requester, f.bot.ID, f.conv, token, map[string]any{"history_grant_id": grant})
+	if err != nil {
+		return err
+	}
+	defer func() { result = errors.Join(result, f.releaseKnowledge(token)) }()
+	if err = f.heldKnowledge(token); err != nil {
+		return err
+	}
+	observed, err := f.observeKnowledge(token)
+	if err != nil {
+		return err
+	}
+	if len(observed.Requests) != 2 || !strings.Contains(string(observed.Requests[1]), messages[0].Content.Text) {
+		return errors.New("history recall gate did not follow a real source read")
+	}
+	if err = f.d.request(http.MethodPost, "/messages/"+messages[0].MessageID.String()+"/recall", f.admin.token, map[string]any{}, nil); err != nil {
+		return err
+	}
+	if err = f.releaseKnowledge(token); err != nil {
+		return err
+	}
+	finished, err := f.d.waitRun(f.requester, started.ID)
+	if err != nil {
+		return err
+	}
+	if err = f.retainedHistoryReview(finished, messages[0].Content.Text); err != nil {
+		return err
+	}
+	if err = f.uniqueMessage(finished); err != nil {
+		return err
+	}
+	// A later read resolves the recalled message itself, never its old snapshot.
+	probe := token + "_NEW_READ"
+	if err = f.plan(probe, []map[string]any{{"tool": "read_conversation_history", "limit": 1}}, -1, false); err != nil {
+		return err
+	}
+	newRead, err := f.d.interactionStart(f.requester, f.bot.ID, f.conv, probe, map[string]any{"history_grant_id": grant})
+	var denied *apiError
+	if err != nil {
+		if errors.As(err, &denied) && denied.status == http.StatusForbidden {
+			return nil
+		}
+		return err
+	}
+	current, err := f.d.waitRun(f.requester, newRead.ID)
+	if err != nil && !(errors.As(err, &denied) && denied.status == http.StatusForbidden) {
+		return err
+	}
+	if strings.Contains(current.ResultText, messages[0].Content.Text) {
+		return errors.New("new history read disclosed the recalled source body")
+	}
+	observed, err = f.observeKnowledge(probe)
+	if err != nil {
+		return err
+	}
+	for _, request := range observed.Requests {
+		if strings.Contains(string(request), messages[0].Content.Text) {
+			return errors.New("new history read sent the recalled source body to the model")
+		}
+	}
+	return nil
 }

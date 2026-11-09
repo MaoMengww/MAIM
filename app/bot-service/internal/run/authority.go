@@ -10,40 +10,15 @@ import (
 	"github.com/maomeng/aim/app/bot-service/internal/execution"
 	"github.com/maomeng/aim/app/bot-service/internal/model"
 	"github.com/maomeng/aim/app/bot-service/internal/repo"
-	"github.com/maomeng/aim/pkg/resourcegrant"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 )
 
-// originAuthorityState also protects terminal viewer projections. Accepted human
-// IM input is independent of later message edits or recall.
-func (s *Service) originAuthorityState(ctx context.Context, r *model.Run) (string, error) {
-	if r.Origin != nil {
-		member, role, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, r.Origin.AuthorizationUserID)
-		if status.Code(err) == codes.PermissionDenied || (err == nil && (member != r.Origin.AuthorizationMemberID || (r.Origin.Kind == "rule" && role > 2))) {
-			return "origin_authorization_revoked", nil
-		}
-		if err != nil {
-			return "", err
-		}
-	}
-	if err := repo.CheckDelegationSource(s.svc.DB.WithContext(ctx), r); err != nil {
-		if status.Code(err) == codes.PermissionDenied {
-			return "delegation_source_revoked", nil
-		}
-		return "", err
-	}
-	return "", nil
-}
-
 // authorityState is a cheap current-row boundary, not an event-driven cache.
 func (s *Service) authorityState(ctx context.Context, r *model.Run) (string, error) {
 	if r.AccessRevoked {
 		return r.StopReason, nil
-	}
-	if reason, err := s.originAuthorityState(ctx, r); reason != "" || err != nil {
-		return reason, err
 	}
 	var binding model.ConvBot
 	err := s.svc.DB.WithContext(ctx).Where("id = ? AND bot_id = ? AND conv_id = ?", r.BindingID, r.BotID, r.ConvID).First(&binding).Error
@@ -72,23 +47,6 @@ func (s *Service) authorityState(ctx context.Context, r *model.Run) (string, err
 	if bot.Status != "active" || bot.AuthorizationVersion != r.BotAuthorizationVersion {
 		return "bot_disabled", nil
 	}
-	if disabled, err := s.disabledRunSkill(ctx, r); err != nil {
-		return "", err
-	} else if disabled {
-		return "skill_version_disabled", nil
-	}
-	if err := resourcegrant.CheckIDs(s.svc.DB.WithContext(ctx), resourceAccess(r), r.Visibility != "personal", false); err != nil {
-		if status.Code(err) == codes.PermissionDenied {
-			return "resource_authorization_revoked", nil
-		}
-		return "", err
-	}
-	if err := s.currentRunTools(ctx, r); err != nil {
-		if status.Code(err) == codes.PermissionDenied {
-			return "tool_authorization_revoked", nil
-		}
-		return "", err
-	}
 	member, _, err := repo.RunMember(s.svc.DB.WithContext(ctx), r.ConvID, r.ControllerID)
 	if status.Code(err) == codes.PermissionDenied || (err == nil && (r.ControllerMemberID == nil || *r.ControllerMemberID != member)) {
 		return "controller_membership_lost", nil
@@ -100,9 +58,7 @@ func (s *Service) authorityState(ctx context.Context, r *model.Run) (string, err
 }
 
 func (s *Service) reconcile(ctx context.Context, r *model.Run) (*model.Run, error) {
-	if err := s.refreshAuthorizations(ctx, r); err != nil {
-		return r, err
-	}
+
 	var recoveryErr error
 	r, recoveryErr = s.recoverActions(ctx, r)
 	if recoveryErr != nil {
@@ -457,9 +413,7 @@ func (s *Service) decorateControl(ctx context.Context, public *model.PublicRun, 
 		}
 	}
 	public.ControlUserIDs = effective
-	if err := s.refreshAuthorizations(ctx, r); err != nil {
-		return err
-	}
+
 	reason, err := s.authorityState(ctx, r)
 	if err != nil {
 		return err

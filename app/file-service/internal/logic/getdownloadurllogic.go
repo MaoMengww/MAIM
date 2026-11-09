@@ -50,10 +50,6 @@ func (l *GetDownloadURLLogic) GetDownloadURL(in *filepb.GetDownloadURLReq) (*fil
 			}
 		}
 	}
-	sourceExpiry, err := resourcegrant.CheckFileOutputSources(l.svcCtx.DB.WithContext(l.ctx), f.ID, false)
-	if err != nil {
-		return nil, err
-	}
 	if _, _, err := l.svcCtx.MinIO.Stat(l.ctx, f.Key); err != nil {
 		return nil, fileLookupError(err)
 	}
@@ -66,12 +62,6 @@ func (l *GetDownloadURLLogic) GetDownloadURL(in *filepb.GetDownloadURLReq) (*fil
 		expiry := time.Duration(in.GetExpiresIn()) * time.Second
 		if expiry <= 0 {
 			expiry = time.Hour
-		}
-		if !sourceExpiry.IsZero() {
-			expiry = min(expiry, time.Until(sourceExpiry))
-			if expiry <= 0 {
-				return nil, grpcError(ErrAccessDenied)
-			}
 		}
 		if bot {
 			downloadURL, err = l.svcCtx.MinIO.InternalPresignedURL(l.ctx, f.Key, expiry)

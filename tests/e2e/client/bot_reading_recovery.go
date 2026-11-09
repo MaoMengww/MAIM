@@ -40,6 +40,17 @@ func (f *knowledgeToolsFixture) documentAuthority() error {
 		if err = f.heldKnowledge(token); err != nil {
 			return err
 		}
+		observed, err := f.observeKnowledge(token)
+		if err != nil {
+			return err
+		}
+		fact := f.content
+		if kind == "list" {
+			fact = f.doc.Title
+		}
+		if len(observed.Requests) != 2 || !strings.Contains(string(observed.Requests[1]), fact) {
+			return errors.New("document revocation gate did not follow a real authorized tool read")
+		}
 		if err = f.revokeKnowledge(); err != nil {
 			return err
 		}
@@ -47,21 +58,17 @@ func (f *knowledgeToolsFixture) documentAuthority() error {
 			return err
 		}
 		finished, err := f.d.waitRun(f.requester, run.ID)
-		var denied *apiError
-		if err != nil && !(errors.As(err, &denied) && denied.status == http.StatusForbidden) {
-			return err
-		}
-		if finished.MessageID != nil || strings.Contains(finished.ResultText, f.content) || strings.Contains(finished.ResultText, f.doc.Title) {
-			return errors.New("revoked document content or directory title was disclosed by the group result")
-		}
-		observed, err := f.observeKnowledge(token)
 		if err != nil {
 			return err
 		}
-		for _, request := range observed.Requests[2:] {
-			if strings.Contains(string(request), f.content) || strings.Contains(string(request), f.doc.Title) {
-				return errors.New("revoked document facts were reused by later external reasoning")
-			}
+		if err = f.retainedHistoryReview(finished, fact); err != nil {
+			return err
+		}
+		if err = f.uniqueMessage(finished); err != nil {
+			return err
+		}
+		if err = f.deniedKnowledgeRead(token+"_NEW_READ", call); err != nil {
+			return err
 		}
 		if _, err = f.d.resourceGrant(f.requester, f.bot.ID, f.conv, "knowledge", f.kb, "conversation", true); err != nil {
 			return err
@@ -96,6 +103,17 @@ func (f *knowledgeToolsFixture) restoreReading() error {
 		if err = f.heldKnowledge(token); err != nil {
 			return err
 		}
+		observed, err := f.observeKnowledge(token)
+		if err != nil {
+			return err
+		}
+		fact := f.content
+		if len(messages) > 0 {
+			fact = messages[0].Content.Text
+		}
+		if len(observed.Requests) != 2 || !strings.Contains(string(observed.Requests[1]), fact) {
+			return errors.New("recovery gate did not follow a completed real document/history read")
+		}
 		if err = f.checkpoint("reading-"+kind+"-kill", run.ID); err != nil {
 			return err
 		}
@@ -114,7 +132,7 @@ func (f *knowledgeToolsFixture) restoreReading() error {
 		if err = f.releaseKnowledge(token); err != nil {
 			return err
 		}
-		if strings.HasSuffix(kind, "-revoked") {
+		if kind == "history-revoked" {
 			err = f.checkpoint("reading-"+kind+"-start", run.ID, http.StatusForbidden)
 		} else {
 			err = f.checkpoint("reading-"+kind+"-start", run.ID)
@@ -122,14 +140,14 @@ func (f *knowledgeToolsFixture) restoreReading() error {
 		if err != nil {
 			return err
 		}
-		if strings.HasSuffix(kind, "-revoked") {
+		if kind == "history-revoked" {
 			finished, err := f.d.waitRun(f.admin, run.ID)
 			var denied *apiError
 			if err != nil && !(errors.As(err, &denied) && denied.status == http.StatusForbidden) {
 				return err
 			}
 			if finished.MessageID != nil || strings.Contains(finished.ResultText, f.content) || len(messages) > 0 && strings.Contains(finished.ResultText, messages[0].Content.Text) {
-				return errors.New("restart treated old document/history authority as permanent disclosure permission")
+				return errors.New("restart published a retained history snapshot after the requester lost current conversation eligibility")
 			}
 			observed, err := f.observeKnowledge(token)
 			if err != nil {
@@ -140,26 +158,14 @@ func (f *knowledgeToolsFixture) restoreReading() error {
 					return errors.New("restart consumed a persisted reading after its authorization was lost")
 				}
 			}
-			if kind == "history-revoked" {
-				if err = f.d.request(http.MethodPost, "/convs/"+f.conv.String()+"/members/invite", f.admin.token, map[string]any{"user_ids": []entityID{f.requester.id}}, nil); err != nil {
-					return err
-				}
-				if err = f.revokeKnowledge(); err != nil {
-					return err
-				}
-				if _, err = f.d.resourceGrant(f.requester, f.bot.ID, f.conv, "knowledge", f.kb, "conversation", true); err != nil {
-					return err
-				}
-			} else {
-				if err = f.d.request(http.MethodPost, "/convs/"+f.conv.String()+"/knowledge", f.requester.token, map[string]any{"kb_id": f.kb}, nil); err != nil {
-					return err
-				}
-				if err = f.revokeKnowledge(); err != nil {
-					return err
-				}
-				if _, err = f.d.resourceGrant(f.requester, f.bot.ID, f.conv, "knowledge", f.kb, "conversation", true); err != nil {
-					return err
-				}
+			if err = f.d.request(http.MethodPost, "/convs/"+f.conv.String()+"/members/invite", f.admin.token, map[string]any{"user_ids": []entityID{f.requester.id}}, nil); err != nil {
+				return err
+			}
+			if err = f.revokeKnowledge(); err != nil {
+				return err
+			}
+			if _, err = f.d.resourceGrant(f.requester, f.bot.ID, f.conv, "knowledge", f.kb, "conversation", true); err != nil {
+				return err
 			}
 			continue
 		}
@@ -171,7 +177,7 @@ func (f *knowledgeToolsFixture) restoreReading() error {
 		if finished.Status != "succeeded" || json.Unmarshal([]byte(finished.ResultText), &answer) != nil {
 			return errors.New("restored completed reading could not deliver its persisted real facts")
 		}
-		if kind == "document" {
+		if strings.HasPrefix(kind, "document") {
 			if len(answer.DocumentReads) != 1 || len(answer.DocumentReads[0].Items) != 1 {
 				return errors.New("restart duplicated or discarded a completed document read")
 			}
@@ -191,6 +197,23 @@ func (f *knowledgeToolsFixture) restoreReading() error {
 		}
 		if err = f.uniqueMessage(finished); err != nil {
 			return err
+		}
+		if err = f.retainedHistoryReview(finished, fact); err != nil {
+			return err
+		}
+		if kind == "document-revoked" {
+			if err = f.deniedKnowledgeRead(token+"_NEW_READ", call); err != nil {
+				return err
+			}
+			if err = f.d.request(http.MethodPost, "/convs/"+f.conv.String()+"/knowledge", f.requester.token, map[string]any{"kb_id": f.kb}, nil); err != nil {
+				return err
+			}
+			if err = f.revokeKnowledge(); err != nil {
+				return err
+			}
+			if _, err = f.d.resourceGrant(f.requester, f.bot.ID, f.conv, "knowledge", f.kb, "conversation", true); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

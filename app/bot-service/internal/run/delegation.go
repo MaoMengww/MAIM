@@ -123,12 +123,7 @@ func (s *Service) delegation(ctx context.Context, executor string, req delegatio
 		if err := s.authorize(ctx, child, true); err != nil {
 			return nil, err
 		}
-		if err := s.refreshAuthorizations(ctx, child); err != nil {
-			return nil, err
-		}
-		if child.ResultInvalidated {
-			return nil, status.Error(codes.PermissionDenied, "child result authorization revoked")
-		}
+
 		err = s.svc.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			if err := repo.LockRunConversation(tx, parent.ConvID); err != nil {
 				return err
@@ -162,10 +157,6 @@ func (s *Service) delegation(ctx context.Context, executor string, req delegatio
 			if source.Status != "succeeded" {
 				return nil
 			}
-			var material []Material
-			if err := json.Unmarshal(source.Materials, &material); err != nil {
-				return err
-			}
 			if source.ResultType == "file" {
 				var file msg.FileContent
 				if err := protocol.Unmarshal(source.ResultContent, &file); err != nil {
@@ -173,18 +164,6 @@ func (s *Service) delegation(ctx context.Context, executor string, req delegatio
 				}
 				for _, access := range []resourcegrant.Access{resourceAccess(&source), resourceAccess(&current)} {
 					if _, err := resourcegrant.Check(tx, access, "file", file.FileId, true, true); err != nil {
-						return err
-					}
-				}
-				material = append(material, Material{FileID: file.FileId})
-			}
-			for _, m := range material {
-				kind, id := "file", m.FileID
-				if id == "" {
-					kind, id = "knowledge", m.KnowledgeID
-				}
-				if id != "" {
-					if _, err := resourcegrant.Check(tx, resourceAccess(&current), kind, id, true, true); err != nil {
 						return err
 					}
 				}

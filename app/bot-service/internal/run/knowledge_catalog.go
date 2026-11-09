@@ -34,9 +34,6 @@ func (s *Service) executeKnowledgeList(ctx context.Context, r *model.Run, argume
 	if err != nil {
 		return knowledgeReadError(ctx, err)
 	}
-	if err := resourcegrant.CheckIDs(s.svc.DB.WithContext(ctx), access, r.Visibility != "personal", false); err != nil {
-		return knowledgeReadError(ctx, err)
-	}
 	if result == nil || len(result.Items) > int(args.Limit) || result.Total < 0 {
 		return knowledgeFailure("unavailable"), nil
 	}

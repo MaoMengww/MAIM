@@ -241,21 +241,40 @@ func (s *Service) performKnowledgeTool(ctx context.Context, r *model.Run, genera
 		return err
 	}
 	r = current
-	frozen, _, err := s.actionTool(ctx, r, "runtime", call.Function.Name)
-	if err != nil {
-		return err
-	}
 	arguments := `{"limit":0}` // Invalid for every runtime read, including default listings.
-	if raw, err := normalizedKnowledgeArguments(frozen.Name, call.Function.Arguments); err == nil {
+	if raw, err := normalizedKnowledgeArguments(call.Function.Name, call.Function.Arguments); err == nil {
 		arguments = string(raw)
 	}
-	action, err := s.actionInterrupt(ctx, r, frozen, arguments, call.Id)
-	if err != nil {
-		return err
-	}
-	result, err := s.invokeAction(ctx, r, action, frozen)
-	if err != nil {
-		return err // Stop, authority, source and lease failures never become ordinary errors.
+	var frozen component.RunTool
+	var prior model.RunAction
+	priorErr := s.svc.DB.WithContext(ctx).Where("run_id = ? AND submission_key = ? AND status IN ?", r.ID, "tool:"+call.Id, []string{"succeeded", "failed"}).Take(&prior).Error
+	var action *model.RunAction
+	var result string
+	if priorErr == nil {
+		if !actionPrincipalMatches(&prior, r) || prior.InputVersion != r.InputVersion || json.Unmarshal(prior.ToolDefinition, &frozen) != nil || frozen.ServerID != "runtime" || frozen.Name != call.Function.Name || frozen.Risk != "read" {
+			return status.Error(codes.PermissionDenied, "completed read does not match current work")
+		}
+		_, digest, err := canonicalToolActionArguments([]byte(arguments), model.McpServer{}, frozen)
+		if err != nil || digest != prior.ParametersHash {
+			return status.Error(codes.AlreadyExists, "completed read arguments changed")
+		}
+		action, result = &prior, prior.Result
+	} else {
+		if !errors.Is(priorErr, gorm.ErrRecordNotFound) {
+			return priorErr
+		}
+		frozen, _, err = s.actionTool(ctx, r, "runtime", call.Function.Name)
+		if err != nil {
+			return err
+		}
+		action, err = s.actionInterrupt(ctx, r, frozen, arguments, call.Id)
+		if err != nil {
+			return err
+		}
+		result, err = s.invokeAction(ctx, r, action, frozen)
+		if err != nil {
+			return err // Current authority and lease failures are not ordinary read errors.
+		}
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -267,12 +286,7 @@ func (s *Service) performKnowledgeTool(ctx context.Context, r *model.Run, genera
 		if err := s.actionFence(tx, current, generation, r.InputVersion); err != nil {
 			return err
 		}
-		if _, err := currentActionTool(tx, current, frozen); err != nil {
-			return err
-		}
-		if err := s.actionSourcesCurrent(tx, current, action); err != nil {
-			return err
-		}
+
 		// Recovery can revisit an already paired read; its durable fact is reused.
 		var paired int64
 		if err := tx.Model(&model.RunTrajectory{}).Where("run_id = ? AND invalidated = false AND kind = 'message' AND block->>'role' = 'tool' AND block->>'tool_call_id' = ?", current.ID, call.Id).Count(&paired).Error; err != nil {
@@ -438,9 +452,7 @@ func (s *Service) acceptKnowledgeOutcome(tx *gorm.DB, current *model.Run, action
 	if err != nil {
 		return err
 	}
-	if err := repo.CheckRunSources(tx, current); err != nil {
-		return err
-	}
+
 	action.Provenance = bytes.Clone(current.Provenance)
 	return nil
 }

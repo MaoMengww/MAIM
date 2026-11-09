@@ -2,9 +2,9 @@ package run
 
 import (
 	"context"
-	"strings"
 
 	"github.com/maomeng/aim/app/bot-service/internal/model"
+	"github.com/maomeng/aim/app/bot-service/internal/repo"
 	llm "github.com/maomeng/aim/app/llm-gateway/pb/llmgateway"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -13,8 +13,8 @@ import (
 
 const boundedDeliveryInstruction = "Execution budget requires final delivery now. Do not call tools. Preserve the accepted goal and confirmed constraints. Deliver only supported conclusions with actual citations, distinguish inference and unresolved conflicts, and state unfinished scope and omitted evidence. Do not claim exhaustive search or that empty results prove absence."
 
-// Delivery uses the same valid checkpoint and durable tail, but spends no more
-// model calls on compression. Accepted goals and constraints are never cut.
+// Delivery retains the exact stage prefix and tools. Its instruction is a durable
+// trajectory fact so newly accepted input cannot move a transient tail message.
 func (s *Service) deliveryModelView(ctx context.Context, r *model.Run, config ExecutionConfig) ([]*llm.Message, int32, error) {
 	blocks, err := s.repo.Trajectory(ctx, r.ID)
 	if err != nil {
@@ -24,52 +24,42 @@ func (s *Service) deliveryModelView(ctx context.Context, r *model.Run, config Ex
 	if err != nil {
 		return nil, 0, err
 	}
-	messages, omissions, err := compactionView(blocks, checkpoint, config)
+	messages, _, err := compactionView(blocks, checkpoint, config)
 	if err != nil {
 		return nil, 0, err
 	}
-	if checkpoint != nil {
-		if constraint := s.skillConstraints(ctx, r, config); constraint != nil {
-			messages = append(messages, constraint)
-		}
+	appendInstruction := !deliveryRequested(messages)
+	if appendInstruction {
+		messages = append(messages, &llm.Message{Role: "system", Content: boundedDeliveryInstruction})
 	}
-	messages = append(messages, &llm.Message{Role: "system", Content: boundedDeliveryInstruction})
-	withoutTools := config
-	withoutTools.Tools = nil
-	// First retain all bounded evidence. If it cannot fit, replace only untrusted
-	// oversized materials with explicit omission notices, keeping tool pairing.
-	for _, limit := range []int{config.MaxContextTokens, max(256, config.MaxContextTokens/16), 0} {
-		for i, message := range messages {
-			bounded, notice := boundedWorkMessage(message, int64(i+1), limit)
-			if notice != "" {
-				omissions = append(omissions, notice)
+	cost, err := modelInputCost(messages, config)
+	if err != nil {
+		return nil, 0, err
+	}
+	available := config.MaxContextTokens - cost - 64
+	if available < min(128, int(config.MaxOutputTokens)) {
+		return nil, 0, status.Error(codes.ResourceExhausted, "work and tools exceed delivery context budget; no historical material was rewritten")
+	}
+	if appendInstruction {
+		updated, err := s.repo.Change(ctx, r.ID, r.ExecutionGeneration, func(tx *gorm.DB, current *model.Run) error {
+			if current.TrajectoryVersion != r.TrajectoryVersion || current.AppliedInputVersion != r.AppliedInputVersion {
+				return status.Error(codes.Aborted, "work changed before delivery instruction")
 			}
-			messages[i] = bounded
-		}
-		cost, err := modelInputCost(messages, withoutTools)
+			return repo.AppendRunBlock(tx, current, "message", messages[len(messages)-1])
+		})
 		if err != nil {
 			return nil, 0, err
 		}
-		available := config.MaxContextTokens - cost - 64
-		if available >= min(128, int(config.MaxOutputTokens)) {
-			if len(omissions) > 0 {
-				notice := strings.Join(omissions, "\n")
-				updated, err := s.repo.Change(ctx, r.ID, r.ExecutionGeneration, func(_ *gorm.DB, current *model.Run) error {
-					if !strings.Contains(current.ContextNotice, notice) {
-						if current.ContextNotice != "" {
-							current.ContextNotice += "\n"
-						}
-						current.ContextNotice += notice
-					}
-					return nil
-				})
-				if err != nil {
-					return nil, 0, err
-				}
-				*r = *updated
-			}
-			return messages, int32(min(available, int(config.MaxOutputTokens))), nil
+		*r = *updated
+	}
+	return messages, int32(min(available, int(config.MaxOutputTokens))), nil
+}
+
+func deliveryRequested(messages []*llm.Message) bool {
+	for _, message := range messages {
+		if message.Role == "system" && message.Content == boundedDeliveryInstruction {
+			return true
 		}
 	}
-	return nil, 0, status.Error(codes.ResourceExhausted, "accepted goal and constraints exceed delivery context budget")
+	return false
 }

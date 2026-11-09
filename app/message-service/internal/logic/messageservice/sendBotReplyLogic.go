@@ -16,8 +16,6 @@ import (
 	"github.com/maomeng/aim/pkg/identity"
 	"github.com/maomeng/aim/pkg/resourcegrant"
 	"github.com/zeromicro/go-zero/core/logx"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -110,7 +108,6 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 		}
 		var runAccess *resourcegrant.Access
 		if in.RunId != nil {
-			// Runtime source RPCs finish before taking the conversation barrier.
 			var run struct {
 				ControllerID                string
 				ControllerMemberID          *string
@@ -121,14 +118,11 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 				AccessRevoked               bool
 				BotAuthorizationVersion     int64
 				BindingAuthorizationVersion int64
-				Provenance                  json.RawMessage
-				Materials                   json.RawMessage
-				ResultInvalidated           bool
 				SourceMessageID             *string
 				ReplyToMsgID                *string
 				Origin                      json.RawMessage
 			}
-			if err := tx.Table("bot.runs").Select("controller_id, controller_member_id, requester_id, visibility, resource_grant_ids, status, access_revoked, bot_authorization_version, binding_authorization_version, provenance, materials, result_invalidated, source_message_id, reply_to_msg_id, origin").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *in.RunId, in.BotId, in.ConversationId, in.BindingId).Take(&run).Error; err != nil {
+			if err := tx.Table("bot.runs").Select("controller_id, controller_member_id, requester_id, visibility, resource_grant_ids, status, access_revoked, bot_authorization_version, binding_authorization_version, source_message_id, reply_to_msg_id, origin").Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND bot_id = ? AND conv_id = ? AND binding_id = ?", *in.RunId, in.BotId, in.ConversationId, in.BindingId).Take(&run).Error; err != nil {
 				return errors.New(errors.CodeForbidden, "Run output authorization unavailable")
 			}
 			if in.GetRequesterId() != run.RequesterID {
@@ -151,14 +145,8 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 					return errors.New(errors.CodeForbidden, "nonhuman Run authorizer lifecycle revoked")
 				}
 			}
-			if run.AccessRevoked || run.ResultInvalidated || run.Status == "stopping" || run.Status == "waiting_input" || run.Status == "waiting_authorization" || run.Status == "stopped" || run.ControllerID != controller {
+			if run.AccessRevoked || run.Status == "stopping" || run.Status == "waiting_input" || run.Status == "waiting_authorization" || run.Status == "stopped" || run.ControllerID != controller {
 				return errors.New(errors.CodeForbidden, "Run output permission revoked")
-			}
-			if err := resourcegrant.CheckOutputSources(tx, in.ConversationId, in.BindingId, *in.RunId, true); err != nil {
-				if status.Code(err) == codes.PermissionDenied {
-					return errors.New(errors.CodeForbidden, status.Convert(err).Message())
-				}
-				return err
 			}
 			// Reply identity comes from the accepted Run, not the original message's
 			// continued existence. Hydration still applies ordinary IM visibility.
@@ -174,12 +162,6 @@ func (l *SendBotReplyLogic) SendBotReply(in *message.SendBotReplyReq) (*message.
 			}
 			access := resourcegrant.Access{BotID: in.BotId, ConvID: in.ConversationId, BindingID: in.BindingId, RequesterID: run.RequesterID, Visibility: run.Visibility, GrantIDs: run.ResourceGrantIDs}
 			runAccess = &access
-			if err := resourcegrant.CheckIDs(tx, access, true, true); err != nil {
-				return errors.New(errors.CodeForbidden, "Run sharing authorization revoked")
-			}
-			if err := resourcegrant.CheckRunToolPermissions(tx, access, *in.RunId, true); err != nil {
-				return errors.New(errors.CodeForbidden, "Run tool sharing authorization revoked")
-			}
 			var member struct{ ID string }
 			if err := tx.Table("conv_members").Where("conv_id = ? AND user_id = ? AND member_type = 'user'", in.ConversationId, controller).Take(&member).Error; err != nil || run.ControllerMemberID == nil || *run.ControllerMemberID != member.ID {
 				return ErrNotMember

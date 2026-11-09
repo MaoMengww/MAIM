@@ -13,10 +13,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// KnowledgeSource identifies the exact accepted catalog metadata or document/chunk
-// generation. It is provenance, not a grant: callers separately check access.
-// Chunk evidence without an accepted generation fails closed; a catalog version
-// cannot stand in for a document or be mixed with chunk evidence.
+// KnowledgeSource identifies the catalog metadata or document/chunk generation
+// accepted into a text snapshot. It is provenance, not a live authorization
+// dependency; a new resource read must independently check its current grant.
 type KnowledgeSource struct {
 	KnowledgeID           string `json:"knowledge_id,omitempty"`
 	KnowledgeDocID        string `json:"knowledge_doc_id,omitempty"`
@@ -149,41 +148,4 @@ func (chunk *KnowledgeChunk) SourceVersion() KnowledgeSource {
 			Hash, Title string
 			Metadata    json.RawMessage
 		}{chunk.DocumentContentHash, chunk.DocTitle, chunk.DocumentMetadata})}
-}
-
-func CheckKnowledgeSource(tx *gorm.DB, version KnowledgeSource, lock bool) error {
-	if version.KnowledgeMetadataHash != "" {
-		if version.KnowledgeDocID != "" || version.KnowledgeChunkID != "" || version.KnowledgeContentHash != "" || version.KnowledgeDocumentHash != "" {
-			return status.Error(codes.PermissionDenied, "mixed knowledge source kinds")
-		}
-		metadata, err := CurrentKnowledgeMetadata(tx, version.KnowledgeID, lock)
-		if err != nil {
-			return err
-		}
-		if metadata.SourceVersion() != version {
-			return status.Error(codes.PermissionDenied, "knowledge metadata replaced")
-		}
-		return nil
-	}
-	if version.KnowledgeDocID != "" && version.KnowledgeChunkID == "" && version.KnowledgeContentHash == "" && version.KnowledgeDocumentHash != "" {
-		document, err := CurrentKnowledgeDocumentMetadata(tx, version.KnowledgeDocID, lock)
-		if err != nil {
-			return err
-		}
-		if document.SourceVersion() != version {
-			return status.Error(codes.PermissionDenied, "knowledge document metadata replaced")
-		}
-		return nil
-	}
-	if version.KnowledgeID == "" && version.KnowledgeDocID == "" && version.KnowledgeChunkID == "" {
-		return nil
-	}
-	chunk, err := CurrentKnowledgeChunk(tx, version.KnowledgeChunkID, lock)
-	if err != nil {
-		return err
-	}
-	if chunk.SourceVersion() != version {
-		return status.Error(codes.PermissionDenied, "knowledge source replaced")
-	}
-	return nil
 }

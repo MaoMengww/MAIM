@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -382,10 +383,10 @@ func (f *knowledgeToolsFixture) searchContract() (result error) {
 	if err = checkItems(restoredAnswer.Evidence, allDocs, 7); err != nil {
 		return fmt.Errorf("Bot restored compatible scope: %w", err)
 	}
-	// A completed listing is not permanent permission to consume or publish its
-	// metadata. Revoke after the real read, before another action can execute.
+	// hold_at=1 records the real listing in a second model request and blocks
+	// its response. Revocation changes the next source read, not this snapshot.
 	token := "KNOWLEDGE_CONTRACT_CATALOG_REVOKE_" + f.suffix
-	if err = f.plan(token, []map[string]any{{"tool": "list_knowledge_bases"}, {"query": query + " " + token}}, 1, false); err != nil {
+	if err = f.plan(token, []map[string]any{{"tool": "list_knowledge_bases"}}, 1, false); err != nil {
 		return err
 	}
 	started, err := d.interactionStart(f.requester, f.bot.ID, f.conv, token, map[string]any{"resource_grant_ids": grants})
@@ -395,6 +396,13 @@ func (f *knowledgeToolsFixture) searchContract() (result error) {
 	if err = f.heldKnowledge(token); err != nil {
 		return err
 	}
+	observed, err := f.observeKnowledge(token)
+	if err != nil {
+		return err
+	}
+	if len(observed.Requests) != 2 || !strings.Contains(string(observed.Requests[1]), purpose) {
+		return errors.New("catalog revocation gate did not follow a real metadata read")
+	}
 	if err = d.request(http.MethodPost, "/bot-authorizations/resources", f.requester.token, map[string]any{"op": "revoke", "grant_id": grant.ID}, nil); err != nil {
 		return err
 	}
@@ -402,19 +410,35 @@ func (f *knowledgeToolsFixture) searchContract() (result error) {
 		return err
 	}
 	finished, err := d.waitRun(f.requester, started.ID)
-	var denied *apiError
-	if err != nil && (!errors.As(err, &denied) || denied.status != http.StatusForbidden) {
+	if err != nil {
 		return err
 	}
-	if finished.MessageID != nil || finished.OutputStatus == "committed" {
-		return errors.New("revoked catalog metadata was published")
+	var retained knowledgeContractAnswer
+	if finished.Status != "succeeded" || finished.OutputStatus != "committed" || json.Unmarshal([]byte(finished.ResultText), &retained) != nil || len(retained.Discoveries) != 1 || !slices.ContainsFunc(retained.Discoveries[0].Items, func(item struct {
+		KBID        entityID `json:"kb_id"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Mode        string   `json:"mode"`
+	}) bool {
+		return item.KBID == second && item.Description == purpose
+	}) {
+		return errors.New("catalog revocation discarded or hid already-read metadata")
 	}
-	observed, err := f.observeKnowledge(token)
+	if err = f.retainedHistoryReview(finished, purpose); err != nil {
+		return err
+	}
+	if err = f.uniqueMessage(finished); err != nil {
+		return err
+	}
+	observed, err = f.observeKnowledge(token)
 	if err != nil {
 		return err
 	}
 	if len(observed.Embeddings) != 0 {
 		return errors.New("catalog revocation allowed another search")
+	}
+	if err = f.deniedKnowledgeRead(token+"_NEW_READ", map[string]any{"query": query, "kb_ids": []entityID{second}}); err != nil {
+		return err
 	}
 	fmt.Println("E2E evidence: issue02 public gateway and Bot multi-library/default/filter/limit/discovery/denial/order-independent incompatibility PASS")
 	return nil

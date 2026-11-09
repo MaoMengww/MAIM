@@ -30,7 +30,6 @@ type runReview struct {
 	EvidenceDigest     string          `json:"-"`
 	ExpiresAt          time.Time       `json:"-"`
 	MaterialsClearedAt *time.Time      `json:"-"`
-	EvidenceRevokedAt  *time.Time      `json:"-"`
 	StartedAt          *time.Time      `json:"-"`
 	CreatedAt          time.Time       `json:"-"`
 	UpdatedAt          time.Time       `json:"-"`
